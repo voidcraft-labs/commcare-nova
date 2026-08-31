@@ -38,13 +38,14 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
-import { buildDoc, f } from "../../../__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildCaseOperationProgramFromDoc,
 	buildSubmissionReceiptIdentity,
 	submissionEnvelopeArgs,
 } from "../caseDataBindingHelpers";
+import type { SubmissionMutation } from "../caseDataBindingTypes";
 import { FormEngine, type FormEngineInput } from "../formEngine";
 import type { ResolvedPreviewIdentity } from "../identity";
 
@@ -73,6 +74,7 @@ const APP_ID = "app-program-acceptance";
 const PROJECT = "project-acceptance";
 const ACTOR = "worker-1";
 const SESSION_CASE = "50000000-0000-0000-0000-000000000001";
+const SECOND_SESSION_CASE = "50000000-0000-0000-0000-000000000002";
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 
 const IDENTITY: ResolvedPreviewIdentity = {
@@ -207,6 +209,160 @@ function acceptanceDoc(
 	};
 }
 
+function conditionalCloseDoc(): {
+	doc: BlueprintDoc;
+	formUuid: Uuid;
+	conditionFieldUuid: Uuid;
+} {
+	const baseList = caseListConfig([]);
+	const doc = buildDoc({
+		appName: "Conditional batch close",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: "60000000-0000-4000-8000-00000000a020",
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					...baseList,
+					selection: { kind: "multiple", maximum: 4 },
+				},
+				forms: [
+					{
+						uuid: "60000000-0000-4000-8000-00000000a021",
+						name: "Close patients",
+						type: "close",
+						closeCondition: { field: "close_when", answer: "done" },
+						fields: [
+							f({
+								kind: "text",
+								id: "close_when",
+								label: proseText("Close when"),
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	const formUuid = Object.keys(doc.forms)[0] as Uuid;
+	const conditionFieldUuid = Object.values(doc.fields).find(
+		(field) => field.id === "close_when",
+	)?.uuid;
+	if (conditionFieldUuid === undefined) {
+		throw new Error("Conditional-close fixture is missing close_when.");
+	}
+	return { doc, formUuid, conditionFieldUuid };
+}
+
+function ordinaryAuthorityDoc(): {
+	doc: BlueprintDoc;
+	formUuid: Uuid;
+} {
+	const doc = buildDoc({
+		appName: "Ordinary write authority",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "nickname", label: proseText("Nickname") },
+				],
+			},
+			{
+				name: "visit",
+				parent_type: "patient",
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "notes", label: proseText("Notes") },
+					{ name: "private_note", label: proseText("Private note") },
+				],
+			},
+			{
+				name: "medication_order",
+				parent_type: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+			{
+				name: "lab_result",
+				parent_type: "patient",
+				properties: [{ name: "case_name", label: proseText("Name") }],
+			},
+		],
+		modules: [
+			{
+				uuid: "60000000-0000-4000-8000-00000000a030",
+				name: "Patients",
+				caseType: "patient",
+				forms: [
+					{
+						uuid: "60000000-0000-4000-8000-00000000a031",
+						name: "Register patient",
+						type: "registration",
+						fields: [
+							f({
+								kind: "text",
+								id: "patient_name",
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+							f({
+								kind: "int",
+								id: "age",
+								caseWrite: { caseType: "patient", property: "age" },
+							}),
+							f({
+								kind: "text",
+								id: "visit_name",
+								caseWrite: { caseType: "visit", property: "case_name" },
+							}),
+							f({
+								kind: "text",
+								id: "visit_notes",
+								caseWrite: { caseType: "visit", property: "notes" },
+							}),
+							f({
+								kind: "repeat",
+								id: "orders",
+								children: [
+									f({
+										kind: "text",
+										id: "medication_name",
+										caseWrite: {
+											caseType: "medication_order",
+											property: "case_name",
+										},
+									}),
+								],
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return { doc, formUuid: Object.keys(doc.forms)[0] as Uuid };
+}
+
+function ordinaryAuthorityMutation(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): Extract<SubmissionMutation, { kind: "registration" }> {
+	const engine = engineFor(doc, formUuid);
+	engine.setValue("/data/patient_name", "Ada");
+	engine.setValue("/data/age", "37");
+	engine.setValue("/data/visit_name", "First visit");
+	engine.setValue("/data/visit_notes", "Checkup");
+	engine.setValue("/data/orders[0]/medication_name", "Hydrangea");
+	engine.addRepeat("/data/orders");
+	engine.setValue("/data/orders[1]/medication_name", "Aspirin");
+	const mutation = engine.computeSubmissionMutation({ entryKey: ENTRY_KEY });
+	if (mutation.kind !== "registration") {
+		throw new Error("Ordinary-authority fixture did not produce registration.");
+	}
+	return mutation;
+}
+
 function engineFor(doc: BlueprintDoc, formUuid: Uuid): FormEngine {
 	const input: FormEngineInput = {
 		form: doc.forms[formUuid],
@@ -237,6 +393,20 @@ async function seedSessionCase(store: CaseStore, doc: BlueprintDoc) {
 	});
 }
 
+async function seedSecondSessionCase(store: CaseStore) {
+	await store.insert({
+		appId: APP_ID,
+		row: {
+			case_id: SECOND_SESSION_CASE,
+			case_type: "patient",
+			case_name: "Grace",
+			external_id: "seed-external-2",
+			status: "open",
+			properties: {},
+		},
+	});
+}
+
 async function submit(
 	doc: BlueprintDoc,
 	engine: FormEngine,
@@ -244,7 +414,7 @@ async function submit(
 	lookupTableSchemas?: LookupTableSchemas,
 ) {
 	const mutation = engine.computeSubmissionMutation({
-		caseId: SESSION_CASE,
+		caseIds: [SESSION_CASE],
 		entryKey: ENTRY_KEY,
 	});
 	const projection = validateCaptureSubmissionProjection(mutation);
@@ -286,6 +456,320 @@ async function loadCase(store: CaseStore, caseId: string) {
 }
 
 describe("engine → builder → executor acceptance", () => {
+	it("projects committed registration destinations and preserves authored child receipt indices", async () => {
+		const { doc, formUuid } = ordinaryAuthorityDoc();
+		const store = makeStore();
+		const schemas = buildCaseTypeMap(doc);
+		for (const caseType of doc.caseTypes ?? []) {
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: caseType.name,
+				caseTypeSchemas: schemas,
+			});
+		}
+
+		const mutation = ordinaryAuthorityMutation(doc, formUuid);
+		expect(mutation.ordinaryChildBuckets).toEqual([
+			{ caseType: "visit" },
+			{
+				caseType: "medication_order",
+				repeatUuid: expect.any(String),
+				repeatInstanceKey: "/data/orders[0]",
+			},
+			{
+				caseType: "medication_order",
+				repeatUuid: expect.any(String),
+				repeatInstanceKey: "/data/orders[1]",
+			},
+		]);
+		const projection = validateCaptureSubmissionProjection(mutation);
+		const built = buildCaseOperationProgramFromDoc({
+			blueprint: doc,
+			mutation,
+			projection,
+			identity: IDENTITY,
+		});
+		expect(built.ordinaryAction).toEqual({
+			kind: "registration",
+			primary: {
+				caseType: "patient",
+				caseName: "Ada",
+				properties: { age: 37 },
+			},
+			children: [
+				{
+					caseType: "visit",
+					caseName: "First visit",
+					properties: { notes: "Checkup" },
+					parentRelationship: "child",
+				},
+				{
+					caseType: "medication_order",
+					caseName: "Hydrangea",
+					properties: {},
+					parentRelationship: "child",
+				},
+				{
+					caseType: "medication_order",
+					caseName: "Aspirin",
+					properties: {},
+					parentRelationship: "child",
+				},
+			],
+		});
+		const envelope = submissionEnvelopeArgs(mutation, APP_ID, {
+			...built,
+			submissionReceipt: {
+				...buildSubmissionReceiptIdentity({
+					appId: APP_ID,
+					identity: IDENTITY,
+					mutation,
+					projection,
+				}),
+				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
+			},
+		});
+		expect(envelope.ordinary).toEqual(built.ordinaryAction);
+
+		const result = await store.applySubmission(envelope);
+		expect(result.primaryCaseIds).toHaveLength(1);
+		expect(result.createdChildren).toEqual(
+			[0, 1, 2].map((authoredChildIndex) => ({
+				authoredChildIndex,
+				parentCaseId: result.primaryCaseIds[0],
+				caseId: expect.any(String),
+			})),
+		);
+	});
+
+	it("rejects every uncommitted ordinary case structure before effects", () => {
+		const { doc, formUuid } = ordinaryAuthorityDoc();
+		const mutation = ordinaryAuthorityMutation(doc, formUuid);
+		const reject = (forged: SubmissionMutation, committed = doc) => {
+			const projection = validateCaptureSubmissionProjection(forged);
+			expect(() =>
+				buildCaseOperationProgramFromDoc({
+					blueprint: committed,
+					mutation: forged,
+					projection,
+					identity: IDENTITY,
+				}),
+			).toThrow(CaptureSubmissionRejectedError);
+		};
+		const [rootChild, repeatedChild] = mutation.children;
+		const [rootBucket, repeatedBucket] = mutation.ordinaryChildBuckets ?? [];
+		if (
+			rootChild === undefined ||
+			repeatedChild === undefined ||
+			rootBucket === undefined ||
+			repeatedBucket === undefined
+		) {
+			throw new Error("Ordinary-authority fixture is missing child buckets.");
+		}
+
+		reject({
+			...mutation,
+			primary: { ...mutation.primary, caseType: "visit" },
+		});
+		reject({
+			...mutation,
+			primary: {
+				...mutation.primary,
+				properties: {
+					...mutation.primary.properties,
+					nickname: "The Countess",
+				},
+			},
+		});
+		reject({
+			...mutation,
+			children: [
+				{ ...rootChild, caseType: "lab_result", properties: {} },
+				...mutation.children.slice(1),
+			],
+			ordinaryChildBuckets: [
+				{ caseType: "lab_result" },
+				...(mutation.ordinaryChildBuckets ?? []).slice(1),
+			],
+		});
+		reject({
+			...mutation,
+			children: [
+				{
+					...rootChild,
+					properties: { ...rootChild.properties, private_note: "hidden" },
+				},
+				...mutation.children.slice(1),
+			],
+		});
+		reject({
+			...mutation,
+			children: [rootChild, rootChild, ...mutation.children.slice(1)],
+			ordinaryChildBuckets: [
+				rootBucket,
+				rootBucket,
+				...(mutation.ordinaryChildBuckets ?? []).slice(1),
+			],
+		});
+		reject({
+			...mutation,
+			children: [...mutation.children, repeatedChild],
+			ordinaryChildBuckets: [
+				...(mutation.ordinaryChildBuckets ?? []),
+				repeatedBucket,
+			],
+		});
+		reject({
+			...mutation,
+			primary: { ...mutation.primary, externalId: "forged-external" },
+		});
+
+		const close = conditionalCloseDoc();
+		const closeEngine = engineFor(close.doc, close.formUuid);
+		closeEngine.setValue("/data/close_when", "done");
+		const closeMutation = closeEngine.computeSubmissionMutation({
+			caseIds: [SESSION_CASE, SECOND_SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		if (closeMutation.kind !== "close") {
+			throw new Error("Conditional-close fixture did not produce close.");
+		}
+		reject(
+			{
+				...closeMutation,
+				patch: { ...closeMutation.patch, caseName: "Forged name" },
+			},
+			close.doc,
+		);
+	});
+
+	it("evaluates one committed close condition and closes the complete ordered selection", async () => {
+		const { doc, formUuid, conditionFieldUuid } = conditionalCloseDoc();
+		const store = makeStore();
+		await seedSessionCase(store, doc);
+		await seedSecondSessionCase(store);
+
+		const engine = engineFor(doc, formUuid);
+		engine.setValue("/data/close_when", "done");
+		const mutation = engine.computeSubmissionMutation({
+			caseIds: [SECOND_SESSION_CASE, SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		const projection = validateCaptureSubmissionProjection(mutation);
+		expect(projection.closeConditionAnswers).toEqual({
+			fieldUuid: conditionFieldUuid,
+			values: ["done"],
+		});
+		const built = buildCaseOperationProgramFromDoc({
+			blueprint: doc,
+			mutation,
+			projection,
+			identity: IDENTITY,
+		});
+		expect(built).toMatchObject({
+			ordinaryFormType: "close",
+			ordinaryCloseCase: true,
+			ordinaryCaseType: "patient",
+			ordinarySelection: { kind: "multiple", maximum: 4 },
+		});
+		const envelope = submissionEnvelopeArgs(mutation, APP_ID, {
+			...built,
+			submissionReceipt: {
+				...buildSubmissionReceiptIdentity({
+					appId: APP_ID,
+					identity: IDENTITY,
+					mutation,
+					projection,
+				}),
+				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
+			},
+		});
+		expect(envelope.ordinary).toMatchObject({
+			kind: "close",
+			caseIds: [SECOND_SESSION_CASE, SESSION_CASE],
+		});
+
+		const result = await store.applySubmission(envelope);
+		expect(result.primaryCaseIds).toEqual([SECOND_SESSION_CASE, SESSION_CASE]);
+		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		expect(
+			rows
+				.filter((row) =>
+					[SESSION_CASE, SECOND_SESSION_CASE].includes(row.case_id),
+				)
+				.map((row) => row.status),
+		).toEqual(["closed", "closed"]);
+	});
+
+	it("keeps every selected case open when the committed close condition is false", async () => {
+		const { doc, formUuid } = conditionalCloseDoc();
+		const store = makeStore();
+		await seedSessionCase(store, doc);
+		await seedSecondSessionCase(store);
+
+		const engine = engineFor(doc, formUuid);
+		engine.setValue("/data/close_when", "not yet");
+		const mutation = engine.computeSubmissionMutation({
+			caseIds: [SESSION_CASE, SECOND_SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		const projection = validateCaptureSubmissionProjection(mutation);
+		const built = buildCaseOperationProgramFromDoc({
+			blueprint: doc,
+			mutation,
+			projection,
+			identity: IDENTITY,
+		});
+		expect(built.ordinaryCloseCase).toBe(false);
+		const envelope = submissionEnvelopeArgs(mutation, APP_ID, {
+			...built,
+			submissionReceipt: {
+				...buildSubmissionReceiptIdentity({
+					appId: APP_ID,
+					identity: IDENTITY,
+					mutation,
+					projection,
+				}),
+				expectedAppMutationSeq: 0,
+				blueprintDigest: "0".repeat(64),
+			},
+		});
+		expect(envelope.ordinary.kind).toBe("followup");
+
+		await store.applySubmission(envelope);
+		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
+		expect(
+			rows
+				.filter((row) =>
+					[SESSION_CASE, SECOND_SESSION_CASE].includes(row.case_id),
+				)
+				.map((row) => row.status),
+		).toEqual(["open", "open"]);
+	});
+
+	it("rejects a forged batch-close discriminator against a committed followup form before effects", () => {
+		const { doc, formUuid } = acceptanceDoc(() => []);
+		const engine = engineFor(doc, formUuid);
+		const authored = engine.computeSubmissionMutation({
+			caseIds: [SESSION_CASE, SECOND_SESSION_CASE],
+			entryKey: ENTRY_KEY,
+		});
+		expect(authored.kind).toBe("followup");
+		const forged = { ...authored, kind: "close" } as SubmissionMutation;
+		const projection = validateCaptureSubmissionProjection(forged);
+
+		expect(() =>
+			buildCaseOperationProgramFromDoc({
+				blueprint: doc,
+				mutation: forged,
+				projection,
+				identity: IDENTITY,
+			}),
+		).toThrow(CaptureSubmissionRejectedError);
+	});
+
 	it("a root operation writes custom and scalar values; the ordinary scalar action lands last", async () => {
 		const { doc, formUuid } = acceptanceDoc((ids) => [
 			{
@@ -315,7 +799,7 @@ describe("engine → builder → executor acceptance", () => {
 		engine.setValue("/data/external_code", "from-ordinary");
 
 		const result = await submit(doc, engine, store);
-		expect(result.primaryCaseId).toBe(SESSION_CASE);
+		expect(result.primaryCaseIds).toEqual([SESSION_CASE]);
 		expect(result.operations).toHaveLength(1);
 		expect(result.operations[0]?.executed).toBe(true);
 
@@ -402,7 +886,7 @@ describe("engine → builder → executor acceptance", () => {
 		const engine = engineFor(doc, formUuid);
 		engine.setValue("/data/note", "collected");
 		const mutation = engine.computeSubmissionMutation({
-			caseId: SESSION_CASE,
+			caseIds: [SESSION_CASE],
 			entryKey: ENTRY_KEY,
 		});
 		const missingAnswers = { ...mutation, operationAnswers: undefined };

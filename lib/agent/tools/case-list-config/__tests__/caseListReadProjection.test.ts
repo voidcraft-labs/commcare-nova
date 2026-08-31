@@ -41,6 +41,36 @@ function independentlyArrangedDoc(): BlueprintDoc {
 }
 
 describe("case-list read projections", () => {
+	it("reports bounded multiple selection on both model-facing reads", async () => {
+		const base = makeCaseListDoc();
+		const config = base.modules[MOD_A]?.caseListConfig;
+		if (config === undefined) throw new Error("fixture config missing");
+		const doc = {
+			...base,
+			modules: {
+				...base.modules,
+				[MOD_A]: {
+					...base.modules[MOD_A],
+					caseListConfig: {
+						...config,
+						selection: { kind: "multiple" as const, maximum: 12 },
+					},
+				},
+			},
+		};
+
+		const h = makeCaseListFixture(doc);
+		const result = await h.runTool(getModuleTool, { moduleUuid: MOD_A });
+		if ("error" in result.data) throw new Error(result.data.error);
+		expect(result.data.case_list_config?.selection).toEqual({
+			kind: "multiple",
+			maximum: 12,
+		});
+		expect(summarizeBlueprint(doc)).toContain(
+			"selection: workers choose up to 12 cases before continuing",
+		);
+	});
+
 	it("getModule exposes the exact independent visible screen sequences", async () => {
 		const h = makeCaseListFixture(independentlyArrangedDoc());
 		const result = await h.runTool(getModuleTool, { moduleUuid: MOD_A });

@@ -131,6 +131,11 @@ export interface SessionDatum {
 	detailPersistent?: string;
 	autoselect?: boolean;
 	/**
+	 * Present for CommCare's collection-valued `<instance-datum>` selector.
+	 * Its id is also the selected-entities instance id exposed to the XForm.
+	 */
+	maxSelectValue?: number;
+	/**
 	 * The case type this datum selects (`case_id`) or creates
 	 * (`case_id_new_<type>_N`, the worker's own `commcare-user`). Not
 	 * rendered: it is what HQ's end-of-form workflow reads back off the
@@ -151,7 +156,7 @@ export interface SessionDatum {
 	renderFunction?: (sessionRef: (datumId: string) => string) => string;
 	/** Structural regeneration hook used when HQ-style root-menu alignment
 	 * renames a datum. Never rendered. */
-	renderNodeset?: (parentDatumId?: string) => string;
+	renderNodeset?: (parentSelection?: SessionDatum) => string;
 	/** The immediately preceding selection in a parent-select chain. */
 	parentSelection?: SessionDatum;
 }
@@ -295,8 +300,9 @@ export function deriveCaseSelectionDatum(args: {
 	readonly relationContext?: RelationEvaluationScopeContext;
 	readonly lookupNaming?: LookupWireNaming;
 	readonly persistentDetailId?: string;
-	readonly parentDatumId?: string;
+	readonly parentSelection?: SessionDatum;
 	readonly detailConfirm?: boolean;
+	readonly maxSelectValue?: number;
 }): SessionDatum {
 	const secondaryInstances = new Set<string>();
 	if (args.caseListFilter !== undefined) {
@@ -318,7 +324,10 @@ export function deriveCaseSelectionDatum(args: {
 			if (id !== "casedb") secondaryInstances.add(id);
 		}
 	}
-	if (args.parentDatumId !== undefined)
+	if (
+		args.parentSelection !== undefined &&
+		args.parentSelection.maxSelectValue === undefined
+	)
 		secondaryInstances.add("commcaresession");
 	const base = caseLoadingNodeset(
 		args.caseType,
@@ -327,11 +336,13 @@ export function deriveCaseSelectionDatum(args: {
 		args.relationContext,
 		args.lookupNaming,
 	);
-	const renderNodeset = (parentDatumId?: string): string => {
+	const renderNodeset = (parentSelection?: SessionDatum): string => {
 		const parentFilter =
-			parentDatumId === undefined
+			parentSelection === undefined
 				? ""
-				: `[index/*[not(@relationship='extension')]=instance('commcaresession')/session/data/${parentDatumId}]`;
+				: parentSelection.maxSelectValue === undefined
+					? `[index/*[not(@relationship='extension')]=instance('commcaresession')/session/data/${parentSelection.id}]`
+					: `[index/*[not(@relationship='extension')]=instance('${parentSelection.id}')/results/value]`;
 		return `${base}${parentFilter}`;
 	};
 	return {
@@ -341,7 +352,7 @@ export function deriveCaseSelectionDatum(args: {
 		...(secondaryInstances.size > 0 && {
 			instanceIds: [...secondaryInstances],
 		}),
-		nodeset: renderNodeset(args.parentDatumId),
+		nodeset: renderNodeset(args.parentSelection),
 		renderNodeset,
 		value: "./@case_id",
 		detailSelect: `m${args.moduleIndex}_case_short`,
@@ -350,6 +361,9 @@ export function deriveCaseSelectionDatum(args: {
 		}),
 		...(args.persistentDetailId !== undefined && {
 			detailPersistent: args.persistentDetailId,
+		}),
+		...(args.maxSelectValue !== undefined && {
+			maxSelectValue: args.maxSelectValue,
 		}),
 		caseType: args.caseType,
 	};
@@ -631,6 +645,12 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		// subcases (including any repeat-context ones), then this function
 		// only EMITS for the non-repeat-context ones — matching the
 		// `Form.session_var_for_action` numbering at the CCHQ side.
+		//
+		// HQ also emits this scalar `uuid()` datum on a multi-select form even
+		// though Nova's authored XForm creates one child per selected parent with
+		// its own `uuid()` calculate. It therefore remains an inert parity datum:
+		// no case block consumes it, and the absolute multi-select validator
+		// refuses a direct form link that would mistake it for one created child.
 		for (let i = 0; i < actions.subcases.length; i++) {
 			const sc = actions.subcases[i];
 			if (sc.condition.type !== "always" && sc.condition.type !== "if") {
@@ -671,8 +691,15 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			(datum) => datum.nodeset !== undefined && datum.caseType === caseType,
 		);
 	if (tileGrouping !== undefined && caseSelectDatum !== undefined) {
-		const renderFunction = (sessionRef: (datumId: string) => string): string =>
-			`join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = ${sessionRef(caseSelectDatum.id)}]/index/${tileGrouping.identifier}))`;
+		const renderFunction = (
+			sessionRef: (datumId: string) => string,
+		): string => {
+			const predicate =
+				caseSelectDatum.maxSelectValue === undefined
+					? `@case_id = ${sessionRef(caseSelectDatum.id)}`
+					: `selected(join(' ', instance('${caseSelectDatum.id}')/results/value), @case_id)`;
+			return `join(' ', distinct-values(instance('casedb')/casedb/case[${predicate}]/index/${tileGrouping.identifier}))`;
+		};
 		datums.push({
 			id: `${caseSelectDatum.id}_parent_ids`,
 			function: renderFunction(
@@ -877,6 +904,13 @@ export function deriveEntryDefinition(
 				seen.add(d.instanceId);
 				instances.push({ id: d.instanceId, src: d.instanceSrc ?? "" });
 			}
+			if (d.maxSelectValue !== undefined && !seen.has(d.id)) {
+				seen.add(d.id);
+				instances.push({
+					id: d.id,
+					src: instanceSourceFor(d.id, lookupNaming),
+				});
+			}
 			for (const id of d.instanceIds ?? []) {
 				if (seen.has(id)) continue;
 				seen.add(id);
@@ -1080,6 +1114,13 @@ export function deriveCaseListEntryDefinition(
 			seen.add(datum.instanceId);
 			instances.push({ id: datum.instanceId, src: datum.instanceSrc ?? "" });
 		}
+		if (datum.maxSelectValue !== undefined && !seen.has(datum.id)) {
+			seen.add(datum.id);
+			instances.push({
+				id: datum.id,
+				src: instanceSourceFor(datum.id, lookupNaming),
+			});
+		}
 		for (const id of datum.instanceIds ?? []) {
 			if (seen.has(id)) continue;
 			seen.add(id);
@@ -1138,7 +1179,12 @@ function buildDatumElement(d: SessionDatum): Element {
 		attribs["detail-confirm"] = d.detailConfirm;
 	if (d.detailPersistent !== undefined)
 		attribs["detail-persistent"] = d.detailPersistent;
-	return el("datum", attribs);
+	if (d.maxSelectValue !== undefined)
+		attribs["max-select-value"] = String(d.maxSelectValue);
+	return el(
+		d.maxSelectValue === undefined ? "datum" : "instance-datum",
+		attribs,
+	);
 }
 
 /**

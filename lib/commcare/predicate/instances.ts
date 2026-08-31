@@ -42,7 +42,29 @@ import {
 	walkPredicateExpressionNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
+import { CASE_TYPE_REGEX } from "../constants";
 import { type LookupWireNaming, lookupFixtureSrc } from "../lookup/naming";
+
+/**
+ * Whether `instanceId` is one of Nova's collection-valued case selectors.
+ *
+ * HQ recognizes any id containing `selected_cases`, but Nova generates a
+ * deliberately smaller closed family: the ordinary id, Search's exact id,
+ * zero or more parent-select prefixes, and the optional validated case-type
+ * suffix root alignment adds when two child datums would otherwise collide.
+ * Keeping that grammar explicit admits every generated name without turning
+ * an arbitrary caller-controlled substring into a virtual-instance source.
+ */
+function isSelectedCasesInstanceId(instanceId: string): boolean {
+	if (instanceId === "search_selected_cases") return true;
+	const withoutParentPrefixes = instanceId.replace(/^(?:parent_)*/, "");
+	if (withoutParentPrefixes === "selected_cases") return true;
+	const renamedPrefix = "selected_cases_";
+	return (
+		withoutParentPrefixes.startsWith(renamedPrefix) &&
+		CASE_TYPE_REGEX.test(withoutParentPrefixes.slice(renamedPrefix.length))
+	);
+}
 
 /**
  * Map a CCHQ wire instance id to its `jr://` source URL. The single
@@ -73,6 +95,10 @@ export function instanceSourceFor(
 		case "locations":
 			return "jr://fixture/locations";
 		default: {
+			// CCHQ's selected-cases factory resolves this virtual source family.
+			if (isSelectedCasesInstanceId(instanceId)) {
+				return `jr://instance/selected-entities/${instanceId}`;
+			}
 			const table = lookup?.tables.find(
 				(candidate) =>
 					candidate.xformInstanceId === instanceId ||

@@ -65,7 +65,10 @@ const baseFor = (loc: Location): BreadcrumbItem[] =>
 function run(args: {
 	loc: Location;
 	moduleForms?: PreviewTrailForm[];
-	previewCaseTarget?: { formUuid: string; caseId?: string; caseName?: string };
+	previewCaseTarget?: {
+		formUuid: string;
+		cases?: readonly { caseId: string; caseName?: string }[];
+	};
 	previewSelectedCase?: { caseId: string; caseName: string };
 }) {
 	return previewBreadcrumbTrail({
@@ -83,8 +86,7 @@ describe("previewCaseTargetBindsLocation", () => {
 		expect(
 			previewCaseTargetBindsLocation(formLoc(followupUuid), {
 				formUuid: followupUuid,
-				caseId: "c1",
-				caseName: "Ana",
+				cases: [{ caseId: "c1", caseName: "Ana" }],
 			}),
 		).toBe(true);
 	});
@@ -93,8 +95,7 @@ describe("previewCaseTargetBindsLocation", () => {
 		expect(
 			previewCaseTargetBindsLocation(formLoc(registerUuid), {
 				formUuid: followupUuid,
-				caseId: "c1",
-				caseName: "Ana",
+				cases: [{ caseId: "c1", caseName: "Ana" }],
 			}),
 		).toBe(false);
 	});
@@ -109,7 +110,10 @@ describe("previewCaseTargetBindsLocation", () => {
 		expect(
 			previewCaseTargetBindsLocation(
 				{ kind: "cases", moduleUuid },
-				{ formUuid: followupUuid, caseId: "c1", caseName: "Ana" },
+				{
+					formUuid: followupUuid,
+					cases: [{ caseId: "c1", caseName: "Ana" }],
+				},
 			),
 		).toBe(false);
 	});
@@ -180,8 +184,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			moduleForms: forms,
 			previewCaseTarget: {
 				formUuid: followupUuid,
-				caseId: "c1",
-				caseName: "Yusuf Patel",
+				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
 			} as never,
 			previewSelectedCase: undefined,
 		});
@@ -221,8 +224,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			loc: formLoc(followupUuid),
 			previewCaseTarget: {
 				formUuid: followupUuid,
-				caseId: "c1",
-				caseName: "Yusuf Patel",
+				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
 			},
 		});
 		expect(trail.map((t) => t.label)).toEqual([
@@ -232,7 +234,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			"Yusuf Patel",
 		]);
 		expect(trail[2].reselectCaseFor).toBe(followupUuid);
-		expect(trail[3].key).toBe("case:c1");
+		expect(trail[3].key).toBe("cases:c1");
 	});
 
 	it("REGRESSION: a register form ignores a follow-up's leftover case target", () => {
@@ -240,8 +242,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			loc: formLoc(registerUuid),
 			previewCaseTarget: {
 				formUuid: followupUuid,
-				caseId: "c1",
-				caseName: "Yusuf Patel",
+				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
 			},
 		});
 		// No 4th "case" crumb — the stale target binds a different form.
@@ -258,8 +259,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			loc: formLoc(closeUuid),
 			previewCaseTarget: {
 				formUuid: followupUuid,
-				caseId: "c1",
-				caseName: "Yusuf Patel",
+				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
 			},
 		});
 		expect(trail.map((t) => t.label)).toEqual([
@@ -287,8 +287,7 @@ describe("previewBreadcrumbTrail — form screens", () => {
 			moduleForms: forms,
 			previewCaseTarget: {
 				formUuid: followupUuid,
-				caseId: "c1",
-				caseName: "Yusuf Patel",
+				cases: [{ caseId: "c1", caseName: "Yusuf Patel" }],
 			} as never,
 			previewSelectedCase: undefined,
 		});

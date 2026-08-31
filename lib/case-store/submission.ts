@@ -73,7 +73,12 @@ export type OrdinarySubmissionAction =
 	  }
 	| {
 			readonly kind: "followup" | "close";
-			readonly caseId: string;
+			/** Ordered selected cases. A singular form supplies one id. */
+			readonly caseIds: ReadonlyArray<string>;
+			/** Server-derived from the committed module selection contract. */
+			readonly selection:
+				| { readonly kind: "single"; readonly maximum: 1 }
+				| { readonly kind: "multiple"; readonly maximum: number };
 			/**
 			 * The module case type the form was authored against. When present
 			 * and the action is type-sensitive (a property patch, a name
@@ -83,15 +88,15 @@ export type OrdinarySubmissionAction =
 			 * runtime twin of the static analysis's `ordinary` slot. A
 			 * write-free, child-free close stays type-blind either way.
 			 */
-			readonly caseType?: string;
+			readonly caseType: string;
 			readonly patch: {
 				readonly caseName?: string;
 				readonly externalId?: string;
 				readonly properties: JsonObject;
 			};
-			readonly children: ReadonlyArray<
-				SubmissionCaseSeed & { readonly parentCaseId: string }
-			>;
+			/** Concrete authored child/repeat seeds in form order. The executor
+			 * expands each seed over `caseIds` in selected-case order. */
+			readonly children: ReadonlyArray<SubmissionCaseSeed>;
 	  }
 	| { readonly kind: "none" };
 
@@ -184,7 +189,7 @@ export interface CaseOperationProgram {
 	readonly scopes: ReadonlyArray<OperationScopeIterations>;
 	/** The loaded case a `session` target addresses; absent when the
 	 * form loads none. */
-	readonly sessionCaseId?: string;
+	readonly sessionCaseIds?: ReadonlyArray<string>;
 	/** Schema map for expression compilation (`buildCaseTypeMap` at the
 	 * caller's boundary). */
 	readonly caseTypeSchemas: ReadonlyMap<string, CaseType>;
@@ -280,6 +285,8 @@ export interface OperationEffectRecord {
 	readonly operationUuid: Uuid;
 	/** Zero-based iteration within the operation's scope (0 for root). */
 	readonly iteration: number;
+	/** Zero-based selected-case position (0 for an anchor-free program). */
+	readonly selection: number;
 	readonly action: CaseOperation["action"];
 	readonly caseId: string;
 	/** False when the instance's conditions evaluated false — no effect
@@ -287,12 +294,33 @@ export interface OperationEffectRecord {
 	readonly executed: boolean;
 }
 
+/** One concrete ordinary child created by the accepted submission.
+ *
+ * `authoredChildIndex` addresses the child seed in the ordinary submission
+ * action. `parentCaseId` names the selected or generated primary case this
+ * concrete child was created under. Together they make the child/parent
+ * Cartesian product explicit so no consumer has to recover identity from a
+ * flat array position. */
+export interface CreatedChildCaseReceipt {
+	readonly authoredChildIndex: number;
+	readonly parentCaseId: string;
+	readonly caseId: string;
+}
+
 export interface SubmissionEnvelopeResult {
-	/** The registration primary's generated id, or the followup/close
-	 * bound case id. Absent for `kind: "none"`. */
-	readonly primaryCaseId?: string;
-	/** Ordinary children's generated ids in input order. */
-	readonly childCaseIds: ReadonlyArray<string>;
+	/** Registration's generated primary, the ordered followup/close selection,
+	 * or an empty collection for `kind: "none"`. */
+	readonly primaryCaseIds: ReadonlyArray<string>;
+	/** One record for every authored-child x parent concrete creation, in
+	 * authored-child-major then parent-selection order. */
+	readonly createdChildren: ReadonlyArray<CreatedChildCaseReceipt>;
+	/**
+	 * Flat ids from a durable receipt written before `createdChildren` existed.
+	 * New submissions never populate this slot. It is retained only for
+	 * history/repair consumers that need concrete ids without claiming to know
+	 * which authored child or parent produced them.
+	 */
+	readonly legacyChildCaseIds?: ReadonlyArray<string>;
 	readonly operations: ReadonlyArray<OperationEffectRecord>;
 	/** Submission-time topology identity. Optional only for historical receipts
 	 * written before routing revision replay was fenced. */
@@ -305,6 +333,34 @@ export interface SubmissionEnvelopeResult {
 	readonly caseDatabasePatch?: DeviceCaseDatabase;
 }
 
+function hasInvalidCreatedChildren(value: unknown): boolean {
+	if (!Array.isArray(value)) return true;
+	const pairs = new Set<string>();
+	const caseIds = new Set<string>();
+	for (const child of value) {
+		if (
+			typeof child !== "object" ||
+			child === null ||
+			!Number.isInteger(
+				(child as { authoredChildIndex?: unknown }).authoredChildIndex,
+			) ||
+			(child as { authoredChildIndex: number }).authoredChildIndex < 0 ||
+			typeof (child as { parentCaseId?: unknown }).parentCaseId !== "string" ||
+			(child as { parentCaseId: string }).parentCaseId.length === 0 ||
+			typeof (child as { caseId?: unknown }).caseId !== "string" ||
+			(child as { caseId: string }).caseId.length === 0
+		) {
+			return true;
+		}
+		const receipt = child as CreatedChildCaseReceipt;
+		const pair = `${receipt.authoredChildIndex}\u0000${receipt.parentCaseId}`;
+		if (pairs.has(pair) || caseIds.has(receipt.caseId)) return true;
+		pairs.add(pair);
+		caseIds.add(receipt.caseId);
+	}
+	return false;
+}
+
 /** Parse the JSONB representation stored on an accepted receipt. Keeping this
  * at the submission-contract boundary makes the server preflight and the
  * terminal Postgres transaction apply the same corruption check. */
@@ -313,11 +369,30 @@ export function parseSubmissionEnvelopeResult(
 ): SubmissionEnvelopeResult {
 	const parsed =
 		typeof value === "string" ? (JSON.parse(value) as unknown) : value;
+	const createdChildren =
+		typeof parsed === "object" && parsed !== null
+			? (parsed as { createdChildren?: unknown }).createdChildren
+			: undefined;
+	const historicalChildCaseIds =
+		typeof parsed === "object" && parsed !== null
+			? (parsed as { childCaseIds?: unknown }).childCaseIds
+			: undefined;
+	const hasCreatedChildren = Array.isArray(createdChildren);
+	const hasHistoricalChildCaseIds = Array.isArray(historicalChildCaseIds);
 	if (
 		typeof parsed !== "object" ||
 		parsed === null ||
-		!Array.isArray((parsed as { childCaseIds?: unknown }).childCaseIds) ||
+		hasCreatedChildren === hasHistoricalChildCaseIds ||
+		(hasCreatedChildren && hasInvalidCreatedChildren(createdChildren)) ||
+		(hasHistoricalChildCaseIds &&
+			(historicalChildCaseIds as unknown[]).some(
+				(caseId) => typeof caseId !== "string" || caseId.length === 0,
+			)) ||
 		!Array.isArray((parsed as { operations?: unknown }).operations) ||
+		("primaryCaseIds" in parsed &&
+			!Array.isArray(
+				(parsed as { primaryCaseIds?: unknown }).primaryCaseIds,
+			)) ||
 		("caseDatabasePatch" in parsed &&
 			((parsed as { caseDatabasePatch?: unknown }).caseDatabasePatch === null ||
 				typeof (parsed as { caseDatabasePatch?: unknown }).caseDatabasePatch !==
@@ -339,6 +414,10 @@ export function parseSubmissionEnvelopeResult(
 				hasInvalidCaseDatabasePropertyTypes(
 					(parsed as { caseDatabasePatch?: unknown }).caseDatabasePatch,
 				))) ||
+		("primaryCaseIds" in parsed &&
+			(parsed as { primaryCaseIds: unknown[] }).primaryCaseIds.some(
+				(caseId) => typeof caseId !== "string",
+			)) ||
 		("primaryCaseId" in parsed &&
 			(parsed as { primaryCaseId?: unknown }).primaryCaseId !== undefined &&
 			typeof (parsed as { primaryCaseId?: unknown }).primaryCaseId !==
@@ -354,12 +433,37 @@ export function parseSubmissionEnvelopeResult(
 			"A committed form submission replay row contains an invalid result.",
 		);
 	}
-	const result = parsed as SubmissionEnvelopeResult;
+	const result = parsed as Omit<
+		SubmissionEnvelopeResult,
+		"createdChildren" | "legacyChildCaseIds"
+	> & {
+		readonly primaryCaseId?: string;
+		readonly createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
+		readonly childCaseIds?: ReadonlyArray<string>;
+	};
+	/* Historical receipts predate the ordered selected-case result. Keep that
+	 * immutable accepted work replayable while exposing only the canonical
+	 * collection to live callers and writing only the new shape. */
+	const {
+		primaryCaseId: historicalPrimaryCaseId,
+		childCaseIds: legacyChildCaseIds,
+		...withoutHistoricalSlots
+	} = result;
+	const canonical: SubmissionEnvelopeResult = {
+		...withoutHistoricalSlots,
+		primaryCaseIds:
+			result.primaryCaseIds ??
+			(typeof historicalPrimaryCaseId === "string"
+				? [historicalPrimaryCaseId]
+				: []),
+		createdChildren: result.createdChildren ?? [],
+		...(legacyChildCaseIds === undefined ? {} : { legacyChildCaseIds }),
+	};
 	if (result.caseDatabasePatch === undefined) {
-		return result;
+		return canonical;
 	}
 	return {
-		...result,
+		...canonical,
 		caseDatabasePatch: {
 			...result.caseDatabasePatch,
 			rows: result.caseDatabasePatch.rows.map((row) => ({

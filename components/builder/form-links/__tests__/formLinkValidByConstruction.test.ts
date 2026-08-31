@@ -48,7 +48,15 @@ import {
 	seedConditionalLink,
 	seedOtherwiseLink,
 } from "../seeds";
-import { fixture, SOURCE, toInspect, toNote, toVisit, VISIT } from "./fixture";
+import {
+	CARE,
+	fixture,
+	SOURCE,
+	toInspect,
+	toNote,
+	toVisit,
+	VISIT,
+} from "./fixture";
 
 /** Replay an ok plan through the gate and the reducers; return the doc. */
 function commit(doc: BlueprintDoc, plan: FormLinkCommitPlan): BlueprintDoc {
@@ -171,6 +179,39 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 		expect(targetRefusal(verdict, (uuid) => looped.forms[uuid]?.name)).toBe(
 			"Going there would lead back here: “Visit” → this form.",
 		);
+	});
+
+	it("withholds a form that cannot receive the complete case selection", () => {
+		const multiple = produce(doc, (draft) => {
+			const config = draft.modules[CARE]?.caseListConfig;
+			if (config === undefined) throw new Error("fixture");
+			config.selection = { kind: "multiple", maximum: 10 };
+		});
+		const verdict = formLinkTargetVerdict(
+			multiple,
+			VISIT,
+			undefined,
+			toInspect,
+		);
+
+		expect(verdict).toMatchObject({
+			ok: false,
+			reason: "selection-cardinality",
+			sourceCardinality: "multiple",
+			targetCardinality: "single",
+		});
+		expect(targetRefusal(verdict, nameOf)).toBe(
+			"This form can't carry its complete case selection there. Open the destination's form list so the person can choose again.",
+		);
+		const link = seedConditionalLink(
+			seedFor(multiple, VISIT, toInspect),
+			parserFor(multiple, VISIT),
+			testUuid("incompatible-selection"),
+		);
+		expect(planFormLinkAdd(multiple, VISIT, link)).toEqual({
+			ok: false,
+			reason: { kind: "selection-cardinality" },
+		});
 	});
 });
 

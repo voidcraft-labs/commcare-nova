@@ -1,64 +1,56 @@
-# Multi-select, related cases, and profile extensions
+# Related-case pulls and derived compatibility
 
 **PRs:**
-1. `Multi-select case lists and selected-case operation semantics`
-2. `Related-case pulls in case search`
-3. `Authored app-profile properties`
+1. `Related-case pulls in case search`
+2. `Derived search tuning and project-space compatibility`
 
 **Depends on:** nothing outstanding. · **Blocks:** nothing.
 
-The profile PR needs a live push path to confirm that the `CUSTOM_PROPERTIES`
-toggle is present on the target before offering authored properties that HQ
-would otherwise merge away silently. That path is shipped.
+> Read [the binding contracts](00-contracts.md) first. The wire-fixture rule
+> there is why each projection below names its byte oracle up front.
 
-> Read [the binding contracts](00-contracts.md) first — the wire-fixture rule
-> there is why the three PRs below name their suite fixtures up front.
-
-Three independent vocabularies that only share a dependency, so they ship as three
-PRs rather than one with a contingency. Every HQ JSON and compiler projection
-stays identical across all three.
-
-Define selected-case runtime semantics before suite flags: ordinary primary-case
-preloads and writes must either reject or lower through per-selected-case
-operations. Add preview repeat materialization, integer limits 1–100,
-empty-selection behavior, and cross-page/search/back persistence.
+The two projections share the Search inventory but no author-facing setting.
+Related pulls are explicit Search intent. Search-result indexing is an emitted
+performance choice Nova derives from effective Search, not another constraint
+for an author or the design agent to remember. Nova authors no sync setting,
+restore imitation, generic profile-property bag, or automatic menu navigation.
 
 ## Binding facts
 
-The emitted datums and claim POST are asserted against
-`suite/multi_select_case_list/basic_remote_request.xml` and
-`session_endpoint_remote_request_multi_select.xml` under
-`commcare-hq/corehq/apps/app_manager/tests/data/`.
-
-- **Multi-select.** The short detail carries `multi_select` (Boolean) and
-  `max_select_value` (Integer, default 100); emission swaps the datum class to
-  `<instance-datum … max-select-value="N">`; selected ids materialize as a virtual
-  instance (`jr://instance/selected-entities/…`, a `<results><value>` shape) that
-  forms read as `instance('selected_cases')`; the client enforces the cap
-  (`DEFAULT_MAX_SELECT_VAL = 100`,
-  `MultiSelectEntityScreen.validateSelectionSize`); and claim is **one** POST
-  carrying all ids, with 204 meaning already claimed.
 - **Related-case pulls** emit as query `<data>` keys
   `x_commcare_include_all_related_cases` (`ref="'true'"`) and
   `x_commcare_custom_related_case_property`. Result-instance nodesets append
   `EXCLUDE_RELATED_CASES_FILTER = "[not(commcare_is_related_case=true())]"` so
-  pulled relatives ride the instance without polluting the visible list.
-- **App-profile custom properties** ride the app JSON untouched at import and emit
-  as `<property key value force="true"/>`, but HQ merges them **only** when the
-  domain has the `CUSTOM_PROPERTIES` toggle; Nova's own local `profile.ccpr` is
-  ungated. The three verified keys and their Formplayer effects are
-  `cc-sync-after-form` (sync after every submission), `cc-auto-advance-menu` (a
-  single visible choice self-selects and the advanced menu drops out of the
-  persistent menu and breadcrumb), and `cc-index-case-search-results`.
-  `lib/commcare/compiler.ts::generateProfile` currently hardcodes its property
-  list; this unit makes exactly those three `cc-*` keys authored. The
-  emitter-owned properties — the app name, the `cc-content-version` blueprint
-  stamp every export carries, `cc-app-version`, and the logo — stay reserved and
-  unauthorable, because an author who overwrites the version stamp breaks the
-  upgrade path silently.
+  pulled relatives ride the query response without polluting the visible list.
+  The custom-property row is pinned by
+  `test_suite_remote_request.py::RemoteRequestSuiteTest.test_custom_related_case_property`;
+  the include-all row needs its own exact partial assertion because the current
+  `basic_remote_request.xml` fixture does not contain it.
+- **Derived Search tuning** emits `cc-index-case-search-results=yes` only when
+  the app has effective case Search. The literal is private CommCare wire, not
+  Blueprint or tool vocabulary. Search continues to run when a target cannot
+  accept that advisory profile property; publishing omits the optimization and
+  states that large result sets may be slower.
+- **No sync model.** Preview reads and writes Nova's authoritative shared case
+  rows. It does not imitate restores, timers, or post-submit sync. Nova does not
+  author or emit `cc-sync-after-form`, and does not expose downstream profile
+  keys to a person or agent.
+- **Safe profile preservation.** A direct update reads the target app source
+  immediately before import, removes only Nova-owned derived keys, overlays the
+  currently applicable ones, and preserves foreign profile state. A missing or
+  malformed source blocks the app import. A manual HQ JSON artifact describes a
+  new app, not a safe patch for an existing one.
+- **Project-space compatibility** replaces the public feature-flag inventory.
+  Private manifests keep downstream slugs, namespaces, format applicability,
+  runtime consumers, and source evidence. Builder and MCP report friendly
+  required capabilities, verification state, consequences, and next steps.
+  Required missing or unverified capabilities block before any remote write;
+  an advisory optimization never does. Construction and downloads remain
+  available, and the design agent carries no project-space constraint ledger.
 - **Several `CaseSearch` fields are removed upstream and must never be modeled or
   reproduced:** `search_label`, `additional_relevant`, `dynamic_search`, and
   `search_filter`.
 
-**Observed:** a worker selects several cases at once and runs one form over all of
-them.
+**Observed:** a form can read supporting cases pulled with each Search result,
+and Nova states whether a chosen project space can run the app without exposing
+the downstream switches that establish that fact.

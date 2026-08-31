@@ -137,6 +137,7 @@ import type {
 	ResetSampleDataArgs,
 	RestoreScope,
 	SchemaChangeKind,
+	SelectedParentCases,
 } from "../store";
 import { CasePropertyRenameStorageConflictError } from "../store";
 import type {
@@ -655,6 +656,64 @@ export class PostgresCaseStore implements CaseStore {
 	}
 
 	/**
+	 * Compile the running menu's selected-parent set into one structural
+	 * constraint shared by row reads and counts. The child population is the
+	 * union of direct non-extension children of every selected parent.
+	 *
+	 * The parent ids arrive from client runtime state, so membership alone is
+	 * not enough: the first scalar subquery proves the COMPLETE ordered set
+	 * belongs to this app, Project, and declared parent type. A missing,
+	 * foreign-Project, or wrong-type id makes the whole constraint false rather
+	 * than silently widening or narrowing the selection.
+	 */
+	private selectedParentCasesPredicate(
+		appId: string,
+		parentCases: SelectedParentCases | undefined,
+	): RawBuilder<boolean> | undefined {
+		if (parentCases === undefined) return undefined;
+		if (
+			parentCases.caseType.trim().length === 0 ||
+			parentCases.caseIds.length > 100 ||
+			parentCases.caseIds.some((caseId) => caseId.trim().length === 0) ||
+			new Set(parentCases.caseIds).size !== parentCases.caseIds.length
+		) {
+			throw new Error(
+				compilerBugMessage({
+					where: "case-store.PostgresCaseStore.selectedParentCasesPredicate",
+					invariant:
+						"a selected-parent constraint had a blank type or id, duplicate id, or more than 100 cases",
+					detail:
+						"Running parent selection is an ordered unique set with a hard 100-case ceiling. Validate the plain-JSON selection at the request boundary before using it as a case-store constraint.",
+				}),
+			);
+		}
+		if (parentCases.caseIds.length === 0) return sql<boolean>`false`;
+
+		const projectId = this.requireProjectId();
+		const parentIds = sql.join(
+			parentCases.caseIds.map((caseId) => sql`${caseId}`),
+		);
+		return sql<boolean>`(
+			(
+				select count(*)
+				from cases as selected_parent_case
+				where selected_parent_case.app_id = ${appId}
+					and selected_parent_case.project_id = ${projectId}
+					and selected_parent_case.case_type = ${parentCases.caseType}
+					and selected_parent_case.case_id in (${parentIds})
+			) = ${parentCases.caseIds.length}
+			and exists (
+				select 1
+				from case_indices as selected_parent_index
+				where selected_parent_index.case_id = c.case_id
+					and selected_parent_index.ancestor_id in (${parentIds})
+					and selected_parent_index.depth = 1
+					and selected_parent_index.relationship <> 'extension'
+			)
+		)`;
+	}
+
+	/**
 	 * The half of a case-list read that grouping and the ordinary page
 	 * share: tenant scope, the hold exclusion, every calculated-column
 	 * projection, and the authored predicate — everything except how the
@@ -667,6 +726,23 @@ export class PostgresCaseStore implements CaseStore {
 	 */
 	private buildCaseSelect(args: QueryArgs) {
 		const calculated: ReadonlyArray<CalculatedColumn> = args.calculated ?? [];
+		if (args.caseIds !== undefined) {
+			if (
+				args.caseIds.length > 100 ||
+				args.caseIds.some((caseId) => caseId.trim().length === 0) ||
+				new Set(args.caseIds).size !== args.caseIds.length
+			) {
+				throw new Error(
+					compilerBugMessage({
+						where: "case-store.PostgresCaseStore.query",
+						invariant:
+							"a selected-case identity constraint was blank, duplicated, or larger than 100 cases",
+						detail:
+							"Running multi-selection is an ordered unique set with a hard 100-case ceiling. Validate the plain-JSON selection at the request boundary before using it as a case-store constraint.",
+					}),
+				);
+			}
+		}
 
 		// The restore closure, when the caller is standing at a device. It rides
 		// the predicate context so relation walks apply it per hop too — a list
@@ -779,6 +855,12 @@ export class PostgresCaseStore implements CaseStore {
 			.where("c.app_id", "=", args.appId)
 			.where("c.case_type", "=", args.caseType)
 			.where("c.project_id", "=", this.requireProjectId());
+		if (args.caseIds !== undefined) {
+			qb =
+				args.caseIds.length === 0
+					? qb.where(sql<boolean>`false`)
+					: qb.where("c.case_id", "in", args.caseIds);
+		}
 		// The RESTORE: what this worker's device would hold. Sits beside the
 		// tenant filter rather than inside the closure so pagination, sorting,
 		// the authored predicate, and the hold all see the same restricted
@@ -803,18 +885,12 @@ export class PostgresCaseStore implements CaseStore {
 				),
 			);
 		}
-		const parentCaseId = args.parentCaseId;
-		if (parentCaseId !== undefined) {
-			qb = qb.where(({ exists, selectFrom }) =>
-				exists(
-					selectFrom("case_indices as selected_parent")
-						.select("selected_parent.case_id")
-						.whereRef("selected_parent.case_id", "=", "c.case_id")
-						.where("selected_parent.ancestor_id", "=", parentCaseId)
-						.where("selected_parent.depth", "=", 1)
-						.where("selected_parent.relationship", "!=", "extension"),
-				),
-			);
+		const parentScope = this.selectedParentCasesPredicate(
+			args.appId,
+			args.parentCases,
+		);
+		if (parentScope !== undefined) {
+			qb = qb.where(parentScope);
 		}
 
 		// Project each calculated column under its prefixed alias.
@@ -1394,18 +1470,12 @@ export class PostgresCaseStore implements CaseStore {
 				),
 			);
 		}
-		const parentCaseId = args.parentCaseId;
-		if (parentCaseId !== undefined) {
-			qb = qb.where(({ exists, selectFrom }) =>
-				exists(
-					selectFrom("case_indices as selected_parent")
-						.select("selected_parent.case_id")
-						.whereRef("selected_parent.case_id", "=", "c.case_id")
-						.where("selected_parent.ancestor_id", "=", parentCaseId)
-						.where("selected_parent.depth", "=", 1)
-						.where("selected_parent.relationship", "!=", "extension"),
-				),
-			);
+		const parentScope = this.selectedParentCasesPredicate(
+			args.appId,
+			args.parentCases,
+		);
+		if (parentScope !== undefined) {
+			qb = qb.where(parentScope);
 		}
 
 		if (args.predicate !== undefined) {
@@ -1755,8 +1825,8 @@ export class PostgresCaseStore implements CaseStore {
 				args,
 			);
 			const affectedCaseIds = [
-				...(effects.primaryCaseId === undefined ? [] : [effects.primaryCaseId]),
-				...effects.childCaseIds,
+				...effects.primaryCaseIds,
+				...effects.createdChildren.map((child) => child.caseId),
 				...effects.operations.flatMap((operation) =>
 					operation.executed ? [operation.caseId] : [],
 				),
@@ -4730,7 +4800,7 @@ function submissionCaseTypes(args: ApplySubmissionArgs): string[] {
 		types.add(ordinary.primary.caseType);
 		for (const child of ordinary.children) types.add(child.caseType);
 	} else if (ordinary.kind === "followup" || ordinary.kind === "close") {
-		if (ordinary.caseType !== undefined) types.add(ordinary.caseType);
+		types.add(ordinary.caseType);
 		for (const child of ordinary.children) types.add(child.caseType);
 	}
 	// The worker's own case type takes its schema lock like any other. It is

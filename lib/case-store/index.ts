@@ -104,6 +104,7 @@ export {
 export type {
 	ApplySubmissionArgs,
 	CaseOperationProgram,
+	CreatedChildCaseReceipt,
 	EnvelopeCaseOperation,
 	OperationEffectRecord,
 	OperationIterationBindings,

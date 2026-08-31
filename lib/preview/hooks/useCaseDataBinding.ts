@@ -44,6 +44,7 @@ import type {
 	LoadCaseDataResult,
 	LoadCasesResult,
 	LoadParkedValuesResult,
+	ParentCaseSelection,
 	PopulateSampleCasesResult,
 	ReplaceParkedValueResult,
 	RestoreParkedValuesResult,
@@ -65,6 +66,14 @@ import {
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import { useOptionalBuilderSessionApi } from "@/lib/session/provider";
+
+function parentCaseSelectionKey(
+	parentCase: ParentCaseSelection | undefined,
+): string {
+	return parentCase === undefined
+		? "no-parent"
+		: JSON.stringify([parentCase.caseType, ...parentCase.caseIds]);
+}
 
 /** Mutation hooks also render in a few provider-light tests. In a live builder,
  * read the store imperatively so a reset-stack completion cannot invalidate the
@@ -154,7 +163,7 @@ export function useCases(args: {
 	excludedOwnerIdsExpression?: ValueExpression;
 	/** A different-type parent selected by the containing menu. The server
 	 * constrains this child list through its canonical `parent` case index. */
-	parentCase?: { readonly caseType: string; readonly caseId: string };
+	parentCase?: ParentCaseSelection;
 	caseTypes?: readonly CaseType[];
 	/** Optional bounded server window for a real Results surface. */
 	page?: { readonly offset: number; readonly limit: number };
@@ -208,7 +217,7 @@ export function useCases(args: {
 	 * beside the result so the render that precedes the refetch effect can never
 	 * project old rows through the new module's columns or row actions. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCase?.caseType ?? "no-parent"}\u0000${parentCase?.caseId ?? "no-parent"}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -433,7 +442,7 @@ export function useCaseCount(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
 	/** Exact selected-parent scope for a nested running Results probe. */
-	parentCaseId?: string;
+	parentCase?: ParentCaseSelection;
 	/** The builder's Case data manager passes true — the full stored
 	 * population it governs; the running app's probes leave it unset. */
 	includeHeld?: boolean;
@@ -443,23 +452,22 @@ export function useCaseCount(args: {
 	reload: () => Promise<void>;
 } {
 	const includeHeld = args.includeHeld === true;
-	const parentCaseId = args.parentCaseId;
+	const parentCase = args.parentCase;
 	return usePerCaseTypeResource<LoadCaseCountResult>({
 		appId: args.appId,
 		caseType: args.caseType,
-		fetcher: (ids) =>
-			loadCaseCountAction({ ...ids, includeHeld, parentCaseId }),
+		fetcher: (ids) => loadCaseCountAction({ ...ids, includeHeld, parentCase }),
 		// The variant is part of the dedupe identity — the manager's
 		// population count (held included) and the running list's
 		// empty-state probe (held excluded) may mount concurrently and
 		// must never share one in-flight result.
 		settledKind: "count",
 		variant:
-			parentCaseId === undefined
+			parentCase === undefined
 				? includeHeld
 					? "held-included"
 					: undefined
-				: `selected-parent:${parentCaseId}\u0000held:${includeHeld}`,
+				: `selected-parents:${parentCaseSelectionKey(parentCase)}\u0000held:${includeHeld}`,
 		errorMessage: "Failed to count cases.",
 	});
 }
@@ -518,7 +526,7 @@ export function useCaseData(args: {
 	caseId: string | undefined;
 	/** Selected nested-menu parent whose direct non-extension case-index
 	 * population contains this row. */
-	parentCaseId?: string;
+	parentCase?: ParentCaseSelection;
 	/** Parent hops the form's refs can address —
 	 *  `reachableCaseTypes(...).length - 1`. Bounds the server-side
 	 *  ancestor walk. */
@@ -547,7 +555,7 @@ export function useCaseData(args: {
 		appId,
 		caseType,
 		caseId,
-		parentCaseId,
+		parentCase,
 		ancestorDepth,
 		caseListConfig,
 		caseTypes,
@@ -570,7 +578,7 @@ export function useCaseData(args: {
 	 * case/revision for that one render would let a case-loading form submit an
 	 * identity that has already been replaced. */
 	const requestKey = ready
-		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseId ?? ""}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}`
+		? `${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${caseId}\u0000${parentCaseSelectionKey(parentCase)}\u0000${ancestorDepth}\u0000${includeHeld === true}\u0000${deviceScoped === true}\u0000${scopeKey}\u0000${caseDataRevision}`
 		: "";
 	const personaRequestKey = ready
 		? `${requestKey}\u0000${personaUuid ?? "me"}`
@@ -615,7 +623,7 @@ export function useCaseData(args: {
 								includeHeld,
 								personaUuid,
 								deviceScoped,
-								parentCaseId,
+								parentCase,
 							),
 						}),
 					},

@@ -95,6 +95,7 @@ import type {
 	LoadFilterPreviewResult,
 	LoadParkedValuesResult,
 	LoadPersonaOwnedCaseCountResult,
+	ParentCaseSelection,
 	PopulateSampleCasesResult,
 	ReplaceParkedValueResult,
 	RestoreParkedValuesResult,
@@ -226,10 +227,12 @@ function previewCaseStoreBindings(
 export async function loadCasesAction(args: {
 	appId: string;
 	caseType: string;
+	/** Exact selected identities for a bounded, authoritative validation read. */
+	caseIds?: readonly string[];
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValuesWire;
 	excludedOwnerIdsExpression?: ValueExpression;
-	parentCase?: { readonly caseType: string; readonly caseId: string };
+	parentCase?: ParentCaseSelection;
 	caseTypes?: readonly CaseType[];
 	/** Bounded Results window. Omitted by the current unpaged form-selection caller. */
 	page?: { offset: number; limit: number };
@@ -401,6 +404,7 @@ export async function loadCasesAction(args: {
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
+			caseIds: args.caseIds,
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
 			parentCase: args.parentCase,
@@ -443,17 +447,17 @@ export async function loadCasesAction(args: {
 
 /**
  * Count the reachable base population for one case type, with no authored
- * filter applied. The builder's case-data manager leaves `parentCaseId`
+ * filter applied. The builder's case-data manager leaves `parentCase`
  * undefined and uses the app-wide count as its source of truth. A nested
- * running Results probe supplies the selected parent so an empty child list is
- * compared with that exact direct non-extension child population, never with
- * children belonging to a different parent.
+ * running Results probe supplies the selected parent set so an empty child list
+ * is compared with the union of those exact direct non-extension child
+ * populations, never with children belonging to a different parent.
  */
 export async function loadCaseCountAction(args: {
 	appId: string;
 	caseType: string;
 	/** Exact selected-parent scope for a nested running Results probe. */
-	parentCaseId?: string;
+	parentCase?: ParentCaseSelection;
 	/** The builder's Case data manager passes true — it reports the
 	 * full stored population it governs (replace-all deletes held rows
 	 * too), with the held count named separately beside it. The
@@ -469,7 +473,7 @@ export async function loadCaseCountAction(args: {
 		const count = await store.count({
 			appId: args.appId,
 			caseType: args.caseType,
-			parentCaseId: args.parentCaseId,
+			parentCases: args.parentCase,
 			includeHeld: args.includeHeld === true,
 		});
 		return { kind: "count", count };
@@ -666,9 +670,9 @@ export async function loadCaseDataAction(
 	 * narrow, and Project membership is what authorizes the read either way.
 	 */
 	deviceScoped?: boolean,
-	/** Selected nested-menu parent. When present, the identity read must belong
-	 * to its exact direct non-extension case-index population. */
-	parentCaseId?: string,
+	/** Selected nested-menu parents. When present, the identity read must belong
+	 * to their direct non-extension case-index population. */
+	parentCase?: ParentCaseSelection,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -696,7 +700,7 @@ export async function loadCaseDataAction(
 			caseType,
 			caseId,
 			ancestorDepth,
-			parentCaseId,
+			parentCase,
 			caseListConfig,
 			includeHeld,
 			lookupTableSchemas,
@@ -1388,20 +1392,37 @@ function submissionResultFromEnvelope(
 			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
 		};
 	}
-	if (result.primaryCaseId === undefined) {
+	if (result.primaryCaseIds.length === 0) {
 		throw new Error(
 			unhandledKindMessage({
 				where: "preview.caseDataBinding.submitFormAction",
 				family: "SubmissionEnvelopeResult",
-				received: "no primaryCaseId on a case-bearing submission",
+				received: "no primaryCaseIds on a case-bearing submission",
 				knownKinds: ["registration", "followup", "close"],
 			}),
 		);
 	}
+	if (mutation.kind === "registration") {
+		if (result.primaryCaseIds.length !== 1) {
+			throw new Error(
+				"A registration submission returned more than one primary case.",
+			);
+		}
+		return {
+			kind: "registration",
+			caseId: result.primaryCaseIds[0] as string,
+			...(result.legacyChildCaseIds === undefined
+				? { createdChildren: result.createdChildren }
+				: {}),
+			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
+		};
+	}
 	return {
 		kind: mutation.kind,
-		caseId: result.primaryCaseId,
-		childCaseIds: result.childCaseIds,
+		caseIds: result.primaryCaseIds,
+		...(result.legacyChildCaseIds === undefined
+			? { createdChildren: result.createdChildren }
+			: {}),
 		...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
 	};
 }

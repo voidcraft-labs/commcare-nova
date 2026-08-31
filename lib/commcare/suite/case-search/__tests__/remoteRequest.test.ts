@@ -108,6 +108,28 @@ const MINIMAL_REMOTE_REQUEST_XML =
 	`</remote-request>`;
 
 describe("emitRemoteRequest — top-level shape", () => {
+	it("emits the selected-entities Search session and rewinds the complete set", () => {
+		const { xml } = emitRemoteRequest({
+			module: makeModule({
+				caseType: "patient",
+				caseSearchConfig: {},
+				caseListConfig: makeListConfig({
+					selection: { kind: "multiple", maximum: 15 },
+				}),
+			}),
+			moduleIndex: 0,
+		});
+		expect(xml).toContain(
+			`<instance id="search_selected_cases" src="jr://instance/selected-entities/search_selected_cases"/>`,
+		);
+		expect(xml).toContain(
+			`<instance-datum id="search_selected_cases" nodeset="instance(&apos;results&apos;)/results/case[@case_type=&apos;patient&apos;][not(commcare_is_related_case=true())]" value="./@case_id" detail-select="m0_search_short" max-select-value="15"/>`,
+		);
+		expect(xml).toContain(
+			`<rewind value="instance(&apos;commcaresession&apos;)/session/data/search_selected_cases"/>`,
+		);
+	});
+
 	it("emits the canonical minimal <remote-request> verbatim", () => {
 		// Full-string golden: the only `it` in this file that pins the
 		// entire emission. Every other `it` covers a structural

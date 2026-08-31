@@ -309,8 +309,14 @@ describe("schemaHealingCaseStore — the whole submission envelope is one healed
 			.fn()
 			.mockRejectedValueOnce(new SchemaNotSyncedError("app-1", "newborn"))
 			.mockResolvedValueOnce({
-				primaryCaseId: "mother-1",
-				childCaseIds: ["child-1"],
+				primaryCaseIds: ["mother-1"],
+				createdChildren: [
+					{
+						authoredChildIndex: 0,
+						parentCaseId: "mother-1",
+						caseId: "child-1",
+					},
+				],
 				operations: [],
 			});
 		const store = schemaHealingCaseStore(
@@ -323,20 +329,33 @@ describe("schemaHealingCaseStore — the whole submission envelope is one healed
 			formUuid: testUuid("10000000-0000-4000-8000-000000000001"),
 			entryKey: "10000000-0000-4000-8000-000000000002",
 			attachmentRefs: [],
-			caseId: "mother-1",
+			caseIds: ["mother-1"],
 			patch: { properties: { visited: "yes" } },
 			children: [
 				{
 					caseType: "newborn",
 					caseName: "Baby 1",
 					properties: {},
-					parentCaseId: "mother-1",
 				},
 			],
 		};
 		const envelope = submissionEnvelopeArgs(mutation, "app-1", {
+			ordinaryFormType: "followup",
+			ordinaryAction: {
+				kind: "followup",
+				caseIds: mutation.caseIds,
+				caseType: "mother",
+				selection: { kind: "single", maximum: 1 },
+				patch: mutation.patch,
+				children: mutation.children.map((child) => ({
+					...child,
+					parentRelationship: "child",
+				})),
+			},
 			usercaseWriteProperties: new Set<string>(),
 			ordinaryChildRelationships: new Map([["newborn", "child"]]),
+			ordinaryCaseType: "mother",
+			ordinarySelection: { kind: "single", maximum: 1 },
 			submissionReceipt: {
 				entryKey: mutation.entryKey,
 				formUuid: testUuid(mutation.formUuid),
@@ -361,8 +380,14 @@ describe("schemaHealingCaseStore — the whole submission envelope is one healed
 		});
 		// The settled result carries the primary and its child exactly once.
 		expect(result).toEqual({
-			primaryCaseId: "mother-1",
-			childCaseIds: ["child-1"],
+			primaryCaseIds: ["mother-1"],
+			createdChildren: [
+				{
+					authoredChildIndex: 0,
+					parentCaseId: "mother-1",
+					caseId: "child-1",
+				},
+			],
 			operations: [],
 		});
 	});

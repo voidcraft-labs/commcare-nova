@@ -9,9 +9,9 @@
 //
 // The positional rules are two, and they are the same fact seen from each
 // side: a link with a condition stays above the otherwise link, and the
-// otherwise link stays last. The target rules are three: a destination
-// has to exist, a form cannot link to itself, and a chain of links cannot
-// lead back to where it started.
+// otherwise link stays last. The target rules keep a destination present,
+// distinct from this form, outside any circular path, and able to receive the
+// complete case selection.
 
 import type { FormLinkCommitPlan } from "@/lib/doc/formLinkMutations";
 import type {
@@ -57,6 +57,8 @@ export function targetRefusalReason(
 			return "That destination is no longer part of the app.";
 		case "self-target":
 			return "This form can't send the person straight back into itself.";
+		case "selection-cardinality":
+			return "This form can't carry its complete case selection there. Open the destination's form list so the person can choose again.";
 		case "cycle": {
 			const steps = verdict.chain.map((uuid, index) =>
 				index === verdict.chain.length - 1

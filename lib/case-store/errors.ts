@@ -348,6 +348,23 @@ export class CaptureSubmissionRejectedError extends Error {
  */
 export type SubmissionRejection =
 	| {
+			readonly kind: "selection";
+			readonly reason:
+				| "empty"
+				| "too-many"
+				| "duplicate"
+				| "not-found-or-out-of-scope"
+				| "case-type-mismatch"
+				| "program-selection-mismatch"
+				| "ordinary-primary-write-not-supported"
+				| "authored-key-create-not-supported"
+				| "session-link-not-supported";
+			readonly caseId?: string;
+			readonly maximum?: number;
+			readonly expectedCaseType?: string;
+			readonly actualCaseType?: string;
+	  }
+	| {
 			readonly kind: "authored-key";
 			readonly operationUuid: string;
 			readonly reason: "blank" | "too-long";
@@ -400,10 +417,20 @@ export class SubmissionRejectedError extends Error {
 		if (rejection.kind !== "retype-not-portable") {
 			detail.push(`${INDENT}reason: '${rejection.reason}'`);
 		}
-		detail.push(`${INDENT}operation: '${rejection.operationUuid}'`);
+		if ("operationUuid" in rejection) {
+			detail.push(`${INDENT}operation: '${rejection.operationUuid}'`);
+		}
+		if (rejection.kind === "selection") {
+			if (rejection.caseId !== undefined) {
+				detail.push(`${INDENT}case: '${rejection.caseId}'`);
+			}
+			if (rejection.maximum !== undefined) {
+				detail.push(`${INDENT}maximum: '${rejection.maximum}'`);
+			}
+		}
 		super(
 			[
-				`Submission rejected: the advanced case-operation program failed its runtime contract.`,
+				`Submission rejected: the form's case-effect program failed its runtime contract.`,
 				``,
 				...detail,
 				``,

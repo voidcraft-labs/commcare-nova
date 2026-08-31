@@ -149,9 +149,10 @@ above the line, something below it, and no piece of information crossing it.
 
 Three things to know before you turn it on:
 
-- **Choosing a group opens its first case.** The rows below the heading are
-  there to read, not to pick from. If people need to open each case
-  individually, keep the ungrouped tile.
+- **Choosing a group uses its first case.** With Several cases, each group has
+  one checkbox and adds its first case. The other rows are there to read, not to
+  choose. If people need to choose every case separately, keep the ungrouped
+  tile.
 - **Cases with no such connection all appear in one group.** That is what a
   device does with them, so Nova shows the same thing. The grouping settings
   tell you how many of your cases that is right now.
@@ -163,6 +164,38 @@ ignores it, so a grouped list there is an ordinary tile list, one tile per case.
 
 Grouping is part of the tile, so turning the tile off turns grouping off with
 it.
+
+## Let people work with several cases at once
+
+Open **Case selection** in Results and choose **Several cases** when one form
+should apply the same work to more than one case. Set **Most cases a worker can
+choose** to the largest safe batch for that workflow, from 1 to 100. Keeping
+**One case** gives the usual Results → Details → form journey.
+
+When **Several cases** is on, Results uses a checkbox for each row or tile and
+keeps Details as a separate action. The selection bar shows the total and lets
+the worker review the complete set before choosing **Continue**. The choices stay in their
+original order while the worker searches, changes pages, opens Details, or goes
+Back. A changed maximum never removes a choice silently. Continue waits and
+states how many cases need to be removed.
+
+Use several-case selection only when a follow-up or close form can run over the
+complete set. That form can belong to the module itself. A case-list-only parent
+can also carry the set into a child that uses the same case type, also chooses
+Several cases, allows at least the parent's maximum, and has the form. The form
+submits once. Its explicit case changes run for every selected case, and a
+failure leaves every case unchanged. Nova refuses a form that tries to preload
+one case value into a shared answer or save one shared answer through the
+ordinary one-case wiring, because the selected cases may not start with the
+same value. Model those effects as explicit case changes instead.
+
+When a child uses a related case type, Results combines the direct children of
+every selected parent before the worker makes the child's own selection.
+
+A tile can still group cases, but it cannot stay pinned above a several-case
+form: that banner has room for one current case, not a batch. When several-case
+selection is enabled, Nova turns off **Keep tile visible in forms** and explains
+the change before saving it.
 
 ## Choose which cases people can find
 
@@ -340,9 +373,10 @@ data and try the complete experience, use **Preview** in the builder header.
 Preview runs the configured journey against the same case data. When Search is
 configured, it appears before Results and Details. Entering a search leaves the
 current results in place until you choose the screen's Search button, matching
-the app people will ultimately use. A
-case row opens that case, while an action inside the row, such as calling a
-phone number or checking why a value is shown, works independently.
+the app people will ultimately use. A one-case row opens that case. In a
+several-case workflow, its checkbox adds or removes the case and **Details**
+opens it without changing the selection. Other actions inside the row, such as
+calling a phone number or checking why a value is shown, work independently.
 The Results filter matches the same text people see, including formatted dates,
 calculated answers, and choice labels. If an older case contains a choice value
 that is no longer in the app, Nova leaves that saved value visible instead of

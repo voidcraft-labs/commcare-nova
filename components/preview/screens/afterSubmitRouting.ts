@@ -56,6 +56,16 @@ export type AfterSubmitRoute =
 	 */
 	| { readonly kind: "unresolvable"; readonly reason: string };
 
+/** One exact ordered multi-case selection carried by an automatic compatible
+ * form link. Scalar target datums still travel through `TargetCaseSelection`;
+ * this collection is the selected-entities session value that cannot be
+ * represented by choosing a first case. */
+export interface PreviewTargetCaseCollection {
+	readonly moduleUuid: Uuid;
+	readonly caseType: string;
+	readonly cases: PreviewMenuCaseSelection["cases"];
+}
+
 export function afterSubmitRoute(args: {
 	readonly choice: AfterSubmitChoice;
 	readonly doc: Pick<BlueprintDoc, "modules" | "forms" | "formOrder">;
@@ -135,6 +145,7 @@ export function previewMenuSelectionsAfterTargetCases(
 	current: Readonly<Record<string, PreviewMenuCaseSelection>>,
 	projected: readonly TargetCaseSelection[],
 	caseData?: PostSubmissionCaseData,
+	collections: readonly PreviewTargetCaseCollection[] = [],
 ): Readonly<Record<string, PreviewMenuCaseSelection>> {
 	const next: Record<string, PreviewMenuCaseSelection> = { ...current };
 	for (const selected of projected) {
@@ -146,9 +157,12 @@ export function previewMenuSelectionsAfterTargetCases(
 			delete next[staleModuleUuid];
 		}
 		const retained = next[selected.moduleUuid];
+		const retainedChoice =
+			retained?.cases.length === 1 ? retained.cases[0] : undefined;
 		const retainedMatches =
 			retained?.caseType === selected.caseType &&
-			retained.caseId === selected.caseId;
+			((selected.caseId === "" && retained.cases.length === 0) ||
+				retainedChoice?.caseId === selected.caseId);
 		const readBackProperties = caseData?.get(selected.caseType);
 		const hydratedProperties =
 			selected.caseId !== "" &&
@@ -157,17 +171,38 @@ export function previewMenuSelectionsAfterTargetCases(
 				: undefined;
 		next[selected.moduleUuid] = {
 			caseType: selected.caseType,
-			caseId: selected.caseId,
-			caseName:
-				selected.caseName ??
-				hydratedProperties?.case_name ??
-				(retainedMatches ? retained.caseName : undefined) ??
-				"Case",
-			...(hydratedProperties !== undefined
-				? { caseProperties: hydratedProperties }
-				: retainedMatches && retained.caseProperties !== undefined
-					? { caseProperties: retained.caseProperties }
-					: {}),
+			cases:
+				selected.caseId === ""
+					? []
+					: [
+							{
+								caseId: selected.caseId,
+								caseName:
+									selected.caseName ??
+									hydratedProperties?.case_name ??
+									(retainedMatches ? retainedChoice?.caseName : undefined) ??
+									"Case",
+								...(hydratedProperties !== undefined
+									? { caseProperties: hydratedProperties }
+									: retainedMatches &&
+											retainedChoice?.caseProperties !== undefined
+										? { caseProperties: retainedChoice.caseProperties }
+										: {}),
+							},
+						],
+		};
+	}
+	for (const collection of collections) {
+		const staleModuleUuids = new Set([
+			...previewMenuModuleUuids(menuSource, collection.moduleUuid),
+			...previewCaseDescendantModuleUuids(menuSource, collection.caseType),
+		]);
+		for (const staleModuleUuid of staleModuleUuids) {
+			delete next[staleModuleUuid];
+		}
+		next[collection.moduleUuid] = {
+			caseType: collection.caseType,
+			cases: collection.cases,
 		};
 	}
 	return next;
@@ -180,6 +215,7 @@ export function previewTargetHasSelectedCase(args: {
 	readonly current: Readonly<Record<string, PreviewMenuCaseSelection>>;
 	readonly targetModuleUuid: Uuid;
 	readonly projected: readonly TargetCaseSelection[];
+	readonly collections?: readonly PreviewTargetCaseCollection[];
 }): boolean {
 	const selected = previewMenuCaseContext(
 		args.menuSource,
@@ -188,6 +224,8 @@ export function previewTargetHasSelectedCase(args: {
 			args.menuSource,
 			args.current,
 			args.projected,
+			undefined,
+			args.collections,
 		),
 	).selectedCase;
 	return selected !== undefined;

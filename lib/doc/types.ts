@@ -30,6 +30,7 @@ import {
 	caseOperationSchema,
 	casePropertySchema,
 	caseSearchConfigSchema,
+	caseSelectionSchema,
 	caseTileLayoutSchema,
 	columnSchema,
 	columnSortSchema,
@@ -1366,7 +1367,8 @@ function createMutationSchema({
 		// Presence-only Search transitions and final-input cleanup are the semantic
 		// `updateModule` operations above.
 		// The module's case-list metadata that is NOT a membership array — the
-		// always-on `filter` predicate and the case-list-link `icon` / `audioLabel`.
+		// always-on `filter` predicate, selection behavior, and the case-list-link
+		// `icon` / `audioLabel`.
 		// Each slot is nullable so a clear crosses the JSON wire as `null`.
 		z.object({
 			kind: z.literal("setCaseListMeta"),
@@ -1374,6 +1376,7 @@ function createMutationSchema({
 			patch: z
 				.object({
 					filter: mutationPredicateSchema.nullable().optional(),
+					selection: caseSelectionSchema.nullable().optional(),
 					icon: moduleIconRefSchema.nullable().optional(),
 					audioLabel: mediaAssetIdSchema.nullable().optional(),
 					tile: caseTileLayoutSchema.nullable().optional(),

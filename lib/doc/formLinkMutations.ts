@@ -119,6 +119,7 @@ export type FormLinkRefusal =
 	| { readonly kind: "duplicate-uuid"; readonly uuid: Uuid }
 	| { readonly kind: "target-not-found" }
 	| { readonly kind: "self-target" }
+	| { readonly kind: "selection-cardinality" }
 	| { readonly kind: "cycle"; readonly chain: readonly Uuid[] }
 	/** An otherwise link already exists; change it instead of adding one. */
 	| { readonly kind: "else-exists"; readonly elseUuid: Uuid }

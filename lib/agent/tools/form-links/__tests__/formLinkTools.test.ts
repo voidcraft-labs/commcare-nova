@@ -27,7 +27,7 @@ import {
 	removeFormLinkInputSchema,
 	removeFormLinkTool,
 } from "../removeFormLink";
-import { formLinkInputSchema } from "../shared";
+import { formLinkInputSchema, linkRefusalMessage } from "../shared";
 import {
 	updateFormLinkInputSchema,
 	updateFormLinkTool,
@@ -227,6 +227,14 @@ describe("form-link author boundary", () => {
 			afterLinkUuid: 0,
 		});
 		expect(positional?.success).toBe(false);
+	});
+
+	it("gives the agent a direct repair for incompatible case selections", () => {
+		expect(
+			linkRefusalMessage({ kind: "selection-cardinality" }, fixture(), VISIT),
+		).toBe(
+			'Form "Visit" cannot hand its complete case selection directly to that form. Link to the destination module so the person can choose again, or configure both modules with the same selection mode and a destination limit that accepts the complete source selection.',
+		);
 	});
 });
 

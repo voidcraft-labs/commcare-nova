@@ -476,6 +476,61 @@ describe("ordinary nested-menu wire projection", () => {
 		).toContain("case_id");
 	});
 
+	it("carries a form-less root's complete set into a compatible same-type child", () => {
+		const doc = sameTypeFormlessRootDoc();
+		const { root, child, childForm } = nestSecondModule(doc);
+		if (childForm === undefined) throw new Error("missing child form");
+		const rootConfig = doc.modules[root].caseListConfig;
+		const childConfig = doc.modules[child].caseListConfig;
+		if (rootConfig === undefined || childConfig === undefined) {
+			throw new Error("missing case list config");
+		}
+		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		childConfig.selection = { kind: "multiple", maximum: 8 };
+
+		const ctx = formLinkProjectionContext(doc);
+		const datums = entrySessionDatums(doc, ctx, child, childForm);
+		expect(datums.map((datum) => datum.id)).toEqual(["selected_cases"]);
+		expect(datums[0]?.maxSelectValue).toBe(8);
+
+		const suite = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc),
+		).readAsText("suite.xml");
+		const rootEntry = entryByCommand(suite, "m0-case-list");
+		const childEntry = entryByCommand(suite, "m1-f0");
+		for (const entry of [rootEntry, childEntry]) {
+			expect(
+				findAll(
+					(element) => element.name === "instance-datum",
+					entry.children,
+				).some((datum) => getAttributeValue(datum, "id") === "selected_cases"),
+			).toBe(true);
+		}
+	});
+
+	it("does not reinterpret a larger authored parent set as a smaller child set", () => {
+		const doc = sameTypeFormlessRootDoc();
+		const { root, child, childForm } = nestSecondModule(doc);
+		if (childForm === undefined) throw new Error("missing child form");
+		const rootConfig = doc.modules[root].caseListConfig;
+		const childConfig = doc.modules[child].caseListConfig;
+		if (rootConfig === undefined || childConfig === undefined) {
+			throw new Error("missing case list config");
+		}
+		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		childConfig.selection = { kind: "multiple", maximum: 4 };
+
+		const datums = entrySessionDatums(
+			doc,
+			formLinkProjectionContext(doc),
+			child,
+			childForm,
+		);
+		expect(datums.map((datum) => datum.id)).toEqual([
+			"selected_cases_gold-fish",
+		]);
+	});
+
 	it("aligns against the root's first form, not a later mixed-type form", () => {
 		const doc = followupNestedDoc({ parentFirstSurvey: true });
 		const { child, childForm } = nestSecondModule(doc);
@@ -505,6 +560,94 @@ describe("ordinary nested-menu wire projection", () => {
 			relationship: "parent",
 			module_id: hq.modules[0].unique_id,
 		});
+	});
+
+	it("filters a different-type child through the root's complete selected set", () => {
+		const doc = followupNestedDoc({ parentSelect: true });
+		const { root, child, childForm } = nestSecondModule(doc);
+		if (childForm === undefined) throw new Error("missing child form");
+		const rootConfig = doc.modules[root].caseListConfig;
+		if (rootConfig === undefined) throw new Error("missing root case list");
+		rootConfig.selection = { kind: "multiple", maximum: 5 };
+
+		const datums = entrySessionDatums(
+			doc,
+			formLinkProjectionContext(doc),
+			child,
+			childForm,
+		);
+		expect(datums.map((datum) => [datum.id, datum.caseType])).toEqual([
+			["selected_cases", "gold-fish"],
+			["case_id", "guppy"],
+		]);
+		expect(datums[1]?.nodeset).toContain(
+			"[index/*[not(@relationship='extension')]=instance('selected_cases')/results/value]",
+		);
+
+		const suite = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc),
+		).readAsText("suite.xml");
+		const childEntry = entryByCommand(suite, "m1-f0");
+		expect(
+			directChildren(childEntry, "instance").some(
+				(instance) =>
+					getAttributeValue(instance, "id") === "selected_cases" &&
+					getAttributeValue(instance, "src") ===
+						"jr://instance/selected-entities/selected_cases",
+			),
+		).toBe(true);
+		expect(suite).toContain(
+			"instance(&apos;selected_cases&apos;)/results/value]",
+		);
+	});
+
+	it("emits the selected-entities source for a renamed different-type child set", () => {
+		const doc = followupNestedDoc({ parentSelect: true });
+		const { root, child, childForm } = nestSecondModule(doc);
+		if (childForm === undefined) throw new Error("missing child form");
+		const rootConfig = doc.modules[root].caseListConfig;
+		const childConfig = doc.modules[child].caseListConfig;
+		if (rootConfig === undefined || childConfig === undefined) {
+			throw new Error("missing case list config");
+		}
+		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		childConfig.selection = { kind: "multiple", maximum: 5 };
+
+		const datums = entrySessionDatums(
+			doc,
+			formLinkProjectionContext(doc),
+			child,
+			childForm,
+		);
+		expect(datums.map((datum) => [datum.id, datum.caseType])).toEqual([
+			["selected_cases", "gold-fish"],
+			["selected_cases_guppy", "guppy"],
+		]);
+		expect(datums[1]?.nodeset).toContain(
+			"[index/*[not(@relationship='extension')]=instance('selected_cases')/results/value]",
+		);
+
+		const suite = new AdmZip(
+			compileCcz(expandDoc(doc), doc.appName, doc),
+		).readAsText("suite.xml");
+		const childEntry = entryByCommand(suite, "m1-f0");
+		expect(
+			directChildren(childEntry, "instance").map((instance) => ({
+				id: getAttributeValue(instance, "id"),
+				src: getAttributeValue(instance, "src"),
+			})),
+		).toEqual(
+			expect.arrayContaining([
+				{
+					id: "selected_cases",
+					src: "jr://instance/selected-entities/selected_cases",
+				},
+				{
+					id: "selected_cases_guppy",
+					src: "jr://instance/selected-entities/selected_cases_guppy",
+				},
+			]),
+		);
 	});
 
 	it("carries ancestor lookup dependencies into the child CCZ entry", () => {

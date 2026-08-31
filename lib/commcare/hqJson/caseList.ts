@@ -991,6 +991,10 @@ export function projectCaseListForHq(
 	const pair = detailPair(shortColumns, longColumns);
 	pair.short.sort_elements = sortElements;
 	pair.short.filter = filter;
+	if (caseListConfig?.selection?.kind === "multiple") {
+		pair.short.multi_select = true;
+		pair.short.max_select_value = caseListConfig.selection.maximum;
+	}
 	applyTileLayoutToShortDetail(
 		pair.short,
 		caseListConfig?.tile,

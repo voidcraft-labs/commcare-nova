@@ -270,7 +270,7 @@ import {
 	runFormAttachmentBarrier,
 	setAttachmentSlotIssue,
 } from "../../form/fields/attachment/attachmentClient";
-import { FormScreen } from "../FormScreen";
+import { carriedChildCasesFromReceipt, FormScreen } from "../FormScreen";
 
 // ── Fixtures ─────────────────────────────────────────────────────
 
@@ -341,6 +341,8 @@ function CaseDataRevisionProbe() {
 function renderFormScreen(opts: {
 	formUuid: typeof REG_FORM_UUID;
 	caseId?: string;
+	cases?: readonly { readonly caseId: string; readonly caseName?: string }[];
+	multipleSelection?: boolean;
 	selectedUuid?: Uuid;
 	menuCaseRelationship?: "same-type" | "different-type";
 	nestedAfterSubmit?: "automatic" | "manual";
@@ -416,6 +418,9 @@ function renderFormScreen(opts: {
 							listColumnOrder: [CASE_NAME_COLUMN_UUID],
 							detailColumnOrder: [CASE_NAME_COLUMN_UUID],
 							searchInputs: [],
+							...(opts.multipleSelection === true && {
+								selection: { kind: "multiple" as const, maximum: 10 },
+							}),
 						},
 					},
 					...(opts.menuCaseRelationship !== undefined
@@ -790,7 +795,11 @@ function renderFormScreen(opts: {
 									type: "form",
 									moduleUuid: MODULE_UUID,
 									formUuid: opts.formUuid,
-									caseId: opts.caseId,
+									...(opts.cases !== undefined
+										? { cases: opts.cases }
+										: opts.caseId !== undefined
+											? { cases: [{ caseId: opts.caseId }] }
+											: {}),
 								}}
 								onBack={onBackMock}
 							/>
@@ -1049,7 +1058,7 @@ describe("FormScreen — registration submit", () => {
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "registration",
 			caseId: "new-case-id",
-			childCaseIds: [],
+			createdChildren: [],
 		});
 
 		renderFormScreen({ formUuid: REG_FORM_UUID });
@@ -1111,8 +1120,8 @@ describe("FormScreen — followup submit", () => {
 		});
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "followup",
-			caseId: FOLLOWUP_CASE_ID,
-			childCaseIds: [],
+			caseIds: [FOLLOWUP_CASE_ID],
+			createdChildren: [],
 		});
 
 		renderFormScreen({
@@ -1129,7 +1138,7 @@ describe("FormScreen — followup submit", () => {
 		const [mutation] = vi.mocked(submitFormAction).mock.calls[0];
 		expect(mutation.kind).toBe("followup");
 		if (mutation.kind === "followup") {
-			expect(mutation.caseId).toBe(FOLLOWUP_CASE_ID);
+			expect(mutation.caseIds).toEqual([FOLLOWUP_CASE_ID]);
 		}
 		/* Followup's default post-submit destination is `previous`,
 		 *  which routes to `onBack` (the BuilderLayout back-stack
@@ -1163,8 +1172,8 @@ describe("FormScreen — close submit", () => {
 		});
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "close",
-			caseId: FOLLOWUP_CASE_ID,
-			childCaseIds: [],
+			caseIds: [FOLLOWUP_CASE_ID],
+			createdChildren: [],
 		});
 
 		renderFormScreen({
@@ -1181,7 +1190,7 @@ describe("FormScreen — close submit", () => {
 		const [mutation] = vi.mocked(submitFormAction).mock.calls[0];
 		expect(mutation.kind).toBe("close");
 		if (mutation.kind === "close") {
-			expect(mutation.caseId).toBe(FOLLOWUP_CASE_ID);
+			expect(mutation.caseIds).toEqual([FOLLOWUP_CASE_ID]);
 		}
 		/* Close inherits followup's `previous` destination: both
 		 *  case-loading form types fall through to `onBack`. */
@@ -1354,6 +1363,68 @@ describe("FormScreen — survey submit", () => {
 });
 
 describe("FormScreen — nested after-submit case session", () => {
+	it("joins every two-child x two-parent receipt record to its authored after-submit metadata", () => {
+		const childCases = carriedChildCasesFromReceipt({
+			authoredChildren: [
+				{ caseType: "encounter", caseName: "Encounter" },
+				{ caseType: "referral", caseName: "Referral" },
+			],
+			parentCaseIds: ["parent-second", "parent-first"],
+			createdChildren: [
+				{
+					authoredChildIndex: 0,
+					parentCaseId: "parent-second",
+					caseId: "encounter-second",
+				},
+				{
+					authoredChildIndex: 0,
+					parentCaseId: "parent-first",
+					caseId: "encounter-first",
+				},
+				{
+					authoredChildIndex: 1,
+					parentCaseId: "parent-second",
+					caseId: "referral-second",
+				},
+				{
+					authoredChildIndex: 1,
+					parentCaseId: "parent-first",
+					caseId: "referral-first",
+				},
+			],
+		});
+
+		expect(childCases).toEqual([
+			{
+				caseType: "encounter",
+				caseName: "Encounter",
+				caseId: "encounter-second",
+			},
+			{
+				caseType: "encounter",
+				caseName: "Encounter",
+				caseId: "encounter-first",
+			},
+			{
+				caseType: "referral",
+				caseName: "Referral",
+				caseId: "referral-second",
+			},
+			{
+				caseType: "referral",
+				caseName: "Referral",
+				caseId: "referral-first",
+			},
+		]);
+		expect(
+			carriedChildCasesFromReceipt({
+				createdChildren: undefined,
+				authoredChildren: [{ caseType: "encounter", caseName: "Encounter" }],
+				parentCaseIds: ["parent"],
+			}),
+		).toEqual([]);
+	});
+
 	it("reports only bounded metadata when post-submit XPath fails", async () => {
 		const privateDetail = "private-authored-value-and-stack";
 		vi.mocked(submitFormAction).mockResolvedValue({
@@ -1415,7 +1486,13 @@ describe("FormScreen — nested after-submit case session", () => {
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "registration",
 			caseId: "new-patient",
-			childCaseIds: ["new-encounter"],
+			createdChildren: [
+				{
+					authoredChildIndex: 0,
+					parentCaseId: "new-patient",
+					caseId: "new-encounter",
+				},
+			],
 			caseDatabasePatch: {
 				rows: [patient, encounter],
 				indices: [
@@ -1453,31 +1530,38 @@ describe("FormScreen — nested after-submit case session", () => {
 			MODULE_UUID,
 			expect.objectContaining({
 				caseType: CASE_TYPE,
-				caseId: "new-patient",
-				caseName: "Created patient",
-				caseProperties: expect.objectContaining({
-					case_id: "new-patient",
-					case_name: "Created patient",
-				}),
+				cases: [
+					expect.objectContaining({
+						caseId: "new-patient",
+						caseName: "Created patient",
+						caseProperties: expect.objectContaining({
+							case_id: "new-patient",
+							case_name: "Created patient",
+						}),
+					}),
+				],
 			}),
 		);
 		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
 			NESTED_TARGET_MODULE_UUID,
 			expect.objectContaining({
 				caseType: "encounter",
-				caseId: "new-encounter",
-				caseName: "Created encounter",
-				caseProperties: expect.objectContaining({
-					case_id: "new-encounter",
-					case_name: "Created encounter",
-					outcome: "complete",
-				}),
+				cases: [
+					expect.objectContaining({
+						caseId: "new-encounter",
+						caseName: "Created encounter",
+						caseProperties: expect.objectContaining({
+							case_id: "new-encounter",
+							case_name: "Created encounter",
+							outcome: "complete",
+						}),
+					}),
+				],
 			}),
 		);
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: NESTED_TARGET_FORM_UUID,
-			caseId: "new-encounter",
-			caseName: "Created encounter",
+			cases: [{ caseId: "new-encounter", caseName: "Created encounter" }],
 			caseData: expect.any(Map),
 			caseDatabase: {
 				rows: [patient, encounter],
@@ -1502,8 +1586,7 @@ describe("FormScreen — nested after-submit case session", () => {
 		previewMenuCaseSelectionsMock = {
 			[NESTED_TARGET_MODULE_UUID]: {
 				caseType: "encounter",
-				caseId: "stale-encounter",
-				caseName: "Stale encounter",
+				cases: [{ caseId: "stale-encounter", caseName: "Stale encounter" }],
 			},
 		};
 		const manualPatient = {
@@ -1535,26 +1618,29 @@ describe("FormScreen — nested after-submit case session", () => {
 			MODULE_UUID,
 			expect.objectContaining({
 				caseType: CASE_TYPE,
-				caseId: "manual-patient",
-				caseName: "Manual patient",
-				caseProperties: expect.objectContaining({
-					case_id: "manual-patient",
-					case_name: "Manual patient",
-					risk: "high",
-				}),
+				cases: [
+					expect.objectContaining({
+						caseId: "manual-patient",
+						caseName: "Manual patient",
+						caseProperties: expect.objectContaining({
+							case_id: "manual-patient",
+							case_name: "Manual patient",
+							risk: "high",
+						}),
+					}),
+				],
 			}),
 		);
 		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
 			NESTED_TARGET_MODULE_UUID,
 			{
 				caseType: "encounter",
-				caseId: "",
-				caseName: "Case",
+				cases: [],
 			},
 		);
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: NESTED_TARGET_FORM_UUID,
-			caseId: "",
+			cases: [],
 			caseDatabase: { rows: [manualPatient], indices: [] },
 		});
 		expect(vi.mocked(loadCaseDataAction)).not.toHaveBeenCalled();
@@ -1579,8 +1665,8 @@ describe("FormScreen — nested after-submit case session", () => {
 			.mockResolvedValueOnce({ kind: "missing" });
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "close",
-			caseId: FOLLOWUP_CASE_ID,
-			childCaseIds: [],
+			caseIds: [FOLLOWUP_CASE_ID],
+			createdChildren: [],
 			caseDatabasePatch: { rows: [closedRow], indices: [] },
 		});
 		renderFormScreen({
@@ -1601,12 +1687,113 @@ describe("FormScreen — nested after-submit case session", () => {
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith(
 			expect.objectContaining({
 				formUuid: FOLLOWUP_FORM_UUID,
-				caseId: FOLLOWUP_CASE_ID,
-				caseName: "Existing case",
+				cases: [{ caseId: FOLLOWUP_CASE_ID, caseName: "Existing case" }],
 				caseData: expect.any(Map),
 				caseDatabase: { rows: [closedRow], indices: [] },
 			}),
 		);
+	});
+
+	it("carries every just-closed case in selected order to a compatible several-case form", async () => {
+		const firstClosed = {
+			...formCaseRow("case-first"),
+			case_name: "First patient",
+			status: "closed",
+			closed_on: new Date("2026-08-25T12:00:00.000Z"),
+		};
+		const secondClosed = {
+			...formCaseRow("case-second"),
+			case_name: "Second patient",
+			status: "closed",
+			closed_on: new Date("2026-08-25T12:00:01.000Z"),
+		};
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "close",
+			caseIds: ["case-second", "case-first"],
+			createdChildren: [],
+			/* Deliberately not selection order: the carried target must retain the
+			 * worker's ordered collection, not the database patch's row order. */
+			caseDatabasePatch: {
+				rows: [firstClosed, secondClosed],
+				indices: [],
+			},
+		});
+		previewMenuCaseSelectionsMock = {
+			[MODULE_UUID]: {
+				caseType: CASE_TYPE,
+				cases: [
+					{
+						caseId: "case-second",
+						caseName: "Second patient before submit",
+						caseProperties: { case_id: "case-second", status: "open" },
+					},
+					{
+						caseId: "case-first",
+						caseName: "First patient before submit",
+						caseProperties: { case_id: "case-first", status: "open" },
+					},
+				],
+			},
+		};
+		renderFormScreen({
+			formUuid: CLOSE_FORM_UUID,
+			cases: [
+				{ caseId: "case-second", caseName: "Second patient before submit" },
+				{ caseId: "case-first", caseName: "First patient before submit" },
+			],
+			multipleSelection: true,
+			closeAfterSubmit: true,
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() =>
+			expect(navigateMock.openForm).toHaveBeenCalledWith(
+				MODULE_UUID,
+				FOLLOWUP_FORM_UUID,
+			),
+		);
+		const [mutation] = vi.mocked(submitFormAction).mock.calls[0] ?? [];
+		expect(mutation?.kind).toBe("close");
+		if (mutation?.kind === "close") {
+			expect(mutation.caseIds).toEqual(["case-second", "case-first"]);
+		}
+		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
+			MODULE_UUID,
+			expect.objectContaining({
+				caseType: CASE_TYPE,
+				cases: [
+					expect.objectContaining({
+						caseId: "case-second",
+						caseName: "Second patient",
+						caseProperties: expect.objectContaining({ status: "closed" }),
+					}),
+					expect.objectContaining({
+						caseId: "case-first",
+						caseName: "First patient",
+						caseProperties: expect.objectContaining({ status: "closed" }),
+					}),
+				],
+			}),
+		);
+		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+			formUuid: FOLLOWUP_FORM_UUID,
+			cases: [
+				expect.objectContaining({
+					caseId: "case-second",
+					caseName: "Second patient",
+				}),
+				expect.objectContaining({
+					caseId: "case-first",
+					caseName: "First patient",
+				}),
+			],
+			caseDatabase: {
+				rows: [firstClosed, secondClosed],
+				indices: [],
+			},
+		});
+		expect(vi.mocked(loadCaseDataAction)).not.toHaveBeenCalled();
 	});
 });
 
@@ -1671,6 +1858,52 @@ describe("FormScreen — error arms render inline", () => {
 				),
 			).toBeDefined();
 		});
+		expect(onBackMock).not.toHaveBeenCalled();
+	});
+
+	it("describes an unavailable selected case without exposing its identity", async () => {
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: {
+				case_id: FOLLOWUP_CASE_ID,
+				case_type: CASE_TYPE,
+				case_name: "Existing case",
+				app_id: APP_ID,
+				owner_id: "owner-test",
+				status: "open",
+				opened_on: null,
+				modified_on: null,
+				closed_on: null,
+				external_id: null,
+				parent_case_id: null,
+				properties: {},
+				calculated: {},
+			},
+			ancestors: [],
+		});
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "submission-rejected",
+			rejection: {
+				kind: "selection",
+				reason: "not-found-or-out-of-scope",
+				caseId: FOLLOWUP_CASE_ID,
+			},
+		});
+
+		renderFormScreen({
+			formUuid: FOLLOWUP_FORM_UUID,
+			caseId: FOLLOWUP_CASE_ID,
+		});
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() => {
+			expect(
+				screen.getByText(
+					"Nothing was saved: one of the selected cases is no longer available. Return to Results and review the selection.",
+				),
+			).toBeDefined();
+		});
+		expect(screen.queryByText(FOLLOWUP_CASE_ID)).toBeNull();
 		expect(onBackMock).not.toHaveBeenCalled();
 	});
 
@@ -2008,7 +2241,7 @@ describe("FormScreen — pending UX", () => {
 			resolveSubmit({
 				kind: "registration",
 				caseId: "new-case-id",
-				childCaseIds: [],
+				createdChildren: [],
 			});
 		});
 		/* Registration's success arm fires `navigate.goHome`: waiting on
@@ -2022,7 +2255,7 @@ describe("FormScreen — pending UX", () => {
 		vi.mocked(submitFormAction).mockResolvedValue({
 			kind: "registration",
 			caseId: "new-case-id",
-			childCaseIds: [],
+			createdChildren: [],
 		});
 		renderFormScreen({ formUuid: REG_FORM_UUID });
 		await waitFor(() => expect(capturedController?.entryKey).toBeDefined());
@@ -2800,8 +3033,7 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 		previewMenuCaseSelectionsMock = {
 			[MENU_CASE_PARENT_MODULE_UUID]: {
 				caseType: CASE_TYPE,
-				caseId: selectedCaseId,
-				caseName: "Selected patient",
+				cases: [{ caseId: selectedCaseId, caseName: "Selected patient" }],
 			},
 		};
 		vi.mocked(loadCaseDataAction).mockResolvedValue({
@@ -2832,8 +3064,7 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 		previewMenuCaseSelectionsMock = {
 			[MENU_CASE_PARENT_MODULE_UUID]: {
 				caseType: "household",
-				caseId: parentCaseId,
-				caseName: "Selected household",
+				cases: [{ caseId: parentCaseId, caseName: "Selected household" }],
 			},
 		};
 		vi.mocked(loadCasesAction).mockResolvedValue({
@@ -2860,7 +3091,7 @@ describe("FormScreen — case-loading form previewed directly (no nav caseId)", 
 				caseType: CASE_TYPE,
 				parentCase: expect.objectContaining({
 					caseType: "household",
-					caseId: parentCaseId,
+					caseIds: [parentCaseId],
 				}),
 			}),
 		);
@@ -3093,7 +3324,7 @@ describe("FormScreen — Clear form clears stale server error", () => {
 			.mockResolvedValueOnce({
 				kind: "registration",
 				caseId: "new-case-after-clear",
-				childCaseIds: [],
+				createdChildren: [],
 			});
 		renderFormScreen({ formUuid: REG_FORM_UUID });
 		await screen.findByRole("button", { name: /^submit$/i });

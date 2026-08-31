@@ -372,6 +372,9 @@ interface XPathRefs {
 	readonly sessionDataRefs: ReadonlySet<string>;
 	/** Every `instance('commcaresession')/session/context/<X>` — `X` segment. */
 	readonly sessionContextRefs: ReadonlySet<string>;
+	/** A session-instance path that can observe the whole `session/data`
+	 * container rather than one exact datum leaf. */
+	readonly broadSessionDataAccess: boolean;
 }
 
 /**
@@ -383,10 +386,16 @@ function analyzeXPath(expr: string): XPathRefs {
 	const instanceIds = new Set<string>();
 	const sessionDataRefs = new Set<string>();
 	const sessionContextRefs = new Set<string>();
+	let broadSessionDataAccess = false;
 
 	const trimmed = expr.trim();
 	if (!trimmed) {
-		return { instanceIds, sessionDataRefs, sessionContextRefs };
+		return {
+			instanceIds,
+			sessionDataRefs,
+			sessionContextRefs,
+			broadSessionDataAccess,
+		};
 	}
 
 	const tree = parser.parse(trimmed);
@@ -399,16 +408,57 @@ function analyzeXPath(expr: string): XPathRefs {
 		if (id === null) continue;
 		instanceIds.add(id);
 		if (id !== "commcaresession") continue;
-		const trailing = collectTrailingPathSegments(trimmed, invoke);
-		if (trailing[0] !== "session") continue;
-		if (trailing[1] === "data" && trailing.length >= 3) {
-			sessionDataRefs.add(trailing[2]);
-		} else if (trailing[1] === "context" && trailing.length >= 3) {
-			sessionContextRefs.add(trailing[2]);
+		const trailing = collectTrailingPathSteps(trimmed, invoke);
+		const access = classifySessionDataAccess(trailing);
+		broadSessionDataAccess ||=
+			access.broad || resolvedSessionPathParticipatesInFilter(invoke);
+		if (access.exactDatumId !== undefined) {
+			sessionDataRefs.add(access.exactDatumId);
+		}
+		if (
+			isExactChildName(trailing[0], "session") &&
+			isExactChildName(trailing[1], "context") &&
+			trailing[2]?.axis === "child" &&
+			trailing[2].name !== undefined
+		) {
+			sessionContextRefs.add(trailing[2].name);
 		}
 	} while (cursor.next());
 
-	return { instanceIds, sessionDataRefs, sessionContextRefs };
+	return {
+		instanceIds,
+		sessionDataRefs,
+		sessionContextRefs,
+		broadSessionDataAccess,
+	};
+}
+
+/**
+ * Exact session datum ids referenced by one already-projected XPath.
+ *
+ * This is structural over the Lezer tree: callers compare the returned ids
+ * with datums derived from the source entry instead of guessing from text or
+ * matching a `case_id_new_*` prefix.
+ */
+export function sessionDataReferencesInXPath(
+	expr: string,
+): ReadonlySet<string> {
+	return analyzeXPath(expr).sessionDataRefs;
+}
+
+export interface SessionDataXPathAccess {
+	readonly exactDatumIds: ReadonlySet<string>;
+	readonly broad: boolean;
+}
+
+/** Exact datum leaves plus whether the expression structurally reaches a
+ * broader/ancestor/wildcard/descendant view of `session/data`. */
+export function sessionDataAccessInXPath(expr: string): SessionDataXPathAccess {
+	const analyzed = analyzeXPath(expr);
+	return {
+		exactDatumIds: analyzed.sessionDataRefs,
+		broad: analyzed.broadSessionDataAccess,
+	};
 }
 
 /**
@@ -459,21 +509,29 @@ function unquoteXPathStringLiteral(literal: string): string {
  * the path enters a predicate / equality / arithmetic expression, the
  * chain ends.
  *
- * Returns the in-order segment names — `['session', 'data', 'case_id']`
- * for `instance('commcaresession')/session/data/case_id`. Stops on the
- * first step that isn't a plain `NameTest`, so the segments returned are
- * unambiguous local names.
+ * Returns in-order structural steps, retaining the axis and whether the node
+ * test is one exact name. Wildcards, parent steps, descendant separators,
+ * and explicit axes therefore stay distinguishable without reading source
+ * text back through a regex.
  */
-function collectTrailingPathSegments(
+interface TrailingPathStep {
+	readonly axis: "child" | "descendant" | "parent" | "ancestor" | "other";
+	/** Present only for one exact, non-wildcard name test. */
+	readonly name?: string;
+}
+
+function collectTrailingPathSteps(
 	source: string,
 	invoke: SyntaxNode,
-): string[] {
-	const segments: string[] = [];
+): TrailingPathStep[] {
+	const steps: TrailingPathStep[] = [];
 	let current: SyntaxNode = invoke;
 	while (true) {
 		const parent = current.parent;
 		if (parent === null) break;
-		if (parent.type.name !== "Child") break;
+		if (parent.type.name !== "Child" && parent.type.name !== "Descendant") {
+			break;
+		}
 		// SyntaxNode identity isn't preserved across accessor calls (Lezer
 		// fabricates fresh BufferNode wrappers on each `.firstChild` /
 		// `.parent`), so we test "is `current` the left child of `parent`"
@@ -482,9 +540,107 @@ function collectTrailingPathSegments(
 		if (parent.firstChild.from !== current.from) break;
 		const step = parent.lastChild;
 		if (step === null) break;
-		if (step.type.name !== "NameTest") break;
-		segments.push(source.slice(step.from, step.to));
+		if (step.type.name === "NameTest") {
+			steps.push({
+				axis: parent.type.name === "Descendant" ? "descendant" : "child",
+				...(step.firstChild === null && {
+					name: source.slice(step.from, step.to),
+				}),
+			});
+		} else if (step.type.name === "ParentStep") {
+			steps.push({ axis: "parent" });
+		} else if (step.type.name === "AxisSpecified") {
+			const axisNode = step.firstChild;
+			const test = step.lastChild;
+			const axisName =
+				axisNode === null ? "" : source.slice(axisNode.from, axisNode.to);
+			const axis =
+				axisName === "child"
+					? "child"
+					: axisName === "descendant" || axisName === "descendant-or-self"
+						? "descendant"
+						: axisName === "parent" ||
+								axisName === "ancestor" ||
+								axisName === "ancestor-or-self"
+							? "ancestor"
+							: "other";
+			steps.push({
+				axis,
+				...(test?.type.name === "NameTest" && test.firstChild === null
+					? { name: source.slice(test.from, test.to) }
+					: {}),
+			});
+		} else {
+			steps.push({ axis: "other" });
+		}
 		current = parent;
 	}
-	return segments;
+	return steps;
+}
+
+/** Whether the path rooted at this invocation is used as a filter carrier.
+ * Relative paths inside that predicate inherit the carrier's session node as
+ * their context, so they can navigate back to `session/data` without another
+ * explicit `instance('commcaresession')` call for the analyzer to discover. */
+function resolvedSessionPathParticipatesInFilter(invoke: SyntaxNode): boolean {
+	let current = invoke;
+	while (true) {
+		const parent = current.parent;
+		if (parent === null) return false;
+		if (parent.type.name === "Filtered") {
+			return parent.firstChild?.from === current.from;
+		}
+		if (
+			(parent.type.name !== "Child" && parent.type.name !== "Descendant") ||
+			parent.firstChild?.from !== current.from
+		) {
+			return false;
+		}
+		current = parent;
+	}
+}
+
+function isExactChildName(
+	step: TrailingPathStep | undefined,
+	name: string,
+): boolean {
+	return step?.axis === "child" && step.name === name;
+}
+
+/** Classify only paths rooted at the commcaresession instance. Once one
+ * exact datum child has been selected, only child/descendant reads stay
+ * inside it. Every other axis can escape to the data container or a sibling. */
+function classifySessionDataAccess(steps: readonly TrailingPathStep[]): {
+	readonly exactDatumId?: string;
+	readonly broad: boolean;
+} {
+	if (steps.length === 0) return { broad: true };
+	if (!isExactChildName(steps[0], "session")) {
+		return {
+			broad: steps[0]?.axis !== "child" || steps[0]?.name === undefined,
+		};
+	}
+	if (steps.length === 1) return { broad: true };
+	if (!isExactChildName(steps[1], "data")) {
+		const escapesSiblingSubtree = steps
+			.slice(2)
+			.some((step) => step.axis === "parent" || step.axis === "ancestor");
+		return {
+			broad:
+				steps[1]?.axis !== "child" ||
+				steps[1]?.name === undefined ||
+				escapesSiblingSubtree,
+		};
+	}
+	if (steps.length === 2) return { broad: true };
+	const datum = steps[2];
+	if (datum?.axis !== "child" || datum.name === undefined) {
+		return { broad: true };
+	}
+	return {
+		exactDatumId: datum.name,
+		broad: steps
+			.slice(3)
+			.some((step) => step.axis !== "child" && step.axis !== "descendant"),
+	};
 }

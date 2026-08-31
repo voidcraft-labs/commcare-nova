@@ -4,9 +4,10 @@
 // or asked to carry values — pure verdicts over the document, derived from
 // the same facts the validator and the wire read. Nothing here decides
 // legality on its own: `formLinkMoveVerdicts` and `formLinkTargetVerdict`
-// restate the three positional rules (`FORM_LINK_UNREACHABLE`,
-// `FORM_LINK_SELF_REFERENCE`, `FORM_LINK_CIRCULAR`) so a surface can refuse
-// before it offers, and `formLinkCarryVerdict` asks the ONE projector the
+// restate the positional and destination rules (`FORM_LINK_UNREACHABLE`,
+// `FORM_LINK_SELF_REFERENCE`, `FORM_LINK_CIRCULAR`, and
+// `FORM_LINK_SELECTION_CARDINALITY`) so a surface can refuse before it offers,
+// and `formLinkCarryVerdict` asks the ONE projector the
 // wire uses whether the destination's selection datums can be carried
 // automatically (`FORM_LINK_DATUMS_INCOMPLETE`'s question, asked ahead of
 // time). `components/builder/form-links/__tests__/formLinkValidByConstruction.test.ts`
@@ -26,10 +27,14 @@ import {
 } from "@/lib/commcare/formLinkProjection";
 import {
 	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
+	caseSelectionCardinality,
+	caseSelectionMaximum,
 	type FormLink,
 	type FormLinkTarget,
 	formLinkAdjacency,
 	formLinkPath,
+	formLinkSelectionIsCompatible,
 	type Uuid,
 } from "@/lib/domain";
 import { afterSubmitPlan, formLinkIsConditionalIn } from "./formLinkMutations";
@@ -99,6 +104,14 @@ export type FormLinkTargetVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: "target-not-found" }
 	| { readonly ok: false; readonly reason: "self-target" }
+	| {
+			readonly ok: false;
+			readonly reason: "selection-cardinality";
+			readonly sourceCardinality: "single" | "multiple";
+			readonly targetCardinality: "single" | "multiple";
+			readonly sourceMaximum: number;
+			readonly targetMaximum: number;
+	  }
 	/** The chain of form uuids from the target back to this form, inclusive. */
 	| {
 			readonly ok: false;
@@ -119,13 +132,41 @@ export function formLinkTargetVerdict(
 	const mod = doc.modules[target.moduleUuid];
 	if (mod === undefined) return { ok: false, reason: "target-not-found" };
 	if (target.type === "module") return { ok: true };
+	const targetForm = doc.forms[target.formUuid];
 	if (
-		doc.forms[target.formUuid] === undefined ||
+		targetForm === undefined ||
 		!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid)
 	) {
 		return { ok: false, reason: "target-not-found" };
 	}
 	if (target.formUuid === formUuid) return { ok: false, reason: "self-target" };
+
+	const sourceForm = doc.forms[formUuid];
+	const sourceModuleUuid = doc.moduleOrder.find((moduleUuid) =>
+		(doc.formOrder[moduleUuid] ?? []).includes(formUuid),
+	);
+	const sourceModule =
+		sourceModuleUuid === undefined ? undefined : doc.modules[sourceModuleUuid];
+	if (
+		sourceForm !== undefined &&
+		sourceModule !== undefined &&
+		!formLinkSelectionIsCompatible({
+			sourceModule,
+			targetModule: mod,
+			sourceLoadsCase: CASE_LOADING_FORM_TYPES.has(sourceForm.type),
+			targetLoadsCase: CASE_LOADING_FORM_TYPES.has(targetForm.type),
+			hasAuthoredDatums: false,
+		})
+	) {
+		return {
+			ok: false,
+			reason: "selection-cardinality",
+			sourceCardinality: caseSelectionCardinality(sourceModule),
+			targetCardinality: caseSelectionCardinality(mod),
+			sourceMaximum: caseSelectionMaximum(sourceModule),
+			targetMaximum: caseSelectionMaximum(mod),
+		};
+	}
 	const adjacency = formLinkAdjacency(doc, {
 		formUuid,
 		...(editingLinkUuid !== undefined && { linkUuid: editingLinkUuid }),

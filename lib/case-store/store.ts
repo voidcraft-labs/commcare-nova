@@ -207,6 +207,18 @@ export interface RestoreScope {
 }
 
 /**
+ * Ordered parent cases selected by a containing menu. The order is retained at
+ * the runtime boundary even though relationship membership is a set query.
+ * One item is the ordinary parent-first flow; several items produce the union
+ * of direct non-extension children. The store re-proves every id belongs to
+ * this app, Project, and case type before admitting any child row.
+ */
+export interface SelectedParentCases {
+	readonly caseType: string;
+	readonly caseIds: readonly string[];
+}
+
+/**
  * Arguments for `CaseStore.query`. Single-shaped result regardless
  * of whether `calculated` is supplied — the `calculated: {}` map per
  * row reads uniformly across consumers.
@@ -232,13 +244,21 @@ export interface QueryArgs {
 	appId: string;
 	caseType: string;
 	/**
-	 * Restrict a nested-menu read to cases directly linked to this selected
-	 * parent through any non-extension case index. This is runtime selection
-	 * state, not authored predicate data: CommCare emits
-	 * `index/*[not(@relationship='extension')] = <selected case>` without
-	 * naming one index identifier, and Preview must use that exact population.
+	 * Restrict the read to this exact selected-case identity set. The SQL still
+	 * enforces app, Project, type, restore, hold, and optional parent scope.
+	 * Callers that validate a running selection omit the authored predicate,
+	 * Search bindings, sorting, and calculated columns, then restore this
+	 * collection's order after the read. Empty returns no rows; at most 100
+	 * unique nonblank ids are accepted.
 	 */
-	parentCaseId?: string;
+	caseIds?: readonly string[];
+	/**
+	 * Restrict a nested-menu read to cases directly linked to any selected
+	 * parent through a non-extension case index. This is runtime selection state,
+	 * not authored predicate data: XPath node-set equality gives the wire the
+	 * same union semantics without naming one index identifier.
+	 */
+	parentCases?: SelectedParentCases;
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 	/**
 	 * Rows-free lookup definitions (table id → column id → data type)
@@ -357,8 +377,8 @@ export type CountArgs =
 			appId: string;
 			caseType: string;
 			ownerId?: never;
-			/** Same selected-parent population contract as `QueryArgs.parentCaseId`. */
-			parentCaseId?: string;
+			/** Same selected-parent population contract as `QueryArgs.parentCases`. */
+			parentCases?: SelectedParentCases;
 			caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 			/** Same contract as `QueryArgs.lookupTableSchemas`. */
 			lookupTableSchemas?: LookupTableSchemas;
@@ -436,7 +456,7 @@ export type CountArgs =
 			appId: string;
 			ownerId: string;
 			caseType?: never;
-			parentCaseId?: never;
+			parentCases?: never;
 			automationCriteria?: never;
 			caseTypeSchemas?: never;
 			lookupTableSchemas?: never;
@@ -469,7 +489,7 @@ export type CountArgs =
 			caseType: string;
 			missingIndexIdentifier: string;
 			ownerId?: never;
-			parentCaseId?: never;
+			parentCases?: never;
 			automationCriteria?: never;
 			caseTypeSchemas?: never;
 			lookupTableSchemas?: never;

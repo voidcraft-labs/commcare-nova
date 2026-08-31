@@ -4,7 +4,8 @@ import { emptyCaseListConfig } from "@/lib/domain";
 // lib/domain/__tests__/modules.test.ts
 //
 // Schema-parse coverage for the `caseListConfig` shape. The schema
-// declares three slots — `columns`, `filter?`, `searchInputs` —
+// declares the case-list collections, optional filter, bounded selection, and
+// presentation metadata
 // with sort, visibility, and calculated arms carried on columns.
 // Every schema in this file is `.strict()`, so unknown keys are
 // rejected at parse rather than stripped silently.
@@ -24,8 +25,9 @@ import { emptyCaseListConfig } from "@/lib/domain";
 //   6. The `SearchInputDef` discriminated union round-trips both
 //      arms; the simple arm requires `property`; the advanced arm
 //      requires `predicate`.
-//   7. `caseListConfig` carries only `columns`, `filter?`, and
-//      `searchInputs`. Unknown top-level keys are rejected at
+//   7. `caseListConfig.selection` has one multiple-selection spelling and a
+//      maximum from 1 through 100; absence is the single-case projection.
+//   8. Unknown top-level keys are rejected at
 //      parse — `safeParse` returns `success: false`.
 
 import { describe, expect, it } from "vitest";
@@ -38,6 +40,9 @@ import {
 	caseListConfigSchema,
 	caseSearchConfigHasAuthoredSettings,
 	caseSearchConfigSchema,
+	caseSelectionCanFlowBetweenModules,
+	caseSelectionCardinality,
+	caseSelectionMaximum,
 	columnSchema,
 	dateColumn,
 	effectiveCaseSearchConfig,
@@ -117,15 +122,14 @@ describe("moduleSchema — caseListConfig presence", () => {
 	});
 });
 
-describe("caseListConfigSchema — three-slot shape", () => {
+describe("caseListConfigSchema — canonical shape", () => {
 	it("parses with empty columns + searchInputs", () => {
 		const parsed = caseListConfigSchema.safeParse(emptyCaseListConfig());
 		expect(parsed.success).toBe(true);
 	});
 
 	it("rejects unknown top-level keys", () => {
-		// `caseListConfigSchema` is `.strict()` and declares exactly
-		// three slots — `columns`, `filter?`, `searchInputs`. Any other
+		// `caseListConfigSchema` is `.strict()`. Any unknown
 		// top-level key fails to parse rather than stripping silently,
 		// so a stale generator emitting an unknown field (e.g.
 		// `detailColumns`) or a typo cannot reach the typed surface.
@@ -141,6 +145,81 @@ describe("caseListConfigSchema — three-slot shape", () => {
 			detailColumns: [{ kind: "plain", field: "phone", header: "Phone" }],
 		});
 		expect(parsed.success).toBe(false);
+	});
+
+	it.each([1, 100])(
+		"round-trips multiple selection with maximum %i",
+		(maximum) => {
+			const config = {
+				...emptyCaseListConfig(),
+				selection: { kind: "multiple", maximum } as const,
+			};
+			const parsed = caseListConfigSchema.safeParse(config);
+			expect(parsed.success).toBe(true);
+			if (parsed.success) expect(parsed.data).toEqual(config);
+			expect(caseSelectionCardinality({ caseListConfig: config })).toBe(
+				"multiple",
+			);
+			expect(caseSelectionMaximum({ caseListConfig: config })).toBe(maximum);
+		},
+	);
+
+	it.each([0, 101, 1.5, -0])(
+		"rejects a noncanonical multiple-selection maximum (%s)",
+		(maximum) => {
+			expect(
+				caseListConfigSchema.safeParse({
+					...emptyCaseListConfig(),
+					selection: { kind: "multiple", maximum },
+				}).success,
+			).toBe(false);
+		},
+	);
+
+	it("projects absent selection as one case", () => {
+		expect(
+			caseSelectionCardinality({ caseListConfig: emptyCaseListConfig() }),
+		).toBe("single");
+		expect(
+			caseSelectionMaximum({ caseListConfig: emptyCaseListConfig() }),
+		).toBe(1);
+		expect(caseSelectionCardinality({})).toBe("single");
+		expect(caseSelectionMaximum({})).toBe(1);
+	});
+
+	it("proves inherited selection from authored shapes, not the current count", () => {
+		const multiple = (caseType: string, maximum: number) => ({
+			caseType,
+			caseListConfig: {
+				...emptyCaseListConfig(),
+				selection: { kind: "multiple" as const, maximum },
+			},
+		});
+
+		expect(
+			caseSelectionCanFlowBetweenModules(
+				multiple("patient", 5),
+				multiple("patient", 5),
+			),
+		).toBe(true);
+		expect(
+			caseSelectionCanFlowBetweenModules(
+				multiple("patient", 5),
+				multiple("patient", 4),
+			),
+		).toBe(false);
+		expect(
+			caseSelectionCanFlowBetweenModules(
+				multiple("patient", 5),
+				multiple("visit", 5),
+			),
+		).toBe(false);
+		expect(
+			caseSelectionCanFlowBetweenModules(
+				{ caseType: "patient", caseListConfig: emptyCaseListConfig() },
+				multiple("patient", 5),
+			),
+		).toBe(false);
 	});
 });
 

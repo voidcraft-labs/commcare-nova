@@ -9,8 +9,10 @@
 //
 //   1. **Expand** the authored operations over the physical
 //      multiplicity scopes: the root scope first, then each repeat
-//      scope iteration-major — JavaRosa's document-order walk of the
-//      submitted instance.
+//      scope iteration-major. Form-level operations run once per
+//      authored iteration; only session-targeted operations add the
+//      selected-case inner axis, matching the nested model repeat the
+//      XForm emitter builds.
 //   2. **Allocate** every create identity in TypeScript before any
 //      evaluation: generated ids mint `uuidv7()`; authored keys run
 //      `deriveAuthoredCaseId` (the same versioned contract the XForm
@@ -82,6 +84,7 @@ import type { CaseUpdate } from "../store";
 import type {
 	ApplySubmissionArgs,
 	CaseOperationProgram,
+	CreatedChildCaseReceipt,
 	EnvelopeCaseOperation,
 	OperationEffectRecord,
 	SubmissionCaseSeed,
@@ -148,16 +151,21 @@ interface PhysicalInstance {
 	readonly envelope: EnvelopeCaseOperation;
 	readonly scopeRepeat: Uuid | undefined;
 	readonly iteration: number;
+	readonly selection: number;
+	readonly sessionCaseId: string | undefined;
 	readonly formFields: ReadonlyMap<Uuid, FormFieldBindingValue>;
 }
 
 /**
  * Expand authored `(order, uuid)` sequence over the physical scopes:
  * for each scope in wire document order, for each live iteration, the
- * scope's operations in authored order. The caller supplies scopes in
- * wire order (root first, repeats in post-order traversal); the
- * executor trusts the ORDER but verifies the structure so a malformed
- * program fails loudly instead of silently dropping operations.
+ * form-level operations once and then each selected case's session-targeted
+ * operations. Valid-by-construction ordering puts every form-level operation
+ * before the selected-case phase; within each phase authored order is
+ * preserved. The caller supplies scopes in wire order (root first, repeats in
+ * post-order traversal); the executor trusts the ORDER but verifies the
+ * structure so a malformed program fails loudly instead of silently dropping
+ * operations.
  */
 function expandPhysicalInstances(
 	program: CaseOperationProgram,
@@ -179,19 +187,46 @@ function expandPhysicalInstances(
 	}
 
 	const instances: PhysicalInstance[] = [];
+	const selectedCases =
+		program.sessionCaseIds === undefined
+			? [{ selection: 0, caseId: undefined }]
+			: program.sessionCaseIds.map((caseId, selection) => ({
+					selection,
+					caseId,
+				}));
 	for (const scope of program.scopes) {
 		const scopeOperations = program.operations.filter(
 			(entry) => entry.operation.forEach?.repeat === scope.repeat,
 		);
 		if (scopeOperations.length === 0) continue;
+		const formLevelOperations = scopeOperations.filter(
+			(entry) => entry.operation.target.kind !== "session",
+		);
+		const selectedCaseOperations = scopeOperations.filter(
+			(entry) => entry.operation.target.kind === "session",
+		);
 		for (const [iteration, bindings] of scope.iterations.entries()) {
-			for (const entry of scopeOperations) {
+			for (const entry of formLevelOperations) {
 				instances.push({
 					envelope: entry,
 					scopeRepeat: scope.repeat,
 					iteration,
+					selection: 0,
+					sessionCaseId: undefined,
 					formFields: bindings.formFields,
 				});
+			}
+			for (const selected of selectedCases) {
+				for (const entry of selectedCaseOperations) {
+					instances.push({
+						envelope: entry,
+						scopeRepeat: scope.repeat,
+						iteration,
+						selection: selected.selection,
+						sessionCaseId: selected.caseId,
+						formFields: bindings.formFields,
+					});
+				}
 			}
 		}
 	}
@@ -279,10 +314,13 @@ function allocateCreateIdentities(
 
 /**
  * The `id-of` / `op`-target allocation record one instance may read:
- * every root create, plus same-scope creates of the SAME iteration.
- * A repeated create's id never escapes its iteration — the authoring
- * gate enforces the correlation, and an uncorrelated reference here
- * surfaces as the compiler's missing-binding invariant.
+ * every root create, plus same-scope creates of the SAME authored repeat
+ * iteration. Creates are form-level and therefore run outside the selected-
+ * case axis; one allocation is visible to every selected-case operation in
+ * that authored iteration. A repeated create's id never escapes its authored
+ * iteration — the authoring gate enforces the correlation, and an
+ * uncorrelated reference here surfaces as the compiler's missing-binding
+ * invariant.
  */
 function operationIdsFor(
 	instances: readonly PhysicalInstance[],
@@ -338,7 +376,7 @@ async function evaluateBatch(
 	host: SubmissionEnvelopeHost,
 	appId: string,
 	program: CaseOperationProgram,
-	session: SessionAnchor | undefined,
+	sessionFor: (instance: number) => SessionAnchor | undefined,
 	bindingsFor: (instance: number) => TermBindings,
 	requests: readonly EvalRequest[],
 ): Promise<unknown[]> {
@@ -349,6 +387,7 @@ async function evaluateBatch(
 		const eb = expressionBuilder<Database, "cases">();
 		const selections = chunk.map((request, offset) => {
 			const alias = `e${offset}`;
+			const session = sessionFor(request.instance);
 			const ctx: PredicateCompileContext = {
 				db: trx,
 				appId,
@@ -364,47 +403,46 @@ async function evaluateBatch(
 					: { lookupTableSchemas: program.lookupTableSchemas }),
 				bindings: bindingsFor(request.instance),
 			};
-			if (request.predicate !== undefined) {
-				return eb
-					.case()
-					.when(compilePredicate(request.predicate, ctx))
-					.then(true)
-					.else(false)
-					.end()
-					.as(alias);
+			const projection =
+				request.predicate !== undefined
+					? eb
+							.case()
+							.when(compilePredicate(request.predicate, ctx))
+							.then(true)
+							.else(false)
+							.end()
+					: request.expression !== undefined
+						? compileExpression(request.expression, expressionContextFor(ctx))
+						: undefined;
+			if (projection === undefined) {
+				throw new Error(
+					compilerBugMessage({
+						where: "case-store.submissionEnvelope.evaluateBatch",
+						invariant:
+							"an evaluation request carried neither expression nor predicate",
+						detail:
+							"Each request is exactly one of the two shapes; the projection builders in this module construct them. Hint: an empty request indicates a builder emitted a placeholder without content.",
+					}),
+				);
 			}
-			if (request.expression !== undefined) {
-				return compileExpression(
-					request.expression,
-					expressionContextFor(ctx),
-				).as(alias);
-			}
+			if (session === undefined) return projection.as(alias);
+			return trx
+				.selectFrom("cases as c")
+				.select(projection.as("value"))
+				.where("c.app_id", "=", appId)
+				.where("c.case_id", "=", session.caseId)
+				.where("c.project_id", "=", host.projectId)
+				.limit(1)
+				.as(alias);
+		});
+		const row = await trx.selectNoFrom(selections).executeTakeFirst();
+		if (row === undefined) {
 			throw new Error(
 				compilerBugMessage({
 					where: "case-store.submissionEnvelope.evaluateBatch",
-					invariant:
-						"an evaluation request carried neither expression nor predicate",
-					detail:
-						"Each request is exactly one of the two shapes; the projection builders in this module construct them. Hint: an empty request indicates a builder emitted a placeholder without content.",
+					invariant: "an expression-only SELECT returned no result row",
 				}),
 			);
-		});
-		const row =
-			session === undefined
-				? await trx.selectNoFrom(selections).executeTakeFirst()
-				: await trx
-						.selectFrom("cases as c")
-						.select(selections)
-						.where("c.app_id", "=", appId)
-						.where("c.case_id", "=", session.caseId)
-						.where("c.project_id", "=", host.projectId)
-						.executeTakeFirst();
-		if (row === undefined) {
-			// The session row vanished between the snapshot load and this
-			// SELECT — impossible while the app's relationship advisory
-			// lock serializes actor writers; treat as the ordinary
-			// not-found so the caller's typed arm fires.
-			throw new CaseNotFoundError(session?.caseId ?? "");
 		}
 		const record = row as Record<string, unknown>;
 		for (let offset = 0; offset < chunk.length; offset++) {
@@ -565,11 +603,160 @@ interface ResolvedLink {
 	readonly snapshotCaseType?: string;
 }
 
+const MAX_SELECTED_CASES = 100;
+
+function rejectSelection(
+	rejection: Extract<
+		ConstructorParameters<typeof SubmissionRejectedError>[0],
+		{ kind: "selection" }
+	>,
+): never {
+	throw new SubmissionRejectedError(rejection);
+}
+
+function validatedSelectedCaseIds(
+	args: ApplySubmissionArgs,
+): readonly string[] {
+	const ordinary = args.ordinary;
+	if (ordinary.kind !== "followup" && ordinary.kind !== "close") {
+		const programCaseIds = args.operations?.sessionCaseIds;
+		if (ordinary.kind === "registration" && programCaseIds !== undefined) {
+			rejectSelection({
+				kind: "selection",
+				reason: "program-selection-mismatch",
+			});
+		}
+		if (programCaseIds === undefined) return [];
+		if (programCaseIds.length === 0) {
+			rejectSelection({
+				kind: "selection",
+				reason: "empty",
+				maximum: MAX_SELECTED_CASES,
+			});
+		}
+		if (programCaseIds.length > MAX_SELECTED_CASES) {
+			rejectSelection({
+				kind: "selection",
+				reason: "too-many",
+				maximum: MAX_SELECTED_CASES,
+			});
+		}
+		const seen = new Set<string>();
+		for (const caseId of programCaseIds) {
+			if (caseId.trim().length === 0) {
+				rejectSelection({
+					kind: "selection",
+					reason: "not-found-or-out-of-scope",
+					caseId,
+				});
+			}
+			if (seen.has(caseId)) {
+				rejectSelection({ kind: "selection", reason: "duplicate", caseId });
+			}
+			seen.add(caseId);
+		}
+		return programCaseIds;
+	}
+	const caseIds = ordinary.caseIds;
+	const maximum = ordinary.selection.maximum;
+	if (
+		!Number.isInteger(maximum) ||
+		maximum < 1 ||
+		maximum > MAX_SELECTED_CASES ||
+		(ordinary.selection.kind === "single" && maximum !== 1)
+	) {
+		rejectSelection({
+			kind: "selection",
+			reason: "too-many",
+			maximum: Math.min(MAX_SELECTED_CASES, Math.max(1, maximum)),
+		});
+	}
+	if (caseIds.length === 0) {
+		rejectSelection({ kind: "selection", reason: "empty", maximum });
+	}
+	if (caseIds.length > maximum || caseIds.length > MAX_SELECTED_CASES) {
+		rejectSelection({ kind: "selection", reason: "too-many", maximum });
+	}
+	const seen = new Set<string>();
+	for (const caseId of caseIds) {
+		if (caseId.trim().length === 0) {
+			rejectSelection({
+				kind: "selection",
+				reason: "not-found-or-out-of-scope",
+				caseId,
+			});
+		}
+		if (seen.has(caseId)) {
+			rejectSelection({ kind: "selection", reason: "duplicate", caseId });
+		}
+		seen.add(caseId);
+	}
+	if (ordinary.selection.kind === "single" && caseIds.length !== 1) {
+		rejectSelection({ kind: "selection", reason: "too-many", maximum: 1 });
+	}
+	if (
+		args.operations !== undefined &&
+		(args.operations.sessionCaseIds === undefined ||
+			args.operations.sessionCaseIds.length !== caseIds.length ||
+			args.operations.sessionCaseIds.some(
+				(caseId, index) => caseId !== caseIds[index],
+			))
+	) {
+		rejectSelection({
+			kind: "selection",
+			reason: "program-selection-mismatch",
+		});
+	}
+	if (ordinary.selection.kind === "multiple") {
+		if (
+			Object.keys(ordinary.patch.properties).length > 0 ||
+			ordinary.patch.caseName !== undefined ||
+			ordinary.patch.externalId !== undefined
+		) {
+			rejectSelection({
+				kind: "selection",
+				reason: "ordinary-primary-write-not-supported",
+			});
+		}
+		for (const entry of args.operations?.operations ?? []) {
+			if (
+				entry.operation.action === "create" &&
+				entry.operation.target.kind === "new" &&
+				entry.operation.target.idFrom !== undefined
+			) {
+				rejectSelection({
+					kind: "selection",
+					reason: "authored-key-create-not-supported",
+				});
+			}
+			if (
+				(entry.operation.links ?? []).some(
+					(link) => link.target?.kind === "session",
+				)
+			) {
+				rejectSelection({
+					kind: "selection",
+					reason: "session-link-not-supported",
+				});
+			}
+		}
+	}
+	return caseIds;
+}
+
 export async function executeSubmissionEnvelope(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
 	args: ApplySubmissionArgs,
 ): Promise<SubmissionEnvelopeResult> {
+	const selectedCaseIds = validatedSelectedCaseIds(args);
+	const sessionAnchors = await loadSelectedCaseAnchors(
+		trx,
+		host,
+		args.appId,
+		args.ordinary,
+		selectedCaseIds,
+	);
 	const operationRecords: OperationEffectRecord[] = [];
 	let resolved: ResolvedInstance[] = [];
 
@@ -580,11 +767,13 @@ export async function executeSubmissionEnvelope(
 			args.appId,
 			args.operations,
 			args.ordinary,
+			sessionAnchors,
 		);
 		for (const entry of resolved) {
 			operationRecords.push({
 				operationUuid: entry.instance.envelope.operation.uuid,
 				iteration: entry.instance.iteration,
+				selection: entry.instance.selection,
 				action: entry.instance.envelope.operation.action,
 				caseId: entry.caseId,
 				executed: entry.executed,
@@ -623,6 +812,7 @@ async function resolveOperationProgram(
 	appId: string,
 	program: CaseOperationProgram,
 	ordinary: ApplySubmissionArgs["ordinary"],
+	sessions: ReadonlyMap<string, SessionAnchor>,
 ): Promise<ResolvedInstance[]> {
 	const instances = expandPhysicalInstances(program);
 	const allocations = allocateCreateIdentities(appId, program, instances);
@@ -630,7 +820,10 @@ async function resolveOperationProgram(
 	// The pre-submission session anchor. Loaded first (and inside the
 	// transaction, after the advisory lock) so every evaluation and
 	// descriptor below reads one immutable snapshot.
-	const session = await loadSessionAnchor(trx, host, appId, program);
+	const sessionFor = (index: number): SessionAnchor | undefined => {
+		const caseId = instances[index]?.sessionCaseId;
+		return caseId === undefined ? undefined : sessions.get(caseId);
+	};
 
 	const bindingsFor = (index: number): TermBindings => {
 		const instance = instances[index];
@@ -687,7 +880,7 @@ async function resolveOperationProgram(
 		host,
 		appId,
 		program,
-		session,
+		sessionFor,
 		bindingsFor,
 		conditionRequests,
 	);
@@ -779,7 +972,7 @@ async function resolveOperationProgram(
 		host,
 		appId,
 		program,
-		session,
+		sessionFor,
 		bindingsFor,
 		valueRequests,
 	);
@@ -837,10 +1030,7 @@ async function resolveOperationProgram(
 	}
 	const knownRows = await loadTargetRows(trx, host, appId, {
 		unheldIds: expressionIds.filter((id) => id !== ""),
-		anyIds: [
-			...authoredIds,
-			...(program.sessionCaseId === undefined ? [] : [program.sessionCaseId]),
-		],
+		anyIds: [...authoredIds, ...(program.sessionCaseIds ?? [])],
 	});
 
 	// Resolve every executing instance's target + links.
@@ -889,7 +1079,7 @@ async function resolveOperationProgram(
 					};
 				}
 				case "session": {
-					if (program.sessionCaseId === undefined) {
+					if (instance.sessionCaseId === undefined) {
 						throw new SubmissionRejectedError({
 							kind: "target",
 							operationUuid: operation.uuid,
@@ -897,7 +1087,7 @@ async function resolveOperationProgram(
 							reason: "not-found-or-out-of-scope",
 						});
 					}
-					const row = knownRows.get(program.sessionCaseId);
+					const row = knownRows.get(instance.sessionCaseId);
 					if (row === undefined) {
 						throw new SubmissionRejectedError({
 							kind: "target",
@@ -907,7 +1097,7 @@ async function resolveOperationProgram(
 						});
 					}
 					return {
-						caseId: program.sessionCaseId,
+						caseId: instance.sessionCaseId,
 						snapshotCaseType: row.caseType,
 						mergesExisting: false,
 					};
@@ -1021,8 +1211,8 @@ async function resolveOperationProgram(
 				}
 				if (linkTarget.kind === "session") {
 					if (
-						program.sessionCaseId === undefined ||
-						!knownRows.has(program.sessionCaseId)
+						instance.sessionCaseId === undefined ||
+						!knownRows.has(instance.sessionCaseId)
 					) {
 						throw new SubmissionRejectedError({
 							kind: "target",
@@ -1032,8 +1222,8 @@ async function resolveOperationProgram(
 						});
 					}
 					return {
-						caseId: program.sessionCaseId,
-						snapshotCaseType: knownRows.get(program.sessionCaseId)?.caseType,
+						caseId: instance.sessionCaseId,
+						snapshotCaseType: knownRows.get(instance.sessionCaseId)?.caseType,
 					};
 				}
 				const evaluated = evaluatedText(bag?.links.get(linkIndex));
@@ -1235,24 +1425,25 @@ async function resolveOperationProgram(
 	// parent link). A write-free, child-free close stays type-blind.
 	if (
 		(ordinary.kind === "followup" || ordinary.kind === "close") &&
-		ordinary.caseType !== undefined &&
 		(Object.keys(ordinary.patch.properties).length > 0 ||
 			ordinary.patch.caseName !== undefined ||
 			ordinary.patch.externalId !== undefined ||
 			ordinary.children.length > 0)
 	) {
-		const boundRow = knownRows.get(ordinary.caseId);
-		steps.push({
-			operationUuid: "__ordinary__",
-			action: "update",
-			target: {
-				caseId: ordinary.caseId,
-				...(boundRow === undefined
-					? {}
-					: { snapshotCaseType: boundRow.caseType }),
-			},
-			expectedCaseType: ordinary.caseType,
-		});
+		for (const caseId of ordinary.caseIds) {
+			const boundRow = knownRows.get(caseId);
+			steps.push({
+				operationUuid: "__ordinary__",
+				action: "update",
+				target: {
+					caseId,
+					...(boundRow === undefined
+						? {}
+						: { snapshotCaseType: boundRow.caseType }),
+				},
+				expectedCaseType: ordinary.caseType,
+			});
+		}
 	}
 	const verdict = validateResolvedCaseOperationTypeSequence(steps);
 	if (!verdict.ok) {
@@ -1267,22 +1458,50 @@ async function resolveOperationProgram(
 	return resolvedInstances;
 }
 
-async function loadSessionAnchor(
+async function loadSelectedCaseAnchors(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
 	appId: string,
-	program: CaseOperationProgram,
-): Promise<SessionAnchor | undefined> {
-	if (program.sessionCaseId === undefined) return undefined;
-	const row = await trx
+	ordinary: ApplySubmissionArgs["ordinary"],
+	caseIds: readonly string[],
+): Promise<ReadonlyMap<string, SessionAnchor>> {
+	if (caseIds.length === 0) return new Map();
+	const rows = await trx
 		.selectFrom("cases as c")
 		.select(["c.case_id", "c.case_type"])
 		.where("c.app_id", "=", appId)
-		.where("c.case_id", "=", program.sessionCaseId)
+		.where("c.case_id", "in", caseIds)
 		.where("c.project_id", "=", host.projectId)
-		.executeTakeFirst();
-	if (row === undefined) throw new CaseNotFoundError(program.sessionCaseId);
-	return { caseId: row.case_id, caseType: row.case_type };
+		.execute();
+	const byId = new Map(
+		rows.map((row) => [
+			row.case_id,
+			{ caseId: row.case_id, caseType: row.case_type },
+		]),
+	);
+	for (const caseId of caseIds) {
+		const row = byId.get(caseId);
+		if (row === undefined) {
+			rejectSelection({
+				kind: "selection",
+				reason: "not-found-or-out-of-scope",
+				caseId,
+			});
+		}
+		if (
+			(ordinary.kind === "followup" || ordinary.kind === "close") &&
+			row.caseType !== ordinary.caseType
+		) {
+			rejectSelection({
+				kind: "selection",
+				reason: "case-type-mismatch",
+				caseId,
+				expectedCaseType: ordinary.caseType,
+				actualCaseType: row.caseType,
+			});
+		}
+	}
+	return byId;
 }
 
 /**
@@ -1767,7 +1986,7 @@ async function applyOrdinaryAction(
 	const ordinary = args.ordinary;
 	switch (ordinary.kind) {
 		case "none":
-			return { childCaseIds: [] };
+			return { primaryCaseIds: [], createdChildren: [] };
 		case "registration": {
 			const primaryCaseId = await host.insertCase(trx, {
 				appId,
@@ -1780,27 +1999,30 @@ async function applyOrdinaryAction(
 					properties: ordinary.primary.properties,
 				},
 			});
-			const childCaseIds: string[] = [];
-			for (const child of ordinary.children) {
-				childCaseIds.push(
-					await host.insertCase(trx, {
-						appId,
-						seed: {
-							caseType: child.caseType,
-							caseName: requireCaseName(child, "child"),
-							...(child.externalId === undefined
-								? {}
-								: { externalId: child.externalId }),
-							properties: child.properties,
-							parentCaseId: primaryCaseId,
-							...(child.parentRelationship === undefined
-								? {}
-								: { parentRelationship: child.parentRelationship }),
-						},
-					}),
-				);
+			const createdChildren: CreatedChildCaseReceipt[] = [];
+			for (const [authoredChildIndex, child] of ordinary.children.entries()) {
+				const caseId = await host.insertCase(trx, {
+					appId,
+					seed: {
+						caseType: child.caseType,
+						caseName: requireCaseName(child, "child"),
+						...(child.externalId === undefined
+							? {}
+							: { externalId: child.externalId }),
+						properties: child.properties,
+						parentCaseId: primaryCaseId,
+						...(child.parentRelationship === undefined
+							? {}
+							: { parentRelationship: child.parentRelationship }),
+					},
+				});
+				createdChildren.push({
+					authoredChildIndex,
+					parentCaseId: primaryCaseId,
+					caseId,
+				});
 			}
-			return { primaryCaseId, childCaseIds };
+			return { primaryCaseIds: [primaryCaseId], createdChildren };
 		}
 		case "followup":
 		case "close": {
@@ -1809,9 +2031,15 @@ async function applyOrdinaryAction(
 			const hasCaseNameWrite = ordinary.patch.caseName !== undefined;
 			const hasExternalIdWrite = ordinary.patch.externalId !== undefined;
 			if (hasPropertyWrites || hasCaseNameWrite || hasExternalIdWrite) {
+				if (ordinary.caseIds.length !== 1) {
+					rejectSelection({
+						kind: "selection",
+						reason: "ordinary-primary-write-not-supported",
+					});
+				}
 				await host.updateCase(trx, {
 					appId,
-					caseId: ordinary.caseId,
+					caseId: ordinary.caseIds[0] as string,
 					patch: {
 						...(hasPropertyWrites
 							? { properties: ordinary.patch.properties }
@@ -1823,10 +2051,10 @@ async function applyOrdinaryAction(
 					},
 				});
 			}
-			const childCaseIds: string[] = [];
-			for (const child of ordinary.children) {
-				childCaseIds.push(
-					await host.insertCase(trx, {
+			const createdChildren: CreatedChildCaseReceipt[] = [];
+			for (const [authoredChildIndex, child] of ordinary.children.entries()) {
+				for (const parentCaseId of ordinary.caseIds) {
+					const caseId = await host.insertCase(trx, {
 						appId,
 						seed: {
 							caseType: child.caseType,
@@ -1835,18 +2063,25 @@ async function applyOrdinaryAction(
 								? {}
 								: { externalId: child.externalId }),
 							properties: child.properties,
-							parentCaseId: child.parentCaseId,
+							parentCaseId,
 							...(child.parentRelationship === undefined
 								? {}
 								: { parentRelationship: child.parentRelationship }),
 						},
-					}),
-				);
+					});
+					createdChildren.push({
+						authoredChildIndex,
+						parentCaseId,
+						caseId,
+					});
+				}
 			}
 			if (ordinary.kind === "close") {
-				await host.closeCase(trx, { appId, caseId: ordinary.caseId });
+				for (const caseId of ordinary.caseIds) {
+					await host.closeCase(trx, { appId, caseId });
+				}
 			}
-			return { primaryCaseId: ordinary.caseId, childCaseIds };
+			return { primaryCaseIds: ordinary.caseIds, createdChildren };
 		}
 		default: {
 			const _exhaustive: never = ordinary;

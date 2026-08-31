@@ -256,6 +256,82 @@ function makeStore(
 	});
 }
 
+describe("PostgresCaseStore selected-parent sets", () => {
+	it("returns the union of direct children only after validating the complete parent set", async () => {
+		const store = makeStore(OWNER_A);
+		const caseTypes: CaseType[] = [
+			{ name: "household", properties: [] },
+			{ name: "visit", parent_type: "household", properties: [] },
+		];
+		const caseTypeSchemas = buildCaseTypeMap(
+			buildSimpleBlueprint(caseTypes, APP_ID),
+		);
+		for (const caseType of caseTypes) {
+			await store.applySchemaChange({
+				appId: APP_ID,
+				caseType: caseType.name,
+				caseTypeSchemas,
+			});
+		}
+		for (const parentId of ["household-a", "household-b"] as const) {
+			await store.insert({
+				appId: APP_ID,
+				row: {
+					case_id: parentId,
+					case_type: "household",
+					case_name: parentId,
+					properties: {},
+				},
+			});
+		}
+		for (const [caseId, parentCaseId] of [
+			["visit-a", "household-a"],
+			["visit-b", "household-b"],
+		] as const) {
+			await store.insert({
+				appId: APP_ID,
+				parentRelationship: "child",
+				row: {
+					case_id: caseId,
+					case_type: "visit",
+					case_name: caseId,
+					parent_case_id: parentCaseId,
+					properties: {},
+				},
+			});
+		}
+
+		const parentCases = {
+			caseType: "household",
+			caseIds: ["household-b", "household-a"],
+		} as const;
+		expect(
+			(await store.query({ appId: APP_ID, caseType: "visit", parentCases }))
+				.map((row) => row.case_id)
+				.sort(),
+		).toEqual(["visit-a", "visit-b"]);
+		expect(
+			await store.count({ appId: APP_ID, caseType: "visit", parentCases }),
+		).toBe(2);
+
+		for (const invalidParentCases of [
+			{ caseType: "visit", caseIds: ["household-a"] },
+			{
+				caseType: "household",
+				caseIds: ["household-a", "missing-household"],
+			},
+		] as const) {
+			expect(
+				await store.query({
+					appId: APP_ID,
+					caseType: "visit",
+					parentCases: invalidParentCases,
+				}),
+			).toEqual([]);
+		}
+	});
+});
+
 describe("PostgresCaseStore.readDeviceCaseDatabase", () => {
 	it("returns every direct parent and custom edge with ancestor metadata", async () => {
 		const store = makeStore(OWNER_A);

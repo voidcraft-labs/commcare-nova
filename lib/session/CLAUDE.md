@@ -16,9 +16,17 @@ Same as `lib/doc`: the store is private. Consumers go through the named hooks in
 
 The running menu keeps three distinct case facts, and they must not collapse:
 
-- `previewCaseTarget` means one exact Form is opening with one case.
-- `previewSelectedCase` mirrors the record currently open on Results for the breadcrumb/detail step.
-- `previewMenuCaseSelections` is keyed by module UUID and binds a case to that menu. It survives ordinary in-Preview navigation so a parent menu can keep its Forms and child tiles available; a same-type child may reuse it without turning the Form target into shared state.
+- `previewCaseTarget` means one exact Form is opening with an ordered `cases`
+  collection. Absence is still waiting for Results, an empty collection is an
+  explicitly blank link, one is the ordinary scalar workflow, and many is the
+  batch workflow.
+- `previewSelectedCase` mirrors the one record currently open on Results for the
+  breadcrumb/Details step. Opening Details never changes the selected set.
+- `previewMenuCaseSelections` is keyed by module UUID and binds a case type plus
+  its ordered `cases` collection to that menu. It survives ordinary in-Preview
+  navigation so a parent menu can keep its Forms and child tiles available; a
+  compatible same-type child may reuse it without turning the Form target into
+  shared state.
 
 `previewParentCaseRequest` is a separate selector plus ordered return chain, so
 multi-level case ancestry can visit each required selector before the original
@@ -29,11 +37,21 @@ module is derived from case-type `parent_type`, not from structural
 `parentModuleUuid`; this keeps menu ancestry and case ancestry independent when
 a nested child belongs under one menu but its case parent is selected through
 another module. Explicit cancel, browser Back, and navigation away clear the
-request so an abandoned selector cannot redirect a later visit. All four facts
-clear on Preview mode or persona changes and on a confirmed Project boundary.
+request so an abandoned selector cannot redirect a later visit. All navigation
+facts clear on Preview mode or persona changes and on a confirmed Project
+boundary.
 They are session-only and never enter the document, undo history, or persisted
 app state; the locations are navigation return intents, not durable routing
 state.
+
+Every collection is ordered and duplicate-free. Continue copies the exact set
+into the Form target; same-type inheritance may reuse it only when the
+destination has the same scalar/collection cardinality and its authored maximum
+is large enough. A scalar/set transition or a different case type starts a fresh
+target selection. Search, paging, Details, Back, and compatible menu navigation
+retain the set. Preview reset, persona change, Project boundary, or module
+removal clears it. A maximum change does not trim it: the running screen holds
+the over-limit set until the worker removes enough cases.
 
 ## Connect UI state is not Connect document ownership
 

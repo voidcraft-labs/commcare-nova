@@ -25,6 +25,7 @@ import {
 	collectPredicateInstances,
 } from "../../predicate";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
+import { SEARCH_SELECTED_CASES_ID } from "./claim";
 import { buildSearchPrompts, getAdvancedArmPredicates } from "./searchPrompts";
 import {
 	deriveSimpleArmPredicate,
@@ -261,14 +262,18 @@ export function buildSearchSession(args: {
 	// `m{N}_case_short` / `m{N}_case_long` ids the local case-list
 	// entry uses.
 	const datumNodeset = composeDatumNodeset(storageInstance, caseType);
-	const datumEl = el("datum", {
-		id: "search_case_id",
+	const multiple = caseListConfig.selection?.kind === "multiple";
+	const datumEl = el(multiple ? "instance-datum" : "datum", {
+		id: multiple ? SEARCH_SELECTED_CASES_ID : "search_case_id",
 		nodeset: datumNodeset,
 		value: "./@case_id",
 		...((args.hasDetailScreen ?? true) && {
 			"detail-confirm": `${moduleId}_search_long`,
 		}),
 		"detail-select": `${moduleId}_search_short`,
+		...(multiple && {
+			"max-select-value": String(caseListConfig.selection?.maximum),
+		}),
 	});
 
 	const sessionEl = el("session", {}, [queryEl, datumEl]);
@@ -289,6 +294,7 @@ export function buildSearchSession(args: {
 		"casedb",
 		"commcaresession",
 		storageInstance,
+		...(multiple ? [SEARCH_SELECTED_CASES_ID] : []),
 	]);
 
 	// Every Term ref reachable from a wire-emitted XPath needs its

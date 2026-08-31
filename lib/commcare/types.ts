@@ -195,6 +195,13 @@ export interface SortElement {
 }
 
 export interface DetailBase {
+	/**
+	 * CommCare's case-list cardinality. These fields are written only on the
+	 * short detail: the long detail is a confirmation surface, not a selector.
+	 * Omission keeps CommCare's single-select defaults.
+	 */
+	multi_select?: boolean;
+	max_select_value?: number;
 	sort_elements: SortElement[];
 	tabs: unknown[];
 	/** Always-on filter applied to the case list nodeset, before user

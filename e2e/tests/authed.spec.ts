@@ -1248,9 +1248,11 @@ test.describe("authenticated builder", () => {
 			page.getByRole("button", { name: "Collapse chat sidebar" }),
 		).toBeVisible();
 
-		// Results reads in the worker-facing order: what each row says, which
-		// cases may appear, then how the matching rows are ordered.
+		// Results reads in the worker-facing order: how many cases move into a
+		// form, what each row says, which cases may appear, then how the matching
+		// rows are ordered.
 		await expect(page.locator("[data-case-list-layout] h2")).toHaveText([
+			"Case selection",
 			"Information shown",
 			"Cases available",
 			"Default order",
@@ -2518,7 +2520,9 @@ test.describe("authenticated builder", () => {
 		await test.step("the list says so, permanently", async () => {
 			await page.goBack();
 			await expect(list).toBeVisible({ timeout: 20_000 });
-			await expect(list).toContainText("Choosing a group opens its first case");
+			await expect(list).toContainText(
+				"Choosing a group selects its first case",
+			);
 		});
 	});
 

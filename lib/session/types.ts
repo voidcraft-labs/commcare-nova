@@ -34,19 +34,20 @@ export type SidebarState = { open: boolean; stashed: boolean | undefined };
  * `formUuid` is the destination form: seeded when the user taps a
  * case-loading form in the module menu, or defaulted by the case list to
  * the module's first case-loading form when previewing the list directly.
- * `caseId` / `caseName` are filled once the user picks a case and continues,
- * or by a form's after-submit link carrying the case the next form opens
- * with. `caseId` is `""` when that link's session value was blank: the form
- * is then bound to nothing and says so, rather than auto-selecting a case
- * (absent `caseId`) the device would not have opened.
- * PreviewShell reads `caseId` to preload that form with the chosen case;
- * the breadcrumb reads `caseName` to name the bound case on the form. It's
- * cleared on every preview-mode toggle so each preview session starts caseless.
+ * `cases` is filled once the worker continues from Results, or by a form link
+ * carrying the case value the next form opens with. Absence means the
+ * destination is still waiting for Results; an empty array is an explicit
+ * blank link and must never auto-select; one and many cases use the same
+ * ordered collection. It is cleared on every preview-mode toggle.
  */
+export interface PreviewCaseChoice {
+	readonly caseId: string;
+	readonly caseName?: string;
+}
+
 export interface PreviewCaseTarget {
 	formUuid: Uuid;
-	caseId?: string;
-	caseName?: string;
+	cases?: readonly PreviewCaseChoice[];
 	/** Post-submit local-device world carried by a direct form link. A fresh
 	 * restore may omit a case the device just closed, but the linked form still
 	 * opens against the case and casedb state the submitting entry committed. */
@@ -78,10 +79,10 @@ export interface PreviewSelectedCase {
  */
 export interface PreviewMenuCaseSelection {
 	caseType: string;
-	caseId: string;
-	caseName: string;
-	/** Flattened selected-row values for case-scoped form visibility. */
-	caseProperties?: Readonly<Record<string, string>>;
+	cases: readonly (PreviewCaseChoice & {
+		/** Flattened selected-row values for case-scoped form visibility. */
+		readonly caseProperties?: Readonly<Record<string, string>>;
+	})[];
 }
 
 /** A case-type parent selection that must happen before a target module can

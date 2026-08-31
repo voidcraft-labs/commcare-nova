@@ -72,6 +72,16 @@ import {
 import { SearchInputForm } from "@/components/preview/shared/SearchInputForm";
 import { useColumnDisplayContext } from "@/components/preview/shared/useColumnDisplayContext";
 import { Button } from "@/components/shadcn/button";
+import { Checkbox } from "@/components/shadcn/checkbox";
+import {
+	Dialog,
+	DialogBody,
+	DialogContent,
+	DialogDescription,
+	DialogFooter,
+	DialogHeader,
+	DialogTitle,
+} from "@/components/shadcn/dialog";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAuth } from "@/lib/auth/hooks/useAuth";
 import {
@@ -114,7 +124,11 @@ import {
 	type TileResultsColumn,
 	tileResultsColumns,
 } from "@/lib/preview/caseTileRendering";
-import { caseRowToFormPreload } from "@/lib/preview/engine/caseDataBindingClient";
+import { loadCasesAction } from "@/lib/preview/engine/caseDataBinding";
+import {
+	caseRowToFormPreload,
+	viewerTimeZone,
+} from "@/lib/preview/engine/caseDataBindingClient";
 import type {
 	CaseQueryConstraintContext,
 	CaseRowWithCalculated,
@@ -141,12 +155,19 @@ import {
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
 } from "@/lib/preview/menuProjection";
+import {
+	addVisiblePreviewCaseChoices,
+	previewCaseSelectionMessage,
+	reconcilePreviewCaseChoices,
+	togglePreviewCaseChoice,
+} from "@/lib/preview/orderedCaseSelection";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
 	useAppId,
 	useCanEdit,
 	usePreviewCaseTarget,
+	usePreviewing,
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
 	usePreviewPersonaUuid,
@@ -156,6 +177,7 @@ import {
 	useSetPreviewParentCaseRequest,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
+import type { PreviewCaseChoice } from "@/lib/session/types";
 
 /** Canvas width where search sits beside the results instead of above
  *  them: the same responsive truth the running app follows. */
@@ -191,6 +213,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const canEdit = useCanEdit();
 	const scopeEpoch = useProjectScopeEpoch();
 	const accessPhase = useAccessPhase();
+	const previewing = usePreviewing();
 
 	/* All three case-list workspace URLs (`results` / `search` / `details`)
 	 * render this screen in preview mode: search and
@@ -313,6 +336,24 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				}),
 			}));
 		},
+		[caseLoadingForms, searchSession, caseType, lookupStatus],
+	);
+	/* A several-case form menu uses the same three-valued display-condition
+	 * projection as the ordinary post-selection menu. Valid-by-construction
+	 * keeps selected-case properties out of these shared conditions, so the
+	 * worker/session/user/lookup world is complete without pretending one of
+	 * the selected rows represents the whole collection. */
+	const decideMultiCaseLoadingForms = useCallback(
+		() =>
+			caseLoadingForms.map((form) => ({
+				form,
+				visibility: formDisplayVisibility({
+					condition: form.displayCondition,
+					session: searchSession,
+					...(caseType !== undefined && { currentCaseType: caseType.name }),
+					lookup: lookupStatus,
+				}),
+			})),
 		[caseLoadingForms, searchSession, caseType, lookupStatus],
 	);
 	const searchTypeContext = useMemo<TypeContext>(
@@ -472,6 +513,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 *  Only reached on a case-first entry with more than one such form. */
 	const [formMenuCase, setFormMenuCase] =
 		useState<CaseRowWithCalculated | null>(null);
+	const [multiFormMenuOpen, setMultiFormMenuOpen] = useState(false);
 	const surfaceRef = useRef<HTMLDivElement>(null);
 	const searchPaneRef = useRef<HTMLDivElement>(null);
 	const detailBackRef = useRef<HTMLButtonElement>(null);
@@ -545,6 +587,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		if (routeCaseId !== undefined) return;
 		setOpenCase(null);
 		setFormMenuCase(null);
+		setMultiFormMenuOpen(false);
 		if (exitedRouteDetail && previousRouteModuleUuid === moduleUuid) {
 			const explicitlyClosed =
 				explicitRouteCloseRef.current === previousRouteCaseId;
@@ -584,6 +627,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		setFilterText("");
 		setOpenCase(null);
 		setFormMenuCase(null);
+		setMultiFormMenuOpen(false);
 		originatingCaseIdRef.current = null;
 		routeFallbackOwnedFocusRef.current = null;
 	}, [moduleUuid, scopeEpoch]);
@@ -603,6 +647,65 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	// request so an assignment edit or a place move re-asks instead of serving
 	// the previous worker's rows.
 	const restoreScopeKey = useRestoreScopeKey(previewPersonaUuid);
+	const selectionScopeKey = `${stateScopeKey}\u0000${restoreScopeKey}`;
+	const [multiSelectionState, setMultiSelectionState] = useState<{
+		readonly scopeKey: string;
+		readonly choices: readonly PreviewCaseChoice[];
+	}>({ scopeKey: selectionScopeKey, choices: [] });
+	const selectedChoices =
+		multiSelectionState.scopeKey === selectionScopeKey
+			? multiSelectionState.choices
+			: [];
+	const selectedCaseIds = useMemo(
+		() => new Set(selectedChoices.map((choice) => choice.caseId)),
+		[selectedChoices],
+	);
+	const [selectionAnnouncement, setSelectionAnnouncement] = useState("");
+	const [reviewSelection, setReviewSelection] = useState(false);
+	const [validatingSelection, setValidatingSelection] = useState(false);
+	const selectionRevisionRef = useRef(0);
+	const selectionScopeRef = useRef(selectionScopeKey);
+	const selectionValidationTokenRef = useRef<object | undefined>(undefined);
+	if (selectionScopeRef.current !== selectionScopeKey) {
+		selectionScopeRef.current = selectionScopeKey;
+		selectionRevisionRef.current += 1;
+	}
+	const multipleSelection = config?.selection;
+	const selectionMaximum = multipleSelection?.maximum ?? 1;
+	const setSelectedChoices = useCallback(
+		(next: readonly PreviewCaseChoice[]) => {
+			selectionRevisionRef.current += 1;
+			setMultiSelectionState({ scopeKey: selectionScopeKey, choices: next });
+		},
+		[selectionScopeKey],
+	);
+	useEffect(() => {
+		/* A module, Project, or worker change retires the old validation attempt
+		 * immediately. Its response may still settle, but it no longer owns either
+		 * this screen's frozen state or its navigation. */
+		selectionScopeRef.current = selectionScopeKey;
+		selectionValidationTokenRef.current = undefined;
+		setValidatingSelection(false);
+	}, [selectionScopeKey]);
+	useEffect(() => {
+		if (previewing) return;
+		setMultiSelectionState({ scopeKey: selectionScopeKey, choices: [] });
+		setSelectionAnnouncement("");
+		setReviewSelection(false);
+	}, [previewing, selectionScopeKey]);
+	const selectedParentCases = menuCaseContext?.parentCase;
+	const parentCaseConstraint = useMemo(
+		() =>
+			selectedParentCases === undefined
+				? undefined
+				: {
+						caseType: selectedParentCases.caseType,
+						caseIds: selectedParentCases.cases.map(
+							(selectedCase) => selectedCase.caseId,
+						),
+					},
+		[selectedParentCases],
+	);
 	const {
 		state,
 		fetching,
@@ -619,7 +722,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		// config so a property rename/retype reaches both together, and a
 		// fresh `caseTypes` reference re-fires the load on a schema edit.
 		caseTypes,
-		parentCase: menuCaseContext?.parentCase,
+		parentCase: parentCaseConstraint,
 		page: casePage,
 		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
 	});
@@ -665,7 +768,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		useCaseCount({
 			appId: needsUnfilteredCount ? appId : undefined,
 			caseType: needsUnfilteredCount ? caseType?.name : undefined,
-			parentCaseId: menuCaseContext?.parentCase?.caseId,
+			parentCase: parentCaseConstraint,
 		});
 	/* A record deep link must not depend on the row surviving the authored
 	 * Results filter or current 50-row page. Load it directly by identity while
@@ -675,7 +778,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		appId,
 		caseType: caseType?.name,
 		caseId: routeCaseId,
-		parentCaseId: menuCaseContext?.parentCase?.caseId,
+		parentCase: parentCaseConstraint,
 		ancestorDepth: 0,
 		caseListConfig: config,
 		caseTypes,
@@ -1018,16 +1121,80 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * instead of the list: the running app pops back to the case list to
 	 * re-select, never to the confirm screen. Search/filter persist (the
 	 * list remembers what you were looking at). */
-	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) => {
+	const openFormWithCases = (
+		formUuid: Uuid,
+		cases: readonly PreviewCaseChoice[],
+	) => {
 		if (!moduleUuid) return;
 		setOpenCase(null);
 		setFormMenuCase(null);
+		setMultiFormMenuOpen(false);
 		setPreviewCaseTarget({
 			formUuid,
-			caseId: row.case_id,
-			caseName: row.case_name || "Case",
+			cases,
 		});
 		navigate.openForm(moduleUuid, formUuid);
+	};
+	const openFormWithCase = (formUuid: Uuid, row: CaseRowWithCalculated) =>
+		openFormWithCases(formUuid, [
+			{ caseId: row.case_id, caseName: row.case_name || "Case" },
+		]);
+
+	const continueAfterMenuSelection = (
+		cases: readonly (PreviewCaseChoice & {
+			readonly caseProperties?: Readonly<Record<string, string>>;
+		})[],
+	) => {
+		if (!moduleUuid || !mod.caseType) return;
+		setOpenCase(null);
+		setFormMenuCase(null);
+		setMultiFormMenuOpen(false);
+		setPreviewSelectedCase(undefined);
+		setPreviewCaseTarget(undefined);
+		setPreviewMenuCaseSelection(moduleUuid, {
+			caseType: mod.caseType,
+			cases,
+		});
+		const staleSelectionModuleUuids = new Set([
+			...previewMenuModuleUuids(menuSource, moduleUuid),
+			...previewCaseDescendantModuleUuids(menuSource, mod.caseType),
+		]);
+		for (const staleModuleUuid of staleSelectionModuleUuids) {
+			setPreviewMenuCaseSelection(staleModuleUuid, undefined);
+		}
+		if (selectsForParentRequest && previewParentCaseRequest) {
+			const [nextModuleUuid, ...remainingModuleUuids] =
+				previewParentCaseRequest.returnModuleUuids;
+			setPreviewParentCaseRequest(
+				nextModuleUuid && remainingModuleUuids.length > 0
+					? {
+							selectingModuleUuid: nextModuleUuid,
+							returnModuleUuids: remainingModuleUuids,
+							...(previewParentCaseRequest.resumeLocation !== undefined && {
+								resumeLocation: previewParentCaseRequest.resumeLocation,
+							}),
+							...(previewParentCaseRequest.cancelLocation !== undefined && {
+								cancelLocation: previewParentCaseRequest.cancelLocation,
+							}),
+						}
+					: undefined,
+			);
+			if (
+				nextModuleUuid &&
+				remainingModuleUuids.length === 0 &&
+				previewParentCaseRequest.resumeLocation !== undefined
+			) {
+				navigate.replace(previewParentCaseRequest.resumeLocation);
+			} else if (nextModuleUuid && remainingModuleUuids.length > 0) {
+				navigate.replace({ kind: "module", moduleUuid: nextModuleUuid });
+			} else if (nextModuleUuid) {
+				navigate.openModule(nextModuleUuid);
+			} else {
+				navigate.openModule(moduleUuid);
+			}
+		} else {
+			navigate.openModule(moduleUuid);
+		}
 	};
 
 	/* Proceed once a case is chosen (after the detail confirm, or directly
@@ -1036,59 +1203,13 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * are several. */
 	const proceedWithCase = (row: CaseRowWithCalculated) => {
 		if (selectsForMenu && moduleUuid && mod.caseType) {
-			setOpenCase(null);
-			setFormMenuCase(null);
-			setPreviewSelectedCase(undefined);
-			setPreviewCaseTarget(undefined);
-			setPreviewMenuCaseSelection(moduleUuid, {
-				caseType: mod.caseType,
-				caseId: row.case_id,
-				caseName: row.case_name || "Case",
-				caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
-			});
-			const staleSelectionModuleUuids = new Set([
-				...previewMenuModuleUuids(menuSource, moduleUuid),
-				...previewCaseDescendantModuleUuids(menuSource, mod.caseType),
+			continueAfterMenuSelection([
+				{
+					caseId: row.case_id,
+					caseName: row.case_name || "Case",
+					caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
+				},
 			]);
-			for (const staleModuleUuid of staleSelectionModuleUuids) {
-				setPreviewMenuCaseSelection(staleModuleUuid, undefined);
-			}
-			if (selectsForParentRequest && previewParentCaseRequest) {
-				const [nextModuleUuid, ...remainingModuleUuids] =
-					previewParentCaseRequest.returnModuleUuids;
-				setPreviewParentCaseRequest(
-					nextModuleUuid && remainingModuleUuids.length > 0
-						? {
-								selectingModuleUuid: nextModuleUuid,
-								returnModuleUuids: remainingModuleUuids,
-								...(previewParentCaseRequest.resumeLocation !== undefined && {
-									resumeLocation: previewParentCaseRequest.resumeLocation,
-								}),
-								...(previewParentCaseRequest.cancelLocation !== undefined && {
-									cancelLocation: previewParentCaseRequest.cancelLocation,
-								}),
-							}
-						: undefined,
-				);
-				if (
-					nextModuleUuid &&
-					remainingModuleUuids.length === 0 &&
-					previewParentCaseRequest.resumeLocation !== undefined
-				) {
-					navigate.replace(previewParentCaseRequest.resumeLocation);
-				} else if (nextModuleUuid && remainingModuleUuids.length > 0) {
-					navigate.replace({
-						kind: "module",
-						moduleUuid: nextModuleUuid,
-					});
-				} else if (nextModuleUuid) {
-					navigate.openModule(nextModuleUuid);
-				} else {
-					navigate.openModule(moduleUuid);
-				}
-			} else {
-				navigate.openModule(moduleUuid);
-			}
 			return;
 		}
 		const decided = decideCaseLoadingForms(row);
@@ -1118,12 +1239,160 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		}
 	};
 
+	const selectionBlocker = previewCaseSelectionMessage(
+		selectedChoices.length,
+		selectionMaximum,
+	);
+	const toggleMultipleCase = (row: CaseRowWithCalculated) => {
+		if (validatingSelection) return;
+		const choice = { caseId: row.case_id, caseName: row.case_name || "Case" };
+		const alreadySelected = selectedChoices.some(
+			(selected) => selected.caseId === choice.caseId,
+		);
+		if (!alreadySelected && selectedChoices.length >= selectionMaximum) {
+			setSelectionAnnouncement(
+				`You can choose up to ${selectionMaximum} ${selectionMaximum === 1 ? "case" : "cases"}`,
+			);
+			return;
+		}
+		const next = togglePreviewCaseChoice(selectedChoices, choice);
+		setSelectedChoices(next);
+		setSelectionAnnouncement(
+			alreadySelected
+				? `${choice.caseName} removed. ${next.length} selected.`
+				: `${choice.caseName} selected. ${next.length} selected.`,
+		);
+	};
+	const chooseVisibleCases = () => {
+		if (validatingSelection) return;
+		const selectableRows =
+			filteredGroups === undefined
+				? filteredRows
+				: filteredGroups.map((group) => group.header);
+		const visibleChoices = selectableRows.map((row) => ({
+			caseId: row.case_id,
+			caseName: row.case_name || "Case",
+		}));
+		const result = addVisiblePreviewCaseChoices(
+			selectedChoices,
+			visibleChoices,
+			selectionMaximum,
+		);
+		setSelectedChoices(result.choices);
+		setSelectionAnnouncement(
+			result.skipped > 0
+				? `${result.choices.length} selected. ${result.skipped} ${result.skipped === 1 ? "case was" : "cases were"} not selected because the limit is ${selectionMaximum}.`
+				: `${result.choices.length} ${result.choices.length === 1 ? "case" : "cases"} selected.`,
+		);
+	};
+	const finishSelectedCaseNavigation = (
+		choices: readonly PreviewCaseChoice[],
+	) => {
+		if (selectionBlocker !== undefined) {
+			setSelectionAnnouncement(selectionBlocker);
+			return;
+		}
+		if (selectsForMenu) {
+			continueAfterMenuSelection(choices);
+			return;
+		}
+		const decided = decideMultiCaseLoadingForms();
+		const seeded =
+			seededFormUuid === undefined
+				? undefined
+				: decided.find((entry) => entry.form.uuid === seededFormUuid);
+		if (seeded?.visibility === "shown") {
+			openFormWithCases(seeded.form.uuid, choices);
+			return;
+		}
+		const shown = decided.filter((entry) => entry.visibility === "shown");
+		const undecided = decided.some((entry) => entry.visibility === "pending");
+		if (!undecided && shown.length === 1 && shown[0] !== undefined) {
+			openFormWithCases(shown[0].form.uuid, choices);
+			return;
+		}
+		if (decided.length > 0) {
+			setMultiFormMenuOpen(true);
+			focusNextFrame(() => formMenuBackRef.current);
+		}
+	};
+	const continueWithSelectedCases = async () => {
+		if (
+			selectionBlocker !== undefined ||
+			validatingSelection ||
+			caseType === undefined
+		) {
+			if (selectionBlocker !== undefined) {
+				setSelectionAnnouncement(selectionBlocker);
+			}
+			return;
+		}
+		const validationToken = {
+			scopeKey: selectionScopeKey,
+			revision: selectionRevisionRef.current,
+		};
+		selectionValidationTokenRef.current = validationToken;
+		setValidatingSelection(true);
+		try {
+			const result = await loadCasesAction({
+				appId,
+				caseType: caseType.name,
+				caseIds: selectedChoices.map((choice) => choice.caseId),
+				parentCase: parentCaseConstraint,
+				viewerTimeZone: viewerTimeZone(),
+				personaUuid: previewPersonaUuid,
+			});
+			const validationIsCurrent =
+				selectionValidationTokenRef.current === validationToken &&
+				selectionScopeRef.current === validationToken.scopeKey &&
+				selectionRevisionRef.current === validationToken.revision;
+			if (!validationIsCurrent) return;
+			if (result.kind === "rows") {
+				const reconciled = reconcilePreviewCaseChoices(
+					selectedChoices,
+					result.rows,
+				);
+				if (reconciled.removed > 0) {
+					setSelectedChoices(reconciled.choices);
+					setSelectionAnnouncement(
+						`${reconciled.removed} selected ${reconciled.removed === 1 ? "case is" : "cases are"} no longer available. Review the selection before continuing.`,
+					);
+					setReviewSelection(reconciled.choices.length > 0);
+					return;
+				}
+				finishSelectedCaseNavigation(reconciled.choices);
+				return;
+			}
+			if (result.kind === "empty") {
+				setSelectedChoices([]);
+				setSelectionAnnouncement(
+					"The selected cases are no longer available. Choose cases again.",
+				);
+				return;
+			}
+			setSelectionAnnouncement(
+				"The selected cases could not be checked. Try again.",
+			);
+		} finally {
+			if (selectionValidationTokenRef.current === validationToken) {
+				selectionValidationTokenRef.current = undefined;
+				setValidatingSelection(false);
+			}
+		}
+	};
+
 	/* The running app's row click: a configured detail opens the confirm
 	 * step in place; no detail fields means the row proceeds straight on;
 	 * a module with no case-loading form has nowhere to go (the list is
 	 * informational). */
 	const rowAction: "detail" | "form" | "none" =
-		detailColumns.length > 0 ? "detail" : canContinue ? "form" : "none";
+		detailColumns.length > 0
+			? "detail"
+			: multipleSelection !== undefined
+				? "none"
+				: canContinue
+					? "form"
+					: "none";
 	const handleOpenCase = (
 		row: CaseRowWithCalculated,
 		trigger: HTMLButtonElement,
@@ -1275,7 +1544,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			 *  than one). A module with no case-loading form has nowhere to
 			 *  continue, so the detail is the end of the road and no button
 			 *  renders. */}
-			{canContinue && (
+			{canContinue && multipleSelection === undefined && (
 				<Button
 					type="button"
 					onClick={() => proceedWithCase(displayedOpenCase)}
@@ -1430,6 +1699,88 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			<HiddenItemsReveal items={formMenuHidden} />
 		</div>
 	);
+	const multiFormMenuDecided = multiFormMenuOpen
+		? decideMultiCaseLoadingForms()
+		: [];
+	const multiFormMenuHidden = multiFormMenuDecided
+		.filter((entry) => entry.visibility === "hidden")
+		.map((entry) => ({
+			key: entry.form.uuid,
+			name:
+				(localizedValues.get(
+					makeTranslationUnitId("form", entry.form.uuid, "name"),
+				) as string | undefined) ?? entry.form.name,
+			summary: summarizeFilter(entry.form.displayCondition, {
+				...(caseType !== undefined && { currentCaseType: caseType.name }),
+				projectProse,
+			}),
+		}));
+	const multiFormMenuPane = multiFormMenuOpen && (
+		<div className="max-w-lg min-w-0 flex-1">
+			<Button
+				ref={formMenuBackRef}
+				type="button"
+				variant="ghost"
+				onClick={() => {
+					setMultiFormMenuOpen(false);
+					restoreResultsFocus();
+				}}
+				className="-ml-2 mb-3 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
+			>
+				<Icon icon={tablerChevronLeft} width="15" height="15" />
+				Back to results
+			</Button>
+			<h1 className="mb-1 min-w-0 font-display font-bold text-xl whitespace-normal break-words tracking-tighter text-nova-text [overflow-wrap:anywhere]">
+				{selectedChoices.length} cases selected
+			</h1>
+			<p className="mb-4 text-[13px] text-nova-text-muted">
+				Choose the form to run for these cases
+			</p>
+			<div className="grid gap-2">
+				{multiFormMenuDecided.map(({ form, visibility }) => {
+					const localizedFormName =
+						(localizedValues.get(
+							makeTranslationUnitId("form", form.uuid, "name"),
+						) as string | undefined) ?? form.name;
+					if (visibility === "hidden") return null;
+					if (visibility === "pending") {
+						return (
+							<Skeleton
+								key={form.uuid}
+								className="h-[58px] w-full rounded-lg"
+							/>
+						);
+					}
+					return (
+						<Button
+							key={form.uuid}
+							type="button"
+							variant="outline"
+							onClick={() => openFormWithCases(form.uuid, selectedChoices)}
+							className="group h-auto min-h-11 w-full justify-start gap-3 whitespace-normal rounded-lg border-pv-input-border bg-pv-surface p-3 text-left duration-200 not-disabled:hover:border-pv-input-focus not-disabled:hover:bg-pv-surface not-disabled:hover:text-foreground"
+						>
+							<Icon
+								icon={formTypeIcons[form.type]}
+								width="18"
+								height="18"
+								className="shrink-0 text-nova-text-muted transition-colors group-hover:text-pv-accent-bright"
+							/>
+							<span className="min-w-0 flex-1 whitespace-normal break-words text-sm font-medium text-nova-text [overflow-wrap:anywhere]">
+								{localizedFormName}
+							</span>
+							<Icon
+								icon={tablerArrowRight}
+								width="15"
+								height="15"
+								className="shrink-0 text-nova-text-muted"
+							/>
+						</Button>
+					);
+				})}
+			</div>
+			<HiddenItemsReveal items={multiFormMenuHidden} />
+		</div>
+	);
 
 	const resultsPane = (
 		<div className="flex-1 min-w-0">
@@ -1504,6 +1855,23 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					)}
 				</div>
 			)}
+			{multipleSelection !== undefined &&
+				state.kind === "rows" &&
+				filteredRows.length > 0 && (
+					<div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+						<p className="text-sm text-nova-text-secondary">
+							Choose the cases this form should work with
+						</p>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={chooseVisibleCases}
+							disabled={fetching || validatingSelection}
+						>
+							Choose all cases shown
+						</Button>
+					</div>
+				)}
 			{outsideRestoreCount !== undefined && state.kind === "rows" && (
 				<RestoreScopeNote count={outsideRestoreCount} worker={previewWorker} />
 			)}
@@ -1531,8 +1899,43 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				searchErrorShown={hasSearchInputs && searchActionIsRelevant}
 				rowAction={rowAction}
 				onOpenCase={handleOpenCase}
-				busy={fetching}
+				selection={
+					multipleSelection === undefined
+						? undefined
+						: {
+								selectedCaseIds,
+								onToggle: toggleMultipleCase,
+								maximum: selectionMaximum,
+							}
+				}
+				busy={fetching || validatingSelection}
 			/>
+			{multipleSelection !== undefined && (
+				<MultiSelectionTray
+					choices={selectedChoices}
+					maximum={selectionMaximum}
+					blocker={selectionBlocker}
+					reviewOpen={reviewSelection}
+					onReviewOpenChange={setReviewSelection}
+					onRemove={(caseId) => {
+						if (validatingSelection) return;
+						const next = selectedChoices.filter(
+							(choice) => choice.caseId !== caseId,
+						);
+						setSelectedChoices(next);
+						setSelectionAnnouncement(
+							`${next.length} ${next.length === 1 ? "case" : "cases"} selected.`,
+						);
+					}}
+					onContinue={continueWithSelectedCases}
+					validating={validatingSelection}
+				/>
+			)}
+			{multipleSelection !== undefined && (
+				<p className="sr-only" role="status" aria-live="polite">
+					{selectionAnnouncement}
+				</p>
+			)}
 			{state.kind === "rows" && pagedUnitTotal > settledPageSize && (
 				<nav
 					aria-label="Results pages"
@@ -1577,6 +1980,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * form menu (post-selection) sits above the detail confirm, which sits
 	 * above the results list. */
 	const onSubScreen =
+		multiFormMenuOpen ||
 		displayedFormMenuCase !== null ||
 		displayedOpenCase !== null ||
 		routeCaseId !== undefined;
@@ -1600,13 +2004,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				{/* Stacked + a sub-screen open = the narrow experience: the
 				 *  sub-screen takes the whole canvas, search waits behind Back. */}
 				{(split || !onSubScreen) && searchPane}
-				{displayedFormMenuCase !== null
-					? formMenuPane
-					: displayedOpenCase !== null
-						? detailPane
-						: routeCaseId !== undefined
-							? routeCaseFallbackPane
-							: resultsPane}
+				{multiFormMenuOpen
+					? multiFormMenuPane
+					: displayedFormMenuCase !== null
+						? formMenuPane
+						: displayedOpenCase !== null
+							? detailPane
+							: routeCaseId !== undefined
+								? routeCaseFallbackPane
+								: resultsPane}
 			</div>
 		</ContentFrame>
 	);
@@ -1660,6 +2066,7 @@ function ResultsBody({
 	searchErrorShown,
 	rowAction,
 	onOpenCase,
+	selection,
 	busy,
 }: {
 	readonly state: ReturnType<typeof useCases>["state"];
@@ -1696,6 +2103,7 @@ function ResultsBody({
 		row: CaseRowWithCalculated,
 		trigger: HTMLButtonElement,
 	) => void;
+	readonly selection: MultipleResultSelection | undefined;
 	readonly busy: boolean;
 }) {
 	if (state.kind === "idle" || state.kind === "loading") {
@@ -1862,6 +2270,7 @@ function ResultsBody({
 					columnDisplayContext={columnDisplayContext}
 					rowAction={rowAction}
 					onOpenCase={onOpenCase}
+					selection={selection}
 					busy={busy}
 				/>
 			) : (
@@ -1873,10 +2282,126 @@ function ResultsBody({
 					columnDisplayContext={columnDisplayContext}
 					rowAction={rowAction}
 					onOpenCase={onOpenCase}
+					selection={selection}
 					busy={busy}
 				/>
 			)}
 		</div>
+	);
+}
+
+interface MultipleResultSelection {
+	readonly selectedCaseIds: ReadonlySet<string>;
+	readonly onToggle: (row: CaseRowWithCalculated) => void;
+	readonly maximum: number;
+}
+
+function MultiSelectionTray({
+	choices,
+	maximum,
+	blocker,
+	reviewOpen,
+	onReviewOpenChange,
+	onRemove,
+	onContinue,
+	validating,
+}: {
+	readonly choices: readonly PreviewCaseChoice[];
+	readonly maximum: number;
+	readonly blocker: string | undefined;
+	readonly reviewOpen: boolean;
+	readonly onReviewOpenChange: (open: boolean) => void;
+	readonly onRemove: (caseId: string) => void;
+	readonly onContinue: () => void | Promise<void>;
+	readonly validating: boolean;
+}) {
+	return (
+		<>
+			<div className="sticky bottom-3 z-popover mt-4 rounded-xl border border-pv-input-border bg-pv-surface/95 p-3 shadow-elevated backdrop-blur-md">
+				<div className="flex flex-wrap items-center gap-2">
+					<div className="min-w-0 flex-1">
+						<p className="text-sm font-semibold text-nova-text">
+							{choices.length} {choices.length === 1 ? "case" : "cases"}{" "}
+							selected
+						</p>
+						<p className="text-xs text-nova-text-muted">
+							Up to {maximum} {maximum === 1 ? "case" : "cases"}
+						</p>
+					</div>
+					<Button
+						type="button"
+						variant="outline"
+						disabled={choices.length === 0}
+						onClick={() => onReviewOpenChange(true)}
+					>
+						Review selected cases
+					</Button>
+					<Button
+						type="button"
+						disabled={blocker !== undefined || validating}
+						onClick={() => void onContinue()}
+						className="bg-pv-accent text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110"
+					>
+						{validating ? "Checking cases" : "Continue"}
+					</Button>
+				</div>
+				{blocker !== undefined && (
+					<p
+						id="multi-case-selection-blocker"
+						className="mt-2 text-xs font-medium text-nova-text-secondary"
+					>
+						{blocker}
+					</p>
+				)}
+			</div>
+
+			<Dialog open={reviewOpen} onOpenChange={onReviewOpenChange}>
+				<DialogContent>
+					<DialogHeader>
+						<DialogTitle>Selected cases</DialogTitle>
+						<DialogDescription>
+							The form will work with these cases in this order
+						</DialogDescription>
+					</DialogHeader>
+					<DialogBody>
+						<ol className="m-0 list-none divide-y divide-nova-violet/[0.08] p-0">
+							{choices.map((choice, index) => (
+								<li
+									key={choice.caseId}
+									className="flex min-h-11 items-center gap-3 py-2"
+								>
+									<span className="w-6 shrink-0 text-right text-xs tabular-nums text-nova-text-muted">
+										{index + 1}
+									</span>
+									<span className="min-w-0 flex-1 break-words text-sm text-nova-text">
+										{choice.caseName || "Case"}
+									</span>
+									<Button
+										type="button"
+										variant="ghost"
+										size="icon"
+										aria-label={`Remove ${choice.caseName || "case"}`}
+										disabled={validating}
+										onClick={() => onRemove(choice.caseId)}
+									>
+										<Icon icon={tablerX} />
+									</Button>
+								</li>
+							))}
+						</ol>
+					</DialogBody>
+					<DialogFooter>
+						<Button
+							type="button"
+							variant="outline"
+							onClick={() => onReviewOpenChange(false)}
+						>
+							Back to results
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+		</>
 	);
 }
 
@@ -2136,6 +2661,7 @@ function ResultsTable({
 	columnDisplayContext,
 	rowAction,
 	onOpenCase,
+	selection,
 	busy,
 }: {
 	readonly rows: readonly CaseRowWithCalculated[];
@@ -2147,6 +2673,7 @@ function ResultsTable({
 		row: CaseRowWithCalculated,
 		trigger: HTMLButtonElement,
 	) => void;
+	readonly selection: MultipleResultSelection | undefined;
 	readonly busy: boolean;
 }) {
 	const clickable = rowAction !== "none";
@@ -2182,6 +2709,13 @@ function ResultsTable({
 			</div>
 			<ul className="m-0 list-none p-0" aria-label="Cases">
 				{rows.map((row) => {
+					const selected = selection?.selectedCaseIds.has(row.case_id) ?? false;
+					const selectionLabel = caseSelectionActionLabel(
+						visibleColumns,
+						row,
+						columnDisplayContext,
+						selected,
+					);
 					const content = (
 						<>
 							{visibleColumns.map((col, index) => (
@@ -2208,20 +2742,32 @@ function ResultsTable({
 							))}
 							<span
 								aria-hidden="true"
-								className={`pointer-events-none absolute top-3 right-3 z-10 grid place-items-center text-nova-text-muted ${layout.arrow}`}
+								className={`pointer-events-none absolute top-3 ${selection === undefined ? "right-3" : "right-12"} z-10 grid place-items-center text-nova-text-muted ${layout.arrow}`}
 							>
 								{clickable && (
 									<Icon icon={tablerChevronRight} width="14" height="14" />
 								)}
 							</span>
+							{selection !== undefined && (
+								<span className="absolute top-3 right-3 z-20 grid size-5 place-items-center">
+									<Checkbox
+										checked={selected}
+										onCheckedChange={() => selection.onToggle(row)}
+										aria-label={selectionLabel}
+										disabled={busy}
+									/>
+								</span>
+							)}
 						</>
 					);
-					const rowClassName = `relative block h-auto w-full min-w-0 whitespace-normal rounded-none border-x-0 border-t-0 border-b border-nova-violet/[0.07] py-1.5 pr-9 pl-0 text-left font-normal last:border-b-0 ${layout.row}`;
+					const rowClassName = `relative block h-auto w-full min-w-0 whitespace-normal rounded-none border-x-0 border-t-0 border-b border-nova-violet/[0.07] py-1.5 ${selection === undefined ? "pr-9" : "pr-20"} pl-0 text-left font-normal last:border-b-0 ${layout.row}`;
 					if (!clickable) {
 						return (
 							<li
 								key={row.case_id}
-								data-case-result-row="informational"
+								data-case-result-row={
+									selection === undefined ? "informational" : "selectable"
+								}
 								className={rowClassName}
 								style={{ gridTemplateColumns }}
 							>
@@ -2262,6 +2808,21 @@ function ResultsTable({
 			</ul>
 		</div>
 	);
+}
+
+function caseSelectionActionLabel(
+	columns: readonly Column[],
+	row: CaseRowWithCalculated,
+	context: ColumnDisplayContext,
+	selected: boolean,
+): string {
+	const summary = columns
+		.map((column) => projectColumnDisplay(column, row, context).text.trim())
+		.filter(Boolean)
+		.slice(0, 3)
+		.join(", ");
+	const caseReference = summary || row.case_name.trim() || "this case";
+	return `${selected ? "Remove" : "Choose"} ${caseReference}`;
 }
 
 /**
@@ -2348,6 +2909,7 @@ function ResultsTiles({
 	columnDisplayContext,
 	rowAction,
 	onOpenCase,
+	selection,
 	busy,
 }: {
 	readonly rows: readonly CaseRowWithCalculated[];
@@ -2361,6 +2923,7 @@ function ResultsTiles({
 		row: CaseRowWithCalculated,
 		trigger: HTMLButtonElement,
 	) => void;
+	readonly selection: MultipleResultSelection | undefined;
 	readonly busy: boolean;
 }) {
 	const clickable = rowAction !== "none";
@@ -2424,32 +2987,49 @@ function ResultsTiles({
 				 * grouped card is one choice. The rows beneath the header are
 				 * there to read. */
 				<p className="border-nova-violet/[0.07] border-b px-3 py-2 text-xs text-nova-text-muted @min-[37.5rem]/results:px-5">
-					Choosing a group opens its first case. The rows beneath are there to
+					Choosing a group selects its first case. The rows beneath are there to
 					read.
 				</p>
 			)}
 			<ul className="m-0 w-full min-w-[18rem] list-none p-0" aria-label="Cases">
 				{cards.map(({ key, actionRow: row, tile: drawnTile }) => {
+					const selected = selection?.selectedCaseIds.has(row.case_id) ?? false;
 					const content = (
 						<>
 							{drawnTile}
 							<span
 								aria-hidden="true"
-								className="pointer-events-none absolute top-3 right-3 z-10 grid place-items-center text-nova-text-muted"
+								className={`pointer-events-none absolute top-3 ${selection === undefined ? "right-3" : "right-12"} z-10 grid place-items-center text-nova-text-muted`}
 							>
 								{clickable && (
 									<Icon icon={tablerChevronRight} width="14" height="14" />
 								)}
 							</span>
+							{selection !== undefined && (
+								<span className="absolute top-3 right-3 z-20 grid size-5 place-items-center">
+									<Checkbox
+										checked={selected}
+										onCheckedChange={() => selection.onToggle(row)}
+										aria-label={caseSelectionActionLabel(
+											spokenColumns,
+											row,
+											columnDisplayContext,
+											selected,
+										)}
+										disabled={busy}
+									/>
+								</span>
+							)}
 						</>
 					);
-					const rowClassName =
-						"relative block h-auto w-full min-w-0 whitespace-normal rounded-none border-x-0 border-t-0 border-b border-nova-violet/[0.07] py-3 pr-9 pl-3 text-left font-normal last:border-b-0 @min-[37.5rem]/results:py-4 @min-[37.5rem]/results:pl-5";
+					const rowClassName = `relative block h-auto w-full min-w-0 whitespace-normal rounded-none border-x-0 border-t-0 border-b border-nova-violet/[0.07] py-3 ${selection === undefined ? "pr-9" : "pr-20"} pl-3 text-left font-normal last:border-b-0 @min-[37.5rem]/results:py-4 @min-[37.5rem]/results:pl-5`;
 					if (!clickable) {
 						return (
 							<li
 								key={key}
-								data-case-result-row="informational"
+								data-case-result-row={
+									selection === undefined ? "informational" : "selectable"
+								}
 								className={rowClassName}
 							>
 								{content}

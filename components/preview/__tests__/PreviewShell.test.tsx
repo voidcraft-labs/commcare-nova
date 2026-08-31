@@ -169,10 +169,14 @@ vi.mock("../screens/ModuleScreen", () => ({
 	),
 }));
 vi.mock("../screens/FormScreen", () => ({
-	// Surface the screen's `caseId` so the case-datum injection is
+	// Surface the screen's first selected id so case injection is
 	// assertable: `""` when absent (an attribute can't hold undefined).
-	FormScreen: ({ screen }: { screen: { caseId?: string } }) => (
-		<div data-testid="form-stub" data-case-id={screen.caseId ?? ""}>
+	FormScreen: ({
+		screen,
+	}: {
+		screen: { cases?: readonly { caseId: string }[] };
+	}) => (
+		<div data-testid="form-stub" data-case-id={screen.cases?.[0]?.caseId ?? ""}>
 			FormScreen
 		</div>
 	),
@@ -369,8 +373,7 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 		previewMenuCaseSelectionsMock = {
 			[PARENT_SELECT_MODULE_UUID]: {
 				caseType: "household",
-				caseId: "household-1",
-				caseName: "Household one",
+				cases: [{ caseId: "household-1", caseName: "Household one" }],
 			},
 		};
 		const view = renderShell({ hideStructuralParent: false });
@@ -525,7 +528,7 @@ describe("PreviewShell — preview case-datum injection", () => {
 		locationMock.mockReturnValue(FORM_LOCATION);
 		previewCaseTargetMock.mockReturnValue({
 			formUuid: FORM_UUID,
-			caseId: "case-xyz",
+			cases: [{ caseId: "case-xyz" }],
 		});
 		const { findByTestId } = renderShell();
 		expect((await findByTestId("form-stub")).getAttribute("data-case-id")).toBe(
@@ -538,7 +541,7 @@ describe("PreviewShell — preview case-datum injection", () => {
 		locationMock.mockReturnValue(FORM_LOCATION);
 		previewCaseTargetMock.mockReturnValue({
 			formUuid: testUuid("some-other-form"),
-			caseId: "case-xyz",
+			cases: [{ caseId: "case-xyz" }],
 		});
 		const { findByTestId } = renderShell();
 		expect((await findByTestId("form-stub")).getAttribute("data-case-id")).toBe(

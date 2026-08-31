@@ -44,7 +44,7 @@ import {
 	moduleDestinationFrameChildren,
 	previousFrameChildren,
 	projectFormLinks,
-	selectedCaseDatumId,
+	selectedCaseSessionDatum,
 } from "@/lib/commcare/formLinkProjection";
 import { serializeLocaleFileValue } from "@/lib/commcare/localeFile";
 import { commCareLocalization } from "@/lib/commcare/localization";
@@ -466,12 +466,13 @@ export function compileCcz(
 			const form = doc.forms[formUuid];
 			const formType = form.type;
 			const postSubmit = form.postSubmit ?? defaultPostSubmit(formType);
-			const ownCaseDatumId = selectedCaseDatumId(
+			const ownCaseDatum = selectedCaseSessionDatum(
 				doc,
 				linkContext,
 				moduleUuid,
 				formUuid,
 			);
+			const ownCaseDatumId = ownCaseDatum?.id;
 			const formRelevant = emitFormDisplayConditionForSuite(
 				form.displayCondition,
 				mod.caseType,
@@ -516,6 +517,7 @@ export function compileCcz(
 					ownCaseDatumId === undefined
 						? undefined
 						: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
+					ownCaseDatum?.maxSelectValue === undefined,
 				);
 			}
 			if (xform) {

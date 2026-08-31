@@ -15,6 +15,7 @@ import { findOne } from "domutils";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { el } from "@/lib/commcare/elementBuilders";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
+import { validateXFormPath } from "@/lib/commcare/identifierValidation";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import {
@@ -28,7 +29,12 @@ import type {
 	OnDeviceExpressionBindings,
 	OnDeviceTermEmissionContext,
 } from "@/lib/commcare/predicate/termEmitter";
+import type {
+	FormActionCondition,
+	OpenSubCaseAction,
+} from "@/lib/commcare/types";
 import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
+import { xpathStringLiteral } from "@/lib/commcare/xpath/stringLiteral";
 import {
 	caseOperationConditionalGuardUuids,
 	caseOperationExpressionSnapshotTypes,
@@ -40,6 +46,7 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CaseTarget,
+	isCaptureField,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
 	orderedCaseOperations,
@@ -57,6 +64,8 @@ import { FormPath } from "./formPath";
 
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
 const OPERATIONS_CONTAINER = "__nova_operations";
+const SELECTED_CASES_CONTAINER = "__nova_selected_cases";
+const SELECTED_CASES_CLOSE = "__nova_close_selected_cases";
 const SESSION_CASE_ID = "instance('commcaresession')/session/data/case_id";
 const META_TIME_END = "/data/meta/timeEnd";
 const META_USER_ID = "/data/meta/userID";
@@ -108,13 +117,23 @@ export interface FieldLocation {
 interface OperationLocation {
 	readonly operation: CaseOperation;
 	readonly repeat: Uuid | undefined;
+	/** Authored multiplicity scope before the selected-case inner iteration. */
+	readonly authoredParentPath: FormPath;
 	readonly parentPath: FormPath;
 	readonly wrapperPath: FormPath;
 	readonly casePath: FormPath;
+	readonly selectedCaseIdPath?: FormPath;
 }
 
 export interface CaseOperationDataChild {
 	readonly parentPath: FormPath;
+	readonly element: Element;
+	readonly placement?: "prepend" | "append";
+}
+
+export interface CaseOperationBodyChild {
+	/** Undefined means the form body itself; otherwise the exact authored repeat. */
+	readonly parentRepeatPath?: FormPath;
 	readonly element: Element;
 }
 
@@ -122,6 +141,7 @@ export interface CaseOperationsEmission {
 	readonly dataChildren: readonly CaseOperationDataChild[];
 	readonly binds: readonly Element[];
 	readonly setvalues: readonly Element[];
+	readonly bodyChildren: readonly CaseOperationBodyChild[];
 	readonly instances: ReadonlySet<RequiredInstance>;
 	/** Lookup-fixture declarations the operation expressions need, id → src. */
 	readonly fixtureInstances: ReadonlyMap<string, string>;
@@ -136,12 +156,30 @@ export function buildCaseOperations(
 	moduleCaseType: string | undefined,
 	lookupNaming?: LookupWireNaming,
 	selectedCaseIdRef: string = SESSION_CASE_ID,
+	selectedCasesInstanceId?: string,
+	ordinaryCloseCondition?: FormActionCondition,
+	ordinarySubcases: readonly OpenSubCaseAction[] = [],
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
 	const operations = orderedCaseOperations(form);
-	if (operations.length === 0) return null;
+	if (
+		operations.length === 0 &&
+		ordinaryCloseCondition === undefined &&
+		ordinarySubcases.length === 0
+	)
+		return null;
 
 	const fields = collectFieldLocations(doc, formUuid);
+	const attachmentSourcePaths = new Set(
+		[...fields].flatMap(([uuid, location]) => {
+			const field = doc.fields[uuid];
+			return field !== undefined &&
+				isCaptureField(field) &&
+				field.caseWrite?.mode === "attachment"
+				? [location.path.toXPath()]
+				: [];
+		}),
+	);
 	const repeats = new Map<Uuid, FormPath>();
 	for (const [uuid, location] of fields) {
 		if (doc.fields[uuid]?.kind === "repeat") {
@@ -154,19 +192,35 @@ export function buildCaseOperations(
 
 	const locations = operations.map<OperationLocation>((operation) => {
 		const repeat = operation.forEach?.repeat;
-		const parentPath =
+		const authoredParentPath =
 			repeat === undefined
 				? FormPath.root()
 				: (repeats.get(repeat) ?? FormPath.root());
+		const selectedCaseIdPath =
+			selectedCasesInstanceId !== undefined &&
+			operation.target.kind === "session"
+				? authoredParentPath
+						.child(SELECTED_CASES_CONTAINER)
+						.queryBoundIteration()
+						.attr("id")
+				: undefined;
+		const parentPath =
+			selectedCaseIdPath === undefined
+				? authoredParentPath
+				: authoredParentPath
+						.child(SELECTED_CASES_CONTAINER)
+						.queryBoundIteration();
 		const wrapperPath = parentPath
 			.child(OPERATIONS_CONTAINER)
 			.child(operation.id);
 		return {
 			operation,
 			repeat,
+			authoredParentPath,
 			parentPath,
 			wrapperPath,
 			casePath: wrapperPath.child("case"),
+			...(selectedCaseIdPath !== undefined && { selectedCaseIdPath }),
 		};
 	});
 
@@ -199,13 +253,20 @@ export function buildCaseOperations(
 		const { operation, wrapperPath, casePath, repeat } = location;
 		const operationSnapshotTypes = expressionSnapshotTypes.get(operation.uuid);
 		const caseIdPath = casePath.attr("case_id");
+		const selectedCaseRef = (targetPath: FormPath): string =>
+			location.selectedCaseIdPath === undefined
+				? selectedCaseIdRef
+				: originalContextPath(targetPath, location.selectedCaseIdPath);
 		const operationBindings = (
 			targetPath: FormPath,
 		): OnDeviceTermEmissionContext => ({
 			formFields: bindFieldPaths(fields, repeat, targetPath),
 			operationIds: bindOperationPaths(priorCreates, repeat, targetPath),
-			rootCaseId: selectedCaseIdRef,
-			caseProperty: formCasePropertyResolver(moduleCaseType, selectedCaseIdRef),
+			rootCaseId: selectedCaseRef(targetPath),
+			caseProperty: formCasePropertyResolver(
+				moduleCaseType,
+				selectedCaseRef(targetPath),
+			),
 			userPropertySlugs,
 			organizationLevels,
 			...(lookupNaming !== undefined && {
@@ -468,7 +529,7 @@ export function buildCaseOperations(
 							emitExpression,
 							instances,
 							linkSnapshotType,
-							selectedCaseIdRef,
+							selectedCaseRef(linkPath),
 						),
 					}),
 				);
@@ -526,7 +587,7 @@ export function buildCaseOperations(
 						emitExpression,
 						instances,
 						linkSnapshotType,
-						selectedCaseIdRef,
+						selectedCaseRef(guardCaseIdPath),
 					);
 					const guardedOperationCaseId =
 						repeat === undefined
@@ -760,20 +821,376 @@ export function buildCaseOperations(
 						emitExpression,
 						instances,
 						operationSnapshotTypes?.target ?? operation.caseType,
-						selectedCaseIdRef,
+						selectedCaseRef(caseIdPath),
 					),
 				}),
 			);
 		}
 	}
 
-	return {
-		dataChildren: [...groups.values()].map((group) => ({
+	interface SelectedScope {
+		readonly authoredParentPath: FormPath;
+		readonly itemPath: FormPath;
+		readonly idPath: FormPath;
+	}
+	const selectedScopes = new Map<string, SelectedScope>();
+	for (const location of locations) {
+		if (location.selectedCaseIdPath === undefined) continue;
+		selectedScopes.set(location.authoredParentPath.toXPath(), {
+			authoredParentPath: location.authoredParentPath,
+			itemPath: location.parentPath,
+			idPath: location.selectedCaseIdPath,
+		});
+	}
+
+	// Ordinary child-case actions depend on the loaded parent, so they join the
+	// selected-case inner iteration. Generated ids remain fresh per selected
+	// parent; authored-key creates are refused by the absolute validator.
+	for (const [subcaseIndex, subcase] of ordinarySubcases.entries()) {
+		const authoredParentPath = subcase.repeat_context
+			? FormPath.parse(subcase.repeat_context)
+			: FormPath.root();
+		const containerPath = authoredParentPath.child(SELECTED_CASES_CONTAINER);
+		const itemPath = containerPath.queryBoundIteration();
+		const idPath = itemPath.attr("id");
+		selectedScopes.set(authoredParentPath.toXPath(), {
+			authoredParentPath,
+			itemPath,
+			idPath,
+		});
+
+		const operationId = `__nova_subcase_${subcaseIndex}`;
+		const wrapperPath = itemPath.child(OPERATIONS_CONTAINER).child(operationId);
+		const casePath = wrapperPath.child("case");
+		const createPath = casePath.child("create");
+		const updatePath = casePath.child("update");
+		const indexPath = casePath.child("index");
+		const indexId = subcase.reference_id || "parent";
+		const groupKey = itemPath.toXPath();
+		const group = groups.get(groupKey) ?? {
+			parentPath: itemPath,
+			wrappers: [],
+		};
+		const propertyEntries = Object.entries(subcase.case_properties);
+		const attachmentPropertyEntries = propertyEntries.filter(([, mapping]) =>
+			attachmentSourcePaths.has(validateXFormPath(mapping.question_path)),
+		);
+		const scalarPropertyEntries = propertyEntries.filter(
+			([, mapping]) =>
+				!attachmentSourcePaths.has(validateXFormPath(mapping.question_path)),
+		);
+		group.wrappers.push(
+			el(
+				operationId,
+				{
+					"vellum:role": "SaveToCase",
+					"vellum:case_type": subcase.case_type,
+				},
+				[
+					el(
+						"case",
+						{
+							case_id: "",
+							date_modified: "",
+							user_id: "",
+							xmlns: CASE_TRANSACTION_XMLNS,
+						},
+						[
+							el("create", {}, [
+								el("case_type", {}),
+								el("case_name", {}),
+								el("owner_id", {}),
+							]),
+							...(propertyEntries.length === 0
+								? []
+								: [
+										el(
+											"update",
+											{},
+											scalarPropertyEntries.map(([property]) =>
+												el(property, {}),
+											),
+										),
+									]),
+							...(attachmentPropertyEntries.length === 0
+								? []
+								: [
+										el(
+											"attachment",
+											{},
+											attachmentPropertyEntries.map(([property]) =>
+												el(property, { src: "", from: "local" }),
+											),
+										),
+									]),
+							el("index", {}, [
+								el(indexId, {
+									case_type: moduleCaseType ?? "",
+									relationship: subcase.relationship,
+								}),
+							]),
+							...(subcase.close_condition.type === "never"
+								? []
+								: [el("close", {})]),
+						],
+					),
+				],
+			),
+		);
+		groups.set(groupKey, group);
+
+		const sourceRef = (raw: string, target: FormPath): string => {
+			const source = FormPath.parse(validateXFormPath(raw));
+			return subcase.repeat_context
+				? originalContextPath(target, source)
+				: source.toXPath();
+		};
+		const namePath = createPath.child("case_name");
+		binds.push(
+			el("bind", {
+				nodeset: casePath.attr("case_id").toXPath(),
+				calculate: "uuid()",
+			}),
+			el("bind", {
+				nodeset: casePath.attr("date_modified").toXPath(),
+				calculate: META_TIME_END,
+				type: "xsd:dateTime",
+			}),
+			el("bind", {
+				nodeset: casePath.attr("user_id").toXPath(),
+				calculate: META_USER_ID,
+			}),
+			el("bind", {
+				nodeset: createPath.child("case_type").toXPath(),
+				calculate: quoteLiteral(subcase.case_type, "case-list-filter"),
+			}),
+			el("bind", {
+				nodeset: namePath.toXPath(),
+				calculate: caseScalarTextValueCalculation(
+					sourceRef(subcase.name_update.question_path, namePath),
+				),
+				required: "true()",
+			}),
+			el("bind", {
+				nodeset: createPath.child("owner_id").toXPath(),
+				calculate: META_USER_ID,
+			}),
+			el("bind", {
+				nodeset: indexPath.child(indexId).toXPath(),
+				calculate: originalContextPath(indexPath.child(indexId), idPath),
+			}),
+		);
+		for (const [property, mapping] of scalarPropertyEntries) {
+			const propertyPath = updatePath.child(property);
+			binds.push(
+				el("bind", {
+					nodeset: propertyPath.toXPath(),
+					calculate: sourceRef(mapping.question_path, propertyPath),
+				}),
+			);
+		}
+		for (const [property, mapping] of attachmentPropertyEntries) {
+			const propertyPath = casePath.child("attachment").child(property);
+			const source = sourceRef(mapping.question_path, propertyPath);
+			binds.push(
+				el("bind", {
+					nodeset: propertyPath.toXPath(),
+					relevant: `count(${source}) = 1`,
+				}),
+				el("bind", {
+					nodeset: propertyPath.attr("src").toXPath(),
+					calculate: source,
+				}),
+			);
+		}
+		if (subcase.condition.type === "if") {
+			binds.push(
+				el("bind", {
+					nodeset: wrapperPath.toXPath(),
+					relevant: formActionConditionExpression(subcase.condition),
+				}),
+			);
+		}
+		if (subcase.close_condition.type === "if") {
+			binds.push(
+				el("bind", {
+					nodeset: casePath.child("close").toXPath(),
+					relevant: formActionConditionExpression(subcase.close_condition),
+				}),
+			);
+		}
+	}
+
+	// A close form's ordinary lifecycle effect is also collection-valued. HQ
+	// disables its singular default case-management block for multi-select
+	// forms, so Nova emits the equivalent SaveToCase block inside the same
+	// selected-case model iteration as explicit session-targeted operations.
+	// The block is close-only, matching HQ's `XFormCaseBlock.add_close_block`:
+	// writing the module's original case type here would undo an admitted
+	// session-targeted retype that ran immediately before the ordinary close.
+	if (
+		selectedCasesInstanceId !== undefined &&
+		ordinaryCloseCondition !== undefined &&
+		ordinaryCloseCondition.type !== "never"
+	) {
+		const authoredParentPath = FormPath.root();
+		const containerPath = authoredParentPath.child(SELECTED_CASES_CONTAINER);
+		const itemPath = containerPath.queryBoundIteration();
+		const idPath = itemPath.attr("id");
+		selectedScopes.set(authoredParentPath.toXPath(), {
+			authoredParentPath,
+			itemPath,
+			idPath,
+		});
+
+		const wrapperPath = itemPath
+			.child(OPERATIONS_CONTAINER)
+			.child(SELECTED_CASES_CLOSE);
+		const casePath = wrapperPath.child("case");
+		const closePath = casePath.child("close");
+		const groupKey = itemPath.toXPath();
+		const group = groups.get(groupKey) ?? {
+			parentPath: itemPath,
+			wrappers: [],
+		};
+		group.wrappers.push(
+			el(
+				SELECTED_CASES_CLOSE,
+				{
+					"vellum:role": "SaveToCase",
+					...(moduleCaseType !== undefined && {
+						"vellum:case_type": moduleCaseType,
+					}),
+				},
+				[
+					el(
+						"case",
+						{
+							case_id: "",
+							date_modified: "",
+							user_id: "",
+							xmlns: CASE_TRANSACTION_XMLNS,
+						},
+						[el("close", {})],
+					),
+				],
+			),
+		);
+		groups.set(groupKey, group);
+
+		const selectedCaseRef = (target: FormPath) =>
+			originalContextPath(target, idPath);
+		binds.push(
+			el("bind", {
+				nodeset: casePath.attr("case_id").toXPath(),
+				calculate: selectedCaseRef(casePath.attr("case_id")),
+			}),
+			el("bind", {
+				nodeset: casePath.attr("date_modified").toXPath(),
+				calculate: META_TIME_END,
+				type: "xsd:dateTime",
+			}),
+			el("bind", {
+				nodeset: casePath.attr("user_id").toXPath(),
+				calculate: META_USER_ID,
+			}),
+		);
+		if (ordinaryCloseCondition.type === "if") {
+			binds.push(
+				el("bind", {
+					nodeset: closePath.toXPath(),
+					relevant: formActionConditionExpression(ordinaryCloseCondition),
+				}),
+			);
+		}
+	}
+
+	const bodyChildren: CaseOperationBodyChild[] = [];
+	const selectedGroupKeys = new Set(
+		[...selectedScopes.values()].map((scope) => scope.itemPath.toXPath()),
+	);
+	const dataChildren: CaseOperationDataChild[] = [...groups.values()]
+		.filter((group) => !selectedGroupKeys.has(group.parentPath.toXPath()))
+		.map((group) => ({
 			parentPath: group.parentPath,
 			element: el(OPERATIONS_CONTAINER, {}, group.wrappers),
-		})),
+		}));
+
+	for (const scope of selectedScopes.values()) {
+		const group = groups.get(scope.itemPath.toXPath());
+		if (group === undefined) continue;
+		const containerPath = scope.authoredParentPath.child(
+			SELECTED_CASES_CONTAINER,
+		);
+		const idsPath = containerPath.attr("ids");
+		const countPath = containerPath.attr("count");
+		const currentIndexPath = containerPath.attr("current_index");
+		const indexPath = scope.itemPath.attr("index");
+		const selectedValues = `instance('${selectedCasesInstanceId}')/results/value`;
+		binds.push(
+			el("bind", {
+				nodeset: currentIndexPath.toXPath(),
+				calculate: `count(${scope.itemPath.toXPath()})`,
+			}),
+		);
+		const nested = scope.authoredParentPath.segments().length > 1;
+		setvalues.push(
+			el("setvalue", {
+				event: nested ? "jr-insert" : "xforms-ready",
+				ref: idsPath.toXPath(),
+				value: `join(' ', ${selectedValues})`,
+			}),
+			el("setvalue", {
+				event: nested ? "jr-insert" : "xforms-ready",
+				ref: countPath.toXPath(),
+				value: `count-selected(${idsPath.toXPath()})`,
+			}),
+			el("setvalue", {
+				event: "jr-insert",
+				ref: indexPath.toXPath(),
+				value: `int(${currentIndexPath.toXPath()})`,
+			}),
+			el("setvalue", {
+				event: "jr-insert",
+				ref: scope.idPath.toXPath(),
+				value: `selected-at(${idsPath.toXPath()}, ../@index)`,
+			}),
+		);
+		dataChildren.push({
+			parentPath: scope.authoredParentPath,
+			placement: "append",
+			element: el(
+				SELECTED_CASES_CONTAINER,
+				{
+					ids: "",
+					count: "",
+					current_index: "",
+					"vellum:role": "Repeat",
+				},
+				[
+					el("item", { id: "", index: "", "jr:template": "" }, [
+						el(OPERATIONS_CONTAINER, {}, group.wrappers),
+					]),
+				],
+			),
+		});
+		bodyChildren.push({
+			...(nested && { parentRepeatPath: scope.authoredParentPath }),
+			element: el("group", { ref: containerPath.toXPath() }, [
+				el("repeat", {
+					nodeset: scope.itemPath.toXPath(),
+					"jr:count": countPath.toXPath(),
+					"jr:noAddRemove": "true()",
+				}),
+			]),
+		});
+	}
+
+	return {
+		dataChildren,
 		binds,
 		setvalues,
+		bodyChildren,
 		instances,
 		fixtureInstances,
 	};
@@ -806,7 +1223,9 @@ export function attachCaseOperationData(
 			}
 			parent = next;
 		}
-		if (segments.length === 1) {
+		if (child.placement === "append") {
+			appendChildren(parent, [child.element]);
+		} else if (segments.length === 1) {
 			// Root-scoped operations are the first submission effects. Keeping the
 			// singular operation group before the authored field tree also keeps it
 			// before every repeat-scoped group in JavaRosa's document-order walk.
@@ -815,6 +1234,40 @@ export function attachCaseOperationData(
 			appendChildren(parent, [child.element]);
 		}
 	}
+}
+
+/** Attach invisible model-iteration controls at the matching repeat scope. */
+export function attachCaseOperationBody(
+	body: Element,
+	children: readonly CaseOperationBodyChild[],
+): void {
+	for (const child of children) {
+		if (child.parentRepeatPath === undefined) {
+			appendChildren(body, [child.element]);
+			continue;
+		}
+		const parent = findOne(
+			(candidate) =>
+				candidate.name === "repeat" &&
+				candidate.attribs.nodeset === child.parentRepeatPath?.toXPath(),
+			body.children,
+			true,
+		);
+		if (parent === null) {
+			throw new Error(
+				`Selected-case operation scope '${child.parentRepeatPath.toXPath()}' is absent from the XForm body.`,
+			);
+		}
+		appendChildren(parent, [child.element]);
+	}
+}
+
+function formActionConditionExpression(condition: FormActionCondition): string {
+	const question = validateXFormPath(condition.question ?? "");
+	const answer = xpathStringLiteral(condition.answer ?? "");
+	return condition.operator === "selected"
+		? `selected(${question}, ${answer})`
+		: `${question} = ${answer}`;
 }
 
 export function collectFieldLocations(

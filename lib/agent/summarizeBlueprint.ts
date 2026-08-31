@@ -115,7 +115,7 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 }
 
 /**
- * Summarize a module's case list — every column and search input
+ * Summarize a module's case list — selection behavior plus every column and search input
  * carries its `uuid`, the SA-facing handle for the atomic-op tools
  * (`updateCaseListColumn`, `removeCaseListColumn`,
  * `reorderCaseListColumns`, and the search-input parallels). Surfacing
@@ -130,10 +130,19 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 function summarizeCaseList(mod: Module): string | undefined {
 	const config = mod.caseListConfig;
 	if (config === undefined) return undefined;
-	if (config.columns.length === 0 && config.searchInputs.length === 0) {
+	if (
+		config.columns.length === 0 &&
+		config.searchInputs.length === 0 &&
+		config.selection === undefined
+	) {
 		return undefined;
 	}
 	const lines: string[] = ["    case_list:"];
+	if (config.selection !== undefined) {
+		lines.push(
+			`      selection: workers choose up to ${config.selection.maximum} ${config.selection.maximum === 1 ? "case" : "cases"} before continuing`,
+		);
+	}
 	if (config.tile !== undefined) {
 		lines.push(
 			`      layout: tile${config.tile.persistOnForms === true ? " (kept above every form)" : ""}`,

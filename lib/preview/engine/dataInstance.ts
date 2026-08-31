@@ -1,10 +1,33 @@
 import type { XFormDataRootRuntimeAttributes } from "@/lib/commcare/xform/dataRootAttributes";
+import type { Field } from "@/lib/domain";
 import type {
 	XPathInstance,
 	XPathNode,
 } from "@/lib/preview/xpath/runtimeValues";
 import { XPathDate, type XPathValue } from "@/lib/preview/xpath/types";
 import type { FieldTreeNode } from "./fieldTree";
+
+/** JavaRosa-shaped scalar value of one submitted form answer. Shared by the
+ * live main instance and the server's committed close-condition evaluation so
+ * a numeric or temporal condition cannot change meaning at the submit seam. */
+export function formAnswerXPathValue(
+	kind: Field["kind"],
+	raw: string,
+): XPathValue {
+	if (raw === "") return "";
+	switch (kind) {
+		case "int":
+		case "decimal": {
+			const numeric = Number(raw);
+			return Number.isNaN(numeric) ? raw : numeric;
+		}
+		case "date":
+		case "datetime":
+			return XPathDate.parse(raw) ?? raw;
+		default:
+			return raw;
+	}
+}
 
 interface XPathTemplateNode {
 	readonly name: string;
@@ -422,19 +445,7 @@ class FormXPathNode implements XPathNode {
 		if (this.template === undefined || this.childTemplates.length > 0)
 			return "";
 		const raw = this.instance.data.get(this.path) ?? "";
-		if (raw === "") return "";
-		switch (this.template.kind) {
-			case "int":
-			case "decimal": {
-				const numeric = Number(raw);
-				return Number.isNaN(numeric) ? raw : numeric;
-			}
-			case "date":
-			case "datetime":
-				return XPathDate.parse(raw) ?? raw;
-			default:
-				return raw;
-		}
+		return formAnswerXPathValue(this.template.kind, raw);
 	}
 
 	parent(): XPathNode | undefined {

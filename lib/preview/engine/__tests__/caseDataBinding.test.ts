@@ -402,17 +402,62 @@ function submissionEnvelopeArgs(
 		mutation.kind === "close"
 			? mutation.children
 			: [];
+	const ordinaryChildRelationships =
+		built?.ordinaryChildRelationships ??
+		new Map(children.map((child) => [child.caseType, "child"] as const));
+	const childSeeds = children.map((child) => ({
+		...child,
+		parentRelationship:
+			ordinaryChildRelationships.get(child.caseType) ?? ("child" as const),
+	}));
+	const ordinaryCaseType =
+		built?.ordinaryCaseType ??
+		(mutation.kind === "followup" || mutation.kind === "close"
+			? "patient"
+			: undefined);
+	const ordinarySelection =
+		built?.ordinarySelection ??
+		(mutation.kind === "followup" || mutation.kind === "close"
+			? { kind: "single" as const, maximum: 1 as const }
+			: undefined);
+	const ordinaryAction =
+		built?.ordinaryAction ??
+		(mutation.kind === "registration"
+			? {
+					kind: "registration" as const,
+					primary: mutation.primary,
+					children: childSeeds,
+				}
+			: mutation.kind === "followup" || mutation.kind === "close"
+				? {
+						kind:
+							mutation.kind === "close" && (built?.ordinaryCloseCase ?? true)
+								? ("close" as const)
+								: ("followup" as const),
+						caseIds: mutation.caseIds,
+						caseType: ordinaryCaseType ?? "patient",
+						selection:
+							ordinarySelection ?? ({ kind: "single", maximum: 1 } as const),
+						patch: mutation.patch,
+						children: childSeeds,
+					}
+				: { kind: "none" as const });
 	return projectSubmissionEnvelopeArgs(mutation, appId, {
 		...built,
+		ordinaryAction,
+		ordinaryFormType: built?.ordinaryFormType ?? mutation.kind,
+		ordinaryCloseCase:
+			built?.ordinaryCloseCase ??
+			(mutation.kind === "close" ? true : undefined),
 		// Whatever the mutation names, unless a test says otherwise: these
 		// tests are about the envelope's other halves, and the committed-form
 		// filter has its own coverage.
 		usercaseWriteProperties:
 			built?.usercaseWriteProperties ??
 			new Set(Object.keys(mutation.usercase ?? {})),
-		ordinaryChildRelationships:
-			built?.ordinaryChildRelationships ??
-			new Map(children.map((child) => [child.caseType, "child"] as const)),
+		ordinaryChildRelationships,
+		ordinaryCaseType,
+		ordinarySelection,
 		submissionReceipt:
 			built?.submissionReceipt ??
 			({
@@ -665,7 +710,7 @@ describe("a submission made while previewing as a persona", () => {
 			appId: APP_ID,
 			caseType: "patient",
 		});
-		const created = rows.find((r) => r.case_id === result.primaryCaseId);
+		const created = rows.find((r) => r.case_id === result.primaryCaseIds[0]);
 		expect(created?.owner_id).toBe(PERSONA);
 		expect(created?.owner_id).not.toBe(OWNER_A);
 	});
@@ -708,9 +753,9 @@ describe("a submission made while previewing as a persona", () => {
 			),
 		);
 		const rows = await store.query({ appId: APP_ID, caseType: "patient" });
-		expect(rows.find((r) => r.case_id === result.primaryCaseId)?.owner_id).toBe(
-			OWNER_A,
-		);
+		expect(
+			rows.find((r) => r.case_id === result.primaryCaseIds[0])?.owner_id,
+		).toBe(OWNER_A);
 	});
 });
 
@@ -768,7 +813,7 @@ describe("readCases", () => {
 		expect(ids).toEqual([ALICE_CASE_ID, BOB_CASE_ID].sort());
 	});
 
-	it("constrains an ordinary child case list to the selected case-type parent", async () => {
+	it("constrains a child case list to the complete selected-parent set", async () => {
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const relationship = "child" as const;
 		const visitCaseType = { ...VISIT_CASE_TYPE, relationship };
@@ -820,12 +865,17 @@ describe("readCases", () => {
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			parentCase: { caseType: "patient", caseId: ALICE_CASE_ID },
+			parentCase: {
+				caseType: "patient",
+				caseIds: [BOB_CASE_ID, ALICE_CASE_ID],
+			},
 		});
 
 		expect(result.kind).toBe("rows");
 		if (result.kind !== "rows") return;
-		expect(result.rows.map((row) => row.case_id)).toEqual([VISIT_CASE_ID]);
+		expect(result.rows.map((row) => row.case_id).sort()).toEqual(
+			[VISIT_CASE_ID, bobVisitId].sort(),
+		);
 		expect(result.constraintSource).toBe("authored-rules");
 	});
 
@@ -877,7 +927,7 @@ describe("readCases", () => {
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			parentCase: { caseType: "patient", caseId: ALICE_CASE_ID },
+			parentCase: { caseType: "patient", caseIds: [ALICE_CASE_ID] },
 			page: { offset: 0, limit: 50 },
 		});
 
@@ -928,7 +978,7 @@ describe("readCases", () => {
 			appId: APP_ID,
 			caseType: "visit",
 			caseTypeSchemas: buildCaseTypeMap(blueprint),
-			parentCase: { caseType: "patient", caseId: ALICE_CASE_ID },
+			parentCase: { caseType: "patient", caseIds: [ALICE_CASE_ID] },
 			caseListConfig: resolveCaseListConfig({
 				columns: [],
 				searchInputs: [
@@ -2249,7 +2299,7 @@ describe("readCaseData", () => {
 			appId: APP_ID,
 			caseType: "visit",
 			caseId: VISIT_CASE_ID,
-			parentCaseId: ALICE_CASE_ID,
+			parentCase: { caseType: "patient", caseIds: [ALICE_CASE_ID] },
 			ancestorDepth: 0,
 		});
 		expect(customIndex.kind).toBe("row");
@@ -2258,7 +2308,7 @@ describe("readCaseData", () => {
 			appId: APP_ID,
 			caseType: "visit",
 			caseId: extensionCaseId,
-			parentCaseId: ALICE_CASE_ID,
+			parentCase: { caseType: "patient", caseIds: [ALICE_CASE_ID] },
 			ancestorDepth: 0,
 		});
 		expect(extension).toEqual({ kind: "missing" });
@@ -3287,12 +3337,18 @@ describe("applySubmission — registration", () => {
 		);
 
 		// The primary id the envelope generated surfaces on
-		// `primaryCaseId`; the child id arrives in input order, and an
+		// `primaryCaseIds[0]`; the child id arrives in input order, and an
 		// ordinary-only submission records no operation effects.
-		expect(result.primaryCaseId).toMatch(
+		expect(result.primaryCaseIds[0]).toMatch(
 			/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
 		);
-		expect(result.childCaseIds).toHaveLength(1);
+		expect(result.createdChildren).toEqual([
+			{
+				authoredChildIndex: 0,
+				parentCaseId: result.primaryCaseIds[0],
+				caseId: expect.any(String),
+			},
+		]);
 		expect(result.operations).toEqual([]);
 
 		// Read-back through the store confirms the rows landed open with
@@ -3318,7 +3374,7 @@ describe("applySubmission — registration", () => {
 		expect(visits.rows).toHaveLength(1);
 		expect(visits.rows[0]?.case_name).toBe("First visit");
 		expect(visits.rows[0]?.status).toBe("open");
-		expect(visits.rows[0]?.parent_case_id).toBe(result.primaryCaseId);
+		expect(visits.rows[0]?.parent_case_id).toBe(result.primaryCaseIds[0]);
 	});
 
 	it("derives and persists an ordinary extension host from the committed case catalog", async () => {
@@ -3339,7 +3395,31 @@ describe("applySubmission — registration", () => {
 							uuid: FINAL_FORM_UUID,
 							name: "Register patient",
 							type: "registration",
-							fields: [],
+							fields: [
+								f({
+									kind: "text",
+									id: "patient_name",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
+								}),
+								f({
+									kind: "int",
+									id: "age",
+									caseWrite: { caseType: "patient", property: "age" },
+								}),
+								f({
+									kind: "text",
+									id: "visit_name",
+									caseWrite: { caseType: "visit", property: "case_name" },
+								}),
+								f({
+									kind: "text",
+									id: "visit_notes",
+									caseWrite: { caseType: "visit", property: "notes" },
+								}),
+							],
 						},
 					],
 				},
@@ -3363,6 +3443,7 @@ describe("applySubmission — registration", () => {
 					properties: { notes: "checkup" },
 				},
 			],
+			ordinaryChildBuckets: [{ caseType: "visit" }],
 		};
 		const projection = validateCaptureSubmissionProjection(mutation);
 		const identity = previewAsMe({ id: OWNER_A });
@@ -3378,7 +3459,7 @@ describe("applySubmission — registration", () => {
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, APP_ID, built),
 		);
-		const childCaseId = result.childCaseIds[0];
+		const childCaseId = result.createdChildren[0]?.caseId;
 		expect(childCaseId).toBeDefined();
 		const edge = await sql<{
 			identifier: string;
@@ -3392,7 +3473,7 @@ describe("applySubmission — registration", () => {
 		expect(edge.rows[0]).toEqual({
 			identifier: "parent",
 			relationship: "extension",
-			ancestor_id: result.primaryCaseId,
+			ancestor_id: result.primaryCaseIds[0],
 		});
 	});
 
@@ -3415,7 +3496,7 @@ describe("applySubmission — registration", () => {
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, APP_ID),
 		);
-		expect(result.childCaseIds).toEqual([]);
+		expect(result.createdChildren).toEqual([]);
 
 		const patients = await readCases(store, {
 			appId: APP_ID,
@@ -3461,7 +3542,7 @@ describe("applySubmission — registration", () => {
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, APP_ID),
 		);
-		expect(result.childCaseIds).toEqual([]);
+		expect(result.createdChildren).toEqual([]);
 
 		const patients = await readCases(store, {
 			appId: APP_ID,
@@ -3574,14 +3655,13 @@ describe("applySubmission — followup", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
 			...FINAL_SUBMISSION_PROTOCOL,
-			caseId: ALICE_CASE_ID,
+			caseIds: [ALICE_CASE_ID],
 			patch: { caseName: "Alice R", properties: { age: 31 } },
 			children: [
 				{
 					caseType: "visit",
 					caseName: "Followup visit",
 					properties: { notes: "stable" },
-					parentCaseId: ALICE_CASE_ID,
 				},
 			],
 		};
@@ -3589,8 +3669,8 @@ describe("applySubmission — followup", () => {
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, APP_ID),
 		);
-		expect(result.primaryCaseId).toBe(ALICE_CASE_ID);
-		expect(result.childCaseIds).toHaveLength(1);
+		expect(result.primaryCaseIds).toEqual([ALICE_CASE_ID]);
+		expect(result.createdChildren).toHaveLength(1);
 
 		// Primary's `age` updated; `name` preserved (JSONB merge, not
 		// replace); the new display name lands on the `case_name` column.
@@ -3644,14 +3724,13 @@ describe("applySubmission — followup", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
 			...FINAL_SUBMISSION_PROTOCOL,
-			caseId: ALICE_CASE_ID,
+			caseIds: [ALICE_CASE_ID],
 			patch: { properties: {} },
 			children: [
 				{
 					caseType: "visit",
 					caseName: "Followup visit",
 					properties: { notes: "stable" },
-					parentCaseId: ALICE_CASE_ID,
 				},
 			],
 		};
@@ -3693,7 +3772,7 @@ describe("applySubmission — followup", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
 			...FINAL_SUBMISSION_PROTOCOL,
-			caseId: ALICE_CASE_ID,
+			caseIds: [ALICE_CASE_ID],
 			patch: { properties: { age: 31 } },
 			children: [
 				{
@@ -3702,7 +3781,6 @@ describe("applySubmission — followup", () => {
 					// `unknown_prop` is undeclared on the `visit` schema, so
 					// the child insert fails AJV validation.
 					properties: { unknown_prop: "x" },
-					parentCaseId: ALICE_CASE_ID,
 				},
 			],
 		};
@@ -3753,14 +3831,13 @@ describe("applySubmission — close", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "close" }> = {
 			kind: "close",
 			...FINAL_SUBMISSION_PROTOCOL,
-			caseId: ALICE_CASE_ID,
+			caseIds: [ALICE_CASE_ID],
 			patch: { properties: { age: 32 } },
 			children: [
 				{
 					caseType: "visit",
 					caseName: "Closing visit",
 					properties: { notes: "discharged" },
-					parentCaseId: ALICE_CASE_ID,
 				},
 			],
 		};
@@ -3768,8 +3845,8 @@ describe("applySubmission — close", () => {
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, APP_ID),
 		);
-		expect(result.primaryCaseId).toBe(ALICE_CASE_ID);
-		expect(result.childCaseIds).toHaveLength(1);
+		expect(result.primaryCaseIds).toEqual([ALICE_CASE_ID]);
+		expect(result.createdChildren).toHaveLength(1);
 
 		const patients = await readCases(store, {
 			appId: APP_ID,
@@ -3813,14 +3890,13 @@ describe("applySubmission — close", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "close" }> = {
 			kind: "close",
 			...FINAL_SUBMISSION_PROTOCOL,
-			caseId: ALICE_CASE_ID,
+			caseIds: [ALICE_CASE_ID],
 			patch: { properties: {} },
 			children: [
 				{
 					caseType: "visit",
 					caseName: "Closing visit",
 					properties: { notes: "discharged" },
-					parentCaseId: ALICE_CASE_ID,
 				},
 			],
 		};
@@ -3828,8 +3904,8 @@ describe("applySubmission — close", () => {
 		const result = await store.applySubmission(
 			submissionEnvelopeArgs(mutation, APP_ID),
 		);
-		expect(result.primaryCaseId).toBe(ALICE_CASE_ID);
-		expect(result.childCaseIds).toHaveLength(1);
+		expect(result.primaryCaseIds).toEqual([ALICE_CASE_ID]);
+		expect(result.createdChildren).toHaveLength(1);
 
 		const patients = await readCases(store, {
 			appId: APP_ID,
@@ -3890,14 +3966,13 @@ describe("submissionEnvelopeArgs", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
 			...FINAL_SUBMISSION_PROTOCOL,
-			caseId: ALICE_CASE_ID,
+			caseIds: [ALICE_CASE_ID],
 			patch: { caseName: "Alice R", properties: { age: 31 } },
 			children: [
 				{
 					caseType: "visit",
 					caseName: "Followup visit",
 					properties: { notes: "stable" },
-					parentCaseId: ALICE_CASE_ID,
 				},
 			],
 		};
@@ -3912,7 +3987,9 @@ describe("submissionEnvelopeArgs", () => {
 			},
 			ordinary: {
 				kind: "followup",
-				caseId: ALICE_CASE_ID,
+				caseIds: [ALICE_CASE_ID],
+				caseType: "patient",
+				selection: { kind: "single", maximum: 1 },
 				patch: mutation.patch,
 				children: mutation.children.map((child) => ({
 					...child,
@@ -3926,14 +4003,13 @@ describe("submissionEnvelopeArgs", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "close" }> = {
 			kind: "close",
 			...FINAL_SUBMISSION_PROTOCOL,
-			caseId: ALICE_CASE_ID,
+			caseIds: [ALICE_CASE_ID],
 			patch: { properties: { age: 32 } },
 			children: [
 				{
 					caseType: "visit",
 					caseName: "Closing visit",
 					properties: { notes: "discharged" },
-					parentCaseId: ALICE_CASE_ID,
 				},
 			],
 		};
@@ -3948,7 +4024,9 @@ describe("submissionEnvelopeArgs", () => {
 			},
 			ordinary: {
 				kind: "close",
-				caseId: ALICE_CASE_ID,
+				caseIds: [ALICE_CASE_ID],
+				caseType: "patient",
+				selection: { kind: "single", maximum: 1 },
 				patch: mutation.patch,
 				children: mutation.children.map((child) => ({
 					...child,
@@ -4053,12 +4131,12 @@ describe("mapSubmitFormError", () => {
 		});
 	});
 
-	it("maps a typed CaseNotFoundError thrown by the real store envelope", async () => {
-		// End-to-end mapping: `CaseStore.applySubmission` running a
-		// followup against an unknown id throws `CaseNotFoundError` from
-		// its update core; the helper translates to the structured arm.
-		// Pins the catch path through the real error-thrower, paralleling
-		// the `seedSampleCases` end-to-end mapping tests above.
+	it("keeps an unavailable selected case in the non-disclosing submission rejection arm", async () => {
+		// End-to-end mapping: selected-case validation deliberately combines a
+		// missing id and an out-of-Project id in one rejection reason. That keeps
+		// the action from turning an authoritative batch lookup into a foreign-case
+		// existence probe. Direct `CaseNotFoundError` mapping remains independently
+		// covered above for store operations that genuinely throw that class.
 		const store = makeStore(PROJECT_A, OWNER_A);
 		const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 		await seedSchema(store, blueprint, "patient");
@@ -4066,7 +4144,7 @@ describe("mapSubmitFormError", () => {
 		const mutation: Extract<SubmissionMutation, { kind: "followup" }> = {
 			kind: "followup",
 			...FINAL_SUBMISSION_PROTOCOL,
-			caseId: ALICE_CASE_ID,
+			caseIds: [ALICE_CASE_ID],
 			patch: { properties: { age: 31 } },
 			children: [],
 		};
@@ -4077,8 +4155,12 @@ describe("mapSubmitFormError", () => {
 		} catch (err) {
 			const result = mapSubmitFormError(err);
 			expect(result).toEqual({
-				kind: "case-not-found",
-				caseId: ALICE_CASE_ID,
+				kind: "submission-rejected",
+				rejection: {
+					kind: "selection",
+					reason: "not-found-or-out-of-scope",
+					caseId: ALICE_CASE_ID,
+				},
 			});
 		}
 	});
@@ -4206,7 +4288,8 @@ describe("submitFormAction", () => {
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn().mockResolvedValue({
-				childCaseIds: [],
+				primaryCaseIds: [],
+				createdChildren: [],
 				operations: [],
 				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
@@ -4315,18 +4398,51 @@ describe("submitFormAction", () => {
 			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
+		const committedBlueprint = buildDoc({
+			appName: "Case-bearing error action",
+			caseTypes: [PATIENT_CASE_TYPE],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: FINAL_FORM_UUID,
+							name: "Follow up patient",
+							type: "followup",
+							fields: [
+								f({
+									kind: "int",
+									id: "age",
+									caseWrite: { caseType: "patient", property: "age" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: committedBlueprint,
+				mutation_seq: 1,
+				project_id: PROJECT_A,
+			},
+		});
 
 		const { submitFormAction } = await import("../caseDataBinding");
 		const result = await submitFormAction(
 			{
 				kind: "followup",
 				...FINAL_SUBMISSION_PROTOCOL,
-				caseId: ALICE_CASE_ID,
+				caseIds: [ALICE_CASE_ID],
 				patch: { properties: { age: 31 } },
 				children: [],
 			},
 			APP_ID,
-			FINAL_BLUEPRINT_DIGEST,
+			canonicalJsonDigest(toPersistableDoc(committedBlueprint)),
 		);
 		expect(result).toEqual({
 			kind: "case-not-found",
@@ -4337,8 +4453,8 @@ describe("submitFormAction", () => {
 	it("routes a case-bearing submission through applySubmission and maps the envelope result to the matching arm", async () => {
 		// The new wiring: the action projects the mutation via
 		// `submissionEnvelopeArgs` and hands it to `store.applySubmission`,
-		// then maps the `SubmissionEnvelopeResult`'s `primaryCaseId` +
-		// `childCaseIds` onto the mutation-kind result arm.
+		// then maps the `SubmissionEnvelopeResult`'s `primaryCaseIds` +
+		// structured created-child receipt onto the mutation-kind result arm.
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
@@ -4351,8 +4467,14 @@ describe("submitFormAction", () => {
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn().mockImplementationOnce(async (args) => ({
-				primaryCaseId: ALICE_CASE_ID,
-				childCaseIds: [VISIT_CASE_ID],
+				primaryCaseIds: [ALICE_CASE_ID],
+				createdChildren: [
+					{
+						authoredChildIndex: 0,
+						parentCaseId: ALICE_CASE_ID,
+						caseId: VISIT_CASE_ID,
+					},
+				],
 				operations: [],
 				blueprintDigest: args.submissionReceipt.blueprintDigest,
 				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
@@ -4387,6 +4509,7 @@ describe("submitFormAction", () => {
 					properties: { notes: "checkup" },
 				},
 			],
+			ordinaryChildBuckets: [{ caseType: "visit" }],
 		};
 		const committedBlueprint = buildDoc({
 			appName: "Case-bearing action",
@@ -4400,7 +4523,31 @@ describe("submitFormAction", () => {
 							uuid: FINAL_FORM_UUID,
 							name: "Register patient",
 							type: "registration",
-							fields: [],
+							fields: [
+								f({
+									kind: "text",
+									id: "patient_name",
+									caseWrite: {
+										caseType: "patient",
+										property: "case_name",
+									},
+								}),
+								f({
+									kind: "int",
+									id: "age",
+									caseWrite: { caseType: "patient", property: "age" },
+								}),
+								f({
+									kind: "text",
+									id: "visit_name",
+									caseWrite: { caseType: "visit", property: "case_name" },
+								}),
+								f({
+									kind: "text",
+									id: "visit_notes",
+									caseWrite: { caseType: "visit", property: "notes" },
+								}),
+							],
 						},
 					],
 				},
@@ -4440,7 +4587,13 @@ describe("submitFormAction", () => {
 		expect(result).toEqual({
 			kind: "registration",
 			caseId: ALICE_CASE_ID,
-			childCaseIds: [VISIT_CASE_ID],
+			createdChildren: [
+				{
+					authoredChildIndex: 0,
+					parentCaseId: ALICE_CASE_ID,
+					caseId: VISIT_CASE_ID,
+				},
+			],
 			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
 	});
@@ -4487,8 +4640,8 @@ describe("submitFormAction", () => {
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn().mockResolvedValue({
-				primaryCaseId: ALICE_CASE_ID,
-				childCaseIds: [],
+				primaryCaseIds: [ALICE_CASE_ID],
+				createdChildren: [],
 				operations: [],
 				blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
 			}),
@@ -4558,8 +4711,8 @@ describe("submitFormAction", () => {
 			count: vi.fn(),
 			insert: vi.fn(),
 			applySubmission: vi.fn().mockResolvedValue({
-				primaryCaseId: ALICE_CASE_ID,
-				childCaseIds: [],
+				primaryCaseIds: [ALICE_CASE_ID],
+				createdChildren: [],
 				operations: [],
 				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 			}),
@@ -4882,7 +5035,8 @@ describe("submitFormAction", () => {
 			},
 		});
 		const applySubmission = vi.fn().mockResolvedValueOnce({
-			childCaseIds: [],
+			primaryCaseIds: [],
+			createdChildren: [],
 			operations: [{ operationUuid: "op", iteration: 0, executed: true }],
 			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
 			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
@@ -4906,7 +5060,7 @@ describe("submitFormAction", () => {
 			APP_ID,
 			canonicalJsonDigest(toPersistableDoc(doc)),
 		);
-		// The survey arm returns WITHOUT the primaryCaseId invariant —
+		// The survey arm returns WITHOUT the primaryCaseIds invariant —
 		// an operations-bearing survey has no primary case.
 		expect(result).toEqual({
 			kind: "survey",
@@ -4966,7 +5120,8 @@ describe("submitFormAction", () => {
 			],
 		});
 		const applySubmission = vi.fn().mockResolvedValueOnce({
-			childCaseIds: [],
+			primaryCaseIds: [],
+			createdChildren: [],
 			operations: [],
 			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
 			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
@@ -5064,7 +5219,8 @@ describe("submitFormAction", () => {
 			.fn()
 			.mockRejectedValueOnce(new SchemaNotSyncedError(APP_ID, "patient"))
 			.mockResolvedValueOnce({
-				childCaseIds: [],
+				primaryCaseIds: [],
+				createdChildren: [],
 				operations: [],
 				blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
 				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
@@ -5153,7 +5309,8 @@ describe("submitFormAction", () => {
 			},
 		});
 		const applySubmission = vi.fn().mockResolvedValueOnce({
-			childCaseIds: [],
+			primaryCaseIds: [],
+			createdChildren: [],
 			operations: [],
 			blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
 			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
@@ -5266,7 +5423,7 @@ describe("submitFormAction", () => {
 				formUuid,
 				requestDigest: receipt.requestDigest,
 				result: {
-					primaryCaseId: ALICE_CASE_ID,
+					primaryCaseIds: [ALICE_CASE_ID],
 					childCaseIds: [VISIT_CASE_ID],
 					operations: [],
 					blueprintDigest: FINAL_BLUEPRINT_DIGEST,
@@ -5281,7 +5438,6 @@ describe("submitFormAction", () => {
 		).resolves.toEqual({
 			kind: "registration",
 			caseId: ALICE_CASE_ID,
-			childCaseIds: [VISIT_CASE_ID],
 			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
 		expect(loadAuthorizedFormSubmissionSnapshotMock).toHaveBeenCalledWith({
@@ -6200,7 +6356,7 @@ describe("loadCaseCountAction", () => {
 		expect(stubStore.count).toHaveBeenCalledWith({
 			appId: APP_ID,
 			caseType: "patient",
-			parentCaseId: undefined,
+			parentCases: undefined,
 			includeHeld: false,
 		});
 	});
@@ -6218,14 +6374,20 @@ describe("loadCaseCountAction", () => {
 		const result = await loadCaseCountAction({
 			appId: APP_ID,
 			caseType: "visit",
-			parentCaseId: ALICE_CASE_ID,
+			parentCase: {
+				caseType: "patient",
+				caseIds: [ALICE_CASE_ID, "patient-b"],
+			},
 		});
 
 		expect(result).toEqual({ kind: "count", count: 0 });
 		expect(store.count).toHaveBeenCalledWith({
 			appId: APP_ID,
 			caseType: "visit",
-			parentCaseId: ALICE_CASE_ID,
+			parentCases: {
+				caseType: "patient",
+				caseIds: [ALICE_CASE_ID, "patient-b"],
+			},
 			includeHeld: false,
 		});
 	});

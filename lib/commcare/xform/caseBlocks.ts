@@ -1040,6 +1040,7 @@ export function addCaseBlocks(
 	actions: FormActions,
 	caseType: string | undefined,
 	selectedCaseIdRef = "instance('commcaresession')/session/data/case_id",
+	defaultCaseManagement = true,
 ): string {
 	/* The upload-ref scan needs the parsed document, and the early return
 	 * below is documented as skipping the parse entirely, so both parse
@@ -1049,8 +1050,39 @@ export function addCaseBlocks(
 	let parsed: ReturnType<typeof parseXForm> | null = null;
 	const parsedXForm = () => (parsed ??= parseXForm(xform));
 	let uploadRefs: ReadonlySet<string> | null = null;
+	const opensCase =
+		actions.open_case.condition.type === "always" ||
+		actions.open_case.condition.type === "if";
+	const effectiveActions =
+		defaultCaseManagement || opensCase
+			? actions
+			: {
+					...actions,
+					update_case: {
+						...actions.update_case,
+						condition: {
+							...actions.update_case.condition,
+							type: "never" as const,
+						},
+					},
+					close_case: {
+						...actions.close_case,
+						condition: {
+							...actions.close_case.condition,
+							type: "never" as const,
+						},
+					},
+					case_preload: {
+						...actions.case_preload,
+						condition: {
+							...actions.case_preload.condition,
+							type: "never" as const,
+						},
+					},
+					subcases: [],
+				};
 	const emission = buildCaseBlocks(
-		actions,
+		effectiveActions,
 		caseType,
 		() => (uploadRefs ??= attachmentQuestionPaths(parsedXForm())),
 		selectedCaseIdRef,

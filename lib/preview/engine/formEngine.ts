@@ -94,6 +94,7 @@ import type { XPathWorkerInstances } from "../xpath/workerProtocol";
 import type {
 	SubmissionAnswerEntry,
 	SubmissionAttachmentReference,
+	SubmissionCloseConditionAnswers,
 	SubmissionMutation,
 	SubmissionOperationAnswers,
 } from "./caseDataBindingTypes";
@@ -1642,6 +1643,40 @@ export class FormEngine {
 	}
 
 	/**
+	 * Project only the raw main-instance values the current close condition
+	 * reads. The server reloads the committed form and treats that form as the
+	 * authority for whether a condition exists and what it means; this narrow
+	 * client projection supplies only the submitted answer nodes.
+	 */
+	private computeCloseConditionAnswers():
+		| SubmissionCloseConditionAnswers
+		| undefined {
+		const form = this.printDoc.forms[this.activeFormUuid() as string] as
+			| Form
+			| undefined;
+		const condition = form?.closeCondition;
+		if (condition === undefined) return undefined;
+		const genericPath = this.fieldPathsByUuid().get(condition.field);
+		if (genericPath === undefined) {
+			throw new Error(
+				compilerBugMessage({
+					where: "preview.formEngine.computeCloseConditionAnswers",
+					invariant: `close condition field \`${condition.field}\` has no path in the active form tree`,
+					detail:
+						"The validator requires a close condition to reference one field in its own form. The submission projection must never guess a replacement field or answer.",
+				}),
+			);
+		}
+		const visible = this.effectivelyVisiblePaths(this.store.getState());
+		return {
+			fieldUuid: condition.field,
+			values: this.materializePaths(genericPath)
+				.filter((path) => visible.has(path))
+				.map((path) => this.instance.get(path) ?? ""),
+		};
+	}
+
+	/**
 	 * The attachment names this submission actually carries.
 	 *
 	 * Walks every capture question, including one instance per live repeat
@@ -1787,7 +1822,7 @@ export class FormEngine {
 	}
 
 	computeSubmissionMutation(args: {
-		caseId?: string;
+		caseIds?: readonly string[];
 		/**
 		 * This form entry's attachment scope, supplied by the CONTROLLER
 		 * rather than owned here.
@@ -1817,6 +1852,7 @@ export class FormEngine {
 		 * the form carries case operations. A survey with operations must
 		 * NOT short-circuit — its program still executes. */
 		const operationAnswers = this.computeOperationAnswers();
+		const closeConditionAnswers = this.computeCloseConditionAnswers();
 		const attachmentRefs = this.collectAttachmentReferences();
 		const projectedCaseWrites = this.projectedCaseWrites();
 		const usercaseProperties = this.collectUsercaseWrites();
@@ -1830,6 +1866,7 @@ export class FormEngine {
 			// projection that retires every unreferenced staged attachment for
 			// this entry.
 			attachmentRefs,
+			...(closeConditionAnswers !== undefined && { closeConditionAnswers }),
 			...(operationAnswers !== undefined && { operationAnswers }),
 		};
 		if (this.formType === "survey") {
@@ -1838,14 +1875,14 @@ export class FormEngine {
 
 		if (
 			(this.formType === "followup" || this.formType === "close") &&
-			args.caseId === undefined
+			(args.caseIds === undefined || args.caseIds.length === 0)
 		) {
 			throw new Error(
 				compilerBugMessage({
 					where: "preview.formEngine.computeSubmissionMutation",
-					invariant: `form type \`${this.formType}\` requires a bound \`caseId\`, but none was supplied`,
+					invariant: `form type \`${this.formType}\` requires at least one bound case in \`caseIds\`, but none was supplied`,
 					detail:
-						"Followup and close forms operate on a bound case row; the running-app view's nav stack carries the bound case id. Reaching this throw means the consumer invoked the engine method without threading the bound id through the call.",
+						"Followup and close forms operate on one or more selected case rows; the running-app view carries that ordered selection. Reaching this throw means the consumer invoked the engine method without threading it through the call.",
 				}),
 			);
 		}
@@ -1884,6 +1921,13 @@ export class FormEngine {
 			if (existing !== undefined) return existing;
 			const created: ChildBucket = {
 				caseType: bucket.caseType,
+				authoredBucket: {
+					caseType: bucket.caseType,
+					...(bucket.repeatUuid !== undefined && {
+						repeatUuid: bucket.repeatUuid,
+						repeatInstanceKey,
+					}),
+				},
 				properties: {},
 			};
 			byIteration.set(repeatInstanceKey, created);
@@ -2020,6 +2064,18 @@ export class FormEngine {
 			b.caseName !== undefined ||
 			b.externalId !== undefined ||
 			Object.keys(b.properties).length > 0;
+		const materializedChildBuckets = childBuckets.filter(isContentfulBucket);
+		const ordinaryChildBuckets = materializedChildBuckets.map(
+			(bucket) => bucket.authoredBucket,
+		);
+		const children = materializedChildBuckets.map((bucket) => ({
+			caseType: bucket.caseType,
+			...(bucket.caseName !== undefined ? { caseName: bucket.caseName } : {}),
+			...(bucket.externalId !== undefined
+				? { externalId: bucket.externalId }
+				: {}),
+			properties: bucket.properties,
+		}));
 
 		switch (this.formType) {
 			case "registration": {
@@ -2034,15 +2090,10 @@ export class FormEngine {
 						}),
 					);
 				}
-				const children = childBuckets.filter(isContentfulBucket).map((b) => ({
-					caseType: b.caseType,
-					...(b.caseName !== undefined ? { caseName: b.caseName } : {}),
-					...(b.externalId !== undefined ? { externalId: b.externalId } : {}),
-					properties: b.properties,
-				}));
 				return {
 					kind: "registration",
 					...operationIdentity,
+					ordinaryChildBuckets,
 					primary: {
 						caseType: this.moduleCaseType,
 						...(primaryCaseName !== undefined
@@ -2058,26 +2109,19 @@ export class FormEngine {
 			}
 			case "followup":
 			case "close": {
-				// Top-of-method guard already rejected `args.caseId === undefined`
+				// Top-of-method guard already rejected an absent/empty selection
 				// for these arms; the assertion here keeps the narrowing honest if
 				// the upstream guard ever regresses.
-				const caseId = args.caseId;
-				if (caseId === undefined) {
+				const caseIds = args.caseIds;
+				if (caseIds === undefined || caseIds.length === 0) {
 					throw new Error(
 						compilerBugMessage({
 							where: "preview.formEngine.computeSubmissionMutation",
 							invariant:
-								"`caseId` narrowing failed after the followup/close form-type guard",
+								"`caseIds` narrowing failed after the followup/close form-type guard",
 						}),
 					);
 				}
-				const children = childBuckets.filter(isContentfulBucket).map((b) => ({
-					caseType: b.caseType,
-					...(b.caseName !== undefined ? { caseName: b.caseName } : {}),
-					...(b.externalId !== undefined ? { externalId: b.externalId } : {}),
-					properties: b.properties,
-					parentCaseId: caseId,
-				}));
 				const patch = {
 					...(primaryCaseName !== undefined
 						? { caseName: primaryCaseName }
@@ -2091,12 +2135,20 @@ export class FormEngine {
 					return {
 						kind: "followup",
 						...operationIdentity,
-						caseId,
+						ordinaryChildBuckets,
+						caseIds,
 						patch,
 						children,
 					};
 				}
-				return { kind: "close", ...operationIdentity, caseId, patch, children };
+				return {
+					kind: "close",
+					...operationIdentity,
+					ordinaryChildBuckets,
+					caseIds,
+					patch,
+					children,
+				};
 			}
 			default:
 				// `survey` is handled at the top of the method; the form type
@@ -3933,6 +3985,11 @@ export class FormEngine {
  */
 interface ChildBucket {
 	caseType: string;
+	authoredBucket: {
+		caseType: string;
+		repeatUuid?: string;
+		repeatInstanceKey?: string;
+	};
 	caseName?: string;
 	externalId?: string;
 	properties: JsonObject;

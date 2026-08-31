@@ -17,6 +17,7 @@ import type {
 	CaseListConfig,
 	CaseProperty,
 	CaseSearchConfig,
+	CaseSelection,
 	CaseTileGrouping,
 	CaseType,
 	Column,
@@ -44,6 +45,7 @@ import {
 	CaseAvailabilityComposer,
 	type CaseAvailabilityComposerProps,
 } from "./CaseAvailabilityComposer";
+import { CaseSelectionSetting } from "./CaseSelectionSetting";
 import { CanvasNotice } from "./canvasChrome";
 import {
 	AddInformationControl,
@@ -88,6 +90,7 @@ export interface CaseListCanvasProps {
 	readonly onApplyTilePreset: (preset: TilePresetId) => void;
 	readonly onTilePersistOnFormsChange: (persist: boolean) => void;
 	readonly onTileGroupingChange: (next: CaseTileGrouping | undefined) => void;
+	readonly onCaseSelectionChange: (next: CaseSelection | undefined) => void;
 }
 
 export function CaseListCanvas({
@@ -122,6 +125,7 @@ export function CaseListCanvas({
 	onApplyTilePreset,
 	onTilePersistOnFormsChange,
 	onTileGroupingChange,
+	onCaseSelectionChange,
 }: CaseListCanvasProps) {
 	const canEdit = useCanEdit();
 	const projection = projectCaseWorkspaceColumns(config);
@@ -154,6 +158,12 @@ export function CaseListCanvas({
 				</header>
 
 				<div className="space-y-10">
+					<CaseSelectionSetting
+						value={config.selection}
+						canEdit={canEdit}
+						onChange={onCaseSelectionChange}
+					/>
+
 					<section aria-labelledby="results-information-heading">
 						<div className="mb-4 flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
 							{/* Asks for a readable column before the switch beside it

@@ -43,6 +43,15 @@ export const CLAIM_DEFAULT_RELEVANT =
 export const SEARCH_CASE_ID_REF =
 	"instance('commcaresession')/session/data/search_case_id";
 
+export const SEARCH_SELECTED_CASES_ID = "search_selected_cases";
+export const SEARCH_SELECTED_CASES_REF =
+	"instance('commcaresession')/session/data/search_selected_cases";
+export const CLAIM_MULTI_RELEVANT = "$case_id != ''";
+export const CLAIM_MULTI_NODESET =
+	"instance('search_selected_cases')/results/value";
+export const CLAIM_MULTI_EXCLUDE =
+	"count(instance('casedb')/casedb/case[@case_id=current()/.]) = 1";
+
 /**
  * Compose the `<post>` Element. The orchestrator splices the returned
  * Element directly into the `<remote-request>` body; the surrounding
@@ -61,7 +70,22 @@ export const SEARCH_CASE_ID_REF =
  * `<post>` element, so the rendered bytes stay diffable against the
  * CCHQ-regenerated suite.
  */
-export function buildClaimPost(): Element {
+
+export function buildClaimPost(multiple = false): Element {
+	if (multiple) {
+		return el(
+			"post",
+			{ url: CLAIM_URL_TEMPLATE, relevant: CLAIM_MULTI_RELEVANT },
+			[
+				el("data", {
+					key: "case_id",
+					nodeset: CLAIM_MULTI_NODESET,
+					exclude: CLAIM_MULTI_EXCLUDE,
+					ref: ".",
+				}),
+			],
+		);
+	}
 	return el(
 		"post",
 		{ url: CLAIM_URL_TEMPLATE, relevant: CLAIM_DEFAULT_RELEVANT },
@@ -75,6 +99,6 @@ export function buildClaimPost(): Element {
  * test surface). The orchestrator (`remoteRequest.ts`) calls
  * `buildClaimPost` directly.
  */
-export function emitClaimPost(): string {
-	return render(buildClaimPost(), RENDER_OPTS);
+export function emitClaimPost(multiple = false): string {
+	return render(buildClaimPost(multiple), RENDER_OPTS);
 }

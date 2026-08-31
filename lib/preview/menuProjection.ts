@@ -1,6 +1,7 @@
 import {
 	CASE_FORM_TYPES,
 	type CaseType,
+	caseSelectionCanFlowBetweenModules,
 	type Form,
 	type Module,
 	type Uuid,
@@ -104,8 +105,9 @@ export interface PreviewMenuCaseContext {
 	 * parent when both menus use the same case type. */
 	readonly selectedCase: PreviewMenuCaseSelection | undefined;
 	readonly selectedByModuleUuid: Uuid | undefined;
-	/** A different-type case parent's selection. This constrains which cases
-	 * the child may select; it is independent of the structural menu parent. */
+	/** A different-type case parent's ordered selection. This constrains the
+	 * child population to cases related to any selected parent; it is independent
+	 * of the structural menu parent. */
 	readonly parentCase: PreviewMenuCaseSelection | undefined;
 	readonly parentModuleUuid: Uuid | undefined;
 	/** The case-type selector still required before this module can run. */
@@ -138,7 +140,11 @@ export function previewMenuCaseContext(
 					doc.modules[structuralParentUuid]?.caseType,
 				);
 	const inherited =
-		structuralParentSelection?.caseType === mod.caseType
+		structuralParentSelection !== undefined &&
+		structuralParentSelection.caseType === mod.caseType &&
+		structuralParentUuid !== undefined &&
+		structuralParentUuid !== null &&
+		caseSelectionCanFlowBetweenModules(doc.modules[structuralParentUuid], mod)
 			? structuralParentSelection
 			: undefined;
 	const selectedCase = direct ?? inherited;
@@ -192,7 +198,13 @@ export function previewMenuCaseContext(
 		selections[caseParentModuleUuid],
 		parentCaseType,
 	);
-	if (!caseParentSelection) {
+	/* An absent parent selection still needs the ordinary parent-selector
+	 * journey. Once selected, the complete ordered set constrains the child
+	 * population to the union of direct non-extension children. */
+	if (
+		caseParentSelection === undefined ||
+		caseParentSelection.cases.length === 0
+	) {
 		return {
 			...emptyCaseContext(),
 			selectedCase,

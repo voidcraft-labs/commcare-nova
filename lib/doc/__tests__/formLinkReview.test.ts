@@ -259,6 +259,33 @@ describe("formLinkTargetVerdict", () => {
 			ok: true,
 		});
 	});
+
+	it("refuses a direct destination that cannot receive the complete selection", () => {
+		const doc = produce(fixture(), (draft) => {
+			const source = draft.modules[CARE]?.caseListConfig;
+			const target = draft.modules[INTAKE]?.caseListConfig;
+			if (source === undefined || target === undefined)
+				throw new Error("fixture");
+			source.selection = { kind: "multiple", maximum: 10 };
+			target.selection = { kind: "multiple", maximum: 5 };
+			draft.forms[REGISTER].type = "followup";
+		});
+
+		expect(
+			formLinkTargetVerdict(doc, VISIT, undefined, {
+				type: "form",
+				moduleUuid: INTAKE,
+				formUuid: REGISTER,
+			}),
+		).toEqual({
+			ok: false,
+			reason: "selection-cardinality",
+			sourceCardinality: "multiple",
+			targetCardinality: "multiple",
+			sourceMaximum: 10,
+			targetMaximum: 5,
+		});
+	});
 });
 
 describe("formLinkRequiredDatums / formLinkCarryVerdict", () => {

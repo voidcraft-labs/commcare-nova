@@ -30,6 +30,7 @@ import {
 	eq,
 	fixedLocation,
 	formField,
+	idOf,
 	literal,
 	ownerLocationAtLevel,
 	prop,
@@ -40,7 +41,6 @@ import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import {
 	CaptureSubmissionRejectedError,
-	CaseNotFoundError,
 	CasePropertiesValidationError,
 	SubmissionRejectedError,
 } from "../../errors";
@@ -100,6 +100,7 @@ const FLAG_FIELD = testUuid("22222222-2222-4222-8222-222222222222");
 const MEDS_FIELD = testUuid("33333333-3333-4333-8333-333333333333");
 
 const SESSION_CASE_ID = "00000000-0000-7000-8000-00000000aaaa";
+const SECOND_SESSION_CASE_ID = "00000000-0000-7000-8000-00000000bbbb";
 
 const PATIENT: CaseType = {
 	name: "patient",
@@ -203,12 +204,21 @@ async function seedSessionPatient(
 	store: PostgresCaseStore,
 	properties: Record<string, unknown> = { notes: "original" },
 ): Promise<void> {
+	await seedPatient(store, SESSION_CASE_ID, "Alice", properties);
+}
+
+async function seedPatient(
+	store: PostgresCaseStore,
+	caseId: string,
+	caseName: string,
+	properties: Record<string, unknown> = { notes: "original" },
+): Promise<void> {
 	await store.insert({
 		appId: APP_ID,
 		row: {
-			case_id: SESSION_CASE_ID,
+			case_id: caseId,
 			case_type: "patient",
-			case_name: "Alice",
+			case_name: caseName,
 			status: "open",
 			properties: JSON.stringify(properties),
 		},
@@ -268,7 +278,7 @@ function rootProgram(
 				],
 			},
 		],
-		...(sessionCaseId === undefined ? {} : { sessionCaseId }),
+		...(sessionCaseId === undefined ? {} : { sessionCaseIds: [sessionCaseId] }),
 		caseTypeSchemas: SCHEMAS,
 		...(opts?.organizationLevels === undefined
 			? {}
@@ -278,14 +288,16 @@ function rootProgram(
 
 function followupOrdinary(patchProperties: Record<string, unknown> = {}): {
 	kind: "followup";
-	caseId: string;
+	caseIds: string[];
+	selection: { kind: "single"; maximum: 1 };
 	caseType: string;
 	patch: { properties: Record<string, never> };
 	children: [];
 } {
 	return {
 		kind: "followup",
-		caseId: SESSION_CASE_ID,
+		caseIds: [SESSION_CASE_ID],
+		selection: { kind: "single", maximum: 1 },
 		caseType: "patient",
 		patch: { properties: patchProperties as Record<string, never> },
 		children: [],
@@ -646,7 +658,8 @@ describe("whole-envelope atomicity", () => {
 				appId: APP_ID,
 				ordinary: {
 					kind: "close",
-					caseId: SESSION_CASE_ID,
+					caseIds: [SESSION_CASE_ID],
+					selection: { kind: "single", maximum: 1 },
 					caseType: "patient",
 					patch: { properties: { notes: "final" } },
 					children: [
@@ -656,7 +669,6 @@ describe("whole-envelope atomicity", () => {
 							// `outcome` is text; an unknown property fails the
 							// schema's additionalProperties check.
 							properties: { unknown_property: "boom" },
-							parentCaseId: SESSION_CASE_ID,
 						},
 					],
 				},
@@ -683,6 +695,327 @@ describe("whole-envelope atomicity", () => {
 		expect(row?.properties).toMatchObject({ notes: "original" });
 		expect(row?.status).toBe("open");
 		expect(row?.closed_on).toBeNull();
+	});
+});
+
+describe("ordered selected-case batches", () => {
+	it("runs form-level creates once per repeat before selected-case operations", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedPatient(store, SESSION_CASE_ID, "Alice");
+		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob");
+		const caseIds = [SECOND_SESSION_CASE_ID, SESSION_CASE_ID];
+
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: {
+				kind: "followup",
+				caseIds,
+				selection: { kind: "multiple", maximum: 2 },
+				caseType: "patient",
+				patch: { properties: {} },
+				children: [],
+			},
+			operations: {
+				formUuid: FORM_UUID,
+				sessionCaseIds: caseIds,
+				operations: [
+					envOp(
+						operation({
+							uuid: OP_A,
+							id: "make_visit",
+							action: "create",
+							caseType: "visit",
+							target: { kind: "new" },
+							name: term(formField(KEY_FIELD)),
+							forEach: { repeat: REPEAT_UUID },
+						}),
+					),
+					envOp(
+						operation({
+							uuid: OP_B,
+							id: "record_visit",
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							writes: [{ property: "copy", value: idOf(OP_A) }],
+							forEach: { repeat: REPEAT_UUID },
+						}),
+					),
+				],
+				scopes: [
+					{ iterations: [{ formFields: new Map() }] },
+					{
+						repeat: REPEAT_UUID,
+						iterations: [
+							{ formFields: new Map([[KEY_FIELD, "Intake"]]) },
+							{ formFields: new Map([[KEY_FIELD, "Exit"]]) },
+						],
+					},
+				],
+				caseTypeSchemas: SCHEMAS,
+			},
+		});
+
+		expect(result.primaryCaseIds).toEqual(caseIds);
+		expect(
+			result.operations.map(
+				({ operationUuid, iteration, selection, caseId }) => ({
+					operationUuid,
+					iteration,
+					selection,
+					caseId,
+				}),
+			),
+		).toEqual([
+			{
+				operationUuid: OP_A,
+				iteration: 0,
+				selection: 0,
+				caseId: expect.any(String),
+			},
+			{
+				operationUuid: OP_B,
+				iteration: 0,
+				selection: 0,
+				caseId: SECOND_SESSION_CASE_ID,
+			},
+			{
+				operationUuid: OP_B,
+				iteration: 0,
+				selection: 1,
+				caseId: SESSION_CASE_ID,
+			},
+			{
+				operationUuid: OP_A,
+				iteration: 1,
+				selection: 0,
+				caseId: expect.any(String),
+			},
+			{
+				operationUuid: OP_B,
+				iteration: 1,
+				selection: 0,
+				caseId: SECOND_SESSION_CASE_ID,
+			},
+			{
+				operationUuid: OP_B,
+				iteration: 1,
+				selection: 1,
+				caseId: SESSION_CASE_ID,
+			},
+		]);
+		const createdCaseIds = result.operations
+			.filter(({ operationUuid }) => operationUuid === OP_A)
+			.map(({ caseId }) => caseId);
+		expect(createdCaseIds).toHaveLength(2);
+		expect(new Set(createdCaseIds).size).toBe(2);
+		expect(
+			await store.query({ appId: APP_ID, caseType: "visit" }),
+		).toHaveLength(2);
+		for (const caseId of caseIds) {
+			expect((await patientRow(store, caseId))?.properties).toMatchObject({
+				copy: createdCaseIds[1],
+			});
+		}
+	});
+
+	it("runs repeat outer by selected case inner with one session anchor per case", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedPatient(store, SESSION_CASE_ID, "Alice");
+		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob");
+		const caseIds = [SESSION_CASE_ID, SECOND_SESSION_CASE_ID];
+
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: {
+				kind: "followup",
+				caseIds,
+				selection: { kind: "multiple", maximum: 2 },
+				caseType: "patient",
+				patch: { properties: {} },
+				children: [],
+			},
+			operations: {
+				formUuid: FORM_UUID,
+				sessionCaseIds: caseIds,
+				operations: [
+					envOp(
+						operation({
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							writes: [
+								{ property: "notes", value: term(formField(KEY_FIELD)) },
+							],
+							forEach: { repeat: REPEAT_UUID },
+						}),
+					),
+				],
+				scopes: [
+					{ iterations: [{ formFields: new Map() }] },
+					{
+						repeat: REPEAT_UUID,
+						iterations: [
+							{ formFields: new Map([[KEY_FIELD, "first"]]) },
+							{ formFields: new Map([[KEY_FIELD, "second"]]) },
+						],
+					},
+				],
+				caseTypeSchemas: SCHEMAS,
+			},
+		});
+
+		expect(result.primaryCaseIds).toEqual(caseIds);
+		expect(
+			result.operations.map(({ iteration, selection, caseId }) => ({
+				iteration,
+				selection,
+				caseId,
+			})),
+		).toEqual([
+			{ iteration: 0, selection: 0, caseId: SESSION_CASE_ID },
+			{ iteration: 0, selection: 1, caseId: SECOND_SESSION_CASE_ID },
+			{ iteration: 1, selection: 0, caseId: SESSION_CASE_ID },
+			{ iteration: 1, selection: 1, caseId: SECOND_SESSION_CASE_ID },
+		]);
+		for (const caseId of caseIds) {
+			expect((await patientRow(store, caseId))?.properties).toMatchObject({
+				notes: "second",
+			});
+		}
+	});
+
+	it("fans children and close across the ordered selection", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedPatient(store, SESSION_CASE_ID, "Alice");
+		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob");
+		const caseIds = [SECOND_SESSION_CASE_ID, SESSION_CASE_ID];
+
+		const result = await submit(store, {
+			appId: APP_ID,
+			ordinary: {
+				kind: "close",
+				caseIds,
+				selection: { kind: "multiple", maximum: 4 },
+				caseType: "patient",
+				patch: { properties: {} },
+				children: [
+					{
+						caseType: "visit",
+						caseName: "Intake",
+						properties: { outcome: "intake" },
+					},
+					{
+						caseType: "visit",
+						caseName: "Exit",
+						properties: { outcome: "exit" },
+					},
+				],
+			},
+		});
+
+		expect(result.primaryCaseIds).toEqual(caseIds);
+		const children = await store.query({
+			appId: APP_ID,
+			caseType: "visit",
+			caseIds: result.createdChildren.map((child) => child.caseId),
+		});
+		const childById = new Map(children.map((row) => [row.case_id, row]));
+		expect(result.createdChildren).toEqual([
+			{
+				authoredChildIndex: 0,
+				parentCaseId: SECOND_SESSION_CASE_ID,
+				caseId: expect.any(String),
+			},
+			{
+				authoredChildIndex: 0,
+				parentCaseId: SESSION_CASE_ID,
+				caseId: expect.any(String),
+			},
+			{
+				authoredChildIndex: 1,
+				parentCaseId: SECOND_SESSION_CASE_ID,
+				caseId: expect.any(String),
+			},
+			{
+				authoredChildIndex: 1,
+				parentCaseId: SESSION_CASE_ID,
+				caseId: expect.any(String),
+			},
+		]);
+		for (const createdChild of result.createdChildren) {
+			expect(childById.get(createdChild.caseId)?.parent_case_id).toBe(
+				createdChild.parentCaseId,
+			);
+		}
+		for (const caseId of caseIds) {
+			expect((await patientRow(store, caseId))?.status).toBe("closed");
+		}
+	});
+
+	it("rolls back the receipt on stale selection and accepts an exact retry", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedPatient(store, SESSION_CASE_ID, "Alice");
+		const submissionReceipt: SubmissionReceiptClaim = {
+			entryKey: "multi-selection-retry",
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
+			requestDigest: "multi-selection-retry-request",
+		};
+		const args = {
+			appId: APP_ID,
+			submissionReceipt,
+			ordinary: {
+				kind: "close" as const,
+				caseIds: [SESSION_CASE_ID, SECOND_SESSION_CASE_ID],
+				selection: { kind: "multiple" as const, maximum: 2 },
+				caseType: "patient",
+				patch: { properties: {} },
+				children: [
+					{
+						caseType: "visit",
+						caseName: "Final visit",
+						properties: { outcome: "done" },
+					},
+				],
+			},
+		};
+
+		const firstError = await rejection(submit(store, args));
+		expect(firstError.rejection).toMatchObject({
+			kind: "selection",
+			reason: "not-found-or-out-of-scope",
+			caseId: SECOND_SESSION_CASE_ID,
+		});
+		expect((await patientRow(store, SESSION_CASE_ID))?.status).toBe("open");
+		const receiptCount = await sql<{ count: string }>`
+			SELECT count(*)::text AS count
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID} AND entry_key = ${submissionReceipt.entryKey}
+		`.execute(dbHandle.db);
+		expect(receiptCount.rows[0]?.count).toBe("0");
+
+		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob");
+		const accepted = await submit(store, args);
+		expect(await submit(store, args)).toEqual(accepted);
+		expect(accepted.createdChildren).toHaveLength(2);
+		const acceptedReceipt = await sql<{ result: unknown }>`
+			SELECT result
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID} AND entry_key = ${submissionReceipt.entryKey}
+		`.execute(dbHandle.db);
+		expect(acceptedReceipt.rows[0]?.result).toMatchObject({
+			createdChildren: accepted.createdChildren,
+		});
+		expect(acceptedReceipt.rows[0]?.result).not.toHaveProperty("childCaseIds");
+		expect(
+			await store.query({ appId: APP_ID, caseType: "visit" }),
+		).toHaveLength(2);
 	});
 });
 
@@ -2160,7 +2493,7 @@ describe("combined submission", () => {
 			]),
 		});
 
-		expect(result.primaryCaseId).toBe(SESSION_CASE_ID);
+		expect(result.primaryCaseIds).toEqual([SESSION_CASE_ID]);
 		expect(result.operations).toHaveLength(1);
 		expect(result.operations[0]?.executed).toBe(true);
 		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
@@ -2173,7 +2506,7 @@ describe("combined submission", () => {
 		const store = makeStore();
 		await seedSchemas(store);
 
-		await expect(
+		const err = await rejection(
 			submit(store, {
 				appId: APP_ID,
 				ordinary: { kind: "none" },
@@ -2189,7 +2522,12 @@ describe("combined submission", () => {
 					),
 				]),
 			}),
-		).rejects.toThrow(CaseNotFoundError);
+		);
+		expect(err.rejection).toMatchObject({
+			kind: "selection",
+			reason: "not-found-or-out-of-scope",
+			caseId: SESSION_CASE_ID,
+		});
 	});
 });
 
@@ -2310,14 +2648,16 @@ describe("durable text-only submission receipt", () => {
 			},
 		});
 		expect(replay).toEqual(first);
-		expect(first.primaryCaseId).toEqual(expect.any(String));
+		expect(first.primaryCaseIds).toEqual([expect.any(String)]);
+		const primaryCaseId = first.primaryCaseIds[0];
+		expect(primaryCaseId).toBeDefined();
 		const patients = await store.query({
 			appId: APP_ID,
 			caseType: "patient",
 		});
 		expect(patients).toHaveLength(1);
 		expect(patients[0]).toMatchObject({
-			case_id: first.primaryCaseId,
+			case_id: primaryCaseId,
 			case_name: "First registration",
 			properties: { notes: "accepted" },
 		});
@@ -2673,13 +3013,18 @@ describe("atomic form-capture intent", () => {
 		const capture = await seedPreparedCapture();
 		await seedSchemas(store);
 
-		await expect(
+		const err = await rejection(
 			submit(store, {
 				appId: APP_ID,
 				ordinary: followupOrdinary({ notes: "never lands" }),
 				captureIntent: capture.intent,
 			}),
-		).rejects.toBeInstanceOf(CaseNotFoundError);
+		);
+		expect(err.rejection).toMatchObject({
+			kind: "selection",
+			reason: "not-found-or-out-of-scope",
+			caseId: SESSION_CASE_ID,
+		});
 
 		const attachment = await sql<{ status: string }>`
 			SELECT status

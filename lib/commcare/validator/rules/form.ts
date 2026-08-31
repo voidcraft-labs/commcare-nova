@@ -54,6 +54,10 @@ import type { LookupTypeIndex } from "../lookupTypeContext";
 import { validateCaseOperations } from "./caseOperations";
 import { formDisplayCondition } from "./displayConditions";
 import { validateLookupOptionsSources } from "./lookupOptionsSource";
+import {
+	formLinkSelectionCardinality,
+	multiSelectFormSemantics,
+} from "./multiSelect";
 
 // ── Helpers ────────────────────────────────────────────────────────
 
@@ -1265,11 +1269,17 @@ export function runFormRules(
 	errors.push(...casePropertyBadFormat(ctx, caseWriteInventory));
 	errors.push(...casePropertyTooLong(ctx, caseWriteInventory));
 	errors.push(...postSubmitValidation(form, ctx, mod));
+	errors.push(
+		...formLinkSelectionCardinality(doc, form, mod, ctx, caseWriteInventory),
+	);
 	errors.push(...formLinkValidation(doc, form, ctx));
 	errors.push(...connectValidation(doc, form, ctx));
 	errors.push(...caseHashtagOnCreateForm(doc, form, ctx));
 	errors.push(
 		...validateCaseOperations(doc, formUuid, moduleUuid, lookupTables),
+	);
+	errors.push(
+		...multiSelectFormSemantics(doc, form, mod, ctx, caseWriteInventory),
 	);
 
 	return errors;

@@ -1865,12 +1865,17 @@ function diffCaseListMeta(
 ): Mutation[] {
 	const patch: {
 		filter?: CaseListConfig["filter"] | null;
+		selection?: CaseListConfig["selection"] | null;
 		icon?: CaseListConfig["icon"] | null;
 		audioLabel?: CaseListConfig["audioLabel"] | null;
 		tile?: CaseListConfig["tile"] | null;
 	} = {};
 	if (!deepEqual(prev.filter, next.filter)) {
 		patch.filter = next.filter === undefined ? null : cloneEntity(next.filter);
+	}
+	if (!deepEqual(prev.selection, next.selection)) {
+		patch.selection =
+			next.selection === undefined ? null : cloneEntity(next.selection);
 	}
 	if (prev.icon !== next.icon) patch.icon = next.icon ?? null;
 	if (prev.audioLabel !== next.audioLabel) {

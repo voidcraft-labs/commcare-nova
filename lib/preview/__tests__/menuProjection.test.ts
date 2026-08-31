@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { Module } from "@/lib/domain";
+import { emptyCaseListConfig, type Module } from "@/lib/domain";
 import {
 	combineNavigationVisibility,
 	inheritedModuleVisibility,
@@ -98,8 +98,7 @@ describe("Preview menu projection", () => {
 	it("reuses a structural parent's selection only for the same case type", () => {
 		const selected = {
 			caseType: "household",
-			caseId: "h1",
-			caseName: "Household one",
+			cases: [{ caseId: "h1", caseName: "Household one" }],
 		};
 		expect(
 			previewMenuCaseContext(source(), CHILD, { [ROOT]: selected }),
@@ -112,11 +111,58 @@ describe("Preview menu projection", () => {
 		});
 	});
 
+	it("carries an authored set only to a compatible child with enough room", () => {
+		const base = source();
+		const selection = {
+			caseType: "household",
+			cases: [{ caseId: "h1", caseName: "One" }],
+		};
+		const multiConfig = {
+			...emptyCaseListConfig(),
+			selection: { kind: "multiple" as const, maximum: 3 },
+		};
+		const root = base.modules[ROOT];
+		const child = base.modules[CHILD];
+		if (!root || !child) throw new Error("fixture modules are missing");
+		const compatible = {
+			...base,
+			modules: {
+				...base.modules,
+				[ROOT]: { ...root, caseListConfig: multiConfig },
+				[CHILD]: { ...child, caseListConfig: multiConfig },
+			},
+		};
+		expect(
+			previewMenuCaseContext(compatible, CHILD, { [ROOT]: selection })
+				.selectedCase,
+		).toEqual(selection);
+
+		const tooSmall = {
+			...compatible,
+			modules: {
+				...compatible.modules,
+				[CHILD]: {
+					...child,
+					caseListConfig: {
+						...multiConfig,
+						selection: { kind: "multiple" as const, maximum: 2 },
+					},
+				},
+			},
+		};
+		expect(
+			previewMenuCaseContext(tooSmall, CHILD, { [ROOT]: selection })
+				.selectedCase,
+		).toBeUndefined();
+	});
+
 	it("keeps a declared different-type parent as a selection constraint", () => {
 		const selected = {
 			caseType: "household",
-			caseId: "h1",
-			caseName: "Household one",
+			cases: [
+				{ caseId: "h1", caseName: "Household one" },
+				{ caseId: "h2", caseName: "Household two" },
+			],
 		};
 		expect(
 			previewMenuCaseContext(source("person"), CHILD, { [ROOT]: selected }),
@@ -132,13 +178,11 @@ describe("Preview menu projection", () => {
 	it("keeps case-parent context after the child itself is selected", () => {
 		const parent = {
 			caseType: "household",
-			caseId: "h1",
-			caseName: "Household one",
+			cases: [{ caseId: "h1", caseName: "Household one" }],
 		};
 		const child = {
 			caseType: "person",
-			caseId: "p1",
-			caseName: "Person one",
+			cases: [{ caseId: "p1", caseName: "Person one" }],
 		};
 		expect(
 			previewMenuCaseContext(source("person"), CHILD, {
@@ -166,8 +210,7 @@ describe("Preview menu projection", () => {
 		};
 		const selected = {
 			caseType: "household",
-			caseId: "h1",
-			caseName: "Household one",
+			cases: [{ caseId: "h1", caseName: "Household one" }],
 		};
 
 		expect(

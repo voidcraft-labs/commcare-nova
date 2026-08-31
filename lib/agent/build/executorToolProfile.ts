@@ -66,6 +66,7 @@ const MUTATIONS_BY_AREA = {
 		"createModule",
 		"updateModule",
 		"configureCaseList",
+		"configureCaseSelection",
 		"addCaseListColumns",
 		"addSearchInputs",
 		"removeCaseListColumn",

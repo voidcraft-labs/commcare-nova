@@ -604,7 +604,8 @@ export function applyModuleMutation(
  * itself is missing.
  *
  * `setCaseListMeta` deliberately does NOT route through here: patching an
- * always-on config's metadata (`filter` / `icon` / `audioLabel`) is an EDIT of
+ * always-on config's metadata (`filter` / `selection` / `icon` /
+ * `audioLabel`) is an EDIT of
  * an existing config, and birthing one to hold a peer's filter would resurrect
  * a case list another member concurrently removed. It reads the config directly
  * and no-ops when absent; the guarded commit rejects that case as a conflict.

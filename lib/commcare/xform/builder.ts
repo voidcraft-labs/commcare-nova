@@ -66,6 +66,10 @@ import {
 	collectPredicateInstances,
 	instanceSourceFor,
 } from "@/lib/commcare/predicate/instances";
+import type {
+	FormActionCondition,
+	OpenSubCaseAction,
+} from "@/lib/commcare/types";
 import {
 	UPLOAD_APPEARANCE_BY_CAPTURE_KIND,
 	UPLOAD_MEDIATYPE_BY_CAPTURE_KIND,
@@ -77,6 +81,7 @@ import {
 	captureUrlNodePath,
 } from "@/lib/commcare/xform/captureUrlNode";
 import {
+	attachCaseOperationBody,
 	attachCaseOperationData,
 	bindLookupFilterFieldPaths,
 	buildCaseOperations,
@@ -185,6 +190,8 @@ class InstanceTracker {
 	private ids = new Set<InstanceId>();
 	/** Lookup-fixture declarations, id → `jr://fixture/...` src. */
 	private fixtures = new Map<string, string>();
+	/** Collection-valued case selections, id → selected-entities src. */
+	private selectedCases = new Map<string, string>();
 
 	/**
 	 * `caseTypeNames` is the form's reachable case-type namespaces (the keys of
@@ -207,6 +214,10 @@ class InstanceTracker {
 	/** Declare a lookup XForm instance (`<tag>` → item-list fixture). */
 	requireFixture(id: string, src: string): void {
 		this.fixtures.set(id, src);
+	}
+
+	requireSelectedCases(id: string): void {
+		this.selectedCases.set(id, `jr://instance/selected-entities/${id}`);
 	}
 
 	/** Scan a pre-expansion XPath expression for instance references. */
@@ -261,14 +272,16 @@ class InstanceTracker {
 		return false;
 	}
 
-	/** The `<instance>` elements for every accumulated id, in canonical order:
-	 *  casedb, commcaresession, then lookup fixtures sorted by id. */
+	/** The `<instance>` elements for every accumulated id, in canonical order. */
 	toElements(): Element[] {
 		return [
 			...(["casedb", "commcaresession"] as const)
 				.filter((id) => this.ids.has(id))
 				.map((id) => el("instance", { src: INSTANCE_SOURCES[id], id })),
 			...[...this.fixtures]
+				.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+				.map(([id, src]) => el("instance", { src, id })),
+			...[...this.selectedCases]
 				.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
 				.map(([id, src]) => el("instance", { src, id })),
 		];
@@ -433,6 +446,12 @@ export interface BuildXFormOptions {
 	/** Session reference of the selected own case. Nested child menus may use
 	 * an HQ-aligned id such as `case_id_guppy`. */
 	selectedCaseIdRef?: string;
+	/** Collection-valued selected-entities instance for a multi-select entry. */
+	selectedCasesInstanceId?: string;
+	/** Ordinary close action lowered through the selected-case iteration. */
+	multiSelectCloseCondition?: FormActionCondition;
+	/** Ordinary child creates lowered through the selected-case iteration. */
+	multiSelectSubcases?: readonly OpenSubCaseAction[];
 	/**
 	 * Resolved media assets for this emission run. When present, the
 	 * itext entries gain `<value form="image|audio|video">` siblings for
@@ -494,6 +513,9 @@ export function buildXForm(
 	const caseTypeNames: ReadonlySet<string> = new Set(caseTypeDepths.keys());
 
 	const instances = new InstanceTracker(caseTypeNames, opts.lookupNaming);
+	if (opts.selectedCasesInstanceId !== undefined) {
+		instances.requireSelectedCases(opts.selectedCasesInstanceId);
+	}
 	const lookupSelects = deriveLookupSelectKit(doc, formUuid, opts.lookupNaming);
 	const dataElements: Element[] = [];
 	const binds: Element[] = [];
@@ -735,6 +757,9 @@ export function buildXForm(
 		opts.moduleCaseType,
 		opts.lookupNaming,
 		opts.selectedCaseIdRef,
+		opts.selectedCasesInstanceId,
+		opts.multiSelectCloseCondition,
+		opts.multiSelectSubcases,
 	);
 	if (caseOperations !== null) {
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);
@@ -793,6 +818,10 @@ export function buildXForm(
 			]),
 		);
 	}
+	const body = el("h:body", {}, bodyElements);
+	if (caseOperations !== null) {
+		attachCaseOperationBody(body, caseOperations.bodyChildren);
+	}
 
 	const html = el(
 		"h:html",
@@ -809,7 +838,7 @@ export function buildXForm(
 			"xmlns:jr": "http://openrosa.org/javarosa",
 			"xmlns:vellum": "http://commcarehq.org/xforms/vellum",
 		},
-		[el("h:head", {}, headChildren), el("h:body", {}, bodyElements)],
+		[el("h:head", {}, headChildren), body],
 	);
 
 	// Single serialization of the whole tree. The XML declaration is the one

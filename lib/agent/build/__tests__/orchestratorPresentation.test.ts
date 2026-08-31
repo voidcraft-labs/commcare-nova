@@ -16,7 +16,7 @@ describe("reviewed-build presentation", () => {
 	});
 
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v17");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v18");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain("exact `requiredInitialResultsColumn`");
 		expect(EXECUTOR_SYSTEM).toContain("Nova supports one submenu tier");
@@ -70,6 +70,7 @@ describe("reviewed-build presentation", () => {
 			"those contextual behaviors never inherit from the record",
 		);
 		expect(EXECUTOR_SYSTEM).toContain("Use `configureCaseList`");
+		expect(EXECUTOR_SYSTEM).toContain("call `configureCaseSelection`");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"its four search-display fields live at the root",
 		);
