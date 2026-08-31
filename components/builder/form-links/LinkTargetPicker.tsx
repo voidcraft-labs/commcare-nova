@@ -3,7 +3,8 @@
 // Where a link may go: every module's form list and every form in the
 // app, each offered only when the target planner admits it. A destination
 // the planner refuses (this form itself, a form whose links lead back
-// here, a destination that is gone) stays visible with its reason rather
+// here, a destination that is gone, or a form that cannot receive the
+// complete case selection) stays visible with its reason rather
 // than disappearing, so the author learns why the obvious choice is not
 // on offer instead of hunting for it.
 

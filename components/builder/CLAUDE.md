@@ -723,14 +723,43 @@ The chat sidebar's thread picker is a row list, not a stack of cards. Its header
 
 ## Case-list workspace
 
-The unified case-list authoring surface has three config tabs (Search / Results / Details); **the tab IS the URL kind**, so tab switches are history navigation and deep links land on the right canvas. Selection is the mode; the run-through is the chrome's global Preview toggle — all three URLs preview as one assembled journey (Search → Results → Details, then Continue carries the selected case into the module's case-loading form). Entry point is the structure tree's case-list node, not the module screen — EXCEPT a `caseListOnly` module with neither forms nor children, whose module row, home-screen tile, and breadcrumb all open this workspace directly because it has no menu surface to land on. A `caseListOnly` parent with children instead opens its module screen, keeping its case-list node as the separate Results entry. The breadcrumb and structure tree already carry that module identity, so the workspace never repeats it in a second title/header tier. Its sole **Module settings** gear shares the existing Search / Results / Details row, and the panel contains the bare module's one name editor plus case type and appearance; form-bearing modules keep those entry points on the module screen. On handsets, the fixed tabs already own current-screen semantics, so the breadcrumb bar omits the redundant Search / Results / Details leaf and collapses its ancestors into one 44px path menu; Back and the full Case data action remain visible without clipped words. The settings panel is the sole appearance home: it names and preserves the module's `icon` / `audioLabel` as **App home tile** and the distinct `caseListConfig.icon` / `audioLabel` as **Case list link**; Results carries no duplicate appearance entry.
+The unified case-list authoring surface has three config tabs (Search / Results / Details); **the tab IS the URL kind**, so tab switches are history navigation and deep links land on the right canvas. Selection is the mode; the run-through is the chrome's global Preview toggle — all three URLs preview as one assembled journey (Search → Results → Details, then Continue carries the selected case or ordered set into the module's case-loading form). Entry point is the structure tree's case-list node, not the module screen — EXCEPT a `caseListOnly` module with neither forms nor children, whose module row, home-screen tile, and breadcrumb all open this workspace directly because it has no menu surface to land on. A `caseListOnly` parent with children instead opens its module screen, keeping its case-list node as the separate Results entry. The breadcrumb and structure tree already carry that module identity, so the workspace never repeats it in a second title/header tier. Its sole **Module settings** gear shares the existing Search / Results / Details row, and the panel contains the bare module's one name editor plus case type and appearance; form-bearing modules keep those entry points on the module screen. On handsets, the fixed tabs already own current-screen semantics, so the breadcrumb bar omits the redundant Search / Results / Details leaf and collapses its ancestors into one 44px path menu; Back and the full Case data action remain visible without clipped words. The settings panel is the sole appearance home: it names and preserves the module's `icon` / `audioLabel` as **App home tile** and the distinct `caseListConfig.icon` / `audioLabel` as **Case list link**; Results carries no duplicate appearance entry.
 
 **Preview is the running app, not a per-screen mockup — its navigation is read from CommCare's runtime, never approximated.** The shape matches `commcare-core`'s `CommCareSession.getDataNeededByAllEntries` (proven by its own `TemplateStructureTest`): entering a module hoists any datum ALL its forms share.
 - **Case-first module** (every form case-loading — `isCaseFirstModule`): the case list IS the module's landing (the home screen / `ModuleScreen` route there) → pick case → detail confirm → **form menu** (when >1 case-loading form) → form. One case-loading form skips the menu.
 - **Forms-first module** (a registration form needs a fresh `case_id_new`, breaking the shared datum): the form menu first; tapping a case-loading form → case list → confirm → that form.
 - **Display conditions gate these running lists as the device would** (`lib/preview/CLAUDE.md` § Lookup carriers): the home screen's modules, the forms-first menu (session-only), and the case-first post-selection form menu + single-form auto-continue against the SELECTED row — the eligible set drives the menu-vs-skip decision, and a seeded target whose condition is false for that case falls back to it. Hidden entries stay reachable through the ghosted "Hidden items (N)" reveal; edit-mode canvases never hide.
 
-Selecting a case never silently defaults to a form — picking records `previewCaseTarget` (session store: the chosen case-loading form + `caseId`); `PreviewShell` grafts that `caseId` onto the form screen so `FormScreen` preloads it. A module with no case-loading form ⇒ the list is informational. The target clears on every preview toggle. CommCare emits no register-from-case-list shortcut (`case_list_form.form_id` stays null), so case-first modules are purely list → form menu.
+Opening Details never silently defaults to a form. Continue records
+`previewCaseTarget` as the chosen case-loading Form plus an ordered `cases`
+collection; `PreviewShell` grafts that collection onto the Form screen so
+`FormScreen` opens the exact scalar or batch target. A module with no
+case-loading Form is informational. The target clears on every Preview toggle.
+CommCare emits no register-from-case-list shortcut (`case_list_form.form_id`
+stays null), so case-first modules are purely list → Form menu.
+
+**Case selection is authored in Results with concrete consequence copy.** The
+control is **Case selection**, its choices are **One case** and **Several
+cases**, and the conditional integer is **Most cases a worker can choose**.
+Those words describe the worker's task; `multi_select`, datum kinds, virtual
+instances, and downstream caps never render. Enabling Several cases plans the
+complete valid document change. It clears **Keep tile visible in forms** in the
+same gated batch because that banner requires one scalar case, and states that
+exact consequence before commit. Other form or topology blockers remain
+visible refusals with a route to the owning form; the builder never lands a
+temporarily invalid selection mode.
+
+When **Several cases** is on, Results uses a checkbox as the selection action
+and a separate Details action. A sticky review tray says **{n} cases selected** and
+offers **Review selected cases** plus **Continue**. Zero selections state
+**Choose at least one case to continue**. Above the authored maximum, the
+choices remain intact and the tray states **Choose {n} fewer cases to
+continue**; lowering the maximum never silently trims session state. Select-all
+uses visible order and remaining capacity, then states when the maximum left
+some visible cases unchanged. Search, page changes, Details, Back, and a return
+from the review surface preserve ordered identity. Grouped tiles remain one
+choice per group and select the group's first case, matching the runtime rather
+than inventing checkboxes for its display-only body rows.
 
 The three edit canvases are direct composition surfaces. Search draws its real
 input stack; Results and Details arrange stable, label-first information rows.
@@ -1204,7 +1233,11 @@ the author writes the real one — and the detail opens with the editor ready
 state). A destination whose selection datums this form cannot match
 automatically (`formLinkCarryVerdict` → `manual-required`) is seeded with one
 `''` per required datum so `FORM_LINK_DATUMS_INCOMPLETE` never meets a fresh
-link. `__tests__/formLinkValidByConstruction.test.ts` pins every offered seed,
+link. An automatic several-case carry has no manual alternative:
+`formLinkManualCarryVerdict` withholds **Work it out here**, because an explicit
+datum map cannot stand in for the complete selected collection. The canvas says
+the selected cases travel together automatically instead.
+`__tests__/formLinkValidByConstruction.test.ts` pins every offered seed,
 retarget, and conversion against `mutationCommitVerdict`.
 
 **Conditionality is a kind, not a slot.** A conditional link's editor refuses

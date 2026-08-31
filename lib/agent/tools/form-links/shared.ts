@@ -195,6 +195,8 @@ export function linkRefusalMessage(
 			return `The link's target is not in this app. A form target names the module the form belongs to and the form's own UUID; a module target names an existing module. Read get_app or get_module for current UUIDs.`;
 		case "self-target":
 			return `A link cannot point back at the form it leaves, "${name}". Choose another form or a module.`;
+		case "selection-cardinality":
+			return `Form "${name}" cannot hand its complete case selection directly to that form. Link to the destination module so the person can choose again, or configure both modules with the same selection mode and a destination limit that accepts the complete source selection.`;
 		case "cycle": {
 			const chain = reason.chain
 				.map((uuid) => `"${formName(doc, uuid)}"`)

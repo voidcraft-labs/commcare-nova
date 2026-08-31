@@ -849,7 +849,7 @@ describe("FormEngine", () => {
 			// any adaptation that is not idempotent shows up right here.
 			expect(reader.getState("/data/wake_time").value).toBe(stored);
 			const resubmitted = reader.computeSubmissionMutation({
-				caseId: "case-1",
+				caseIds: ["case-1"],
 				entryKey: ENTRY_KEY,
 				viewerTimeZone: "America/New_York",
 			});
@@ -1027,7 +1027,7 @@ describe("FormEngine", () => {
 
 			engine.setValue("/data/case_name", "Rifampin");
 			const mutation = engine.computeSubmissionMutation({
-				caseId: "case-1",
+				caseIds: ["case-1"],
 				entryKey: ENTRY_KEY,
 			});
 			expect(mutation).toMatchObject({
@@ -2177,6 +2177,7 @@ describe("FormEngine", () => {
 					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
+					ordinaryChildBuckets: [],
 					primary: {
 						caseType: "patient",
 						caseName: "Alice",
@@ -2529,7 +2530,7 @@ describe("FormEngine", () => {
 				engine.setValue("/data/visit_date", "2026-05-02");
 
 				const mutation = engine.computeSubmissionMutation({
-					caseId: "case-id-123",
+					caseIds: ["case-id-123"],
 					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
@@ -2537,7 +2538,8 @@ describe("FormEngine", () => {
 					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
-					caseId: "case-id-123",
+					ordinaryChildBuckets: [{ caseType: "visit" }],
+					caseIds: ["case-id-123"],
 					patch: {
 						caseName: "Alice",
 						properties: { notes: "follow-up note" },
@@ -2547,13 +2549,12 @@ describe("FormEngine", () => {
 							caseType: "visit",
 							caseName: "Second visit",
 							properties: { visit_date: "2026-05-02" },
-							parentCaseId: "case-id-123",
 						},
 					],
 				});
 			});
 
-			it("throws when no caseId is supplied", () => {
+			it("throws when no selected case is supplied", () => {
 				const input = boundInput(
 					[
 						{
@@ -2571,7 +2572,7 @@ describe("FormEngine", () => {
 					engine.computeSubmissionMutation({
 						entryKey: ENTRY_KEY,
 					}),
-				).toThrow(/form type `followup` requires a bound `caseId`/);
+				).toThrow(/form type `followup` requires at least one bound case/);
 			});
 
 			it("emits an empty primary patch when no fields target the module's case type", () => {
@@ -2599,7 +2600,7 @@ describe("FormEngine", () => {
 				engine.setValue("/data/visit_name", "Second visit");
 				engine.setValue("/data/visit_date", "2026-05-02");
 				const mutation = engine.computeSubmissionMutation({
-					caseId: "case-id-1",
+					caseIds: ["case-id-1"],
 					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
@@ -2607,14 +2608,14 @@ describe("FormEngine", () => {
 					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
-					caseId: "case-id-1",
+					ordinaryChildBuckets: [{ caseType: "visit" }],
+					caseIds: ["case-id-1"],
 					patch: { properties: {} },
 					children: [
 						{
 							caseType: "visit",
 							caseName: "Second visit",
 							properties: { visit_date: "2026-05-02" },
-							parentCaseId: "case-id-1",
 						},
 					],
 				});
@@ -2650,7 +2651,7 @@ describe("FormEngine", () => {
 				engine.setValue("/data/discharge_date", "2026-05-03");
 
 				const mutation = engine.computeSubmissionMutation({
-					caseId: "case-id-456",
+					caseIds: ["case-id-456"],
 					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
@@ -2658,20 +2659,20 @@ describe("FormEngine", () => {
 					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
-					caseId: "case-id-456",
+					ordinaryChildBuckets: [{ caseType: "visit" }],
+					caseIds: ["case-id-456"],
 					patch: { properties: { notes: "discharged" } },
 					children: [
 						{
 							caseType: "visit",
 							caseName: "Discharge visit",
 							properties: { discharge_date: "2026-05-03" },
-							parentCaseId: "case-id-456",
 						},
 					],
 				});
 			});
 
-			it("throws when no caseId is supplied", () => {
+			it("throws when no selected case is supplied", () => {
 				const input = boundInput(
 					[
 						{
@@ -2689,7 +2690,7 @@ describe("FormEngine", () => {
 					engine.computeSubmissionMutation({
 						entryKey: ENTRY_KEY,
 					}),
-				).toThrow(/form type `close` requires a bound `caseId`/);
+				).toThrow(/form type `close` requires at least one bound case/);
 			});
 
 			it("emits empty primary properties for close-only forms", () => {
@@ -2701,7 +2702,7 @@ describe("FormEngine", () => {
 				const engine = new FormEngine(input, "patient");
 
 				const mutation = engine.computeSubmissionMutation({
-					caseId: "case-id-1",
+					caseIds: ["case-id-1"],
 					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({
@@ -2709,7 +2710,8 @@ describe("FormEngine", () => {
 					formUuid: testUuid("test-form-uuid"),
 					entryKey: ENTRY_KEY,
 					attachmentRefs: [],
-					caseId: "case-id-1",
+					ordinaryChildBuckets: [],
+					caseIds: ["case-id-1"],
 					patch: { properties: {} },
 					children: [],
 				});
@@ -2738,7 +2740,7 @@ describe("FormEngine", () => {
 				const engine = new FormEngine(input);
 
 				const mutation = engine.computeSubmissionMutation({
-					caseId: "case-id-1",
+					caseIds: ["case-id-1"],
 					entryKey: ENTRY_KEY,
 				});
 				expect(mutation).toEqual({

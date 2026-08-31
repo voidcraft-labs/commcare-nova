@@ -89,18 +89,21 @@ import {
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
 import type {
 	ConversionImpactResult,
+	LegacySingleCaseSubmissionMutation,
 	LoadCaseCountResult,
 	LoadCaseDataResult,
 	LoadCasesResult,
 	LoadFilterPreviewResult,
 	LoadParkedValuesResult,
 	LoadPersonaOwnedCaseCountResult,
+	ParentCaseSelection,
 	PopulateSampleCasesResult,
 	ReplaceParkedValueResult,
 	RestoreParkedValuesResult,
 	SetParkedValuesDismissedResult,
 	SubmissionMutation,
 	SubmissionResult,
+	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
@@ -226,10 +229,12 @@ function previewCaseStoreBindings(
 export async function loadCasesAction(args: {
 	appId: string;
 	caseType: string;
+	/** Exact selected identities for a bounded, authoritative validation read. */
+	caseIds?: readonly string[];
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValuesWire;
 	excludedOwnerIdsExpression?: ValueExpression;
-	parentCase?: { readonly caseType: string; readonly caseId: string };
+	parentCase?: ParentCaseSelection;
 	caseTypes?: readonly CaseType[];
 	/** Bounded Results window. Omitted by the current unpaged form-selection caller. */
 	page?: { offset: number; limit: number };
@@ -401,6 +406,7 @@ export async function loadCasesAction(args: {
 		return await readCases(store, {
 			appId: args.appId,
 			caseType: args.caseType,
+			caseIds: args.caseIds,
 			caseTypeSchemas,
 			caseListConfig: args.caseListConfig,
 			parentCase: args.parentCase,
@@ -443,17 +449,17 @@ export async function loadCasesAction(args: {
 
 /**
  * Count the reachable base population for one case type, with no authored
- * filter applied. The builder's case-data manager leaves `parentCaseId`
+ * filter applied. The builder's case-data manager leaves `parentCase`
  * undefined and uses the app-wide count as its source of truth. A nested
- * running Results probe supplies the selected parent so an empty child list is
- * compared with that exact direct non-extension child population, never with
- * children belonging to a different parent.
+ * running Results probe supplies the selected parent set so an empty child list
+ * is compared with the union of those exact direct non-extension child
+ * populations, never with children belonging to a different parent.
  */
 export async function loadCaseCountAction(args: {
 	appId: string;
 	caseType: string;
 	/** Exact selected-parent scope for a nested running Results probe. */
-	parentCaseId?: string;
+	parentCase?: ParentCaseSelection;
 	/** The builder's Case data manager passes true — it reports the
 	 * full stored population it governs (replace-all deletes held rows
 	 * too), with the held count named separately beside it. The
@@ -469,7 +475,7 @@ export async function loadCaseCountAction(args: {
 		const count = await store.count({
 			appId: args.appId,
 			caseType: args.caseType,
-			parentCaseId: args.parentCaseId,
+			parentCases: args.parentCase,
 			includeHeld: args.includeHeld === true,
 		});
 		return { kind: "count", count };
@@ -666,9 +672,9 @@ export async function loadCaseDataAction(
 	 * narrow, and Project membership is what authorizes the read either way.
 	 */
 	deviceScoped?: boolean,
-	/** Selected nested-menu parent. When present, the identity read must belong
-	 * to its exact direct non-extension case-index population. */
-	parentCaseId?: string,
+	/** Selected nested-menu parents. When present, the identity read must belong
+	 * to their direct non-extension case-index population. */
+	parentCase?: ParentCaseSelection,
 ): Promise<LoadCaseDataResult> {
 	try {
 		const context = await resolveAuthorizedPreviewContext({
@@ -696,7 +702,7 @@ export async function loadCaseDataAction(
 			caseType,
 			caseId,
 			ancestorDepth,
-			parentCaseId,
+			parentCase,
 			caseListConfig,
 			includeHeld,
 			lookupTableSchemas,
@@ -1184,9 +1190,46 @@ export async function loadFilterPreviewAction(args: {
  * Caller-supplied `appId` is passed through verbatim, matching the
  * shape the other Server Actions in this file use. The bound
  * `CaseStore` enforces tenant scoping at the SQL layer; the action
- * does not re-check `appId` against `mutation.caseId` for
+ * does not re-check `appId` against `mutation.caseIds` for
  * followup / close.
  */
+/** Normalize the only retired submission slot that must survive a deploy for
+ * an already-open FormScreen. The raw object remains separate: receipt hashes
+ * are protocol history, so a response-lost request has to hash exactly as the
+ * deployment that first accepted it did. */
+function normalizeSubmissionWireMutation(
+	mutation: SubmissionWireMutation,
+): SubmissionMutation {
+	if (mutation.kind !== "followup" && mutation.kind !== "close") {
+		return mutation;
+	}
+	const record = mutation as unknown as Record<string, unknown>;
+	const hasCaseIds = Object.hasOwn(record, "caseIds");
+	const hasCaseId = Object.hasOwn(record, "caseId");
+	if (hasCaseIds && hasCaseId) {
+		throw new CaptureSubmissionRejectedError(
+			"A form submission cannot name both one case and a case selection.",
+		);
+	}
+	if (hasCaseIds) return mutation as SubmissionMutation;
+	if (
+		!hasCaseId ||
+		typeof record.caseId !== "string" ||
+		record.caseId.length === 0
+	) {
+		throw new CaptureSubmissionRejectedError(
+			"A followup or close submission requires at least one selected case.",
+		);
+	}
+	const legacyMutation = mutation as LegacySingleCaseSubmissionMutation;
+	if (legacyMutation.kind === "followup") {
+		const { caseId, ...canonicalSlots } = legacyMutation;
+		return { ...canonicalSlots, caseIds: [caseId] };
+	}
+	const { caseId, ...canonicalSlots } = legacyMutation;
+	return { ...canonicalSlots, caseIds: [caseId] };
+}
+
 export async function submitFormAction(
 	mutation: SubmissionMutation,
 	appId: string,
@@ -1202,7 +1245,9 @@ export async function submitFormAction(
 		 * is required: Server Action payloads are untrusted JSON. Consume the
 		 * normalized projection below so missing/stale clients cannot bypass
 		 * receipt, capture-intent, or committed-operation derivation. */
-		const projection = validateCaptureSubmissionProjection(mutation);
+		const wireMutation = mutation as unknown as SubmissionWireMutation;
+		const projection = validateCaptureSubmissionProjection(wireMutation);
+		const normalizedMutation = normalizeSubmissionWireMutation(wireMutation);
 		if (!/^[a-f0-9]{64}$/.test(expectedBlueprintDigest)) {
 			return {
 				kind: "blueprint-changed",
@@ -1240,7 +1285,7 @@ export async function submitFormAction(
 				const receipt = buildSubmissionReceiptIdentity({
 					appId,
 					identity: replayIdentity,
-					mutation,
+					mutation: wireMutation,
 					projection,
 					viewerTimeZone,
 				});
@@ -1250,7 +1295,7 @@ export async function submitFormAction(
 				);
 				if (verdict.kind === "replay") {
 					return submissionResultFromEnvelope(
-						mutation,
+						normalizedMutation,
 						verdict.result,
 						expectedBlueprintDigest,
 					);
@@ -1324,7 +1369,8 @@ export async function submitFormAction(
 			blueprintDigest: expectedBlueprintDigest,
 			identity,
 			lookupScope: scope,
-			mutation,
+			mutation: normalizedMutation,
+			receiptMutation: wireMutation,
 			projection,
 			viewerTimeZone,
 		});
@@ -1340,11 +1386,11 @@ export async function submitFormAction(
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, appId, built),
+			submissionEnvelopeArgs(normalizedMutation, appId, built),
 		);
 
 		return submissionResultFromEnvelope(
-			mutation,
+			normalizedMutation,
 			result,
 			expectedBlueprintDigest,
 		);
@@ -1382,26 +1428,51 @@ function submissionResultFromEnvelope(
 	 * rather than reading today's rows and pretending they were submission-time
 	 * state. */
 	const caseDatabasePatch = result.caseDatabasePatch;
+	const childCaseIds =
+		result.legacyChildCaseIds ??
+		result.createdChildren.map((createdChild) => createdChild.caseId);
 	if (mutation.kind === "survey") {
 		return {
 			kind: "survey",
 			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
 		};
 	}
-	if (result.primaryCaseId === undefined) {
+	if (result.primaryCaseIds.length === 0) {
 		throw new Error(
 			unhandledKindMessage({
 				where: "preview.caseDataBinding.submitFormAction",
 				family: "SubmissionEnvelopeResult",
-				received: "no primaryCaseId on a case-bearing submission",
+				received: "no primaryCaseIds on a case-bearing submission",
 				knownKinds: ["registration", "followup", "close"],
 			}),
 		);
 	}
+	if (mutation.kind === "registration") {
+		if (result.primaryCaseIds.length !== 1) {
+			throw new Error(
+				"A registration submission returned more than one primary case.",
+			);
+		}
+		return {
+			kind: "registration",
+			caseId: result.primaryCaseIds[0] as string,
+			childCaseIds,
+			...(result.legacyChildCaseIds === undefined
+				? { createdChildren: result.createdChildren }
+				: {}),
+			...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
+		};
+	}
 	return {
 		kind: mutation.kind,
-		caseId: result.primaryCaseId,
-		childCaseIds: result.childCaseIds,
+		caseIds: result.primaryCaseIds,
+		...(result.primaryCaseIds.length === 1
+			? { caseId: result.primaryCaseIds[0] as string }
+			: {}),
+		childCaseIds,
+		...(result.legacyChildCaseIds === undefined
+			? { createdChildren: result.createdChildren }
+			: {}),
 		...(caseDatabasePatch === undefined ? {} : { caseDatabasePatch }),
 	};
 }

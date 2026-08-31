@@ -127,6 +127,34 @@ describe("collectPredicateInstances", () => {
 });
 
 describe("instanceSourceFor", () => {
+	it.each([
+		"selected_cases",
+		"parent_selected_cases",
+		"parent_parent_selected_cases",
+		"search_selected_cases",
+		"selected_cases_guppy",
+		"parent_selected_cases_gold-fish",
+	])(
+		"maps the generated selected-case id %s to its exact virtual source",
+		(id) => {
+			expect(instanceSourceFor(id)).toBe(
+				`jr://instance/selected-entities/${id}`,
+			);
+		},
+	);
+
+	it.each([
+		"my_selected_cases",
+		"unrelatedselected_cases",
+		"parent_search_selected_cases",
+		"search_selected_cases_guppy",
+		"selected_cases_9guppy",
+		"selected_cases_guppy/unsafe",
+		"parent_selected_cases_",
+	])("rejects arbitrary selected-case-like id %s", (id) => {
+		expect(() => instanceSourceFor(id)).toThrow(`Unknown instance id '${id}'`);
+	});
+
 	it("maps both scoped lookup ids to the exact fixture source", () => {
 		expect(instanceSourceFor("statuses", NAMING)).toBe(
 			"jr://fixture/item-list:statuses",

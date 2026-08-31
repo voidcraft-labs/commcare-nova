@@ -398,6 +398,54 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(matched[0]?.case_id).toBe(PATIENT_BOB_ID);
 		});
 
+		it("restricts a running selection by identity without weakening case scope", async () => {
+			const store = await options.factory(TENANT_A);
+			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
+			await seedSchema(store, blueprint, "patient");
+			for (const [caseId, name] of [
+				[PATIENT_ALICE_ID, "Alice"],
+				[PATIENT_BOB_ID, "Bob"],
+			] as const) {
+				await store.insert({
+					appId: APP_ID,
+					row: {
+						case_id: caseId,
+						case_type: "patient",
+						case_name: name,
+						status: "open",
+						properties: makeProperties({ name, age: 30 }),
+					},
+				});
+			}
+			const selected = await store.query({
+				appId: APP_ID,
+				caseType: "patient",
+				caseIds: [PATIENT_BOB_ID, PATIENT_CAROL_ID],
+			});
+			expect(selected.map((row) => row.case_id)).toEqual([PATIENT_BOB_ID]);
+			await expect(
+				store.query({
+					appId: APP_ID,
+					caseType: "patient",
+					caseIds: [PATIENT_BOB_ID, PATIENT_BOB_ID],
+				}),
+			).rejects.toThrow("ordered unique set");
+			await expect(
+				store.query({
+					appId: APP_ID,
+					caseType: "patient",
+					caseIds: Array.from({ length: 101 }, (_, index) => `case-${index}`),
+				}),
+			).rejects.toThrow("100-case ceiling");
+			expect(
+				await store.query({
+					appId: APP_ID,
+					caseType: "patient",
+					caseIds: [],
+				}),
+			).toEqual([]);
+		});
+
 		// -----------------------------------------------------------
 		// update — JSONB merge + modified_on bump
 		// -----------------------------------------------------------
@@ -649,9 +697,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					],
 				},
 			});
-			expect(result.primaryCaseId).toBeDefined();
-			expect(result.childCaseIds).toHaveLength(2);
-			const primaryCaseId = result.primaryCaseId ?? "";
+			expect(result.primaryCaseIds).toEqual([expect.any(String)]);
+			expect(result.createdChildren).toHaveLength(2);
+			const primaryCaseId = result.primaryCaseIds[0] ?? "";
 
 			// Primary row landed, born open.
 			const households = await store.query({
@@ -684,8 +732,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			});
 			expect(subcases).toHaveLength(2);
 			const reachedIds = new Set(subcases.map((c) => c.case_id));
-			for (const childId of result.childCaseIds) {
-				expect(reachedIds.has(childId)).toBe(true);
+			for (const child of result.createdChildren) {
+				expect(reachedIds.has(child.caseId)).toBe(true);
 			}
 		});
 
@@ -798,7 +846,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					],
 				},
 			});
-			expect(result.childCaseIds).toHaveLength(3);
+			expect(result.createdChildren).toHaveLength(3);
 
 			// All three rows materialize: 1 household, 2 patients,
 			// 1 visit, all under the same primary id.
@@ -817,9 +865,9 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// position 1 the visit; position 2 Bob the patient. Look
 			// up each row by its returned id and verify the case-type
 			// lines up with the input.
-			const aliceId = result.childCaseIds[0];
-			const visitId = result.childCaseIds[1];
-			const bobId = result.childCaseIds[2];
+			const aliceId = result.createdChildren[0]?.caseId;
+			const visitId = result.createdChildren[1]?.caseId;
+			const bobId = result.createdChildren[2]?.caseId;
 			expect(aliceId).toBeDefined();
 			expect(visitId).toBeDefined();
 			expect(bobId).toBeDefined();
@@ -837,7 +885,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// Every child carries the primary's id as its
 			// `parent_case_id`, whatever its case type.
 			for (const child of [...patients, ...visits]) {
-				expect(child.parent_case_id).toBe(result.primaryCaseId);
+				expect(child.parent_case_id).toBe(result.primaryCaseIds[0]);
 			}
 		});
 
@@ -859,15 +907,15 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					children: [],
 				},
 			});
-			expect(result.primaryCaseId).toBeDefined();
-			expect(result.childCaseIds).toHaveLength(0);
+			expect(result.primaryCaseIds).toEqual([expect.any(String)]);
+			expect(result.createdChildren).toHaveLength(0);
 
 			const rows = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
 			});
 			expect(rows).toHaveLength(1);
-			expect(rows[0]?.case_id).toBe(result.primaryCaseId);
+			expect(rows[0]?.case_id).toBe(result.primaryCaseIds[0]);
 		});
 
 		// -----------------------------------------------------------

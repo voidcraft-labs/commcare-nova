@@ -49,6 +49,11 @@ async function seedReceipt(
 		entryKey: string;
 		createdAt: Date;
 		childCaseIds?: readonly string[];
+		createdChildren?: readonly {
+			readonly authoredChildIndex: number;
+			readonly parentCaseId: string;
+			readonly caseId: string;
+		}[];
 		operationCaseId?: string;
 	},
 ): Promise<void> {
@@ -63,7 +68,9 @@ async function seedReceipt(
 			app_mutation_seq: 1,
 			request_digest: `digest-${args.entryKey}`,
 			result: JSON.stringify({
-				childCaseIds: args.childCaseIds ?? [],
+				...(args.createdChildren === undefined
+					? { childCaseIds: args.childCaseIds ?? [] }
+					: { createdChildren: args.createdChildren }),
 				operations:
 					args.operationCaseId === undefined
 						? []
@@ -120,7 +127,13 @@ describe("case parent relationship scan-then-migrate", () => {
 		await seedReceipt(db, {
 			entryKey: "ordinary-repairable",
 			createdAt: new Date("2026-08-01T00:00:00.000Z"),
-			childCaseIds: [REPAIRABLE_ID],
+			createdChildren: [
+				{
+					authoredChildIndex: 0,
+					parentCaseId: PARENT_ID,
+					caseId: REPAIRABLE_ID,
+				},
+			],
 		});
 		await seedReceipt(db, {
 			entryKey: "ordinary-touched",

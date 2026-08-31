@@ -101,6 +101,7 @@ const ROW_LAYOUT_PROPS = {
 	onApplyTilePreset: () => {},
 	onTilePersistOnFormsChange: () => {},
 	onTileGroupingChange: () => {},
+	onCaseSelectionChange: () => {},
 } as const;
 
 const NAME = column("1", "case_name", "Patient name");
@@ -509,7 +510,12 @@ describe("case workspace chrome", () => {
 			screen
 				.getAllByRole("heading", { level: 2 })
 				.map((heading) => heading.textContent),
-		).toEqual(["Information shown", "Cases available", "Default order"]);
+		).toEqual([
+			"Case selection",
+			"Information shown",
+			"Cases available",
+			"Default order",
+		]);
 		expect(screen.getAllByText("Default order")).toHaveLength(1);
 		expect(screen.getByText("All cases are available")).toBeDefined();
 		expect(

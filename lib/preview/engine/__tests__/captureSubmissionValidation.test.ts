@@ -27,6 +27,17 @@ describe("validateCaptureSubmissionProjection", () => {
 		);
 	});
 
+	it("accepts the narrow submitted-answer projection for a close condition", () => {
+		const submitted = {
+			...projection(0),
+			closeConditionAnswers: {
+				fieldUuid: FIELD_UUID,
+				values: ["ready"],
+			},
+		};
+		expect(validateCaptureSubmissionProjection(submitted)).toEqual(submitted);
+	});
+
 	it("rejects an attachment set above the CommCare submission cap", () => {
 		expect(() =>
 			validateCaptureSubmissionProjection(
@@ -47,6 +58,19 @@ describe("validateCaptureSubmissionProjection", () => {
 						untrusted: true,
 					},
 				],
+			}),
+		).toThrow(CaptureSubmissionRejectedError);
+	});
+
+	it("rejects malformed or over-posted close-condition answers", () => {
+		expect(() =>
+			validateCaptureSubmissionProjection({
+				...projection(0),
+				closeConditionAnswers: {
+					fieldUuid: FIELD_UUID,
+					values: ["ready"],
+					operator: "selected",
+				},
 			}),
 		).toThrow(CaptureSubmissionRejectedError);
 	});

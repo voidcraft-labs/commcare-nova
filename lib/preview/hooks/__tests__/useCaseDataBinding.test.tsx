@@ -696,9 +696,12 @@ describe("useCaseCount request identity", () => {
 			kind: "count",
 			count: 0,
 		});
-		let parentCaseId = "household-a";
+		let parentCase = {
+			caseType: "household",
+			caseIds: ["household-a", "household-b"],
+		};
 		const hook = renderHook(() =>
-			useCaseCount({ appId: APP_ID, caseType: "visit", parentCaseId }),
+			useCaseCount({ appId: APP_ID, caseType: "visit", parentCase }),
 		);
 
 		await waitFor(() => expect(loadCaseCountAction).toHaveBeenCalledTimes(1));
@@ -706,17 +709,26 @@ describe("useCaseCount request identity", () => {
 			appId: APP_ID,
 			caseType: "visit",
 			includeHeld: false,
-			parentCaseId: "household-a",
+			parentCase: {
+				caseType: "household",
+				caseIds: ["household-a", "household-b"],
+			},
 		});
 
-		parentCaseId = "household-b";
+		parentCase = {
+			caseType: "household",
+			caseIds: ["household-b", "household-a"],
+		};
 		hook.rerender();
 		await waitFor(() => expect(loadCaseCountAction).toHaveBeenCalledTimes(2));
 		expect(loadCaseCountAction).toHaveBeenLastCalledWith({
 			appId: APP_ID,
 			caseType: "visit",
 			includeHeld: false,
-			parentCaseId: "household-b",
+			parentCase: {
+				caseType: "household",
+				caseIds: ["household-b", "household-a"],
+			},
 		});
 	});
 });

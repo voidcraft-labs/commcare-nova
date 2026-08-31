@@ -148,7 +148,7 @@ describe("case mutation authorization", () => {
 			.execute();
 		expect(cases).toEqual([
 			{
-				case_id: first.primaryCaseId,
+				case_id: first.primaryCaseIds[0],
 				case_name: "Ada",
 			},
 		]);

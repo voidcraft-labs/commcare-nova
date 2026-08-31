@@ -114,10 +114,9 @@ export interface CarriedSubmission {
 	readonly caseId?: string;
 	readonly caseName?: string;
 	/**
-	 * The child cases the submission created, in the order it created
-	 * them, each with its case type. The order is the one the submission
-	 * mutation listed them in; the case store inserts them in that order
-	 * and answers with their ids in that same order.
+	 * The concrete child cases the submission created, enriched from each
+	 * receipt record's explicit authored-child index. No caller infers authored
+	 * identity from flat result order.
 	 */
 	readonly childCases: ReadonlyArray<{
 		readonly caseType: string;

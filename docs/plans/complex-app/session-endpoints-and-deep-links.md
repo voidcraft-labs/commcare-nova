@@ -3,8 +3,9 @@
 **PR:** `Session endpoints and shareable deep links`
 
 **Depends on:** nothing outstanding. The shipped
-[one-tier menu contract](../complex-app-plan.md#one-tier-nested-menus) is an
-input, not a remaining unit.
+[one-tier menu contract](../complex-app-plan.md#one-tier-nested-menus) and
+[multi-select datum contract](../complex-app-plan.md#multi-select-case-workflows)
+are inputs, not remaining units.
 · **Blocks:** nothing.
 
 A shareable link must resolve to a *released* build whose referenced tables and
@@ -18,10 +19,11 @@ build-time error. Publishing puts both there, so that half is shipped.
 > `respect-relevancy="false"` is not an access-control bypass Nova introduces.
 
 Verify claim-command resolution against current HQ fixtures **first** — the claim
-push is the part most likely to have drifted, and the emitted frames are asserted
+push is the part most likely to have drifted. The emitted frames are asserted
 against `session_endpoint_remote_request.xml` and
-`session_endpoint_remote_request_multi_select.xml` under
-`commcare-hq/corehq/apps/app_manager/tests/data/`.
+`session_endpoint_remote_request_multi_select.xml`, both directly under
+`commcare-hq/corehq/apps/app_manager/tests/data/` rather than the `suite/`
+subdirectory.
 
 Endpoints depend on durable released deployments, use the selected server, reject
 flattened modules, preserve tenant authorization even when relevancy is bypassed,
@@ -77,11 +79,9 @@ cluster.
   latest build, and redirects into the Web Apps SPA.
 - `jump` is a frame **step** that sets a redirect URL and terminates the push
   early — never a stack op.
-- `cc-auto-advance-menu` self-selects a single **visible** choice (relevancy
-  filters first), auto-advanced menus are omitted from the persistent menu and
-  breadcrumb, and under `respect-relevancy="false"` reconstruction counts **all**
-  choices — so deep-link advance behavior can diverge from the live view. These are
-  documented sharp edges, not Nova bugs to fix.
+- An endpoint replays the authored navigation frames without Nova adding an
+  automatic-menu profile setting. A menu with one available choice remains a
+  real step in both ordinary use and a deep-link reconstruction.
 
 **Observed:** an author copies a link that opens a specific case in a specific
 form, and is told plainly when the target domain lacks the required toggle.

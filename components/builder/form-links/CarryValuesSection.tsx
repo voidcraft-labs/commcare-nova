@@ -10,7 +10,8 @@
 //
 //   - nothing needed: a sentence, no control;
 //   - automatic: carry it automatically (the stored link says nothing,
-//     `datums` absent) or work it out here;
+//     `datums` absent), plus work it out here only when the manual-carry
+//     admission verdict allows an explicit datum map;
 //   - manual required: work it out here, because nothing else will do.
 //
 // "Work it out here" is all-or-nothing: a link either names every value
@@ -37,9 +38,12 @@ import type { CommitOutcome, FormLink, FormLinkDatum } from "@/lib/domain";
 import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import {
 	CARRIED_VALUE_HINT,
+	COMPLETE_SELECTION_NEEDS_FORM_LIST,
 	carriedAutomaticallyDetail,
 	EMPTY_CARRIED_VALUE_REFUSAL,
 	nothingNeededCopy,
+	SEVERAL_CASES_CARRY_AUTOMATICALLY,
+	SEVERAL_CASES_MANUAL_CARRY_NEEDS_REPAIR,
 } from "./afterSubmitCopy";
 import { readsForm } from "./LinkConditionEditor";
 import { SEED_CARRIED_VALUE_TEXT, seedCarriedValues } from "./seeds";
@@ -61,6 +65,9 @@ export function CarryValuesSection({
 	const carry = view.carryVerdict(link.target);
 	const required = view.requiredDatums(link.target);
 	const manual = link.datums !== undefined;
+	const manualCarry = view.manualCarryVerdict(link);
+	const manualCarryUnavailable = !manualCarry.ok;
+	const invalidManual = manual && manualCarryUnavailable;
 	const [confirmingAutomatic, setConfirmingAutomatic] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingAutomatic);
 
@@ -85,10 +92,18 @@ export function CarryValuesSection({
 
 	return (
 		<div className="space-y-4">
-			{carry.kind === "manual-required" ? (
+			{invalidManual && carry.kind !== "automatic" ? (
+				<p className="text-[14px] leading-relaxed text-nova-text-secondary">
+					{COMPLETE_SELECTION_NEEDS_FORM_LIST}
+				</p>
+			) : carry.kind === "manual-required" ? (
 				<p className="text-[14px] leading-relaxed text-nova-text-secondary">
 					This destination needs values this form can't supply on its own, so
 					they're worked out here.
+				</p>
+			) : carry.kind === "automatic" && manualCarryUnavailable && !manual ? (
+				<p className="text-[14px] leading-relaxed text-nova-text-secondary">
+					{SEVERAL_CASES_CARRY_AUTOMATICALLY}
 				</p>
 			) : carry.kind === "automatic" ? (
 				<fieldset className="grid gap-2 @sm:grid-cols-2">
@@ -107,9 +122,13 @@ export function CarryValuesSection({
 					/>
 					<ChoiceCard
 						title="Work it out here"
-						details={["Give each value the destination needs yourself."]}
+						details={[
+							invalidManual
+								? SEVERAL_CASES_MANUAL_CARRY_NEEDS_REPAIR
+								: "Give each value the destination needs yourself.",
+						]}
 						checked={manual}
-						disabled={!canEdit}
+						disabled={!canEdit || manualCarryUnavailable}
 						onChoose={() => {
 							if (!manual) workItOutHere();
 						}}
@@ -149,7 +168,7 @@ export function CarryValuesSection({
 				</div>
 			)}
 
-			{manual ? (
+			{manual && manualCarry.ok ? (
 				<div className="space-y-3">
 					{(link.datums ?? []).map((datum) => (
 						<CarriedValueRow
@@ -193,6 +212,7 @@ export function CarryValuesSection({
 				</div>
 			) : (
 				carry.kind === "manual-required" &&
+				manualCarry.ok &&
 				canEdit && (
 					<Button type="button" variant="outline" onClick={workItOutHere}>
 						Work it out here

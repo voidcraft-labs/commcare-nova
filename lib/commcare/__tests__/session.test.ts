@@ -6,6 +6,7 @@ import type {
 } from "@/lib/commcare/formLinkProjection";
 import {
 	deriveCaseListEntryDefinition,
+	deriveCaseSelectionDatum,
 	deriveEntryDefinition,
 	deriveFormLinkStack,
 	derivePostSubmitStack,
@@ -30,6 +31,26 @@ import {
 // ── deriveSessionDatums ────────────────────────────────────────────
 
 describe("deriveSessionDatums", () => {
+	it("filters a child population through every value in a selected-parent set", () => {
+		const parent = deriveCaseSelectionDatum({
+			id: "parent_selected_cases",
+			caseType: "household",
+			moduleIndex: 0,
+			maxSelectValue: 5,
+		});
+		const child = deriveCaseSelectionDatum({
+			id: "case_id",
+			caseType: "visit",
+			moduleIndex: 1,
+			parentSelection: parent,
+		});
+
+		expect(child.nodeset).toContain(
+			"[index/*[not(@relationship='extension')]=instance('parent_selected_cases')/results/value]",
+		);
+		expect(child.instanceIds).toBeUndefined();
+	});
+
 	it("returns case_id datum for followup forms with case type", () => {
 		const datums = deriveSessionDatums({
 			formType: "followup",
@@ -923,6 +944,31 @@ describe("renderStackXml", () => {
 // ── renderEntryXml ─────────────────────────────────────────────────
 
 describe("renderEntryXml", () => {
+	it("renders the HQ multi-select instance-datum exactly", () => {
+		const datum = deriveCaseSelectionDatum({
+			id: "selected_cases",
+			caseType: "patient",
+			moduleIndex: 0,
+			maxSelectValue: 15,
+		});
+		const entry = deriveEntryDefinition({
+			formXmlns: "http://openrosa.org/formdesigner/multi",
+			moduleIndex: 0,
+			formIndex: 0,
+			formType: "followup",
+			postSubmit: "app_home",
+			caseType: "patient",
+			projectedSessionDatums: [datum],
+		});
+		const xml = renderEntryXml(entry);
+		expect(xml).toContain(
+			`<instance id="selected_cases" src="jr://instance/selected-entities/selected_cases"/>`,
+		);
+		expect(xml).toContain(
+			`<instance-datum id="selected_cases" nodeset="instance(&apos;casedb&apos;)/casedb/case[@case_type=&apos;patient&apos;][@status=&apos;open&apos;]" value="./@case_id" detail-select="m0_case_short" max-select-value="15"/>`,
+		);
+	});
+
 	it("renders basic registration entry without stack", () => {
 		const entry = deriveEntryDefinition({
 			formXmlns: "http://openrosa.org/formdesigner/abc",

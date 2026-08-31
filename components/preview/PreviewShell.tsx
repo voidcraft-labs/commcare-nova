@@ -195,8 +195,8 @@ export function PreviewShell() {
 
 	/* The case the running-app case list passed into a case-loading form.
 	 * The URL tracks which form; this ephemeral target carries the selected
-	 * case (running-app state, like the search inputs and filter, it never
-	 * goes in the URL). We graft its `caseId` onto the form screen below when
+	 * cases (running-app state, like the search inputs and filter, it never
+	 * goes in the URL). We graft its ordered collection onto the form screen when
 	 * it names the form we're showing, so `FormScreen` preloads the case. */
 	/* The screen AND "is this a condition-authoring URL" both derive from
 	 * the location, so they must travel together through the deferred
@@ -224,11 +224,11 @@ export function PreviewShell() {
 		 * ignored, so e.g. a register form loads no case). */
 		if (
 			screen.type === "form" &&
-			previewCaseTarget?.caseId !== undefined &&
+			previewCaseTarget?.cases !== undefined &&
 			previewCaseTargetBindsLocation(loc, previewCaseTarget)
 		) {
 			return {
-				screen: { ...screen, caseId: previewCaseTarget.caseId },
+				screen: { ...screen, cases: previewCaseTarget.cases },
 				atCondition,
 				atOperations,
 				atLinks,

@@ -129,13 +129,16 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 		[menuSource, moduleUuid, menuCaseSelections],
 	);
 	const selectedMenuCase = menuCaseContext.selectedCase;
+	const selectedMenuChoices = selectedMenuCase?.cases ?? [];
+	const onlySelectedMenuCase =
+		selectedMenuChoices.length === 1 ? selectedMenuChoices[0] : undefined;
 	const requiredParentCase = menuCaseContext.requiredParentCase;
 	const selectedCaseProjection = useMemo(
 		() =>
-			selectedMenuCase?.caseProperties
-				? new Map(Object.entries(selectedMenuCase.caseProperties))
+			onlySelectedMenuCase?.caseProperties
+				? new Map(Object.entries(onlySelectedMenuCase.caseProperties))
 				: undefined,
-		[selectedMenuCase?.caseProperties],
+		[onlySelectedMenuCase?.caseProperties],
 	);
 
 	/* The running preview gates the forms-first form menu exactly as a
@@ -345,7 +348,9 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 							<div className="text-sm font-medium text-nova-text">Cases</div>
 							{selectedMenuCase && (
 								<div className="text-xs text-nova-text-muted truncate">
-									Selected: {selectedMenuCase.caseName}
+									{selectedMenuChoices.length === 1
+										? `Selected: ${selectedMenuChoices[0]?.caseName ?? "Case"}`
+										: `${selectedMenuChoices.length} cases selected`}
 								</div>
 							)}
 						</div>
@@ -388,8 +393,10 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 							if (selectedMenuCase) {
 								setPreviewCaseTarget({
 									formUuid: form.uuid,
-									caseId: selectedMenuCase.caseId,
-									caseName: selectedMenuCase.caseName,
+									cases: selectedMenuCase.cases.map(({ caseId, caseName }) => ({
+										caseId,
+										...(caseName !== undefined && { caseName }),
+									})),
 								});
 								navigate.openForm(moduleUuid, form.uuid);
 							} else {

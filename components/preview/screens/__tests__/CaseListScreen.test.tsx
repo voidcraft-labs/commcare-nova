@@ -36,6 +36,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
@@ -107,9 +108,11 @@ let previewMenuCaseSelectionsMock: Record<
 	string,
 	{
 		caseType: string;
-		caseId: string;
-		caseName: string;
-		caseProperties?: Readonly<Record<string, string>>;
+		cases: readonly {
+			caseId: string;
+			caseName?: string;
+			caseProperties?: Readonly<Record<string, string>>;
+		}[];
 	}
 > = {};
 
@@ -143,6 +146,317 @@ vi.mock("@/lib/routing/hooks", async () => {
 	};
 });
 
+describe("CaseListScreen — several-case selection", () => {
+	it("keeps ordered choices and continues through one explicit review tray", async () => {
+		const rows = [
+			makeRow("case-a", { case_name: "Alice" }),
+			makeRow("case-b", { case_name: "Bo" }),
+		];
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "rows",
+			rows,
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
+					visibleInDetail: false,
+				}),
+			],
+			selection: { kind: "multiple", maximum: 2 },
+		});
+
+		fireEvent.click(
+			await screen.findByRole("checkbox", { name: "Choose Alice" }),
+		);
+		fireEvent.click(screen.getByRole("checkbox", { name: "Choose Bo" }));
+		expect(screen.getByText("2 cases selected")).toBeDefined();
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Review selected cases" }),
+		);
+		const dialog = screen.getByRole("dialog");
+		expect(within(dialog).getByText("Alice")).toBeDefined();
+		expect(within(dialog).getByText("Bo")).toBeDefined();
+		fireEvent.click(
+			within(dialog).getByRole("button", { name: "Back to results" }),
+		);
+
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await waitFor(() => {
+			expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+				formUuid: FOLLOWUP_FORM_UUID,
+				cases: [
+					{ caseId: "case-a", caseName: "Alice" },
+					{ caseId: "case-b", caseName: "Bo" },
+				],
+			});
+		});
+	});
+
+	it("keeps the first choice when the authored limit is reached", async () => {
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "rows",
+			rows: [
+				makeRow("case-a", { case_name: "Alice" }),
+				makeRow("case-b", { case_name: "Bo" }),
+			],
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
+					visibleInDetail: false,
+				}),
+			],
+			selection: { kind: "multiple", maximum: 1 },
+		});
+
+		fireEvent.click(
+			await screen.findByRole("checkbox", { name: "Choose Alice" }),
+		);
+		fireEvent.click(screen.getByRole("checkbox", { name: "Choose Bo" }));
+		expect(screen.getByText("1 case selected")).toBeDefined();
+		expect(screen.getByText("You can choose up to 1 case")).toBeDefined();
+	});
+
+	it("uses form visibility to auto-continue only when one several-case form is shown", async () => {
+		const rows = [
+			makeRow("case-a", { case_name: "Alice" }),
+			makeRow("case-b", { case_name: "Bo" }),
+		];
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "rows",
+			rows,
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
+					visibleInDetail: false,
+				}),
+			],
+			selection: { kind: "multiple", maximum: 2 },
+			secondCaseLoadingForm: true,
+			followupDisplayCondition: eq(
+				sessionContext("userid"),
+				literal("another-worker"),
+			),
+			closeDisplayCondition: eq(
+				sessionContext("userid"),
+				literal("owner-test"),
+			),
+		});
+
+		fireEvent.click(
+			await screen.findByRole("checkbox", { name: "Choose Alice" }),
+		);
+		fireEvent.click(screen.getByRole("checkbox", { name: "Choose Bo" }));
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		await waitFor(() =>
+			expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
+				formUuid: CLOSE_FORM_UUID,
+				cases: [
+					{ caseId: "case-a", caseName: "Alice" },
+					{ caseId: "case-b", caseName: "Bo" },
+				],
+			}),
+		);
+		expect(navigateMock.openForm).toHaveBeenCalledWith(
+			MODULE_UUID,
+			CLOSE_FORM_UUID,
+		);
+	});
+
+	it("shows the several-case form menu when every form is hidden", async () => {
+		const rows = [makeRow("case-a", { case_name: "Alice" })];
+		vi.mocked(loadCasesAction).mockResolvedValue({
+			constraintSource: "unconstrained",
+			kind: "rows",
+			rows,
+		});
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
+					visibleInDetail: false,
+				}),
+			],
+			selection: { kind: "multiple", maximum: 2 },
+			secondCaseLoadingForm: true,
+			followupDisplayCondition: eq(
+				sessionContext("userid"),
+				literal("another-worker"),
+			),
+			closeDisplayCondition: eq(
+				sessionContext("userid"),
+				literal("another-worker"),
+			),
+		});
+
+		fireEvent.click(
+			await screen.findByRole("checkbox", { name: "Choose Alice" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+		expect(
+			await screen.findByText("Choose the form to run for these cases"),
+		).toBeDefined();
+		expect(
+			screen.getByRole("button", { name: "Hidden items (2)" }),
+		).toBeDefined();
+		expect(navigateMock.openForm).not.toHaveBeenCalled();
+	});
+
+	it("freezes selection edits and ignores validation after the module scope changes", async () => {
+		const rows = [
+			makeRow("case-a", { case_name: "Alice" }),
+			makeRow("case-b", { case_name: "Bo" }),
+		];
+		const validation = deferred<{
+			readonly kind: "rows";
+			readonly rows: readonly CaseRowWithCalculated[];
+			readonly constraintSource: "unconstrained";
+		}>();
+		vi.mocked(loadCasesAction).mockImplementation(async (args) =>
+			"caseIds" in args
+				? await validation.promise
+				: {
+						constraintSource: "unconstrained",
+						kind: "rows",
+						rows,
+					},
+		);
+		const view = renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
+					visibleInDetail: false,
+				}),
+			],
+			selection: { kind: "multiple", maximum: 2 },
+			includeUnrelatedCaseDescendant: true,
+		});
+
+		fireEvent.click(
+			await screen.findByRole("checkbox", { name: "Choose Alice" }),
+		);
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await screen.findByRole("button", { name: "Checking cases" });
+		expect(
+			screen
+				.getByRole("checkbox", { name: "Remove Alice" })
+				.getAttribute("aria-disabled"),
+		).toBe("true");
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Choose all cases shown",
+				}) as HTMLButtonElement
+			).disabled,
+		).toBe(true);
+		fireEvent.click(
+			screen.getByRole("button", { name: "Review selected cases" }),
+		);
+		expect(
+			(
+				screen.getByRole("button", {
+					name: "Remove Alice",
+				}) as HTMLButtonElement
+			).disabled,
+		).toBe(true);
+
+		view.rerenderAt({ kind: "cases", moduleUuid: CHILD_MODULE_UUID });
+		await act(async () => {
+			validation.resolve({
+				constraintSource: "unconstrained",
+				kind: "rows",
+				rows,
+			});
+			await validation.promise;
+		});
+		expect(setPreviewCaseTargetMock).not.toHaveBeenCalled();
+		expect(navigateMock.openForm).not.toHaveBeenCalled();
+	});
+
+	it("keeps the selected cases and releases validation under StrictMode when a collaborator lowers the limit", async () => {
+		const rows = [
+			makeRow("case-a", { case_name: "Alice" }),
+			makeRow("case-b", { case_name: "Bo" }),
+		];
+		const validation = deferred<{
+			readonly kind: "rows";
+			readonly rows: readonly CaseRowWithCalculated[];
+			readonly constraintSource: "unconstrained";
+		}>();
+		vi.mocked(loadCasesAction).mockImplementation(async (args) =>
+			"caseIds" in args
+				? await validation.promise
+				: {
+						constraintSource: "unconstrained",
+						kind: "rows",
+						rows,
+					},
+		);
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
+					visibleInDetail: false,
+				}),
+			],
+			selection: { kind: "multiple", maximum: 2 },
+			strictMode: true,
+		});
+
+		fireEvent.click(
+			await screen.findByRole("checkbox", { name: "Choose Alice" }),
+		);
+		fireEvent.click(screen.getByRole("checkbox", { name: "Choose Bo" }));
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await screen.findByRole("button", { name: "Checking cases" });
+
+		const store = capturedDocStore;
+		if (store === undefined) throw new Error("doc store was not captured");
+		act(() => {
+			store.getState().applyMany([
+				{
+					kind: "setCaseListMeta",
+					uuid: MODULE_UUID,
+					patch: { selection: { kind: "multiple", maximum: 1 } },
+				},
+			]);
+		});
+
+		expect(screen.getByText("2 cases selected")).toBeDefined();
+		expect(
+			screen.getByText("Choose 1 fewer case to continue", {
+				selector: "#multi-case-selection-blocker",
+			}),
+		).toBeDefined();
+		expect(
+			(screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Review selected cases" }),
+		);
+		const dialog = screen.getByRole("dialog");
+		expect(within(dialog).getByText("Alice")).toBeDefined();
+		expect(within(dialog).getByText("Bo")).toBeDefined();
+
+		await act(async () => {
+			validation.resolve({
+				constraintSource: "unconstrained",
+				kind: "rows",
+				rows,
+			});
+			await validation.promise;
+		});
+		expect(setPreviewCaseTargetMock).not.toHaveBeenCalled();
+		expect(navigateMock.openForm).not.toHaveBeenCalled();
+	});
+});
+
 vi.mock("@/lib/session/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/session/hooks")>(
 		"@/lib/session/hooks",
@@ -153,6 +467,7 @@ vi.mock("@/lib/session/hooks", async () => {
 		useEditMode: () => "preview" as const,
 		useBuilderIsReady: () => true,
 		useCanEdit: () => canEditMock,
+		usePreviewing: () => true,
 		usePreviewCaseTarget: () => previewCaseTargetMock,
 		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
 		usePreviewParentCaseRequest: () => previewParentCaseRequestMock,
@@ -237,6 +552,14 @@ function makeRow(
 	} as CaseRowWithCalculated;
 }
 
+function deferred<T>() {
+	let resolve!: (value: T) => void;
+	const promise = new Promise<T>((accept) => {
+		resolve = accept;
+	});
+	return { promise, resolve };
+}
+
 /** Mount the screen against a doc seeded with the fixture
  *  `caseListConfig`. The provider's `initialDoc` shape mirrors the
  *  stored `PersistableDoc`: a fresh module carrying our
@@ -288,6 +611,8 @@ function renderCaseListScreen(opts: {
 	/** Point the module at a missing case type to exercise setup guidance. */
 	moduleCaseType?: string;
 	followupFormName?: string;
+	followupDisplayCondition?: Predicate;
+	closeDisplayCondition?: Predicate;
 	/** Add a second case-loading form (Close Case) to exercise the
 	 *  post-selection form menu. */
 	secondCaseLoadingForm?: boolean;
@@ -298,6 +623,9 @@ function renderCaseListScreen(opts: {
 	includeUnrelatedCaseDescendant?: boolean;
 	/** Give the fixture patient type a separately rooted household case parent. */
 	includeIndependentCaseParent?: boolean;
+	selection?: { readonly kind: "multiple"; readonly maximum: number };
+	/** Exercise update effects across React's development double render. */
+	strictMode?: boolean;
 }) {
 	const includeCaseLoadingForm = opts.includeCaseLoadingForm !== false;
 	const extraForms = opts.secondCaseLoadingForm
@@ -307,11 +635,14 @@ function renderCaseListScreen(opts: {
 					id: "close_form",
 					name: "Close Case",
 					type: "close" as const,
+					...(opts.closeDisplayCondition !== undefined && {
+						displayCondition: opts.closeDisplayCondition,
+					}),
 				},
 			}
 		: {};
 	const extraFormOrder = opts.secondCaseLoadingForm ? [CLOSE_FORM_UUID] : [];
-	const tree = () => (
+	const Content = () => (
 		<BlueprintDocProvider
 			appId={APP_ID}
 			initialDoc={{
@@ -374,6 +705,9 @@ function renderCaseListScreen(opts: {
 											opts.columns.map((c) => c.uuid)),
 									],
 									searchInputs: opts.searchInputs ?? [],
+									...(opts.selection !== undefined && {
+										selection: opts.selection,
+									}),
 									...(opts.filter !== undefined && { filter: opts.filter }),
 								},
 								...(opts.searchAction !== undefined ||
@@ -447,6 +781,9 @@ function renderCaseListScreen(opts: {
 											id: "followup_form",
 											name: opts.followupFormName ?? "Follow-up Visit",
 											type: "followup" as const,
+											...(opts.followupDisplayCondition !== undefined && {
+												displayCondition: opts.followupDisplayCondition,
+											}),
 										},
 									}
 								: {}),
@@ -512,6 +849,14 @@ function renderCaseListScreen(opts: {
 			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>
 	);
+	const tree = () =>
+		opts.strictMode ? (
+			<StrictMode>
+				<Content />
+			</StrictMode>
+		) : (
+			<Content />
+		);
 	const result = render(tree());
 	return Object.assign(result, {
 		rerenderAt(location: Location) {
@@ -966,8 +1311,9 @@ describe("CaseListScreen — empty case type", () => {
 		previewMenuCaseSelectionsMock = {
 			[CASE_PARENT_MODULE_UUID]: {
 				caseType: "household",
-				caseId: "selected-household",
-				caseName: "Selected household",
+				cases: [
+					{ caseId: "selected-household", caseName: "Selected household" },
+				],
 			},
 		};
 		vi.mocked(loadCaseCountAction).mockResolvedValue({
@@ -1001,7 +1347,10 @@ describe("CaseListScreen — empty case type", () => {
 			appId: APP_ID,
 			caseType: "patient",
 			includeHeld: false,
-			parentCaseId: "selected-household",
+			parentCase: {
+				caseType: "household",
+				caseIds: ["selected-household"],
+			},
 		});
 	});
 
@@ -2836,8 +3185,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		fireEvent.click(screen.getByRole("button", { name: /Continue/ }));
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: FOLLOWUP_FORM_UUID,
-			caseId: SELECTED_CASE_ID,
-			caseName: "Alice",
+			cases: [{ caseId: SELECTED_CASE_ID, caseName: "Alice" }],
 		});
 		expect(navigateMock.openForm).toHaveBeenCalledWith(
 			MODULE_UUID,
@@ -2897,8 +3245,9 @@ describe("CaseListScreen — detail confirm step", () => {
 		previewMenuCaseSelectionsMock = {
 			[CASE_PARENT_MODULE_UUID]: {
 				caseType: "household",
-				caseId: "selected-household",
-				caseName: "Selected household",
+				cases: [
+					{ caseId: "selected-household", caseName: "Selected household" },
+				],
 			},
 		};
 		vi.mocked(loadCasesAction).mockResolvedValue({
@@ -2921,14 +3270,15 @@ describe("CaseListScreen — detail confirm step", () => {
 				caseType: "patient",
 				parentCase: expect.objectContaining({
 					caseType: "household",
-					caseId: "selected-household",
+					caseIds: ["selected-household"],
 				}),
 			}),
 		);
 		expect(vi.mocked(loadCaseDataAction).mock.calls[0]?.[9]).toBe(true);
-		expect(vi.mocked(loadCaseDataAction).mock.calls[0]?.[10]).toBe(
-			"selected-household",
-		);
+		expect(vi.mocked(loadCaseDataAction).mock.calls[0]?.[10]).toEqual({
+			caseType: "household",
+			caseIds: ["selected-household"],
+		});
 	});
 
 	it("keeps an off-page deep link's calculated Details value projected after case-data reload", async () => {
@@ -3198,8 +3548,7 @@ describe("CaseListScreen — detail confirm step", () => {
 		fireEvent.click(screen.getByRole("button", { name: /Alice/ }));
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: FOLLOWUP_FORM_UUID,
-			caseId: SELECTED_CASE_ID,
-			caseName: "Alice",
+			cases: [{ caseId: SELECTED_CASE_ID, caseName: "Alice" }],
 		});
 		expect(navigateMock.openForm).toHaveBeenCalledWith(
 			MODULE_UUID,
@@ -3352,8 +3701,7 @@ describe("CaseListScreen — post-selection form menu", () => {
 		previewMenuCaseSelectionsMock = {
 			[CHILD_MODULE_UUID]: {
 				caseType: "visit",
-				caseId: "old-visit",
-				caseName: "Old visit",
+				cases: [{ caseId: "old-visit", caseName: "Old visit" }],
 			},
 		};
 		previewParentCaseRequestMock = {
@@ -3380,8 +3728,12 @@ describe("CaseListScreen — post-selection form menu", () => {
 			MODULE_UUID,
 			expect.objectContaining({
 				caseType: "patient",
-				caseId: SELECTED_CASE_ID,
-				caseName: "Alice",
+				cases: [
+					expect.objectContaining({
+						caseId: SELECTED_CASE_ID,
+						caseName: "Alice",
+					}),
+				],
 			}),
 		);
 		expect(setPreviewMenuCaseSelectionMock).toHaveBeenCalledWith(
@@ -3442,8 +3794,7 @@ describe("CaseListScreen — post-selection form menu", () => {
 		fireEvent.click(closeChoice);
 		expect(setPreviewCaseTargetMock).toHaveBeenCalledWith({
 			formUuid: CLOSE_FORM_UUID,
-			caseId: SELECTED_CASE_ID,
-			caseName: "Alice",
+			cases: [{ caseId: SELECTED_CASE_ID, caseName: "Alice" }],
 		});
 		expect(navigateMock.openForm).toHaveBeenCalledWith(
 			MODULE_UUID,

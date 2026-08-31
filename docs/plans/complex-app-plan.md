@@ -2274,6 +2274,53 @@ containment supplies the parent gate. `lib/commcare/CLAUDE.md` owns the lowering
 and its pinned HQ fixture provenance, and `content/docs/nested-menus.mdx` is the
 user-facing guide.
 
+### Multi-select case workflows
+
+A case-list module chooses one case by default or an ordered set of as many as
+100. `caseListConfig.selection` stores only the exceptional multiple-selection
+shape and its authored maximum; absence remains the canonical one-case app. The
+Builder, Solutions Architect, and MCP API all edit that same setting, and the
+running Results screen uses checkboxes, a selected-count review tray, and an
+explicit Continue action. Search, paging, Details, Back, and compatible nested
+navigation retain the ordered set. A lower maximum never drops a choice
+silently: Continue pauses until the worker removes enough cases.
+
+Multiple selection is a form-execution contract, not only a case-list display
+flag. Follow-up and close forms consume the selected set. Ordinary primary-case
+preloads and field writers are singular and therefore cannot appear in those
+forms; explicit session-targeted operations run once for each selected case,
+while app-level effects run once. An authored repeat remains the outer
+iteration and the selected-case order is the inner iteration. The complete
+submission, including ordinary lifecycle effects, advanced operations, and its
+receipt, commits once or rolls back once. A multiple-selection module therefore
+needs a follow-up or close consumer rather than ending at an informational list.
+
+Results rows and tiles both support multiple selection. A grouped tile remains
+one selectable group whose selection is its first case; its other body rows are
+display only. A tile cannot remain above a form because that runtime surface
+looks up one scalar selected case, so enabling multiple selection clears only
+`persistOnForms` in the same authored change and explains the consequence.
+Menu navigation carries a set only between compatible modules: the same case
+type and same selection cardinality, with a destination maximum large enough
+for every set the source allows. A case-list-only parent may hand that set to a
+compatible child whose follow-up or close form consumes it. A different-type
+child with declared case parentage filters its population to the union of
+direct non-extension children of every selected parent, then starts its own
+selection. Menu parentage never invents a case relationship.
+
+At the CommCare boundary, HQ JSON carries `case_details.short.multi_select`
+and `max_select_value`, while suite entries replace the scalar datum with an
+`<instance-datum ... max-select-value="N">`. The runtime materializes the ids
+as `jr://instance/selected-entities/...` `<results><value>` rows, and Search
+claim sends all absent ids in one POST. The exact list/Search bytes are pinned
+to
+`commcare-hq/corehq/apps/app_manager/tests/test_suite_multi_select_case_list.py::MultiSelectCaseListTests`
+and `data/suite/multi_select_case_list/basic_remote_request.xml`; the selected
+instance and form shape are pinned to
+`tests/data/form_preparation_v2/multi_no_actions.xml`. The separate session
+endpoint fixture under `tests/data/session_endpoint_remote_request_multi_select.xml`
+belongs to the remaining endpoint unit, which consumes this datum foundation.
+
 ---
 
 ## What remains
@@ -2297,16 +2344,16 @@ creates, why `respect_relevancy` exists only on forms, what a case-list endpoint
 excludes, the runtime replay sequence, and the documented divergences that are
 sharp edges rather than Nova bugs.
 
-### Multi-select, related cases, and profile extensions
+### Related-case pulls and derived compatibility
 
 [`complex-app/multi-select-related-cases-and-profile.md`](complex-app/multi-select-related-cases-and-profile.md)
 · depends on nothing outstanding · blocks nothing
 
-Three independent vocabularies that ship as three PRs because they share only a
-dependency. **The file holds** the multi-select datum and its virtual instance,
-the related-case query keys and exclusion filter, the three authorable `cc-*`
-profile keys against the reserved emitter-owned ones, and the removed `CaseSearch`
-fields that must never be modeled.
+Two independent projections. **The file holds** the related-case query keys and
+visible-result exclusion, Nova's derived large-Search tuning and safe profile
+preservation, the project-space compatibility surface, and the removed
+`CaseSearch` fields that must never be modeled. Nova authors no sync or generic
+profile-property model.
 
 ---
 
@@ -2317,7 +2364,7 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | — |
-| [multi-select, related cases, profile](complex-app/multi-select-related-cases-and-profile.md) | — |
+| [related-case pulls and derived compatibility](complex-app/multi-select-related-cases-and-profile.md) | — |
 
 Both remaining units have no outstanding prerequisites and can start in either
 order. Nothing waits on either one, so each can land whenever its own contract

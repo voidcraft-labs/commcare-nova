@@ -342,6 +342,216 @@ export function caseOperationConditionalGuardUuids(
 	return analyzeCaseOperationTargetOrder(doc, formUuid, operations).guards;
 }
 
+interface SessionCaseTypeState {
+	readonly caseType: string;
+	/** Condition and target-alias facts known true on this branch. */
+	readonly trueFacts: ReadonlySet<string>;
+	/** Condition and target-alias facts known false on this branch. */
+	readonly falseFacts: ReadonlySet<string>;
+}
+
+const MAX_SESSION_CASE_TYPE_STATES = 256;
+
+function sessionCaseTypeStateKey(state: SessionCaseTypeState): string {
+	return `${state.caseType}|${[...state.trueFacts].sort().join(",")}|${[
+		...state.falseFacts,
+	]
+		.sort()
+		.join(",")}`;
+}
+
+function dedupeSessionCaseTypeStates(
+	states: readonly SessionCaseTypeState[],
+): SessionCaseTypeState[] {
+	return [
+		...new Map(
+			states.map((state) => [sessionCaseTypeStateKey(state), state]),
+		).values(),
+	];
+}
+
+function conditionFact(uuid: Uuid): string {
+	return `condition:${uuid}`;
+}
+
+/**
+ * Correlated runtime-alias fact for every non-session retype target that may
+ * resolve to the loaded session case. Structurally identical expression/op
+ * targets share one fact; a generated create (or another target the existing
+ * identity proof can separate) gets no fact because it cannot affect the
+ * selected case.
+ */
+function sessionAliasFactsByOperation(
+	operations: readonly CaseOperation[],
+): ReadonlyMap<Uuid, string> {
+	const sessionTarget: KnownTarget = { kind: "session" };
+	const createsByUuid = new Map<Uuid, CaseOperation>();
+	const representatives: KnownTarget[] = [];
+	const facts = new Map<Uuid, string>();
+	for (const operation of operations) {
+		const target = operation.target;
+		if (operation.action === "create") {
+			createsByUuid.set(operation.uuid, operation);
+			continue;
+		}
+		if (
+			target.kind === "new" ||
+			target.kind === "session" ||
+			operation.retype === undefined ||
+			caseOperationTargetsProvablyDistinct(target, sessionTarget, createsByUuid)
+		) {
+			continue;
+		}
+		let index = representatives.findIndex((candidate) =>
+			sameCaseOperationTargetIdentity(candidate, target),
+		);
+		if (index === -1) {
+			index = representatives.length;
+			representatives.push(target);
+		}
+		facts.set(operation.uuid, `session-alias:${index}`);
+	}
+	return facts;
+}
+
+/**
+ * Every case type the form's loaded session case can have after its advanced
+ * operation program finishes.
+ *
+ * A direct several-case form link carries the exact loaded identities into the
+ * destination. Its session datum is authored for one case type, so admitting
+ * that carry from the module's pre-submit type alone is unsound when a
+ * session-targeted operation, or a runtime target that may alias one selected
+ * case, can retype it first.
+ *
+ * Conditions are tracked as branch facts rather than treating every retype as
+ * final. The inherited guard map is the same one the XForm and Preview use: an
+ * unconditional restoration guarded by the earlier conditional transition
+ * therefore closes that branch, while a conditional restoration leaves both
+ * types possible. The bounded-state fallback returns every type from an exact
+ * or possible-alias transition, using that same identity proof to leave
+ * provably distinct retypes out. It can refuse an exceptionally branch-heavy
+ * program, but it can never admit an unsafe automatic carry.
+ */
+export function possibleFinalSessionCaseTypes(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operations: readonly CaseOperation[] = orderedCaseOperations(
+		doc.forms[formUuid] ?? {},
+	),
+): ReadonlySet<string> {
+	const initialCaseType = moduleCaseTypeForForm(doc, formUuid);
+	if (initialCaseType === undefined) return new Set();
+
+	const inheritedGuards = caseOperationConditionalGuardUuids(
+		doc,
+		formUuid,
+		operations,
+	);
+	const operationsByUuid = new Map(
+		operations.map((operation) => [operation.uuid, operation]),
+	);
+	const aliasFacts = sessionAliasFactsByOperation(operations);
+	const conservativeTypes = new Set<string>([initialCaseType]);
+	for (const operation of operations) {
+		if (
+			operation.action !== "create" &&
+			operation.retype !== undefined &&
+			(operation.target.kind === "session" || aliasFacts.has(operation.uuid))
+		) {
+			conservativeTypes.add(operation.retype);
+		}
+	}
+
+	let states: SessionCaseTypeState[] = [
+		{
+			caseType: initialCaseType,
+			trueFacts: new Set(),
+			falseFacts: new Set(),
+		},
+	];
+
+	for (const operation of operations) {
+		if (
+			operation.action === "create" ||
+			operation.retype === undefined ||
+			operation.retype === operation.caseType
+		) {
+			continue;
+		}
+
+		const aliasFact =
+			operation.target.kind === "session"
+				? undefined
+				: aliasFacts.get(operation.uuid);
+		if (operation.target.kind !== "session" && aliasFact === undefined) {
+			continue;
+		}
+
+		const requiredFacts = new Set<string>();
+		let neverExecutes = false;
+		const includeCondition = (guardUuid: Uuid): void => {
+			const condition = operationsByUuid.get(guardUuid)?.condition;
+			if (condition?.kind === "match-all") return;
+			if (condition?.kind === "match-none") {
+				neverExecutes = true;
+				return;
+			}
+			requiredFacts.add(conditionFact(guardUuid));
+		};
+		for (const guardUuid of inheritedGuards.get(operation.uuid) ?? []) {
+			includeCondition(guardUuid);
+		}
+		if (operation.condition !== undefined) includeCondition(operation.uuid);
+		if (aliasFact !== undefined) requiredFacts.add(aliasFact);
+		if (neverExecutes) continue;
+
+		const next: SessionCaseTypeState[] = [];
+		for (const state of states) {
+			if (
+				state.caseType !== operation.caseType ||
+				[...requiredFacts].some((fact) => state.falseFacts.has(fact))
+			) {
+				next.push(state);
+				continue;
+			}
+
+			const unknownFacts = [...requiredFacts].filter(
+				(fact) => !state.trueFacts.has(fact),
+			);
+			const executingTrueFacts = new Set(state.trueFacts);
+			for (const fact of unknownFacts) executingTrueFacts.add(fact);
+			next.push({
+				caseType: operation.retype,
+				trueFacts: executingTrueFacts,
+				falseFacts: state.falseFacts,
+			});
+
+			// Partition the skipped branch by the first unknown fact that is
+			// false. This preserves exact truth facts for later conditions/aliases
+			// without enumerating arbitrary values of conditions after that point.
+			for (const [index, falseFact] of unknownFacts.entries()) {
+				const skippedTrueFacts = new Set(state.trueFacts);
+				for (const trueFact of unknownFacts.slice(0, index)) {
+					skippedTrueFacts.add(trueFact);
+				}
+				next.push({
+					caseType: state.caseType,
+					trueFacts: skippedTrueFacts,
+					falseFacts: new Set([...state.falseFacts, falseFact]),
+				});
+			}
+		}
+
+		states = dedupeSessionCaseTypeStates(next);
+		if (states.length > MAX_SESSION_CASE_TYPE_STATES) {
+			return conservativeTypes;
+		}
+	}
+
+	return new Set(states.map((state) => state.caseType));
+}
+
 /**
  * Runtime expression targets are authorized against the one pre-submission
  * case snapshot, even after an earlier operation has semantically retyped the

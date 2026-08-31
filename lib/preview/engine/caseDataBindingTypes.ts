@@ -24,6 +24,7 @@ import type {
 	CaseRow,
 	CaseRowWithCalculated,
 	ConversionImpact,
+	CreatedChildCaseReceipt,
 	JsonObject,
 	JsonValue,
 	ParkedValueEntry,
@@ -48,9 +49,21 @@ export type {
 	CasePropertyFailure,
 	CaseRow,
 	CaseRowWithCalculated,
+	CreatedChildCaseReceipt,
 	JsonObject,
 	JsonValue,
 };
+
+/**
+ * Ordered case set selected by a containing menu. One id is the ordinary
+ * parent-first flow; several ids scope a related child list to the union of
+ * their direct non-extension children. Server readers validate the whole set
+ * against this app, Project, and `caseType` before returning any child.
+ */
+export interface ParentCaseSelection {
+	readonly caseType: string;
+	readonly caseIds: readonly string[];
+}
 
 /** Why the effective query can return zero rows. Derived at the server query
  * composition boundary after blank inputs and empty owner-id expressions have
@@ -366,9 +379,10 @@ export type PopulateSampleCasesResult =
  *   destination and repeat identity.
  *   Children carry NO `parentCaseId`; the case-store's submission
  *   envelope threads the primary's generated id at write time.
- * - `followup` — `caseId` is the bound case the form updates;
- *   `patch.properties` is the JSONB delta. Children carry
- *   `parentCaseId` set to the bound caseId at derivation time.
+ * - `followup` — `caseIds` is the ordered selected set the form acts on;
+ *   `patch.properties` is the JSONB delta. Multi-case admission forbids the
+ *   primary patch; ordinary children expand once per selected parent in the
+ *   atomic envelope.
  * - `close` — same shape as `followup`, plus the bound case's atomic
  *   lifecycle transition (`closed_on` + built-in `status = "closed"`)
  *   after the updates land.
@@ -420,6 +434,34 @@ export interface SubmissionAttachmentReference {
 }
 
 /**
+ * Raw submitted values for the one field a close form's committed close
+ * condition reads. `values` follows the main instance's relevant node order:
+ * zero values is an empty nodeset, one is the ordinary scalar case, and more
+ * than one is preserved so the server can reject the same scalar-coercion
+ * ambiguity JavaRosa rejects rather than choosing an iteration.
+ *
+ * This is answer data, never condition authority. The committed form chooses
+ * the field, operator, and comparison value server-side.
+ */
+export interface SubmissionCloseConditionAnswers {
+	readonly fieldUuid: string;
+	readonly values: ReadonlyArray<string>;
+}
+
+/**
+ * Stable identity of one authored ordinary child bucket. `caseType` plus the
+ * nearest repeat UUID (or root when absent) identifies the committed bucket;
+ * `repeatInstanceKey` distinguishes concrete submitted iterations without
+ * turning their rendered path into authority. The server validates every
+ * member against the committed case-write inventory before projecting a seed.
+ */
+export interface SubmissionOrdinaryChildBucket {
+	readonly caseType: string;
+	readonly repeatUuid?: string;
+	readonly repeatInstanceKey?: string;
+}
+
+/**
  * The final submission protocol every arm carries.
  *
  * `entryKey` names this form entry's attachment scope
@@ -441,6 +483,11 @@ interface SubmissionProtocol {
 	readonly formUuid: string;
 	readonly entryKey: string;
 	readonly attachmentRefs: ReadonlyArray<SubmissionAttachmentReference>;
+	readonly closeConditionAnswers?: SubmissionCloseConditionAnswers;
+	/** Aligned 1:1 with a case-bearing arm's `children`. FormEngine always
+	 * supplies it; optional in the untrusted wire type so a stale or forged
+	 * client can reach the server's explicit reload-and-submit rejection. */
+	readonly ordinaryChildBuckets?: ReadonlyArray<SubmissionOrdinaryChildBucket>;
 	readonly operationAnswers?: SubmissionOperationAnswers;
 	/**
 	 * Answers saved to the worker's own record, if the form has any.
@@ -475,7 +522,7 @@ export type SubmissionMutation = SubmissionProtocol &
 		  }
 		| {
 				kind: "followup";
-				caseId: string;
+				caseIds: ReadonlyArray<string>;
 				patch: {
 					caseName?: string;
 					externalId?: string;
@@ -486,12 +533,11 @@ export type SubmissionMutation = SubmissionProtocol &
 					caseName?: string;
 					externalId?: string;
 					properties: JsonObject;
-					parentCaseId: string;
 				}>;
 		  }
 		| {
 				kind: "close";
-				caseId: string;
+				caseIds: ReadonlyArray<string>;
 				patch: {
 					caseName?: string;
 					externalId?: string;
@@ -502,7 +548,6 @@ export type SubmissionMutation = SubmissionProtocol &
 					caseName?: string;
 					externalId?: string;
 					properties: JsonObject;
-					parentCaseId: string;
 				}>;
 		  }
 		| {
@@ -511,6 +556,31 @@ export type SubmissionMutation = SubmissionProtocol &
 				kind: "survey";
 		  }
 	);
+
+/**
+ * Open-tab compatibility shape for a FormScreen that was loaded before
+ * several-case selection shipped. The old client names its one followup/close
+ * target as `caseId`; the Server Action preserves that exact object for
+ * durable receipt hashing, then normalizes it to canonical `caseIds` before
+ * deriving any program or storage effect.
+ *
+ * This is deliberately a wire-boundary type, not an engine mutation. New
+ * callers only produce `SubmissionMutation`, and no downstream runtime is
+ * allowed to recover a representative scalar from a several-case selection.
+ */
+export type LegacySingleCaseSubmissionMutation = SubmissionProtocol &
+	(
+		| (Omit<Extract<SubmissionMutation, { kind: "followup" }>, "caseIds"> & {
+				readonly caseId: string;
+		  })
+		| (Omit<Extract<SubmissionMutation, { kind: "close" }>, "caseIds"> & {
+				readonly caseId: string;
+		  })
+	);
+
+export type SubmissionWireMutation =
+	| SubmissionMutation
+	| LegacySingleCaseSubmissionMutation;
 
 /**
  * Result of submitting a `SubmissionMutation` through the
@@ -523,7 +593,11 @@ export type SubmissionResult =
 	| {
 			kind: "registration";
 			caseId: string;
-			childCaseIds: ReadonlyArray<string>;
+			/** Flat compatibility alias for a pre-deploy FormScreen. */
+			childCaseIds?: ReadonlyArray<string>;
+			/** Absent only when replaying a historical flat child-id receipt whose
+			 * authored-child/parent mapping cannot be reconstructed safely. */
+			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -534,8 +608,14 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "followup";
-			caseId: string;
-			childCaseIds: ReadonlyArray<string>;
+			caseIds: ReadonlyArray<string>;
+			/** Present only for a singleton result. A true batch has no scalar
+			 * representative, so Nova never fabricates one. */
+			caseId?: string;
+			/** Flat compatibility alias for a pre-deploy FormScreen. */
+			childCaseIds?: ReadonlyArray<string>;
+			/** Absent only for a historical flat child-id receipt. */
+			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];
@@ -546,8 +626,14 @@ export type SubmissionResult =
 	  }
 	| {
 			kind: "close";
-			caseId: string;
-			childCaseIds: ReadonlyArray<string>;
+			caseIds: ReadonlyArray<string>;
+			/** Present only for a singleton result. A true batch has no scalar
+			 * representative, so Nova never fabricates one. */
+			caseId?: string;
+			/** Flat compatibility alias for a pre-deploy FormScreen. */
+			childCaseIds?: ReadonlyArray<string>;
+			/** Absent only for a historical flat child-id receipt. */
+			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
 			caseDatabasePatch?: {
 				readonly rows: readonly CaseRow[];
 				readonly indices: readonly CaseIndexRow[];

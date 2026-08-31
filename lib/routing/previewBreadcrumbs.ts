@@ -161,18 +161,20 @@ export function previewBreadcrumbTrail(
 				...(isCaseLoading ? { reselectCaseFor: loc.formUuid } : {}),
 			},
 		];
-		/* Name the bound case ONLY when the session target binds THIS form —
-		 * the same predicate PreviewShell grafts the caseId on, so the crumb
+		/* Name the bound selection ONLY when the session target binds THIS form —
+		 * the same predicate PreviewShell grafts the cases on, so the crumb
 		 * and the loaded case never disagree. A target carried over from
 		 * another form (e.g. a follow-up's case when a register form opens) is
 		 * not this form's, so no case crumb appears. */
-		if (
-			previewCaseTargetBindsLocation(loc, previewCaseTarget) &&
-			previewCaseTarget?.caseName
-		) {
+		const boundCases = previewCaseTargetBindsLocation(loc, previewCaseTarget)
+			? previewCaseTarget?.cases
+			: undefined;
+		if (boundCases !== undefined && boundCases.length > 0) {
+			const only = boundCases.length === 1 ? boundCases[0] : undefined;
+			const label = only?.caseName ?? `${boundCases.length} cases`;
 			items.push({
-				key: `case:${previewCaseTarget.caseId ?? previewCaseTarget.caseName}`,
-				label: previewCaseTarget.caseName,
+				key: `cases:${boundCases.map((choice) => choice.caseId).join(",")}`,
+				label,
 				location: { kind: "form", moduleUuid, formUuid: loc.formUuid },
 			});
 		}

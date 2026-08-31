@@ -38,11 +38,12 @@ App home shows top-level modules only. Opening a parent shows its own forms or a
 **Cases** entry alongside its child menus. Opening a child keeps the complete
 menu path in the breadcrumb.
 
-If the parent starts by choosing a case, Preview returns to the parent menu
-after that choice so its child menus remain available. A child that works with
-the same case type can keep using the selected case. A child with a different
-case type follows the app's parent-case relationship before opening its own
-workflow.
+If the parent starts by choosing cases, Preview returns to the parent menu after
+that choice so its child menus remain available. A child with the same case type
+can keep the selection when both modules choose one case, or both choose several
+cases and the child's maximum fits the complete set. A child with a different
+case type uses every selected parent to find the combined set of related
+children, then asks for its own selection.
 
 ## Menu parents and case parents are different
 

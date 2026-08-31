@@ -210,7 +210,7 @@ describe("canonical case-write surface parity", () => {
 			).toThrow();
 			expect(() =>
 				built.engine.computeSubmissionMutation({
-					caseId: "patient-1",
+					caseIds: ["patient-1"],
 					entryKey: "11111111-1111-4111-8111-111111111111",
 				}),
 			).toThrow();
@@ -249,7 +249,7 @@ describe("canonical case-write surface parity", () => {
 			).toThrow();
 			expect(() =>
 				built.engine.computeSubmissionMutation({
-					caseId: "patient-1",
+					caseIds: ["patient-1"],
 					entryKey: "11111111-1111-4111-8111-111111111111",
 				}),
 			).toThrow();
@@ -280,7 +280,7 @@ describe("canonical case-write surface parity", () => {
 		});
 
 		const mutation = built.engine.computeSubmissionMutation({
-			caseId: "patient-1",
+			caseIds: ["patient-1"],
 			entryKey: "11111111-1111-4111-8111-111111111111",
 		});
 		expect(mutation.kind).toBe("followup");
@@ -300,7 +300,7 @@ describe("canonical case-write surface parity", () => {
 		);
 
 		const mutation = built.engine.computeSubmissionMutation({
-			caseId: "patient-1",
+			caseIds: ["patient-1"],
 			entryKey: "11111111-1111-4111-8111-111111111111",
 		});
 		expect(mutation.kind).toBe("followup");
@@ -318,7 +318,7 @@ describe("canonical case-write surface parity", () => {
 
 		expect(() =>
 			built.engine.computeSubmissionMutation({
-				caseId: "patient-1",
+				caseIds: ["patient-1"],
 				entryKey: "11111111-1111-4111-8111-111111111111",
 			}),
 		).toThrow(/longer than 255 UTF-16 code units/);
@@ -458,7 +458,7 @@ describe("canonical case-write surface parity", () => {
 		engine.setValue("/data/show", "no");
 
 		const mutation = engine.computeSubmissionMutation({
-			caseId: "patient-1",
+			caseIds: ["patient-1"],
 			entryKey: "11111111-1111-4111-8111-111111111111",
 		});
 		expect(mutation.kind).toBe("followup");
@@ -692,7 +692,7 @@ describe("canonical case-write surface parity", () => {
 			const actions = buildFormActions(built.doc, built.formUuid, "patient");
 			expect(actions.subcases.length > 0).toBe(child);
 			const mutation = built.engine.computeSubmissionMutation({
-				caseId: "patient-1",
+				caseIds: ["patient-1"],
 				entryKey: "11111111-1111-4111-8111-111111111111",
 			});
 			expect(mutation.kind).toBe("followup");
@@ -879,7 +879,7 @@ describe("canonical case-write surface parity", () => {
 			"Amina",
 		);
 		const mutation = engine.computeSubmissionMutation({
-			caseId: "patient-1",
+			caseIds: ["patient-1"],
 			entryKey: "11111111-1111-4111-8111-111111111111",
 		});
 		expect(mutation.kind).toBe("followup");
@@ -914,7 +914,7 @@ describe("canonical case-write surface parity", () => {
 		).toThrow(/invalid element name "bad-id"/);
 		expect(() =>
 			built.engine.computeSubmissionMutation({
-				caseId: "patient-1",
+				caseIds: ["patient-1"],
 				entryKey: "11111111-1111-4111-8111-111111111111",
 			}),
 		).toThrow(/invalid element name "bad-id"/);
@@ -1077,7 +1077,7 @@ describe("capture case-write surface parity", () => {
 		// Preview runs on Nova's own case rows, where the submission the
 		// address would name does not exist. It declines to invent one.
 		const mutation = built.engine.computeSubmissionMutation({
-			caseId: "patient-1",
+			caseIds: ["patient-1"],
 			entryKey: "11111111-1111-4111-8111-111111111111",
 		});
 		expect(mutation.kind).toBe("followup");
@@ -1113,7 +1113,7 @@ describe("capture case-write surface parity", () => {
 			).toThrow();
 			expect(() =>
 				built.engine.computeSubmissionMutation({
-					caseId: "patient-1",
+					caseIds: ["patient-1"],
 					entryKey: "11111111-1111-4111-8111-111111111111",
 				}),
 			).toThrow();

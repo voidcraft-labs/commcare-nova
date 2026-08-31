@@ -208,6 +208,8 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_LIST_EXPRESSION_NOT_ON_DEVICE: "soundness",
 	CASE_LIST_STRICT_NULL_NOT_PORTABLE: "soundness",
 	CASE_LIST_CSQL_NOT_REPRESENTABLE: "soundness",
+	MULTI_SELECT_PERSISTENT_TILE: "soundness",
+	MULTI_SELECT_NO_BATCH_CONSUMER: "soundness",
 	// Tile geometry and coverage are soundness: a cell off the grid, two
 	// cells on one square, or a shown field with nowhere to sit each
 	// produce a layout the running app draws differently from the one the
@@ -257,6 +259,15 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	FORM_LINK_UNREACHABLE: "soundness",
 	FORM_LINK_DATUMS_INCOMPLETE: "soundness",
 	FORM_LINK_DATUM_UNUSED: "soundness",
+	FORM_LINK_SELECTION_CARDINALITY: "soundness",
+	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: "soundness",
+	MULTI_SELECT_FANOUT_CHILD_DATUM: "soundness",
+	MULTI_SELECT_PRIMARY_CASE_WRITE: "soundness",
+	MULTI_SELECT_SHARED_CASE_EXPRESSION: "soundness",
+	MULTI_SELECT_APP_OPERATION_CASE_READ: "soundness",
+	MULTI_SELECT_AUTHORED_KEY_CREATE: "soundness",
+	MULTI_SELECT_SESSION_OPERATION_LINK: "soundness",
+	MULTI_SELECT_OPERATION_ORDER: "soundness",
 	CONNECT_UNQUOTED_XPATH: "soundness",
 	CONNECT_EMPTY_XPATH: "soundness",
 	CONNECT_MODE_MISMATCH: "soundness",

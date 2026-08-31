@@ -39,6 +39,7 @@ import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	type CaseType,
+	caseSelectionCanFlowBetweenModules,
 	defaultPostSubmit,
 	type FormLink,
 	type FormType,
@@ -61,11 +62,13 @@ import {
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
+	CreatedChildCaseReceipt,
 	SubmissionMutation,
 	SubmissionResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
 import type { InvalidFieldTarget } from "@/lib/preview/engine/formEngine";
 import {
+	type AfterSubmitChoice,
 	type CarriedSubmission,
 	carriedCaseFromSelections,
 	createFormLinkWorkerWorld,
@@ -107,6 +110,7 @@ import {
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import type { PreviewCaseChoice } from "@/lib/session/types";
 import {
 	type FormLayoutHandle,
 	FormLayoutProvider,
@@ -127,6 +131,7 @@ import { SectionStepper } from "../form/sections/SectionPagerControls";
 import { useSectionPaging } from "../form/sections/useSectionPaging";
 import {
 	afterSubmitRoute,
+	type PreviewTargetCaseCollection,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
 } from "./afterSubmitRouting";
@@ -210,6 +215,26 @@ function describeSubmissionRejection(
 	>["rejection"],
 ): string {
 	switch (rejection.kind) {
+		case "selection": {
+			switch (rejection.reason) {
+				case "empty":
+					return "Nothing was saved: choose at least one case before submitting this form.";
+				case "too-many":
+					return `Nothing was saved: this form can work with at most ${rejection.maximum ?? "the configured number of"} cases. Return to Results and remove some cases.`;
+				case "duplicate":
+					return "Nothing was saved: the same case was selected more than once. Return to Results and choose each case once.";
+				case "not-found-or-out-of-scope":
+					return "Nothing was saved: one of the selected cases is no longer available. Return to Results and review the selection.";
+				case "case-type-mismatch":
+					return "Nothing was saved: one of the selected cases no longer belongs to this case list. Return to Results and choose the cases again.";
+				case "program-selection-mismatch":
+				case "ordinary-primary-write-not-supported":
+				case "authored-key-create-not-supported":
+				case "session-link-not-supported":
+					return "Nothing was saved: this form has a case action that cannot run over several selected cases. Ask an app editor to review the form's case actions.";
+			}
+			return "Nothing was saved because the selected cases no longer match this form. Return to Results and choose the cases again.";
+		}
 		case "authored-key":
 			return rejection.reason === "blank"
 				? "Nothing was saved: a case automation on this form needs its identifying answer filled in before it can create or find its case."
@@ -267,7 +292,8 @@ interface SubmissionContextSnapshot {
 	readonly moduleUuid: Uuid | undefined;
 	readonly entryKey: string | undefined;
 	readonly personaUuid: string | undefined;
-	readonly caseId: string | undefined;
+	readonly caseIds: readonly string[] | undefined;
+	readonly cases: readonly PreviewCaseChoice[] | undefined;
 	readonly formType: FormType | undefined;
 	readonly destination: PostSubmitDestination | undefined;
 	/** The module's case type: the type of the case the submission loaded,
@@ -295,6 +321,162 @@ interface FormScreenProps {
 	onBack: () => void;
 }
 
+/** Join concrete created-child ids to their authored metadata through the
+ * durable receipt's explicit authored-child index. `undefined` is the
+ * deliberate historical-receipt path: the old flat ids are replayable but do
+ * not prove metadata, so they contribute no carried child cases. */
+export function carriedChildCasesFromReceipt(args: {
+	readonly createdChildren: readonly CreatedChildCaseReceipt[] | undefined;
+	readonly authoredChildren: readonly {
+		readonly caseType: string;
+		readonly caseName?: string;
+	}[];
+	readonly parentCaseIds: readonly string[];
+}): CarriedSubmission["childCases"] {
+	if (args.createdChildren === undefined) return [];
+	const expectedCount =
+		args.authoredChildren.length * args.parentCaseIds.length;
+	if (args.createdChildren.length !== expectedCount) {
+		throw new Error(
+			"The accepted submission returned an incomplete created-child receipt.",
+		);
+	}
+	const expectedPairs = new Set(
+		args.authoredChildren.flatMap((_child, authoredChildIndex) =>
+			args.parentCaseIds.map(
+				(parentCaseId) => `${authoredChildIndex}\u0000${parentCaseId}`,
+			),
+		),
+	);
+	const seenPairs = new Set<string>();
+	return args.createdChildren.map((createdChild) => {
+		const child = args.authoredChildren[createdChild.authoredChildIndex];
+		const pair = `${createdChild.authoredChildIndex}\u0000${createdChild.parentCaseId}`;
+		if (
+			child === undefined ||
+			!expectedPairs.has(pair) ||
+			seenPairs.has(pair)
+		) {
+			throw new Error(
+				"The accepted submission returned an invalid created-child receipt.",
+			);
+		}
+		seenPairs.add(pair);
+		return {
+			caseType: child.caseType,
+			caseId: createdChild.caseId,
+			...(child.caseName !== undefined && { caseName: child.caseName }),
+		};
+	});
+}
+
+function previewCaseChoiceIdsEqual(
+	left: readonly { readonly caseId: string }[] | undefined,
+	right: readonly { readonly caseId: string }[] | undefined,
+): boolean {
+	return (
+		left === right ||
+		(left !== undefined &&
+			right !== undefined &&
+			left.length === right.length &&
+			left.every((choice, index) => choice.caseId === right[index]?.caseId))
+	);
+}
+
+function stringArrayValuesEqual(
+	left: readonly string[] | undefined,
+	right: readonly string[] | undefined,
+): boolean {
+	return (
+		left === right ||
+		(left !== undefined &&
+			right !== undefined &&
+			left.length === right.length &&
+			left.every((value, index) => value === right[index]))
+	);
+}
+
+/** Preserve the selected-entities collection across an automatic compatible
+ * several-case link. The ordinary frame projector is scalar by design; using
+ * its first value here would lose order and every case after the first. The
+ * exact post-submit device snapshot supplies even a case the submission just
+ * closed and a fresh restore would omit. */
+function automaticLinkedCaseCollection(args: {
+	readonly choice: AfterSubmitChoice;
+	readonly doc: BlueprintDoc;
+	readonly sourceModuleUuid: Uuid | undefined;
+	readonly sourceFormType: FormType | undefined;
+	readonly submittedCases: readonly PreviewCaseChoice[] | undefined;
+	readonly resultCaseIds: readonly string[];
+	readonly caseDatabase: CaseDatabaseSnapshot;
+}): PreviewTargetCaseCollection | undefined {
+	if (
+		args.choice.kind !== "link" ||
+		/* HQ's flat module frame contains only the module command. It does not
+		 * carry a case-selection datum, so entering that module must begin its
+		 * ordinary Results journey instead of inheriting Preview's collection. */
+		args.choice.link.target.type !== "form" ||
+		args.choice.link.datums !== undefined ||
+		args.sourceModuleUuid === undefined ||
+		args.sourceFormType === undefined ||
+		!CASE_LOADING_FORM_TYPES.has(args.sourceFormType)
+	) {
+		return undefined;
+	}
+	const sourceModule = args.doc.modules[args.sourceModuleUuid];
+	const targetModule = args.doc.modules[args.choice.link.target.moduleUuid];
+	if (
+		sourceModule?.caseListConfig?.selection?.kind !== "multiple" ||
+		targetModule?.caseListConfig?.selection?.kind !== "multiple" ||
+		sourceModule.caseType === undefined ||
+		!caseSelectionCanFlowBetweenModules(sourceModule, targetModule)
+	) {
+		return undefined;
+	}
+	if (
+		!CASE_LOADING_FORM_TYPES.has(
+			args.doc.forms[args.choice.link.target.formUuid]?.type ?? "survey",
+		)
+	) {
+		return undefined;
+	}
+	if (
+		args.resultCaseIds.length === 0 ||
+		args.resultCaseIds.length > targetModule.caseListConfig.selection.maximum
+	) {
+		throw new Error(
+			"A compatible several-case link received a selection outside its target limit.",
+		);
+	}
+	const submittedById = new Map(
+		(args.submittedCases ?? []).map(
+			(choice) => [choice.caseId, choice] as const,
+		),
+	);
+	const rowById = new Map(
+		args.caseDatabase.rows.map((row) => [row.case_id, row] as const),
+	);
+	const cases = args.resultCaseIds.map((caseId) => {
+		const row = rowById.get(caseId);
+		if (row === undefined || row.case_type !== sourceModule.caseType) {
+			throw new Error(
+				"A selected case was missing from the carried post-submit device snapshot.",
+			);
+		}
+		const previous = submittedById.get(caseId);
+		return {
+			caseId,
+			caseName: row.case_name || previous?.caseName || "Case",
+			caseProperties: Object.fromEntries(caseRowToFormPreload(row)),
+		};
+	});
+	return {
+		moduleUuid: args.choice.link.target.moduleUuid,
+		caseType: sourceModule.caseType,
+		cases,
+	};
+}
+
 /**
  * Form screen. Activates the EngineController by URL-derived form
  * UUID. Case-data preload routes through `useCaseData`;
@@ -306,7 +488,7 @@ const INVALID_CONTROL_SELECTOR =
 	'[aria-invalid="true"], input:not([type="hidden"]), select, textarea, button, [role="textbox"], [tabindex]:not([tabindex="-1"])';
 
 export function FormScreen({ screen, onBack }: FormScreenProps) {
-	const caseId = screen.caseId;
+	const explicitCases = screen.cases;
 	const loc = useLocation();
 	const navigate = useNavigate();
 	const { inline } = useBlueprintMutations();
@@ -385,12 +567,21 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		mode === "preview" &&
 		form !== undefined &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
-		caseId === undefined &&
+		mod?.caseListConfig?.selection === undefined &&
+		explicitCases === undefined &&
 		menuCaseContext.selectedCase === undefined;
+	const autoSelectParentCase = useMemo(() => {
+		const parentSelection = menuCaseContext.parentCase;
+		if (!autoSelectCase || parentSelection === undefined) return undefined;
+		return {
+			caseType: parentSelection.caseType,
+			caseIds: parentSelection.cases.map((selectedCase) => selectedCase.caseId),
+		};
+	}, [autoSelectCase, menuCaseContext.parentCase]);
 	const autoCases = useCases({
 		appId,
 		caseType: autoSelectCase ? mod?.caseType : undefined,
-		parentCase: autoSelectCase ? menuCaseContext.parentCase : undefined,
+		parentCase: autoSelectParentCase,
 		requestScopeKey: `${moduleUuid ?? ""}\u0000${formUuid ?? ""}\u0000${restoreScopeKey}`,
 	});
 	const autoRow =
@@ -401,18 +592,35 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 *  otherwise the menu's exact own-type selection (including deliberate
 	 *  same-type structural inheritance) wins before the first auto-selected
 	 *  row. A different-type menu parent constrains that fallback query above. */
+	const effectiveCases = useMemo(
+		() =>
+			explicitCases ??
+			menuCaseContext.selectedCase?.cases ??
+			(autoRow === undefined
+				? undefined
+				: [
+						{
+							caseId: autoRow.case_id,
+							caseName: autoRow.case_name || "Case",
+						},
+					]),
+		[autoRow, explicitCases, menuCaseContext.selectedCase?.cases],
+	);
+	const effectiveCaseIds = useMemo(
+		() => effectiveCases?.map((choice) => choice.caseId),
+		[effectiveCases],
+	);
 	const effectiveCaseId =
-		caseId ?? menuCaseContext.selectedCase?.caseId ?? autoRow?.case_id;
-	const carriedCaseData =
+		effectiveCaseIds?.length === 1 ? effectiveCaseIds[0] : undefined;
+	const carriedTargetMatches =
 		previewCaseTarget?.formUuid === formUuid &&
-		previewCaseTarget.caseId === effectiveCaseId
-			? previewCaseTarget.caseData
-			: undefined;
-	const carriedCaseDatabase =
-		previewCaseTarget?.formUuid === formUuid &&
-		previewCaseTarget.caseId === effectiveCaseId
-			? previewCaseTarget.caseDatabase
-			: undefined;
+		previewCaseChoiceIdsEqual(previewCaseTarget.cases, effectiveCases);
+	const carriedCaseData = carriedTargetMatches
+		? previewCaseTarget?.caseData
+		: undefined;
+	const carriedCaseDatabase = carriedTargetMatches
+		? previewCaseTarget?.caseDatabase
+		: undefined;
 	const replacementRevision = useCaseDataReplacementRevision(
 		appId,
 		mod?.caseType,
@@ -423,21 +631,22 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * of the SAME identity invalidates it synchronously on the next render. */
 	const bindingRevisionRef = useRef({
 		scopeEpoch,
-		caseId: effectiveCaseId,
+		caseIdsKey: JSON.stringify(effectiveCaseIds),
 		revision: replacementRevision,
 	});
+	const effectiveCaseIdsKey = JSON.stringify(effectiveCaseIds);
 	if (
 		bindingRevisionRef.current.scopeEpoch !== scopeEpoch ||
-		bindingRevisionRef.current.caseId !== effectiveCaseId
+		bindingRevisionRef.current.caseIdsKey !== effectiveCaseIdsKey
 	) {
 		bindingRevisionRef.current = {
 			scopeEpoch,
-			caseId: effectiveCaseId,
+			caseIdsKey: effectiveCaseIdsKey,
 			revision: replacementRevision,
 		};
 	}
 	const caseBindingReplaced =
-		effectiveCaseId !== undefined &&
+		(effectiveCaseIds?.length ?? 0) > 0 &&
 		bindingRevisionRef.current.revision !== replacementRevision;
 
 	/* The form's readable case-type chain, which `#<type>/<prop>`
@@ -571,7 +780,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		moduleUuid,
 		entryKey,
 		personaUuid,
-		caseId: effectiveCaseId,
+		caseIds: effectiveCaseIds,
+		cases: effectiveCases,
 		formType: form?.type,
 		destination: postSubmitDestination,
 		moduleCaseType: mod?.caseType,
@@ -584,7 +794,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		moduleUuid,
 		entryKey,
 		personaUuid,
-		caseId: effectiveCaseId,
+		caseIds: effectiveCaseIds,
+		cases: effectiveCases,
 		formType: form?.type,
 		destination: postSubmitDestination,
 		moduleCaseType: mod?.caseType,
@@ -707,7 +918,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		moduleUuid,
 		entryKey,
 		personaUuid,
-		effectiveCaseId,
+		effectiveCaseIds,
 		form?.type,
 		postSubmitDestination,
 	]);
@@ -737,7 +948,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	useEffect(() => {
 		if (
 			!caseBindingReplaced ||
-			caseId === undefined ||
+			explicitCases === undefined ||
 			!moduleUuid ||
 			!formUuid
 		)
@@ -748,7 +959,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		navigate.replace({ kind: "cases", moduleUuid });
 	}, [
 		caseBindingReplaced,
-		caseId,
+		explicitCases,
 		moduleUuid,
 		formUuid,
 		navigate,
@@ -762,6 +973,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		CASE_LOADING_FORM_TYPES.has(form.type);
 	const caseBindingReady =
 		!needsBoundCase ||
+		((effectiveCaseIds?.length ?? 0) > 1 && !caseBindingReplaced) ||
 		carriedCaseData !== undefined ||
 		(effectiveCaseId !== undefined &&
 			!caseBindingReplaced &&
@@ -950,7 +1162,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 		let caseData: PostSubmissionCaseData = new Map();
 		let boundCaseName: string | undefined;
-		if (result.kind !== "survey") {
+		const resultCaseIds =
+			result.kind === "survey"
+				? []
+				: result.kind === "registration"
+					? [result.caseId]
+					: result.caseIds;
+		if (resultCaseIds.length === 1 && resultCaseIds[0] !== undefined) {
 			const caseType = submitted.moduleCaseType;
 			if (caseType === undefined) {
 				failAfterSave(
@@ -962,7 +1180,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			const chain = reachableCaseTypes(caseType, submitted.caseTypes);
 			const readBack = caseDatabaseToFormPreloads(
 				refreshedCaseDatabase,
-				result.caseId,
+				resultCaseIds[0],
 				chain,
 			);
 			if (readBack === undefined) {
@@ -998,35 +1216,24 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					);
 				}),
 			);
-			const childCaseIds = result.kind === "survey" ? [] : result.childCaseIds;
+			const createdChildren =
+				result.kind === "survey" ? [] : result.createdChildren;
 			const children =
 				mutation !== undefined && "children" in mutation
 					? mutation.children
 					: [];
 			const submission: CarriedSubmission = {
-				...(result.kind !== "survey" && { caseId: result.caseId }),
+				...(resultCaseIds.length === 1 && { caseId: resultCaseIds[0] }),
 				...(result.kind === "registration" &&
 					mutation?.kind === "registration" &&
 					mutation.primary.caseName !== undefined && {
 						caseName: mutation.primary.caseName,
 					}),
 				...(boundCaseName !== undefined && { caseName: boundCaseName }),
-				/* The case store creates the children in the mutation's order and
-				 * answers with their ids in that order, so index i of each names
-				 * the same case. */
-				childCases: childCaseIds.flatMap((caseId, index) => {
-					const child = children[index];
-					return child === undefined
-						? []
-						: [
-								{
-									caseType: child.caseType,
-									caseId,
-									...(child.caseName !== undefined && {
-										caseName: child.caseName,
-									}),
-								},
-							];
+				childCases: carriedChildCasesFromReceipt({
+					createdChildren,
+					authoredChildren: children,
+					parentCaseIds: resultCaseIds,
 				}),
 			};
 			/* Form-link evaluation consumes module-keyed CASE SESSION values, not
@@ -1040,11 +1247,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					selectedModuleUuid,
 					menuCaseSelections,
 				).selectedCase;
-				if (selected === undefined) continue;
+				const selectedChoice = selected?.cases[0];
+				if (
+					selected === undefined ||
+					selected.cases.length !== 1 ||
+					selectedChoice === undefined
+				)
+					continue;
 				selectedCases.set(selectedModuleUuid, {
 					caseType: selected.caseType,
-					value: selected.caseId,
-					caseName: selected.caseName,
+					value: selectedChoice.caseId,
+					caseName: selectedChoice.caseName,
 				});
 			}
 			const input = {
@@ -1094,6 +1307,17 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				settleAttempt({ kind: "idle" });
 				return;
 			}
+			const linkedCaseCollection = automaticLinkedCaseCollection({
+				choice,
+				doc,
+				sourceModuleUuid: submitted.moduleUuid,
+				sourceFormType: submitted.formType,
+				submittedCases: submitted.cases,
+				resultCaseIds,
+				caseDatabase: refreshedCaseDatabase,
+			});
+			const linkedCaseCollections =
+				linkedCaseCollection === undefined ? [] : [linkedCaseCollection];
 			const route = afterSubmitRoute({
 				choice,
 				doc,
@@ -1104,6 +1328,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 						current: menuCaseSelections,
 						targetModuleUuid,
 						projected: projectedSelections,
+						collections: linkedCaseCollections,
 					});
 				},
 				carriedCase: (link) =>
@@ -1184,15 +1409,18 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					menuCaseSelections,
 					route.caseSelections,
 					targetCaseData,
+					linkedCaseCollections,
 				);
 				for (const selectedModuleUuid of routeMenuSource.moduleOrder) {
 					const current = menuCaseSelections[selectedModuleUuid];
 					const next = nextSelections[selectedModuleUuid];
+					const installsExactCollection = linkedCaseCollections.some(
+						(collection) => collection.moduleUuid === selectedModuleUuid,
+					);
 					if (
+						!installsExactCollection &&
 						current?.caseType === next?.caseType &&
-						current?.caseId === next?.caseId &&
-						current?.caseName === next?.caseName &&
-						current?.caseProperties === next?.caseProperties
+						previewCaseChoiceIdsEqual(current?.cases, next?.cases)
 					) {
 						continue;
 					}
@@ -1217,17 +1445,26 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					setPreviewSelectedCase(undefined);
 					setPreviewCaseTarget({
 						formUuid: route.formUuid,
-						...(route.carried.kind === "carried"
-							? {
-									caseId: route.carried.caseId,
-									...(route.carried.caseName !== undefined && {
-										caseName: route.carried.caseName,
-									}),
-									...(targetFormCaseData === undefined
-										? {}
-										: { caseData: targetFormCaseData }),
-								}
-							: {}),
+						...(linkedCaseCollection !== undefined
+							? { cases: linkedCaseCollection.cases }
+							: route.carried.kind === "carried"
+								? {
+										cases:
+											route.carried.caseId === ""
+												? []
+												: [
+														{
+															caseId: route.carried.caseId,
+															...(route.carried.caseName !== undefined && {
+																caseName: route.carried.caseName,
+															}),
+														},
+													],
+										...(targetFormCaseData === undefined
+											? {}
+											: { caseData: targetFormCaseData }),
+									}
+								: {}),
 						caseDatabase: refreshedCaseDatabase,
 					});
 					settleAttempt({ kind: "idle" });
@@ -1399,7 +1636,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			afterSaveContext.moduleUuid !== submittedBase.moduleUuid ||
 			afterSaveContext.entryKey !== submittedBase.entryKey ||
 			afterSaveContext.personaUuid !== submittedBase.personaUuid ||
-			afterSaveContext.caseId !== submittedBase.caseId
+			!stringArrayValuesEqual(afterSaveContext.caseIds, submittedBase.caseIds)
 		) {
 			return;
 		}
@@ -1459,7 +1696,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				latest.moduleUuid === submitted.moduleUuid &&
 				latest.entryKey === submitted.entryKey &&
 				latest.personaUuid === submitted.personaUuid &&
-				latest.caseId === submitted.caseId &&
+				stringArrayValuesEqual(latest.caseIds, submitted.caseIds) &&
 				latest.formType === submitted.formType &&
 				latest.destination === submitted.destination &&
 				latest.moduleCaseType === submitted.moduleCaseType &&
@@ -1525,7 +1762,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				if (!valid) return "invalid";
 				const submission = await controller.computeSubmissionMutationAsync(
 					{
-						caseId: submitted.caseId,
+						caseIds: submitted.caseIds,
 						/* The zone a datetime answer is stamped with. The device
 						 * stamps its own; in Preview the author's browser stands in
 						 * for it, the same substitution the case-data reads make. */
@@ -1844,11 +2081,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		);
 	}
 
-	/** A NAV-bound case-loading form (followup / close) hitting `unauthenticated` / `error` must surface the failure, the no-preload fallback would hide session expiry and transport failures behind a defaults-rendered form. The guard is scoped to the nav-provided `caseId`: on the auto-select path the form is already usable off the auto-row's bridge preload, and a failed by-id load only means the OPTIONAL ancestor enrichment didn't arrive, blanking a working form for that would be a downgrade. `idle` / `loading` / `missing` fall through (the form renders against defaults during the load window; `missing` shares the "no row" semantic with the next guard). The form-type set comes from `CASE_LOADING_FORM_TYPES` so adding a third case-loading form type in `lib/domain/forms.ts` would extend this guard automatically. */
+	/** A NAV-bound singular case-loading form hitting an auth or transport
+	 * failure must surface it. Multi-case forms deliberately have no scalar
+	 * preload, so only the one-case arm participates in this read guard. */
 	if (
 		mode === "preview" &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
-		caseId &&
+		explicitCases?.length === 1 &&
+		effectiveCaseId !== undefined &&
 		carriedCaseData === undefined
 	) {
 		if (caseDataState.kind === "persona-unavailable") {
@@ -1902,13 +2142,15 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * thing a directly-previewed case-loading form gates on a bound case is
 	 * the submit action: `computeSubmissionMutation` needs the caseId, so
 	 * `caseMissing` drives the submit row below, not the whole screen. */
-	const caseMissing = needsBoundCase && effectiveCaseId === undefined;
+	const caseMissing =
+		needsBoundCase &&
+		(effectiveCaseIds === undefined || effectiveCaseIds.length === 0);
 	const noSampleCases = caseMissing && autoCases.state.kind === "empty";
 	/* An after-submit link opened this form with an EMPTY case id: the device
 	 * opens the form bound to nothing, and so does the preview, saying so in
 	 * place of the submit row (nothing loads, and Submit has no case to
 	 * write). */
-	const caseCarriedBlank = needsBoundCase && caseId === "";
+	const caseCarriedBlank = needsBoundCase && explicitCases?.length === 0;
 
 	const canEdit = mode === "edit" && editable;
 

@@ -168,6 +168,43 @@ const newLink = (uuid: string, condition?: string): FormLink => ({
 	target: toNote,
 });
 
+/** Two compatible patient collections. Direct form links work only while
+ * CommCare may carry the collection automatically (no explicit datum map). */
+function multipleSelectionFixture(links: Spec[] = []): BlueprintDoc {
+	return produce(fixture(links, { postSubmit: "app_home" }), (draft) => {
+		const source = draft.modules[INTAKE]?.caseListConfig;
+		const target = draft.modules[CARE]?.caseListConfig;
+		if (source === undefined || target === undefined)
+			throw new Error("fixture");
+		source.selection = { kind: "multiple", maximum: 10 };
+		target.selection = { kind: "multiple", maximum: 10 };
+		draft.forms[SOURCE].type = "followup";
+		for (const formUuid of [SOURCE, VISIT]) {
+			for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {
+				const field = draft.fields[fieldUuid];
+				if (field === undefined) continue;
+				if ("caseWrite" in field) delete field.caseWrite;
+			}
+		}
+	});
+}
+
+function expectSelectionCardinalityRefusal(
+	doc: BlueprintDoc,
+	mutations: Parameters<typeof mutationCommitVerdict>[1],
+): void {
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok).toBe(false);
+	if (verdict.ok) return;
+	expect(verdict.findings.map((finding) => finding.code)).toContain(
+		"FORM_LINK_SELECTION_CARDINALITY",
+	);
+}
+
 describe("afterSubmitPlan", () => {
 	it("reads the form-type default when nothing is stored and no links exist", () => {
 		const plan = afterSubmitPlan(fixture([]), SOURCE);
@@ -221,6 +258,27 @@ describe("afterSubmitPlan", () => {
 });
 
 describe("planFormLinkAdd", () => {
+	it("refuses an explicit datum map the gate cannot use for a collection", () => {
+		const doc = multipleSelectionFixture();
+		const link: FormLink = {
+			uuid: L1,
+			condition: xp("1 = 1"),
+			target: toVisit,
+			datums: [{ name: "case_id", xpath: xp("'patient-id'") }],
+		};
+
+		expectSelectionCardinalityRefusal(doc, [
+			{ kind: "addFormLink", formUuid: SOURCE, link },
+		]);
+		expect(planFormLinkAdd(doc, SOURCE, link)).toEqual({
+			ok: false,
+			reason: { kind: "selection-cardinality" },
+		});
+
+		const { datums: _manual, ...automatic } = link;
+		commit(doc, planFormLinkAdd(doc, SOURCE, automatic));
+	});
+
 	it("appends a conditional link and pins the fallback when it is the first with no otherwise", () => {
 		const doc = fixture([]);
 		const plan = planFormLinkAdd(doc, SOURCE, newLink("lnk-1", "1 = 1"));
@@ -332,6 +390,47 @@ describe("planFormLinkUpdate", () => {
 		if (link === undefined) throw new Error("fixture");
 		return link;
 	};
+
+	it("refuses datum-only and retarget edits that the collection gate refuses", () => {
+		const held = [{ name: "case_id", xpath: xp("'patient-id'") }];
+		const direct = multipleSelectionFixture([
+			{ uuid: "lnk-1", condition: "1 = 1", target: toVisit },
+		]);
+		const current = base(direct, "lnk-1");
+		const withDatums = { ...current, datums: held };
+		expectSelectionCardinalityRefusal(direct, [
+			{
+				kind: "updateFormLink",
+				formUuid: SOURCE,
+				uuid: L1,
+				patch: { datums: held },
+			},
+		]);
+		expect(planFormLinkUpdate(direct, SOURCE, withDatums, current)).toEqual({
+			ok: false,
+			reason: { kind: "selection-cardinality" },
+		});
+
+		const beforeRetarget = multipleSelectionFixture([
+			{ uuid: "lnk-1", condition: "1 = 1", target: toNote },
+		]);
+		const prior = base(beforeRetarget, "lnk-1");
+		const retargeted = { ...prior, target: toVisit, datums: held };
+		expectSelectionCardinalityRefusal(beforeRetarget, [
+			{
+				kind: "updateFormLink",
+				formUuid: SOURCE,
+				uuid: L1,
+				patch: { target: toVisit, datums: held },
+			},
+		]);
+		expect(
+			planFormLinkUpdate(beforeRetarget, SOURCE, retargeted, prior),
+		).toEqual({
+			ok: false,
+			reason: { kind: "selection-cardinality" },
+		});
+	});
 
 	it("writes only the changed slots and clears with null", () => {
 		// Visit needs a case: the registration carries the one it creates, or

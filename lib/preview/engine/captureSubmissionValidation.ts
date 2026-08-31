@@ -18,6 +18,13 @@ const captureSubmissionProjectionSchema = z
 					.strict(),
 			)
 			.max(MAX_SUBMITTED_CAPTURE_COUNT),
+		closeConditionAnswers: z
+			.object({
+				fieldUuid: uuidSchema,
+				values: z.array(z.string()),
+			})
+			.strict()
+			.optional(),
 	})
 	.strip();
 
@@ -41,7 +48,7 @@ export function validateCaptureSubmissionProjection(
 	const projection = captureSubmissionProjectionSchema.safeParse(input);
 	if (!projection.success) {
 		throw new CaptureSubmissionRejectedError(
-			`A form submission requires a valid form identity and at most ${MAX_SUBMITTED_CAPTURE_COUNT} exact attachment answers.`,
+			`A form submission requires a valid form identity, submitted answer projection, and at most ${MAX_SUBMITTED_CAPTURE_COUNT} exact attachment answers.`,
 		);
 	}
 	return projection.data;

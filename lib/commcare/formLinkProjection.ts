@@ -62,6 +62,7 @@
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
+	caseSelectionCanFlowBetweenModules,
 	deriveCaseWriteInventory,
 	type FormLink,
 	type FormLinkTarget,
@@ -342,7 +343,13 @@ function selectableDatums(
 		const selectedModule = doc.modules[selectedModuleUuid];
 		if (selectedModule === undefined || !selectedModule.caseType) continue;
 		const remaining = chain.length - index - 1;
-		const id = remaining === 0 ? "case_id" : `${"parent_".repeat(remaining)}id`;
+		const multiple = selectedModule.caseListConfig?.selection;
+		const id =
+			multiple?.kind === "multiple"
+				? `${"parent_".repeat(remaining)}selected_cases`
+				: remaining === 0
+					? "case_id"
+					: `${"parent_".repeat(remaining)}id`;
 		const parentSelection = datums.at(-1);
 		const moduleIndex = moduleIndexOf(ctx, selectedModuleUuid);
 		const datum = deriveCaseSelectionDatum({
@@ -362,8 +369,9 @@ function selectableDatums(
 			)
 				? { detailConfirm: true }
 				: {}),
-			...(parentSelection !== undefined && {
-				parentDatumId: parentSelection.id,
+			...(parentSelection !== undefined && { parentSelection }),
+			...(multiple?.kind === "multiple" && {
+				maxSelectValue: multiple.maximum,
 			}),
 		});
 		datum.parentSelection = parentSelection;
@@ -376,7 +384,7 @@ function selectableDatums(
 function refreshDatumReferences(datums: readonly SessionDatum[]): void {
 	for (const datum of datums) {
 		if (datum.renderNodeset !== undefined) {
-			datum.nodeset = datum.renderNodeset(datum.parentSelection?.id);
+			datum.nodeset = datum.renderNodeset(datum.parentSelection);
 		}
 		if (datum.renderFunction !== undefined) {
 			datum.function = datum.renderFunction(sessionDataRef);
@@ -397,13 +405,11 @@ function alignWithRootMenu(
 	const parentUuid = moduleParent(doc, moduleUuid);
 	if (parentUuid === undefined || parentUuid === null) return current;
 	const firstParentForm = ctx.formOrder[parentUuid]?.[0];
-	if (firstParentForm === undefined) return current;
-	const parentDatums = entrySessionDatums(
-		doc,
-		ctx,
-		parentUuid,
-		firstParentForm,
-	);
+	const parentDatums =
+		firstParentForm === undefined
+			? caseListSessionDatums(doc, ctx, parentUuid)
+			: entrySessionDatums(doc, ctx, parentUuid, firstParentForm);
+	if (parentDatums.length === 0) return current;
 	const parentIds = new Set(parentDatums.map((datum) => datum.id));
 	for (const datum of current) {
 		if (parentIds.has(datum.id)) {
@@ -421,10 +427,30 @@ function alignWithRootMenu(
 			continue;
 		}
 		const matched = remaining[0];
+		const parentSourceUuid = ctx.selectionSourceModules.get(parentDatum);
+		const matchedSourceUuid =
+			matched === undefined
+				? undefined
+				: ctx.selectionSourceModules.get(matched);
+		const parentSourceModule =
+			parentSourceUuid === undefined
+				? undefined
+				: doc.modules[parentSourceUuid];
+		const matchedSourceModule =
+			matchedSourceUuid === undefined
+				? undefined
+				: doc.modules[matchedSourceUuid];
+		const selectionShapeMatches =
+			parentSourceModule !== undefined &&
+			matchedSourceModule !== undefined &&
+			caseSelectionCanFlowBetweenModules(
+				parentSourceModule,
+				matchedSourceModule,
+			);
 		if (
 			matched === undefined ||
 			matched.nodeset === undefined ||
-			matched.caseType !== parentDatum.caseType
+			!selectionShapeMatches
 		) {
 			continue;
 		}
@@ -478,6 +504,19 @@ export function selectedCaseDatumId(
 		.reverse()
 		.find((datum) => datum.nodeset !== undefined && datum.caseType === ownType)
 		?.id;
+}
+
+/** Selected own-case datum including whether the value is scalar or a collection. */
+export function selectedCaseSessionDatum(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): SessionDatum | undefined {
+	const ownType = moduleCaseTypeForActions(doc, moduleUuid);
+	return [...entrySessionDatums(doc, ctx, moduleUuid, formUuid)]
+		.reverse()
+		.find((datum) => datum.nodeset !== undefined && datum.caseType === ownType);
 }
 
 /** Root-aware datum list for a case-list-only browse entry. */
@@ -1216,6 +1255,22 @@ function formLinkWireProjector(
 		).trim();
 }
 
+/** Project one authored form-link expression through the exact session-scope
+ * context used by both HQ JSON and local suite emission. */
+export function projectFormLinkSessionExpression(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	formType: FormLinkSourceType,
+	sourceDatums: readonly FrameDatum[],
+	expression: XPathExpression,
+): string {
+	return formLinkWireProjector(
+		doc,
+		doc.modules[moduleUuid]?.caseType,
+		ownCaseSessionRef(doc, moduleUuid, formType, sourceDatums),
+	)(expression);
+}
+
 /**
  * Project one form's links, or `undefined` when it has none. Pure over the
  * document and the context; the expander (HQ JSON), the compiler (local
@@ -1238,11 +1293,14 @@ export function projectFormLinks(
 		);
 	}
 	const sourceDatums = entryFrameDatums(doc, ctx, moduleUuid, formUuid);
-	const project = formLinkWireProjector(
-		doc,
-		doc.modules[moduleUuid]?.caseType,
-		ownCaseSessionRef(doc, moduleUuid, form.type, sourceDatums),
-	);
+	const project = (expression: XPathExpression): string =>
+		projectFormLinkSessionExpression(
+			doc,
+			moduleUuid,
+			form.type,
+			sourceDatums,
+			expression,
+		);
 	const guards = planFormLinkGuards(
 		links.map((link) => ({
 			uuid: link.uuid,

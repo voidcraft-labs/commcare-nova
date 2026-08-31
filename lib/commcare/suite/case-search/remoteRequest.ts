@@ -24,7 +24,11 @@ import {
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { instanceSourceFor } from "../../predicate";
-import { buildClaimPost, SEARCH_CASE_ID_REF } from "./claim";
+import {
+	buildClaimPost,
+	SEARCH_CASE_ID_REF,
+	SEARCH_SELECTED_CASES_REF,
+} from "./claim";
 import { compileForPlatform } from "./compileForPlatform";
 import { buildSearchSession } from "./searchSession";
 import type { PlatformContext, WireShape } from "./types";
@@ -114,6 +118,7 @@ export function buildRemoteRequest(args: {
 		caseSearchConfig,
 		platformContext,
 	);
+	const multiple = caseListConfig.selection?.kind === "multiple";
 
 	const moduleId = `m${moduleIndex}`;
 	const commandLocaleId = `case_search.${moduleId}`;
@@ -158,7 +163,11 @@ export function buildRemoteRequest(args: {
 	// datum picks up the chosen case id without a second user
 	// interaction.
 	const stackEl = el("stack", {}, [
-		el("push", {}, [el("rewind", { value: SEARCH_CASE_ID_REF })]),
+		el("push", {}, [
+			el("rewind", {
+				value: multiple ? SEARCH_SELECTED_CASES_REF : SEARCH_CASE_ID_REF,
+			}),
+		]),
 	]);
 
 	// `<remote-request>` children in canonical order: post → command →
@@ -167,7 +176,7 @@ export function buildRemoteRequest(args: {
 	// fixture
 	// `~/code/commcare-hq/.../tests/data/suite/search_command_detail.xml`.
 	const remoteRequestEl = el("remote-request", {}, [
-		buildClaimPost(),
+		buildClaimPost(multiple),
 		commandEl,
 		...instanceElements,
 		sessionEmission.element,

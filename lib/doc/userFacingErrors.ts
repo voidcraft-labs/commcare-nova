@@ -380,6 +380,10 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`An item on ${q(modName(e))}'s tile crosses the group header boundary. Move or resize it so it sits fully inside the header or fully below it.`,
 	CASE_LIST_TILE_GROUP_HEADER_EMPTY: (e) =>
 		`Nothing sits in ${q(modName(e))}'s group header, so every group would open with an empty band. Move a field the group shares into the header, or give the header fewer rows.`,
+	MULTI_SELECT_PERSISTENT_TILE: (e) =>
+		`${q(modName(e))} lets people choose several cases, so its Results tile can't stay above a form. Turn off “Keep tile visible in forms.”`,
+	MULTI_SELECT_NO_BATCH_CONSUMER: (e) =>
+		`${q(modName(e))} is set to Several cases, but it has no follow-up or close form that can use the complete selection and no compatible child workflow can receive it. Add one of those forms, carry the same case selection into a child that has one, or switch Selection to One case.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
 		`An image display in ${q(modName(e))} uses ${q(det(e, "value", "the same value"))} twice, so only the first image appears. Change or remove one of the rules.`,
 	CASE_LIST_SEARCH_INPUT_SELECT_WIDGET_NOT_SUPPORTED: (e) =>
@@ -621,6 +625,10 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can't hand over the case that form needs. Choose a destination this form can pass its case to, or set the value to carry by hand.`,
 	FORM_LINK_DATUM_UNUSED: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a value named ${q(det(e, "datumName", ""))} that its destination never reads. Remove it, or rename it to one the destination needs.`,
+	FORM_LINK_SELECTION_CARDINALITY: (e) =>
+		`${q(formName(e))} can't carry its complete case selection straight into that form. Send people to the destination's form list so they can choose again, or give both forms the same case selection and limit.`,
+	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: (e) =>
+		`A Case change in ${q(formName(e))} can change the selected cases to another type before the next form opens. Send people to the destination's form list so they can choose matching cases, or keep every selected case as ${q(det(e, "expectedCaseType", "the destination's case type"))}.`,
 	CONNECT_ID_TOO_LONG: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
 	CONNECT_ID_INVALID_FORMAT: (e) =>
@@ -678,6 +686,20 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"This case operation refers to several created cases as though there were one. Run it over the same repeat.",
 	CASE_OPERATION_SESSION_UNAVAILABLE: () =>
 		"This form doesn't open with one selected case, so a case operation can't use the current case. Choose another target.",
+	MULTI_SELECT_PRIMARY_CASE_WRITE: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} saves its answer straight to one case, but this form handles several cases together. Clear its Case destination, then add a Case change whose “Which case” is “The case this form opened.”`,
+	MULTI_SELECT_SHARED_CASE_EXPRESSION: (e) =>
+		`A setting in ${q(formName(e))} reads one selected case, but this form handles several cases together. Remove that case reference, or use it inside a Case change whose “Which case” is “The case this form opened.”`,
+	MULTI_SELECT_APP_OPERATION_CASE_READ: (e) =>
+		`A Case change in ${q(formName(e))} runs once for the form but reads one selected case. Set its “Which case” to “The case this form opened,” or remove that case reference.`,
+	MULTI_SELECT_AUTHORED_KEY_CREATE: (e) =>
+		`The Case change ${q(det(e, "operationId", "that creates a case"))} uses one form answer as the identity for every new case. Under Identity, choose “A distinct case each time.”`,
+	MULTI_SELECT_SESSION_OPERATION_LINK: (e) =>
+		`A connection in the Case change ${q(det(e, "operationId", "in this form"))} points to “The case this form opened,” but that means several cases here. Choose a case made earlier in the form or a case found by a calculation.`,
+	MULTI_SELECT_FANOUT_CHILD_DATUM: (e) =>
+		`${q(formName(e))} creates a separate child case for each selected case, so an after-submit link can't carry or read one child case for the whole selection. Link to the destination module so the next case can be chosen there, or remove the child-case reference from the link.`,
+	MULTI_SELECT_OPERATION_ORDER: (e) =>
+		`In ${q(formName(e))}, a Case change that runs once comes after a change that runs for each selected case. Move every once-per-form change above the selected-case changes.`,
 	CASE_OPERATION_LINK_INVALID: () =>
 		"A case link in this operation isn't valid. Review its name and target.",
 	CASE_OPERATION_RETYPE_UNSAFE: () =>

@@ -125,6 +125,9 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(registration.toolProfile.mutationTools).toContain(
 			"configureCaseList",
 		);
+		expect(registration.toolProfile.mutationTools).toContain(
+			"configureCaseSelection",
+		);
 		expect(registration.toolProfile.mutationTools).not.toContain(
 			"configureConnect",
 		);

@@ -8,8 +8,9 @@
  * its forms without re-reading the whole doc. Both the SA chat factory
  * and the MCP adapter call this the same way.
  *
- * `case_list_config` carries the case-list-config verbatim — every
- * column and search input retains its `uuid`, the SA-facing handle for
+ * `case_list_config` carries the case-list-config verbatim — including its
+ * selection behavior, while every column and search input retains its `uuid`,
+ * the SA-facing handle for
  * atomic edits. `case_search_config` carries the wholesale case-search
  * shape (display cluster + advanced cluster); the wholesale-replace
  * `setCaseSearchDisplay` / `setCaseSearchAdvanced` tools read it back
@@ -107,7 +108,7 @@ export type GetModuleResult =
 
 export const getModuleTool = {
 	description:
-		"Get a module by stable UUID: parent and ordered child menu UUIDs, metadata, menu media, case-list definitions plus the independent visible Results and Details UUID orders, case-search config, and a form summary.",
+		"Get a module by stable UUID: parent and ordered child menu UUIDs, metadata, menu media, case-list selection and definitions plus the independent visible Results and Details UUID orders, case-search config, and a form summary.",
 	inputSchema: getModuleInputSchema,
 	async execute(
 		input: GetModuleInput,

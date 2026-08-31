@@ -50,6 +50,7 @@ function emit(
 		f({ uuid: NAME, kind: "text", id: "name", label: proseText("Name") }),
 	],
 	selectedCaseIdRef?: string,
+	selectedCasesInstanceId?: string,
 ): string {
 	const doc = buildDoc({
 		caseTypes: [
@@ -77,6 +78,7 @@ function emit(
 		xmlns: XMLNS,
 		moduleCaseType: "patient",
 		...(selectedCaseIdRef !== undefined && { selectedCaseIdRef }),
+		...(selectedCasesInstanceId !== undefined && { selectedCasesInstanceId }),
 	});
 }
 
@@ -93,6 +95,201 @@ function createOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 }
 
 describe("case-operation XForm emission", () => {
+	it("runs a session-targeted operation once for every selected entity", () => {
+		const xml = emit(
+			[
+				{
+					uuid: UPDATE,
+					id: "update_selected",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					writes: [{ property: "nickname", value: term(literal("Reviewed")) }],
+				},
+			],
+			undefined,
+			undefined,
+			"selected_cases",
+		);
+		const decoded = xml.replaceAll("&apos;", "'");
+		expect(decoded).toContain(
+			`<instance src="jr://instance/selected-entities/selected_cases" id="selected_cases"/>`,
+		);
+		expect(decoded).toContain(
+			`<__nova_selected_cases ids="" count="" current_index="" vellum:role="Repeat"><item id="" index="" jr:template=""><__nova_operations><update_selected`,
+		);
+		expect(decoded).toContain(
+			`value="join(' ', instance('selected_cases')/results/value)"`,
+		);
+		expect(decoded).toContain(
+			`<repeat nodeset="/data/__nova_selected_cases/item" jr:count="/data/__nova_selected_cases/@count" jr:noAddRemove="true()"/>`,
+		);
+		expect(decoded).toMatch(/calculate="current\(\)\/[^"]*@id"/);
+		expect(validateXForm(xml, "Edit", "Patients")).toEqual([]);
+	});
+
+	it("lowers an ordinary close through the selected-case iteration", () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Close selected",
+							type: "close",
+							fields: [
+								f({ kind: "text", id: "reason", label: proseText("Reason") }),
+							],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const actions = buildFormActions(doc, formUuid, "patient");
+		const xml = buildXForm(doc, formUuid, {
+			xmlns: XMLNS,
+			moduleCaseType: "patient",
+			selectedCasesInstanceId: "selected_cases",
+			multiSelectCloseCondition: actions.close_case.condition,
+		});
+		expect(xml).toContain(
+			`<__nova_close_selected_cases vellum:role="SaveToCase" vellum:case_type="patient"><case case_id="" date_modified="" user_id="" xmlns="http://commcarehq.org/case/transaction/v2"><close/></case></__nova_close_selected_cases>`,
+		);
+		expect(xml).not.toContain(
+			"/__nova_close_selected_cases/case/update/case_type",
+		);
+		expect(validateXForm(xml, "Close selected", "Patients")).toEqual([]);
+	});
+
+	it("creates one generated-id child for every selected parent", () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{ name: "patient", properties: [] },
+				{
+					name: "visit",
+					parent_type: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "note", label: proseText("Note") },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Add visits",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "visit_name",
+									caseWrite: { caseType: "visit", property: "case_name" },
+								}),
+								f({
+									kind: "text",
+									id: "visit_note",
+									caseWrite: { caseType: "visit", property: "note" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const actions = buildFormActions(doc, formUuid, "patient");
+		const xml = buildXForm(doc, formUuid, {
+			xmlns: XMLNS,
+			moduleCaseType: "patient",
+			selectedCasesInstanceId: "selected_cases",
+			multiSelectSubcases: actions.subcases,
+		});
+		expect(xml).toContain(
+			`<__nova_subcase_0 vellum:role="SaveToCase" vellum:case_type="visit">`,
+		);
+		expect(xml).toContain(
+			`<index><parent case_type="patient" relationship="child"/></index>`,
+		);
+		expect(xml).toMatch(
+			/<bind nodeset="\/data\/__nova_selected_cases\/item\/__nova_operations\/__nova_subcase_0\/case\/@case_id" calculate="uuid\(\)"\/>/,
+		);
+		expect(validateXForm(xml, "Add visits", "Patients")).toEqual([]);
+	});
+
+	it("keeps child capture files in cx2 attachment blocks for every selected parent", () => {
+		const doc = buildDoc({
+			caseTypes: [
+				{ name: "patient", properties: [] },
+				{
+					name: "visit",
+					parent_type: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "photo", label: proseText("Photo") },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							name: "Add visits",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "visit_name",
+									caseWrite: {
+										caseType: "visit",
+										property: "case_name",
+									},
+								}),
+								f({
+									kind: "image",
+									id: "visit_photo",
+									caseWrite: {
+										caseType: "visit",
+										property: "photo",
+										mode: "attachment",
+									},
+								}),
+							],
+						},
+					],
+				},
+			],
+		});
+		const moduleUuid = doc.moduleOrder[0];
+		const formUuid = doc.formOrder[moduleUuid][0];
+		const actions = buildFormActions(doc, formUuid, "patient");
+		const xml = buildXForm(doc, formUuid, {
+			xmlns: XMLNS,
+			moduleCaseType: "patient",
+			selectedCasesInstanceId: "selected_cases",
+			multiSelectSubcases: actions.subcases,
+		});
+		expect(xml).toContain(
+			`<update/><attachment><photo src="" from="local"/></attachment>`,
+		);
+		expect(xml).toContain(
+			`nodeset="/data/__nova_selected_cases/item/__nova_operations/__nova_subcase_0/case/attachment/photo" relevant="count(/data/visit_photo) = 1"`,
+		);
+		expect(xml).toContain(
+			`nodeset="/data/__nova_selected_cases/item/__nova_operations/__nova_subcase_0/case/attachment/photo/@src" calculate="/data/visit_photo"`,
+		);
+		expect(validateXForm(xml, "Add visits", "Patients")).toEqual([]);
+	});
+
 	it("anchors session targets and root properties on a renamed child datum", () => {
 		const selected = "instance('commcaresession')/session/data/case_id_child";
 		const xml = emit(

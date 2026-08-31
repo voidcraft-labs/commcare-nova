@@ -32,6 +32,14 @@ import {
 } from "../claim";
 
 describe("emitClaimPost — structural shape", () => {
+	it("emits the canonical multi-select claim body for all missing selected ids", () => {
+		expect(emitClaimPost(true)).toBe(
+			`<post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/" relevant="$case_id != &apos;&apos;">` +
+				`<data key="case_id" nodeset="instance(&apos;search_selected_cases&apos;)/results/value" exclude="count(instance(&apos;casedb&apos;)/casedb/case[@case_id=current()/.]) = 1" ref="."/>` +
+				`</post>`,
+		);
+	});
+
 	it("emits the canonical compact <post> template", () => {
 		const xml = emitClaimPost();
 		// Compact serializer output; XPath single-quote literals

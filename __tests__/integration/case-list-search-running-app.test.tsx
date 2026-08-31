@@ -481,7 +481,7 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 								type: "form",
 								moduleUuid: MODULE_UUID,
 								formUuid,
-								caseId,
+								...(caseId !== undefined ? { cases: [{ caseId }] } : {}),
 							}}
 							onBack={() => {}}
 						/>
@@ -581,11 +581,35 @@ beforeEach(async () => {
 			if (mutation.kind === "survey") return { kind: "survey" };
 			// Every case-bearing submission lands through the atomic envelope
 			// (`applySubmission`), exactly as `submitFormAction` does in
-			// production; the envelope result's `primaryCaseId` maps to the
-			// arm's `caseId`.
+			// production; registration returns its new scalar id while ordinary
+			// submissions preserve the whole ordered selection.
+			const childSeeds = mutation.children.map((child) => ({
+				...child,
+				parentRelationship: "child" as const,
+			}));
+			const ordinaryAction =
+				mutation.kind === "registration"
+					? {
+							kind: "registration" as const,
+							primary: mutation.primary,
+							children: childSeeds,
+						}
+					: {
+							kind: mutation.kind,
+							caseIds: mutation.caseIds,
+							caseType: "patient",
+							selection: { kind: "single" as const, maximum: 1 as const },
+							patch: mutation.patch,
+							children: childSeeds,
+						};
 			const result = await store.applySubmission(
 				submissionEnvelopeArgs(mutation, appId, {
+					ordinaryFormType: mutation.kind,
+					ordinaryAction,
+					...(mutation.kind === "close" ? { ordinaryCloseCase: true } : {}),
 					usercaseWriteProperties: new Set<string>(),
+					ordinaryCaseType: "patient",
+					ordinarySelection: { kind: "single", maximum: 1 },
 					ordinaryChildRelationships: new Map(
 						mutation.children.map(
 							(child) => [child.caseType, "child"] as const,
@@ -600,15 +624,23 @@ beforeEach(async () => {
 					},
 				}),
 			);
-			if (result.primaryCaseId === undefined) {
+			const primaryCaseId = result.primaryCaseIds[0];
+			if (primaryCaseId === undefined) {
 				throw new Error(
-					"applySubmission returned no primaryCaseId for a case-bearing submission",
+					"applySubmission returned no primary case for a case-bearing submission",
 				);
+			}
+			if (mutation.kind === "registration") {
+				return {
+					kind: "registration",
+					caseId: primaryCaseId,
+					createdChildren: result.createdChildren,
+				};
 			}
 			return {
 				kind: mutation.kind,
-				caseId: result.primaryCaseId,
-				childCaseIds: result.childCaseIds,
+				caseIds: result.primaryCaseIds,
+				createdChildren: result.createdChildren,
 			};
 		},
 	);
@@ -972,15 +1004,14 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		fireEvent.click(submit);
 
 		// The submission now validates and hashes the exact reconciled blueprint
-		// before dispatch. A saturated full leak shard has taken about twelve
-		// seconds here, without changing the UI readiness contract, so keep this
-		// below the test's 30-second ceiling but above the observed instrumented
-		// path.
+		// before dispatch. A saturated full leak shard has taken just over twenty-
+		// five seconds here without changing the UI readiness contract. Give that
+		// instrumented path room while retaining a bounded assertion.
 		await waitFor(
 			() => {
 				expect(vi.mocked(submitFormAction)).toHaveBeenCalled();
 			},
-			{ timeout: 15_000 },
+			{ timeout: 45_000 },
 		);
 
 		// The envelope's close arm stamps `closed_on = now()` via the
@@ -996,5 +1027,5 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		});
 
 		formView.unmount();
-	});
+	}, 60_000);
 });

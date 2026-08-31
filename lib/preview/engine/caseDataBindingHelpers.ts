@@ -34,7 +34,9 @@ import type {
 	CaseStore,
 	SortKey as CaseStoreSortKey,
 	LookupTableSchemas,
+	OrdinarySubmissionAction,
 	RestoreScope,
+	SubmissionCaseSeed,
 	SubmissionReceiptIdentity,
 	TermBindings,
 } from "@/lib/case-store";
@@ -74,10 +76,16 @@ import {
 	type CaseOperation,
 	type CaseTileGrouping,
 	type CaseType,
+	type CaseWriteBucket,
 	type Column,
 	caseListColumnIsEmitted,
+	caseSelectionCardinality,
+	caseSelectionMaximum,
 	deriveCaseWriteInventory,
+	type Form,
+	type FormType,
 	isCaptureFieldKind,
+	type Module,
 	mergeOwnRecords,
 	orderedCaseOperations,
 	orderedColumns,
@@ -126,16 +134,21 @@ import {
 import type { LookupScope } from "@/lib/lookup/types";
 import { memberOwnerIds, personaOwnerIds } from "@/lib/organization/ownerSets";
 import { readOrganizationTopology } from "@/lib/organization/service";
+import { compareEqual } from "../xpath/coerce";
+import { javaTrim } from "../xpath/javaString";
 import type { CaptureSubmissionProjection } from "./captureSubmissionValidation";
 import type {
 	CaseQueryConstraintSource,
 	LoadCaseDataResult,
 	LoadCasesResult,
 	LoadFilterPreviewResult,
+	ParentCaseSelection,
 	PopulateSampleCasesResult,
 	SubmissionAnswerEntry,
 	SubmissionMutation,
+	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
+import { formAnswerXPathValue } from "./dataInstance";
 import {
 	previewAsMe,
 	previewAsPersona,
@@ -193,7 +206,8 @@ function caseReadCore(
 	args: {
 		readonly appId: string;
 		readonly caseType: string;
-		readonly parentCase?: { readonly caseId: string };
+		readonly caseIds?: readonly string[];
+		readonly parentCase?: ParentCaseSelection;
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
@@ -204,7 +218,8 @@ function caseReadCore(
 	return {
 		appId: args.appId,
 		caseType: args.caseType,
-		parentCaseId: args.parentCase?.caseId,
+		caseIds: args.caseIds,
+		parentCases: args.parentCase,
 		caseTypeSchemas: args.caseTypeSchemas,
 		bindings: args.bindings,
 		lookupTableSchemas: args.lookupTableSchemas,
@@ -301,9 +316,10 @@ export async function readCases(
 	args: {
 		appId: string;
 		caseType: string;
+		caseIds?: readonly string[];
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		caseListConfig?: CaseListConfig;
-		parentCase?: { readonly caseType: string; readonly caseId: string };
+		parentCase?: ParentCaseSelection;
 		inputValues?: SearchInputValues;
 		bindings?: TermBindings;
 		/** Rows-free lookup definition types for the compiler's
@@ -568,10 +584,7 @@ async function countAuthoredCasePopulation(
 		readonly caseType: string;
 		readonly caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		readonly caseListConfig?: CaseListConfig;
-		readonly parentCase?: {
-			readonly caseType: string;
-			readonly caseId: string;
-		};
+		readonly parentCase?: ParentCaseSelection;
 		readonly bindings?: TermBindings;
 		readonly lookupTableSchemas?: LookupTableSchemas;
 		readonly authoredExcludedOwnerIds?: readonly string[];
@@ -631,7 +644,7 @@ function composeQueryPredicate(
 	caseTypeSchemas: ReadonlyMap<string, CaseType> | undefined,
 	excludedOwnerIds: readonly string[] | undefined,
 	authoredExcludedOwnerIds: readonly string[] | undefined = excludedOwnerIds,
-	parentCase?: { readonly caseType: string; readonly caseId: string },
+	parentCase?: ParentCaseSelection,
 ): ComposedCaseQuery {
 	const clauses: Predicate[] = [];
 	let hasAuthoredConstraint = false;
@@ -974,9 +987,9 @@ export async function readCaseData(
 		caseType: string;
 		caseId: string;
 		ancestorDepth: number;
-		/** Restrict this identity read to the selected nested-menu parent's
-		 * exact direct non-extension case-index population. */
-		parentCaseId?: string;
+		/** Restrict this identity read to the selected nested-menu parents'
+		 * direct non-extension case-index population. */
+		parentCase?: ParentCaseSelection;
 		caseListConfig?: CaseListConfig;
 		caseTypeSchemas?: ReadonlyMap<string, CaseType>;
 		bindings?: TermBindings;
@@ -1002,7 +1015,7 @@ export async function readCaseData(
 			args,
 			eq(prop(args.caseType, "case_id"), literal(args.caseId)),
 		),
-		parentCaseId: args.parentCaseId,
+		parentCases: args.parentCase,
 		calculated: args.caseListConfig?.columns.filter(isRuntimeCalculatedColumn),
 		limit: 1,
 		includeHeld: args.includeHeld,
@@ -1189,7 +1202,19 @@ export async function resetSampleCases(
 /** The server-derived halves `submissionEnvelopeArgs` attaches. */
 export interface BuiltSubmissionOperations {
 	readonly program?: CaseOperationProgram;
+	/** Complete ordinary action projected from the committed case-write
+	 * inventory. Client structure has already been validated and stripped. */
+	readonly ordinaryAction: OrdinarySubmissionAction;
+	/** Form semantics from the authorized committed blueprint. The client
+	 * discriminator must match, but never chooses the ordinary action. */
+	readonly ordinaryFormType: FormType;
+	/** Whether a committed close form's ordinary lifecycle transition runs.
+	 * Present exactly for close forms; false still applies updates/children. */
+	readonly ordinaryCloseCase?: boolean;
 	readonly ordinaryCaseType?: string;
+	readonly ordinarySelection?:
+		| { readonly kind: "single"; readonly maximum: 1 }
+		| { readonly kind: "multiple"; readonly maximum: number };
 	/** Committed case-type relationship for each ordinary child destination.
 	 * The client mutation never asserts this wire/runtime fact. */
 	readonly ordinaryChildRelationships: ReadonlyMap<
@@ -1262,7 +1287,10 @@ function canonicalJson(value: unknown): string {
 export function buildSubmissionReceiptIdentity(args: {
 	readonly appId: string;
 	readonly identity: ResolvedPreviewIdentity;
-	readonly mutation: SubmissionMutation;
+	/** Exact Server Action wire object. A pre-deploy scalar `caseId` must stay
+	 * structurally unchanged here so a response-lost request still matches the
+	 * receipt the older deployment committed. */
+	readonly mutation: SubmissionWireMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
 }): SubmissionReceiptIdentity {
@@ -1320,10 +1348,20 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly identity: ResolvedPreviewIdentity;
 	readonly lookupScope: LookupScope;
 	readonly mutation: SubmissionMutation;
+	/** Exact unnormalized request used only for durable receipt identity. */
+	readonly receiptMutation?: SubmissionWireMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
 }): Promise<BuiltSubmissionOperations> {
-	const receiptIdentity = buildSubmissionReceiptIdentity(args);
+	const receiptIdentity = buildSubmissionReceiptIdentity({
+		appId: args.appId,
+		identity: args.identity,
+		mutation: args.receiptMutation ?? args.mutation,
+		projection: args.projection,
+		...(args.viewerTimeZone === undefined
+			? {}
+			: { viewerTimeZone: args.viewerTimeZone }),
+	});
 
 	const app = args.committedApp;
 	if (app.blueprint.forms[args.projection.formUuid] === undefined) {
@@ -1533,6 +1571,16 @@ export function buildCaseOperationProgramFromDoc(args: {
 			"The submitted form no longer exists in the committed app.",
 		);
 	}
+	if (args.mutation.kind !== form.type) {
+		throw new CaptureSubmissionRejectedError(
+			`The submitted form says it is ${args.mutation.kind}, but the committed form is ${form.type}. Reload the form and submit again.`,
+		);
+	}
+	const ordinaryCloseCase = committedCloseConditionResult(
+		form,
+		blueprint,
+		args.projection,
+	);
 	const caseTypeSchemas = buildCaseTypeMap(blueprint);
 	const ordinaryChildRelationships = new Map(
 		[...caseTypeSchemas].map(
@@ -1540,21 +1588,48 @@ export function buildCaseOperationProgramFromDoc(args: {
 				[caseType, definition.relationship ?? "child"] as const,
 		),
 	);
-	const ordinaryCaseType = owningModuleCaseType(doc, formUuid);
+	const owningModule = owningModuleForForm(doc, formUuid);
+	const ordinaryCaseType = owningModule?.caseType;
+	const ordinarySelection =
+		owningModule === undefined
+			? undefined
+			: caseSelectionCardinality(owningModule) === "multiple"
+				? {
+						kind: "multiple" as const,
+						maximum: caseSelectionMaximum(owningModule),
+					}
+				: ({ kind: "single", maximum: 1 } as const);
+	const caseWriteInventory = deriveCaseWriteInventory(
+		blueprint,
+		formUuid,
+		{ caseType: ordinaryCaseType },
+		form.type,
+	);
 	const usercaseWriteProperties = new Set(
-		deriveCaseWriteInventory(
-			blueprint,
-			formUuid,
-			{ caseType: ordinaryCaseType },
-			form.type,
-		)
-			.buckets.filter((bucket) => bucket.kind === "usercase")
+		caseWriteInventory.buckets
+			.filter((bucket) => bucket.kind === "usercase")
 			.flatMap((bucket) => bucket.writers.map((writer) => writer.property)),
 	);
+	const ordinaryAction = projectOrdinaryAction({
+		form,
+		mutation,
+		inventory: caseWriteInventory,
+		...(ordinarySelection === undefined
+			? {}
+			: { selection: ordinarySelection }),
+		...(ordinaryCloseCase === undefined
+			? {}
+			: { closeCase: ordinaryCloseCase }),
+		childRelationships: ordinaryChildRelationships,
+	});
 	const ordinaryStructure = {
+		ordinaryAction,
+		ordinaryFormType: form.type,
+		...(ordinaryCloseCase === undefined ? {} : { ordinaryCloseCase }),
 		ordinaryChildRelationships,
 		usercaseWriteProperties,
 		...(ordinaryCaseType === undefined ? {} : { ordinaryCaseType }),
+		...(ordinarySelection === undefined ? {} : { ordinarySelection }),
 	};
 	const operations = orderedCaseOperations(form);
 	if (operations.length === 0) return ordinaryStructure;
@@ -1677,7 +1752,7 @@ export function buildCaseOperationProgramFromDoc(args: {
 			operations: envelopeOperations,
 			scopes,
 			...(mutation.kind === "followup" || mutation.kind === "close"
-				? { sessionCaseId: mutation.caseId }
+				? { sessionCaseIds: mutation.caseIds }
 				: {}),
 			caseTypeSchemas,
 			organizationLevels: organizationLevelsOf(doc),
@@ -1693,14 +1768,280 @@ export function buildCaseOperationProgramFromDoc(args: {
 	};
 }
 
+interface OrdinaryDestinationAuthority {
+	readonly caseName: boolean;
+	readonly externalId: boolean;
+	readonly properties: ReadonlySet<string>;
+}
+
+interface OrdinaryChildAuthority {
+	readonly bucket: CaseWriteBucket;
+	readonly destination: OrdinaryDestinationAuthority;
+	readonly relationship: NonNullable<CaseType["relationship"]>;
+}
+
+function ordinaryChildBucketKey(
+	caseType: string,
+	repeatUuid: string | undefined,
+): string {
+	return JSON.stringify([caseType, repeatUuid ?? null]);
+}
+
+function rejectOrdinaryStructure(): never {
+	throw new CaptureSubmissionRejectedError(
+		"The submitted case updates no longer match this form. Reload the form and submit again.",
+	);
+}
+
+/** Project the only destinations Preview can actually persist for one
+ * committed bucket. Capture writers are deliberately absent: Preview has no
+ * CommCare submission URL to store and must not accept a forged substitute. */
+function ordinaryDestinationAuthority(
+	bucket: CaseWriteBucket,
+): OrdinaryDestinationAuthority {
+	let caseName = false;
+	let externalId = false;
+	const properties = new Set<string>();
+	for (const writer of bucket.writers) {
+		if (isCaptureFieldKind(writer.fieldKind)) continue;
+		if (writer.property === "case_name") caseName = true;
+		else if (writer.property === "external_id") externalId = true;
+		else properties.add(writer.property);
+	}
+	return { caseName, externalId, properties };
+}
+
+function projectOrdinaryDestinationValues(
+	submitted: {
+		readonly caseName?: string;
+		readonly externalId?: string;
+		readonly properties: SubmissionCaseSeed["properties"];
+	},
+	authority: OrdinaryDestinationAuthority,
+): Pick<SubmissionCaseSeed, "caseName" | "externalId" | "properties"> {
+	if (
+		typeof submitted.properties !== "object" ||
+		submitted.properties === null ||
+		Array.isArray(submitted.properties)
+	) {
+		return rejectOrdinaryStructure();
+	}
+	if (submitted.caseName !== undefined && !authority.caseName) {
+		return rejectOrdinaryStructure();
+	}
+	if (submitted.externalId !== undefined && !authority.externalId) {
+		return rejectOrdinaryStructure();
+	}
+	for (const property of Object.keys(submitted.properties)) {
+		if (!authority.properties.has(property)) return rejectOrdinaryStructure();
+	}
+	return {
+		...(submitted.caseName === undefined
+			? {}
+			: { caseName: submitted.caseName }),
+		...(submitted.externalId === undefined
+			? {}
+			: { externalId: submitted.externalId }),
+		properties: { ...submitted.properties },
+	};
+}
+
+function projectOrdinaryChildren(args: {
+	readonly mutation: Exclude<SubmissionMutation, { kind: "survey" }>;
+	readonly authorities: ReadonlyMap<string, OrdinaryChildAuthority>;
+}): ReadonlyArray<SubmissionCaseSeed> {
+	const identities = args.mutation.ordinaryChildBuckets;
+	if (args.mutation.children.length === 0) {
+		if (identities !== undefined && identities.length !== 0) {
+			return rejectOrdinaryStructure();
+		}
+		return [];
+	}
+	if (
+		identities === undefined ||
+		identities.length !== args.mutation.children.length
+	) {
+		return rejectOrdinaryStructure();
+	}
+
+	const seenRootBuckets = new Set<string>();
+	const seenRepeatInstances = new Set<string>();
+	return args.mutation.children.map((child, index) => {
+		const identity = identities[index];
+		if (identity === undefined || typeof identity.caseType !== "string") {
+			return rejectOrdinaryStructure();
+		}
+		const key = ordinaryChildBucketKey(identity.caseType, identity.repeatUuid);
+		const authority = args.authorities.get(key);
+		if (
+			authority === undefined ||
+			child.caseType !== authority.bucket.caseType
+		) {
+			return rejectOrdinaryStructure();
+		}
+		if (authority.bucket.repeatUuid === undefined) {
+			if (
+				identity.repeatUuid !== undefined ||
+				identity.repeatInstanceKey !== undefined ||
+				seenRootBuckets.has(key)
+			) {
+				return rejectOrdinaryStructure();
+			}
+			seenRootBuckets.add(key);
+		} else {
+			if (
+				identity.repeatUuid !== authority.bucket.repeatUuid ||
+				typeof identity.repeatInstanceKey !== "string" ||
+				identity.repeatInstanceKey.length === 0
+			) {
+				return rejectOrdinaryStructure();
+			}
+			const instance = `${key}\u0000${identity.repeatInstanceKey}`;
+			if (seenRepeatInstances.has(instance)) return rejectOrdinaryStructure();
+			seenRepeatInstances.add(instance);
+		}
+		return {
+			caseType: authority.bucket.caseType,
+			...projectOrdinaryDestinationValues(child, authority.destination),
+			parentRelationship: authority.relationship,
+		};
+	});
+}
+
+/** Validate client answer values against one committed ordinary-write
+ * contract, then strip every structural assertion before storage. */
+function projectOrdinaryAction(args: {
+	readonly form: Form;
+	readonly mutation: SubmissionMutation;
+	readonly inventory: ReturnType<typeof deriveCaseWriteInventory>;
+	readonly selection?: BuiltSubmissionOperations["ordinarySelection"];
+	readonly closeCase?: boolean;
+	readonly childRelationships: ReadonlyMap<
+		string,
+		NonNullable<CaseType["relationship"]>
+	>;
+}): OrdinarySubmissionAction {
+	if (args.form.type !== args.mutation.kind) return rejectOrdinaryStructure();
+	if (args.form.type === "survey") return { kind: "none" };
+	if (args.mutation.kind === "survey") return rejectOrdinaryStructure();
+
+	const primary = args.inventory.buckets.find(
+		(bucket) => bucket.kind === "primary",
+	);
+	if (primary === undefined) return rejectOrdinaryStructure();
+	const childAuthorities = new Map<string, OrdinaryChildAuthority>();
+	for (const bucket of args.inventory.buckets) {
+		if (bucket.kind !== "child") continue;
+		const relationship = args.childRelationships.get(bucket.caseType);
+		if (relationship === undefined) return rejectOrdinaryStructure();
+		childAuthorities.set(
+			ordinaryChildBucketKey(bucket.caseType, bucket.repeatUuid),
+			{
+				bucket,
+				destination: ordinaryDestinationAuthority(bucket),
+				relationship,
+			},
+		);
+	}
+	const children = projectOrdinaryChildren({
+		mutation: args.mutation,
+		authorities: childAuthorities,
+	});
+	const primaryAuthority = ordinaryDestinationAuthority(primary);
+
+	if (args.mutation.kind === "registration") {
+		if (args.mutation.primary.caseType !== primary.caseType) {
+			return rejectOrdinaryStructure();
+		}
+		return {
+			kind: "registration",
+			primary: {
+				caseType: primary.caseType,
+				...projectOrdinaryDestinationValues(
+					args.mutation.primary,
+					primaryAuthority,
+				),
+			},
+			children,
+		};
+	}
+	if (args.selection === undefined) return rejectOrdinaryStructure();
+	const patch = projectOrdinaryDestinationValues(
+		args.mutation.patch,
+		primaryAuthority,
+	);
+	return {
+		kind:
+			args.mutation.kind === "close" && args.closeCase === true
+				? "close"
+				: "followup",
+		caseIds: args.mutation.caseIds,
+		caseType: primary.caseType,
+		selection: args.selection,
+		patch,
+		children,
+	};
+}
+
+/** Evaluate only the COMMITTED close condition against the normalized raw
+ * answer nodes carried by the final protocol. The condition is shared form
+ * logic, so its one boolean controls the complete ordered selection: all
+ * selected cases close or none do. */
+function committedCloseConditionResult(
+	form: Form,
+	blueprint: PersistableDoc,
+	projection: CaptureSubmissionProjection,
+): boolean | undefined {
+	const submitted = projection.closeConditionAnswers;
+	if (form.type !== "close") {
+		if (submitted !== undefined) {
+			throw new CaptureSubmissionRejectedError(
+				"The submitted form includes close-condition answers, but the committed form is not a close form. Reload the form and submit again.",
+			);
+		}
+		return undefined;
+	}
+
+	const condition = form.closeCondition;
+	if (condition === undefined) {
+		if (submitted !== undefined) {
+			throw new CaptureSubmissionRejectedError(
+				"The submitted form includes a close-condition answer, but the committed form closes unconditionally. Reload the form and submit again.",
+			);
+		}
+		return true;
+	}
+	if (submitted === undefined || submitted.fieldUuid !== condition.field) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted form is missing the answer required by its committed close condition. Reload the form and submit again.",
+		);
+	}
+	if (submitted.values.length > 1) {
+		throw new CaptureSubmissionRejectedError(
+			"The submitted close condition resolved more than one answer. Move the close condition outside a repeat, then submit again.",
+		);
+	}
+	const field = blueprint.fields[condition.field];
+	if (field === undefined) {
+		throw new CaptureSubmissionRejectedError(
+			"The field used by the committed close condition is no longer available. Reload the form and submit again.",
+		);
+	}
+	const raw = submitted.values[0] ?? "";
+	if (condition.operator === "selected") {
+		return ` ${raw} `.includes(` ${javaTrim(condition.answer)} `);
+	}
+	return compareEqual(formAnswerXPathValue(field.kind, raw), condition.answer);
+}
+
 /** The module owning `formUuid`, walked off the committed doc. */
-function owningModuleCaseType(
+function owningModuleForForm(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
-): string | undefined {
+): Module | undefined {
 	for (const moduleUuid of doc.moduleOrder) {
 		if (doc.formOrder[moduleUuid]?.includes(formUuid)) {
-			return doc.modules[moduleUuid]?.caseType;
+			return doc.modules[moduleUuid];
 		}
 	}
 	return undefined;
@@ -1742,75 +2083,20 @@ export function submissionEnvelopeArgs(
 		Object.keys(usercaseWrites).length > 0
 			? { usercase: { properties: usercaseWrites } }
 			: {};
-	const childSeed = <T extends { readonly caseType: string }>(child: T) => {
-		const parentRelationship = built.ordinaryChildRelationships.get(
-			child.caseType,
+	const rejectFormTypeMismatch = (): never => {
+		throw new CaptureSubmissionRejectedError(
+			`The submitted form says it is ${mutation.kind}, but its committed submission program is ${built.ordinaryFormType}. Reload the form and submit again.`,
 		);
-		if (parentRelationship === undefined) {
-			throw new Error(
-				compilerBugMessage({
-					where: "preview.caseDataBindingHelpers.submissionEnvelopeArgs",
-					invariant: `ordinary child case type \`${child.caseType}\` has no committed relationship projection`,
-					detail:
-						"The server must derive every ordinary child's parent relationship from the same committed case-type catalog that authorized the submission. Without it, the case store would silently collapse an extension host into an ordinary child edge.",
-				}),
-			);
-		}
-		return { ...child, parentRelationship };
 	};
-	switch (mutation.kind) {
-		case "registration":
-			return {
-				appId,
-				ordinary: {
-					kind: "registration",
-					primary: mutation.primary,
-					children: mutation.children.map(childSeed),
-				},
-				...operations,
-				...usercase,
-				...submissionReceipt,
-				...captureIntent,
-			};
-		case "followup":
-		case "close":
-			return {
-				appId,
-				ordinary: {
-					kind: mutation.kind,
-					caseId: mutation.caseId,
-					...(built.ordinaryCaseType !== undefined && {
-						caseType: built.ordinaryCaseType,
-					}),
-					patch: mutation.patch,
-					children: mutation.children.map(childSeed),
-				},
-				...operations,
-				...usercase,
-				...submissionReceipt,
-				...captureIntent,
-			};
-		case "survey":
-			return {
-				appId,
-				ordinary: { kind: "none" },
-				...operations,
-				...usercase,
-				...submissionReceipt,
-				...captureIntent,
-			};
-		default: {
-			const _exhaustive: never = mutation;
-			throw new Error(
-				compilerBugMessage({
-					where: "preview.caseDataBindingHelpers.submissionEnvelopeArgs",
-					invariant: `unknown SubmissionMutation kind \`${String((_exhaustive as { kind?: unknown })?.kind)}\``,
-					detail:
-						"The four engine arms map exhaustively onto the envelope's ordinary action; a new arm must decide its envelope shape here.",
-				}),
-			);
-		}
-	}
+	if (mutation.kind !== built.ordinaryFormType) rejectFormTypeMismatch();
+	return {
+		appId,
+		ordinary: built.ordinaryAction,
+		...operations,
+		...usercase,
+		...submissionReceipt,
+		...captureIntent,
+	};
 }
 
 /**

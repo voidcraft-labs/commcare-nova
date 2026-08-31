@@ -5,7 +5,8 @@
 // source of truth the validator, wire emitters, SA tools, and case-
 // list-config UI all read from.
 //
-// `caseListConfig` collapses to three slots:
+// `caseListConfig` collapses to the case-list definition plus its selection
+// behavior:
 //
 //   - `columns: Column[]` — display + sort + calc + visibility, all
 //     here. Each column carries its own `uuid` (UI identity, drag /
@@ -19,6 +20,9 @@
 //   - `searchInputs: SearchInputDef[]` — discriminated union of
 //     simple `(property, mode, via)` inputs and advanced inputs
 //     whose body is a free-form `predicate`.
+//   - `selection?: { kind: "multiple"; maximum: number }` — absence keeps the
+//     ordinary one-case flow; presence makes selection an explicitly bounded
+//     ordered collection.
 //
 // `Predicate`, `ValueExpression`, and `RelationPath` come from
 // `@/lib/domain/predicate` — the AST primitives the filter,
@@ -1567,11 +1571,12 @@ export function simpleSearchInputHasCoherentRangeWidget(
 
 // ── CaseListConfig ───────────────────────────────────────────────
 //
-// The structured case-list configuration. Three slots:
+// The structured case-list configuration:
 //
 //   - `columns` — display + sort + calc + visibility, all here.
 //   - `filter?` — optional always-on predicate.
 //   - `searchInputs` — discriminated `simple` / `advanced` union.
+//   - `selection?` — bounded multi-case selection. Absence is single-case.
 //
 // A module without a case list (survey-only modules) omits the slot
 // entirely; a module with a case list always carries every required
@@ -1785,6 +1790,26 @@ export const caseTileLayoutSchema = z
 	.strict();
 export type CaseTileLayout = z.infer<typeof caseTileLayoutSchema>;
 
+/**
+ * A case list either keeps Nova's ordinary one-case flow (the slot is absent)
+ * or lets the worker choose a bounded set. Only the non-default state is
+ * stored, so legacy documents remain byte-identical and there is no second
+ * spelling such as `{ kind: "single" }`.
+ *
+ * The upper bound is a Nova product invariant shared by Builder, Preview,
+ * submission, and both export paths. The runtime still defends the received
+ * set, but an authored app can never request a larger batch.
+ */
+export const caseSelectionSchema = z
+	.object({
+		kind: z.literal("multiple"),
+		maximum: persistableJsonPositiveIntegerSchema.max(100),
+	})
+	.strict();
+export type CaseSelection = z.infer<typeof caseSelectionSchema>;
+
+export type CaseSelectionCardinality = "single" | "multiple";
+
 export const caseListConfigSchema = z
 	.object({
 		/**
@@ -1806,6 +1831,12 @@ export const caseListConfigSchema = z
 		detailColumnOrder: z.array(uuidSchema),
 		filter: predicateSchema.optional(),
 		searchInputs: z.array(searchInputDefSchema),
+		/**
+		 * How many cases a worker can carry forward from Results. Absence is the
+		 * ordinary single-case flow; the stored arm is multiple-only so one intent
+		 * has one canonical representation.
+		 */
+		selection: caseSelectionSchema.optional(),
 		/**
 		 * Tile layout for the Results surface. Absent ≡ the ordinary row
 		 * layout. See `caseTileLayoutSchema`.
@@ -1895,6 +1926,92 @@ export function emptyCaseListConfig(): CaseListConfig {
 		detailColumnOrder: [],
 		searchInputs: [],
 	};
+}
+
+/**
+ * Effective selection cardinality without coupling it to module navigation.
+ * `isCaseFirstModule` answers which screen comes first; this answers whether
+ * the case datum on a case-loading entry is scalar or collection-shaped.
+ */
+export function caseSelectionCardinality(
+	module: Pick<Module, "caseListConfig">,
+): CaseSelectionCardinality {
+	return module.caseListConfig?.selection?.kind ?? "single";
+}
+
+/**
+ * Effective number of selectable cases. The absent single-case state has a
+ * real maximum of one, while the authored multiple state carries its bound.
+ */
+export function caseSelectionMaximum(
+	module: Pick<Module, "caseListConfig">,
+): number {
+	return module.caseListConfig?.selection?.maximum ?? 1;
+}
+
+/**
+ * Whether a structural child can inherit the exact case selection its parent
+ * authored. Runtime selection size is deliberately irrelevant: a parent that
+ * promises as many as ten cases cannot flow into a child authored for five
+ * merely because this particular worker happened to choose three.
+ *
+ * Keeping this projection in the domain makes Preview, nested-menu suite
+ * alignment, direct-link admission, and whole-document validation prove the
+ * same shape: same case type, same scalar/set cardinality, and enough authored
+ * room at the destination for every set the source permits.
+ */
+export function caseSelectionCanFlowBetweenModules(
+	sourceModule: Pick<Module, "caseListConfig" | "caseType">,
+	targetModule: Pick<Module, "caseListConfig" | "caseType">,
+): boolean {
+	if (
+		sourceModule.caseType === undefined ||
+		sourceModule.caseType !== targetModule.caseType
+	) {
+		return false;
+	}
+	if (
+		caseSelectionCardinality(sourceModule) !==
+		caseSelectionCardinality(targetModule)
+	) {
+		return false;
+	}
+	return (
+		caseSelectionMaximum(targetModule) >= caseSelectionMaximum(sourceModule)
+	);
+}
+
+/**
+ * Whether one case-loading form can open another without losing or
+ * reinterpreting its selected cases. The ordinary scalar flow remains
+ * compatible across modules: existing form links already carry their one
+ * required case datum explicitly when the case types differ. Once either
+ * side is collection-shaped, both sides must describe the same collection,
+ * and an authored datum map cannot stand in for that collection.
+ *
+ * Both the form-link choice planner and whole-document validation ask this
+ * projection, so a destination the Builder offers cannot be refused later by
+ * the commit gate for selection cardinality.
+ */
+export function formLinkSelectionIsCompatible(args: {
+	readonly sourceModule: Pick<Module, "caseListConfig" | "caseType">;
+	readonly targetModule: Pick<Module, "caseListConfig" | "caseType">;
+	readonly sourceLoadsCase: boolean;
+	readonly targetLoadsCase: boolean;
+	readonly hasAuthoredDatums: boolean;
+}): boolean {
+	if (!args.sourceLoadsCase || !args.targetLoadsCase) return true;
+
+	const sourceCardinality = caseSelectionCardinality(args.sourceModule);
+	const targetCardinality = caseSelectionCardinality(args.targetModule);
+	if (sourceCardinality === "single" && targetCardinality === "single") {
+		return true;
+	}
+
+	return (
+		caseSelectionCanFlowBetweenModules(args.sourceModule, args.targetModule) &&
+		!args.hasAuthoredDatums
+	);
 }
 
 /**

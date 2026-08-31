@@ -1,5 +1,6 @@
 import type { Uuid } from "@/lib/domain";
 import type { AppSetupSection } from "@/lib/routing/types";
+import type { PreviewCaseChoice } from "@/lib/session/types";
 
 /** One rendered choice of a lookup-backed select, in authored row order.
  *  `key` is the source row's stable id — lookup rows, unlike static
@@ -125,7 +126,14 @@ export type PreviewScreen =
 	 *  and has no running-app counterpart. Edit mode only: Preview leaves
 	 *  it for the app home, because there is nothing here to run. */
 	| { type: "appSetup"; section: AppSetupSection }
-	| { type: "form"; moduleUuid: Uuid; formUuid: Uuid; caseId?: string };
+	| {
+			type: "form";
+			moduleUuid: Uuid;
+			formUuid: Uuid;
+			/** Ordered selected cases. Undefined still awaits selection; an empty
+			 * array is an explicitly blank carried link. */
+			cases?: readonly PreviewCaseChoice[];
+	  };
 
 /** Returns the immediate parent screen in the hierarchy, or undefined if already at home. */
 export function getParentScreen(
@@ -167,9 +175,26 @@ export function screensEqual(a: PreviewScreen, b: PreviewScreen): boolean {
 		return (
 			a.moduleUuid === b.moduleUuid &&
 			a.formUuid === b.formUuid &&
-			a.caseId === b.caseId
+			previewScreenCasesEqual(a.cases, b.cases)
 		);
 	return false;
+}
+
+function previewScreenCasesEqual(
+	left: readonly PreviewCaseChoice[] | undefined,
+	right: readonly PreviewCaseChoice[] | undefined,
+): boolean {
+	return (
+		left === right ||
+		(left !== undefined &&
+			right !== undefined &&
+			left.length === right.length &&
+			left.every(
+				(choice, index) =>
+					choice.caseId === right[index]?.caseId &&
+					choice.caseName === right[index]?.caseName,
+			))
+	);
 }
 
 /** Stable string key for a PreviewScreen, suitable as a React key.

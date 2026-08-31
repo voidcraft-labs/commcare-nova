@@ -1013,6 +1013,8 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	// not a reference a rename or a case-type retirement would follow.
 	"caseListConfig.listColumnOrder[]": "identity",
 	"caseListConfig.detailColumnOrder[]": "identity",
+	"caseListConfig.selection.kind": "discriminator",
+	"caseListConfig.selection.maximum": "config",
 	"caseListConfig.columns[].uuid": "identity",
 	"caseListConfig.columns[].kind": "discriminator",
 	"caseListConfig.columns[].header": "display-text",

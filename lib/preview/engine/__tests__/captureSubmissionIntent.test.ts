@@ -244,11 +244,16 @@ describe("capture submission intent", () => {
 		const prior = {
 			formUuid: exact.formUuid,
 			requestDigest: exact.requestDigest,
-			result: { childCaseIds: [], operations: [] },
+			result: { primaryCaseIds: [], childCaseIds: [], operations: [] },
 		};
 		expect(adjudicateSubmissionReceipt(exact, prior)).toEqual({
 			kind: "replay",
-			result: { childCaseIds: [], operations: [] },
+			result: {
+				primaryCaseIds: [],
+				createdChildren: [],
+				legacyChildCaseIds: [],
+				operations: [],
+			},
 		});
 		expect(adjudicateSubmissionReceipt(changed, prior)).toEqual({
 			kind: "mismatch",

@@ -4,9 +4,10 @@
 // or asked to carry values — pure verdicts over the document, derived from
 // the same facts the validator and the wire read. Nothing here decides
 // legality on its own: `formLinkMoveVerdicts` and `formLinkTargetVerdict`
-// restate the three positional rules (`FORM_LINK_UNREACHABLE`,
-// `FORM_LINK_SELF_REFERENCE`, `FORM_LINK_CIRCULAR`) so a surface can refuse
-// before it offers, and `formLinkCarryVerdict` asks the ONE projector the
+// restate the positional and destination rules (`FORM_LINK_UNREACHABLE`,
+// `FORM_LINK_SELF_REFERENCE`, `FORM_LINK_CIRCULAR`, and
+// `FORM_LINK_SELECTION_CARDINALITY`) so a surface can refuse before it offers,
+// and `formLinkCarryVerdict` asks the ONE projector the
 // wire uses whether the destination's selection datums can be carried
 // automatically (`FORM_LINK_DATUMS_INCOMPLETE`'s question, asked ahead of
 // time). `components/builder/form-links/__tests__/formLinkValidByConstruction.test.ts`
@@ -26,12 +27,17 @@ import {
 } from "@/lib/commcare/formLinkProjection";
 import {
 	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
+	caseSelectionCardinality,
+	caseSelectionMaximum,
 	type FormLink,
 	type FormLinkTarget,
 	formLinkAdjacency,
 	formLinkPath,
+	formLinkSelectionIsCompatible,
 	type Uuid,
 } from "@/lib/domain";
+import { possibleFinalSessionCaseTypes } from "./caseOperationOrder";
 import { afterSubmitPlan, formLinkIsConditionalIn } from "./formLinkMutations";
 
 export type FormLinkMoveVerdict =
@@ -99,6 +105,20 @@ export type FormLinkTargetVerdict =
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: "target-not-found" }
 	| { readonly ok: false; readonly reason: "self-target" }
+	| {
+			readonly ok: false;
+			readonly reason: "selection-cardinality";
+			readonly sourceCardinality: "single" | "multiple";
+			readonly targetCardinality: "single" | "multiple";
+			readonly sourceMaximum: number;
+			readonly targetMaximum: number;
+	  }
+	| {
+			readonly ok: false;
+			readonly reason: "selection-case-type";
+			readonly expectedCaseType: string;
+			readonly possibleFinalCaseTypes: readonly string[];
+	  }
 	/** The chain of form uuids from the target back to this form, inclusive. */
 	| {
 			readonly ok: false;
@@ -108,24 +128,125 @@ export type FormLinkTargetVerdict =
 
 /**
  * Whether a link on `formUuid` may point at `target`. `editingLinkUuid`
- * names the link being retargeted so its current edge is ignored.
+ * names the link being retargeted so its current edge is ignored. `datums`
+ * is the explicit datum map the proposed link would store. When it is absent,
+ * the Builder first tries automatic matching and falls back to the complete
+ * manual map its seed would create. A destination is admitted only when that
+ * actual seed mode is legal.
  */
 export function formLinkTargetVerdict(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	editingLinkUuid: Uuid | undefined,
 	target: FormLinkTarget,
+	datums?: FormLink["datums"],
+): FormLinkTargetVerdict {
+	const proposed = formLinkTargetVerdictForDatumMode(
+		doc,
+		formUuid,
+		editingLinkUuid,
+		target,
+		datums !== undefined,
+	);
+	if (!proposed.ok || datums !== undefined) return proposed;
+
+	return formLinkCarryVerdict(doc, formUuid, target).kind === "manual-required"
+		? formLinkTargetVerdictForDatumMode(
+				doc,
+				formUuid,
+				editingLinkUuid,
+				target,
+				true,
+			)
+		: proposed;
+}
+
+/**
+ * Whether the carried values editor may replace automatic matching with an
+ * explicit datum map. Collection-shaped selection must travel as one
+ * collection, so an otherwise-compatible direct link can still refuse this
+ * manual mode. `editingLinkUuid` ignores the link's own current graph edge.
+ */
+export function formLinkManualCarryVerdict(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	editingLinkUuid: Uuid,
+	target: FormLinkTarget,
+): FormLinkTargetVerdict {
+	return formLinkTargetVerdictForDatumMode(
+		doc,
+		formUuid,
+		editingLinkUuid,
+		target,
+		true,
+	);
+}
+
+function formLinkTargetVerdictForDatumMode(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	editingLinkUuid: Uuid | undefined,
+	target: FormLinkTarget,
+	hasAuthoredDatums: boolean,
 ): FormLinkTargetVerdict {
 	const mod = doc.modules[target.moduleUuid];
 	if (mod === undefined) return { ok: false, reason: "target-not-found" };
 	if (target.type === "module") return { ok: true };
+	const targetForm = doc.forms[target.formUuid];
 	if (
-		doc.forms[target.formUuid] === undefined ||
+		targetForm === undefined ||
 		!(doc.formOrder[target.moduleUuid] ?? []).includes(target.formUuid)
 	) {
 		return { ok: false, reason: "target-not-found" };
 	}
 	if (target.formUuid === formUuid) return { ok: false, reason: "self-target" };
+
+	const sourceForm = doc.forms[formUuid];
+	const sourceModuleUuid = doc.moduleOrder.find((moduleUuid) =>
+		(doc.formOrder[moduleUuid] ?? []).includes(formUuid),
+	);
+	const sourceModule =
+		sourceModuleUuid === undefined ? undefined : doc.modules[sourceModuleUuid];
+	if (
+		sourceForm !== undefined &&
+		sourceModule !== undefined &&
+		!formLinkSelectionIsCompatible({
+			sourceModule,
+			targetModule: mod,
+			sourceLoadsCase: CASE_LOADING_FORM_TYPES.has(sourceForm.type),
+			targetLoadsCase: CASE_LOADING_FORM_TYPES.has(targetForm.type),
+			hasAuthoredDatums,
+		})
+	) {
+		return {
+			ok: false,
+			reason: "selection-cardinality",
+			sourceCardinality: caseSelectionCardinality(sourceModule),
+			targetCardinality: caseSelectionCardinality(mod),
+			sourceMaximum: caseSelectionMaximum(sourceModule),
+			targetMaximum: caseSelectionMaximum(mod),
+		};
+	}
+	if (
+		sourceForm !== undefined &&
+		sourceModule !== undefined &&
+		CASE_LOADING_FORM_TYPES.has(sourceForm.type) &&
+		CASE_LOADING_FORM_TYPES.has(targetForm.type) &&
+		caseSelectionCardinality(sourceModule) === "multiple" &&
+		mod.caseType !== undefined
+	) {
+		const possibleFinalCaseTypes = [
+			...possibleFinalSessionCaseTypes(doc, formUuid),
+		];
+		if (possibleFinalCaseTypes.some((caseType) => caseType !== mod.caseType)) {
+			return {
+				ok: false,
+				reason: "selection-case-type",
+				expectedCaseType: mod.caseType,
+				possibleFinalCaseTypes,
+			};
+		}
+	}
 	const adjacency = formLinkAdjacency(doc, {
 		formUuid,
 		...(editingLinkUuid !== undefined && { linkUuid: editingLinkUuid }),
@@ -154,7 +275,13 @@ export function formLinkRequiredDatums(
 	formUuid: Uuid,
 	target: FormLinkTarget,
 ): readonly FormLinkRequiredDatum[] {
-	if (formLinkTargetVerdict(doc, formUuid, undefined, target).ok === false) {
+	/* Read the automatic-mode topology directly. The public target verdict
+	 * asks this function which carry mode the Builder will seed, so routing
+	 * that question back through it would recurse. */
+	if (
+		formLinkTargetVerdictForDatumMode(doc, formUuid, undefined, target, false)
+			.ok === false
+	) {
 		return [];
 	}
 	// The buildable check reads only the target's module; the probe's uuid

@@ -107,7 +107,8 @@ export function mutationTargetsInvalid(
 	const columnOwners = new Map<string, string>();
 	const searchInputOwners = new Map<string, string>();
 	// Modules whose `caseListConfig` is present. `setCaseListMeta` EDITS an
-	// existing config's metadata (`filter` / `icon` / `audioLabel`); a config a
+	// existing config's metadata (`filter` / `selection` / `icon` /
+	// `audioLabel`); a config a
 	// peer concurrently cleared is a missing target, not one to resurrect (the
 	// reducer no-ops on it — see `mutations/modules.ts`). Tracking config
 	// presence (seeded here from the fresh doc, advanced by semantic / collection

@@ -68,6 +68,7 @@ import {
 	caseSearchConfigPatchMutations,
 	clearCaseSearchConfigSettingsMutations,
 } from "@/lib/doc/caseSearchConfigPatchMutations";
+import { planCaseSelectionChange } from "@/lib/doc/caseSelectionMutations";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
@@ -1283,6 +1284,20 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		[commitMany, config.columns, config.tile, moduleUuid, config],
 	);
 
+	const setCaseSelection = useCallback(
+		(next: CaseListConfig["selection"]) => {
+			if (mod === undefined) return;
+			const plan = planCaseSelectionChange(mod, next);
+			if (!plan.ok) return;
+			if (commitMany([...plan.mutations]).ok && plan.clearsPersistentTile) {
+				setWorkspaceAnnouncement(
+					"Forms can now work with several cases. The Results tile no longer stays above forms because that view shows one case at a time.",
+				);
+			}
+		},
+		[commitMany, mod],
+	);
+
 	const placeTileCell = useCallback(
 		(uuid: Column["uuid"], cell: TileCell) => {
 			const column = config.columns.find(
@@ -1557,6 +1572,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		tileIssues,
 		tileDisabledReason,
 		setArrangement,
+		setCaseSelection,
 		placeTileCell,
 		putColumnOnTile,
 		applyTilePreset,
@@ -1780,6 +1796,7 @@ export function CaseListWorkspaceCanvas() {
 		tileIssues,
 		tileDisabledReason,
 		setArrangement,
+		setCaseSelection,
 		placeTileCell,
 		putColumnOnTile,
 		applyTilePreset,
@@ -1917,6 +1934,7 @@ export function CaseListWorkspaceCanvas() {
 							onPutColumnOnTile={putColumnOnTile}
 							onApplyTilePreset={applyTilePreset}
 							onTilePersistOnFormsChange={setTilePersistOnForms}
+							onCaseSelectionChange={setCaseSelection}
 						/>
 					</div>
 				</Activity>

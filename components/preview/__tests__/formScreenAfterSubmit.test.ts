@@ -358,8 +358,7 @@ describe("prospective after-submit menu selections", () => {
 				current: {
 					[SAME_TYPE_CHILD]: {
 						caseType: "patient",
-						caseId: "p-stale",
-						caseName: "Stale patient",
+						cases: [{ caseId: "p-stale", caseName: "Stale patient" }],
 					},
 				},
 				targetModuleUuid: SAME_TYPE_CHILD,
@@ -371,7 +370,7 @@ describe("prospective after-submit menu selections", () => {
 			{},
 			projected,
 		);
-		expect(next[SAME_TYPE_ROOT]?.caseId).toBe("p-new");
+		expect(next[SAME_TYPE_ROOT]?.cases[0]?.caseId).toBe("p-new");
 		expect(next[SAME_TYPE_CHILD]).toBeUndefined();
 	});
 
@@ -380,13 +379,11 @@ describe("prospective after-submit menu selections", () => {
 		const current = {
 			[SAME_TYPE_ROOT]: {
 				caseType: "patient",
-				caseId: "p-old",
-				caseName: "Old patient",
+				cases: [{ caseId: "p-old", caseName: "Old patient" }],
 			},
 			[SAME_TYPE_CHILD]: {
 				caseType: "patient",
-				caseId: "p-stale",
-				caseName: "Stale patient",
+				cases: [{ caseId: "p-stale", caseName: "Stale patient" }],
 			},
 		};
 		const projected = [
@@ -405,8 +402,7 @@ describe("prospective after-submit menu selections", () => {
 		);
 		expect(next[SAME_TYPE_ROOT]).toEqual({
 			caseType: "patient",
-			caseId: "",
-			caseName: "Case",
+			cases: [],
 		});
 		expect(next[SAME_TYPE_CHILD]).toBeUndefined();
 		expect(
@@ -446,14 +442,80 @@ describe("prospective after-submit menu selections", () => {
 
 		expect(next[SAME_TYPE_ROOT]).toEqual({
 			caseType: "patient",
-			caseId: "p-new",
-			caseName: "New patient",
-			caseProperties: {
-				case_id: "p-new",
-				case_name: "New patient",
-				risk: "high",
-			},
+			cases: [
+				{
+					caseId: "p-new",
+					caseName: "New patient",
+					caseProperties: {
+						case_id: "p-new",
+						case_name: "New patient",
+						risk: "high",
+					},
+				},
+			],
 		});
+	});
+
+	it("installs an exact ordered carried collection after scalar frame projection", () => {
+		const menuSource = sameTypeNestedDoc();
+		const carriedCases = [
+			{
+				caseId: "p-closed",
+				caseName: "Closed patient",
+				caseProperties: { case_id: "p-closed", status: "closed" },
+			},
+			{
+				caseId: "p-open",
+				caseName: "Open patient",
+				caseProperties: { case_id: "p-open", status: "open" },
+			},
+		] as const;
+		const next = previewMenuSelectionsAfterTargetCases(
+			menuSource,
+			{
+				[SAME_TYPE_CHILD]: {
+					caseType: "patient",
+					cases: [{ caseId: "p-stale", caseName: "Stale patient" }],
+				},
+			},
+			[
+				{
+					datumId: "case_id",
+					moduleUuid: SAME_TYPE_ROOT,
+					caseType: "patient",
+					caseId: "",
+				},
+			],
+			undefined,
+			[
+				{
+					moduleUuid: SAME_TYPE_ROOT,
+					caseType: "patient",
+					cases: carriedCases,
+				},
+			],
+		);
+
+		expect(next[SAME_TYPE_ROOT]).toEqual({
+			caseType: "patient",
+			cases: carriedCases,
+		});
+		expect(next[SAME_TYPE_CHILD]).toBeUndefined();
+		expect(
+			previewTargetHasSelectedCase({
+				menuSource,
+				current: {},
+				targetModuleUuid: SAME_TYPE_ROOT,
+				projected: [],
+				collections: [
+					{
+						moduleUuid: SAME_TYPE_ROOT,
+						caseType: "patient",
+						cases: carriedCases,
+					},
+				],
+			}),
+		).toBe(true);
 	});
 });
 

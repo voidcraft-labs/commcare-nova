@@ -188,7 +188,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 	GAP_MULTI_SELECT_RELATED_CASES: {
 		code: "GAP_MULTI_SELECT_RELATED_CASES",
 		statement:
-			"Multi-select case lists, related-case display, and authorable profile extensions are a deliberate target gap.",
+			"Related-case display and downstream profile compatibility remain deliberate target gaps. A case list may let workers choose a bounded set of cases for one follow-up or close form.",
 		sourceAnchor:
 			"docs/plans/complex-app/multi-select-related-cases-and-profile.md",
 		gapUnitFile: "multi-select-related-cases-and-profile.md",

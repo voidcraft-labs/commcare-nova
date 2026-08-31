@@ -444,6 +444,80 @@ Six facts the shape depends on:
 
 The three refusals live in `validator/rules/case-list/caseTileGrouping.ts`, all walking only the cells `tileCellFor` admits. `lib/domain/modules.ts::tileGroupHeaderRowChoices` is their constructive twin — the depths that cut a tile cleanly — and the builder offers exactly that list, with a test pinning the two against each other in both directions. The fourth state the unit worried about is unrepresentable: `grouping` lives INSIDE `caseTileLayoutSchema`, so a `<group>` on a detail with no tile cannot be constructed.
 
+### Multi-select case-list emission
+
+`caseListConfig.selection: { kind: "multiple", maximum }` is the sole authored
+switch. Absence preserves the existing scalar bytes. HQ JSON writes
+`case_details.short.multi_select = true` and `max_select_value = maximum`; the
+long detail carries neither. Local suite entries replace their own-case
+`<datum>` with `<instance-datum ... max-select-value="N">`, while preserving the
+same nodeset, value, short/long details, parent constraint, filter, and secondary
+instances. Its id follows the current root projection (`selected_cases`, with
+the existing parent prefixes where required) and is also the selected-entities
+instance id that XForms read from
+`jr://instance/selected-entities/<datum-id>` as
+`<results><value>case-id</value>...</results>`. Never print one case by taking
+`value[1]`; a consumer is collection-aware or admission rejects it.
+
+Nested selection uses the same authored-shape proof as Preview. A same-type
+structural child reuses the root datum only when type, scalar/set cardinality,
+and authored maxima are compatible. A different-type child keeps its own datum
+and filters its nodeset with XPath 1.0 node-set equality against EVERY
+`instance('<parent-datum-id>')/results/value`; this is the union of direct
+non-extension children of the complete selected-parent set, not an arbitrary
+first member. A form-less case-list-only root can supply a compatible same-type
+set through its browse entry because Nova supports exactly one submenu tier.
+
+The byte oracles are split by behavior. The selection datum and configured
+maximum are the inline partials in
+`commcare-hq/corehq/apps/app_manager/tests/test_suite_multi_select_case_list.py::MultiSelectCaseListTests`.
+Search and claim are
+`tests/data/suite/multi_select_case_list/basic_remote_request.xml`. The selected
+instance in a form is `tests/data/form_preparation_v2/multi_no_actions.xml`.
+`tests/data/session_endpoint_remote_request_multi_select.xml` lives directly
+under `tests/data`, not `tests/data/suite`; it is the endpoint unit's oracle and
+must not be used as proof that ordinary form entries are complete.
+
+Search uses `search_selected_cases` consistently across the results
+`<instance-datum>`, the `<rewind>`, the selected-entities `<instance>`, and the
+claim `<post>`. One `<data key="case_id" ref=".">` walks every
+`instance('search_selected_cases')/results/value` and excludes ids already in
+the device casedb. HQ receives all remaining ids in ONE request. Its 204 does
+not merely mean "already claimed":
+`corehq/apps/ota/views.py::claim` returns 204 only when it created no new claim,
+the supplied sync log is valid and proves the device already holds every
+requested case, and none changed since that sync. A new claim, missing/stale
+sync proof, absent local case, or changed case returns 201 so the client
+restores. No ids returns 400; any nonexistent id returns 410 before any case is
+claimed. Nova does not reproduce that restore lifecycle in Preview.
+
+Grouped tiles remain legal and use the existing selected-values join for their
+companion parent-id datum, pinned by
+`test_suite_case_tiles_grouping.py::SuiteCaseTilesGroupingTest.test_case_tiles_with_grouping_multiselect`.
+The Web Apps renderer still exposes one choice per group and that choice is the
+first case. Persistent form tiles are different: Formplayer reads one scalar
+session datum there, so the authoring planner clears `persistOnForms` when
+multiple selection is enabled and no emitted `detail-persistent` branch has to
+guess a representative case.
+
+Batch form semantics are Nova-owned but the emitted XForm remains ordinary
+CommCare case wire. The primary preload/update action is absent on a
+batch-consuming form. Explicit session-targeted operations lower once per
+selected value, with authored-repeat order outside selected-case order; every
+per-case wrapper reads the current value from the selected-entities instance.
+An automatic direct-form carry is admitted only when every possible final type
+of those selected session cases still matches the destination form. Conditional
+retypes retain both branches; an inherited unconditional restoration closes the
+transitioned branch because it runs everywhere that transition did. A runtime
+expression target also contributes a possible selected-case branch unless the
+shared case-operation identity proof can show it is distinct; repeated use of
+the same expression keeps that alias decision correlated across transitions.
+The operation wrapper, implicit close, child creation, and their correlated
+`id-of` values are asserted as exact XForm partials in Nova, because HQ's own
+`tests/data/form_preparation_v2/multi_no_actions.xml` proves only that HQ drops
+ordinary primary actions for a multi-select form. Local `.ccz` and HQ JSON must
+produce the same operation order and transaction meaning.
+
 ### Case-search emission
 
 The `<remote-request>` block's `<session>` carries ONE `<data key="_xpath_query">` element PER composed clause — the unified filter's top-level conjuncts, each advanced-arm search input's predicate, and each simple-arm input whose `(mode, via)` shape needs explicit-predicate emission. The server AND-composes every `_xpath_query` value it receives (`commcare-hq/corehq/apps/case_search/utils.py::_apply_filter` loops the multi-term criteria into one ES filter each; `commcare-core .../session/RemoteQuerySessionManager.java::getRawQueryParams` accumulates a `Multimap`, formplayer forwards repeated params, and Django folds them into a list at `corehq/apps/ota/views.py::app_aware_search`), so N small readable expressions filter identically to one fused mega-expression. On HQ JSON the same clauses land as N `default_properties[]` rows (`DefaultCaseSearchProperty` is a `SchemaListProperty`; CCHQ's `remote_requests.py::_remote_request_query_datums` loops every row into its own `<data>`).

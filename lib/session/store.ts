@@ -1220,8 +1220,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					 * is unchanged too. */
 					if (
 						current?.formUuid === target?.formUuid &&
-						current?.caseId === target?.caseId &&
-						current?.caseName === target?.caseName &&
+						previewCaseChoicesEqual(current?.cases, target?.cases) &&
 						current?.caseData === target?.caseData &&
 						current?.caseDatabase === target?.caseDatabase
 					) {
@@ -1249,12 +1248,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const current = selections[moduleUuid];
 					if (
 						current?.caseType === selected?.caseType &&
-						current?.caseId === selected?.caseId &&
-						current?.caseName === selected?.caseName &&
-						stringRecordsEqual(
-							current?.caseProperties,
-							selected?.caseProperties,
-						)
+						previewMenuCasesEqual(current?.cases, selected?.cases)
 					) {
 						return;
 					}
@@ -1616,6 +1610,43 @@ function stringRecordsEqual(
 	return (
 		leftKeys.length === Object.keys(right).length &&
 		leftKeys.every((key) => left[key] === right[key])
+	);
+}
+
+function previewCaseChoicesEqual(
+	left: PreviewCaseTarget["cases"],
+	right: PreviewCaseTarget["cases"],
+): boolean {
+	return (
+		left === right ||
+		(left !== undefined &&
+			right !== undefined &&
+			left.length === right.length &&
+			left.every(
+				(choice, index) =>
+					choice.caseId === right[index]?.caseId &&
+					choice.caseName === right[index]?.caseName,
+			))
+	);
+}
+
+function previewMenuCasesEqual(
+	left: PreviewMenuCaseSelection["cases"] | undefined,
+	right: PreviewMenuCaseSelection["cases"] | undefined,
+): boolean {
+	return (
+		left === right ||
+		(left !== undefined &&
+			right !== undefined &&
+			left.length === right.length &&
+			left.every((choice, index) => {
+				const candidate = right[index];
+				return (
+					choice.caseId === candidate?.caseId &&
+					choice.caseName === candidate?.caseName &&
+					stringRecordsEqual(choice.caseProperties, candidate?.caseProperties)
+				);
+			}))
 	);
 }
 

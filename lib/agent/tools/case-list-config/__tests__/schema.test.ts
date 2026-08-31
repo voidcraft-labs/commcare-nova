@@ -36,6 +36,7 @@ import { z } from "zod";
 import { SEARCH_INPUT_TYPES } from "@/lib/domain";
 import { addCaseListColumnsTool } from "../addCaseListColumns";
 import { addSearchInputsTool } from "../addSearchInputs";
+import { configureCaseSelectionTool } from "../configureCaseSelection";
 import { removeCaseListColumnTool } from "../removeCaseListColumn";
 import { removeSearchInputTool } from "../removeSearchInput";
 import { reorderCaseListColumnsTool } from "../reorderCaseListColumns";
@@ -165,6 +166,7 @@ const UNION_TOOLS = [
  * representative-payload smoke parse is the full structural contract
  * here. */
 const FLAT_TOOLS = [
+	{ name: "configureCaseSelection", tool: configureCaseSelectionTool },
 	{ name: "removeCaseListColumn", tool: removeCaseListColumnTool },
 	{ name: "reorderCaseListColumns", tool: reorderCaseListColumnsTool },
 	{ name: "removeSearchInput", tool: removeSearchInputTool },
@@ -353,6 +355,34 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 			],
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it("configureCaseSelection: accepts only the bounded multiple arm or null", () => {
+		for (const selection of [
+			{ kind: "multiple", maximum: 1 },
+			{ kind: "multiple", maximum: 100 },
+			null,
+		]) {
+			expect(
+				configureCaseSelectionTool.inputSchema.safeParse({
+					moduleUuid: MODULE_UUID,
+					selection,
+				}).success,
+			).toBe(true);
+		}
+		for (const selection of [
+			{ kind: "single", maximum: 1 },
+			{ kind: "multiple", maximum: 0 },
+			{ kind: "multiple", maximum: 101 },
+			{ kind: "multiple", maximum: 1.5 },
+		]) {
+			expect(
+				configureCaseSelectionTool.inputSchema.safeParse({
+					moduleUuid: MODULE_UUID,
+					selection,
+				}).success,
+			).toBe(false);
+		}
 	});
 
 	it("setCaseListTile: both clears are expressible", () => {

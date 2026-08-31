@@ -188,7 +188,11 @@ export async function findCaseParentRelationshipFindings(
 	const operationTouches = new Set<string>();
 	for (const receipt of receiptRows) {
 		const result = parseSubmissionEnvelopeResult(receipt.result);
-		for (const caseId of result.childCaseIds) {
+		const ordinaryChildCaseIds = [
+			...result.createdChildren.map((child) => child.caseId),
+			...(result.legacyChildCaseIds ?? []),
+		];
+		for (const caseId of ordinaryChildCaseIds) {
 			const mutationSeq = BigInt(receipt.app_mutation_seq);
 			const prior = ordinaryOrigin.get(caseId);
 			if (prior === undefined || mutationSeq < prior.appMutationSeq) {

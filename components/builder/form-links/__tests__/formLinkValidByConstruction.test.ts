@@ -24,6 +24,7 @@ import {
 import {
 	formLinkAddChoices,
 	formLinkCarryVerdict,
+	formLinkManualCarryVerdict,
 	formLinkMoveVerdicts,
 	formLinkRequiredDatums,
 	formLinkTargetVerdict,
@@ -48,7 +49,17 @@ import {
 	seedConditionalLink,
 	seedOtherwiseLink,
 } from "../seeds";
-import { fixture, SOURCE, toInspect, toNote, toVisit, VISIT } from "./fixture";
+import {
+	CARE,
+	fixture,
+	HOUSEHOLDS,
+	INTAKE,
+	SOURCE,
+	toInspect,
+	toNote,
+	toVisit,
+	VISIT,
+} from "./fixture";
 
 /** Replay an ok plan through the gate and the reducers; return the doc. */
 function commit(doc: BlueprintDoc, plan: FormLinkCommitPlan): BlueprintDoc {
@@ -153,6 +164,89 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 		);
 	});
 
+	it("withholds a manual-required destination when a collection cannot be split into explicit values", () => {
+		const nested = produce(doc, (draft) => {
+			const source = draft.modules[INTAKE]?.caseListConfig;
+			const target = draft.modules[CARE]?.caseListConfig;
+			if (source === undefined || target === undefined) {
+				throw new Error("fixture");
+			}
+			source.selection = { kind: "multiple", maximum: 10 };
+			target.selection = { kind: "multiple", maximum: 10 };
+			draft.forms[SOURCE].type = "followup";
+			draft.modules[CARE].parentModuleUuid = HOUSEHOLDS;
+			draft.moduleOrder = [HOUSEHOLDS, CARE, INTAKE];
+			for (const formUuid of [SOURCE, VISIT]) {
+				for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {
+					const field = draft.fields[fieldUuid];
+					if (field !== undefined && "caseWrite" in field) {
+						delete field.caseWrite;
+					}
+				}
+			}
+		});
+
+		expect(formLinkCarryVerdict(nested, SOURCE, toVisit)).toEqual({
+			kind: "manual-required",
+			datumIds: ["case_id"],
+		});
+		const manualVerdict = formLinkManualCarryVerdict(
+			nested,
+			SOURCE,
+			testUuid("prospective-nested-link"),
+			toVisit,
+		);
+		expect(manualVerdict).toMatchObject({
+			ok: false,
+			reason: "selection-cardinality",
+		});
+		expect(formLinkTargetVerdict(nested, SOURCE, undefined, toVisit)).toEqual(
+			manualVerdict,
+		);
+
+		const parse = parserFor(nested, SOURCE);
+		let offered = 0;
+		for (const target of pickerTargets(nested)) {
+			if (!formLinkTargetVerdict(nested, SOURCE, undefined, target).ok)
+				continue;
+			offered += 1;
+			const seed = seedFor(nested, SOURCE, target);
+			commit(
+				nested,
+				planFormLinkAdd(
+					nested,
+					SOURCE,
+					seedConditionalLink(seed, parse, testUuid(`nested-c-${offered}`)),
+				),
+			);
+			commit(
+				nested,
+				planFormLinkAdd(
+					nested,
+					SOURCE,
+					seedOtherwiseLink(seed, parse, testUuid(`nested-o-${offered}`)),
+				),
+			);
+		}
+		expect(offered).toBeGreaterThan(0);
+	});
+
+	it("explains why a form that changes selected case types cannot carry the collection", () => {
+		expect(
+			targetRefusal(
+				{
+					ok: false,
+					reason: "selection-case-type",
+					expectedCaseType: "patient",
+					possibleFinalCaseTypes: ["patient", "visit"],
+				},
+				nameOf,
+			),
+		).toBe(
+			"This form can change the selected cases' type before they get there. Open the destination's form list so the person can choose matching cases, or keep every selected case as “patient”.",
+		);
+	});
+
 	it("names the chain for a destination whose links lead back here", () => {
 		const looped = fixture([], {
 			visitLinks: [
@@ -171,6 +265,39 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 		expect(targetRefusal(verdict, (uuid) => looped.forms[uuid]?.name)).toBe(
 			"Going there would lead back here: “Visit” → this form.",
 		);
+	});
+
+	it("withholds a form that cannot receive the complete case selection", () => {
+		const multiple = produce(doc, (draft) => {
+			const config = draft.modules[CARE]?.caseListConfig;
+			if (config === undefined) throw new Error("fixture");
+			config.selection = { kind: "multiple", maximum: 10 };
+		});
+		const verdict = formLinkTargetVerdict(
+			multiple,
+			VISIT,
+			undefined,
+			toInspect,
+		);
+
+		expect(verdict).toMatchObject({
+			ok: false,
+			reason: "selection-cardinality",
+			sourceCardinality: "multiple",
+			targetCardinality: "single",
+		});
+		expect(targetRefusal(verdict, nameOf)).toBe(
+			"This form can't carry its complete case selection there. Open the destination's form list so the person can choose again.",
+		);
+		const link = seedConditionalLink(
+			seedFor(multiple, VISIT, toInspect),
+			parserFor(multiple, VISIT),
+			testUuid("incompatible-selection"),
+		);
+		expect(planFormLinkAdd(multiple, VISIT, link)).toEqual({
+			ok: false,
+			reason: { kind: "selection-cardinality" },
+		});
 	});
 });
 

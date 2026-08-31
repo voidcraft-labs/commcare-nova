@@ -206,16 +206,19 @@ describe("BuilderSession store", () => {
 		store.getState().setPreviewCaseTarget({ formUuid });
 		expect(store.getState().previewCaseTarget).toEqual({ formUuid });
 
-		/* Same formUuid + caseId — no new state object. */
+		/* Same formUuid + cases — no new state object. */
 		const prev = store.getState();
 		store.getState().setPreviewCaseTarget({ formUuid });
 		expect(store.getState()).toBe(prev);
 
-		/* Adding the caseId is a real change. */
-		store.getState().setPreviewCaseTarget({ formUuid, caseId: "case-1" });
+		/* Adding the ordered cases is a real change. */
+		store.getState().setPreviewCaseTarget({
+			formUuid,
+			cases: [{ caseId: "case-1" }],
+		});
 		expect(store.getState().previewCaseTarget).toEqual({
 			formUuid,
-			caseId: "case-1",
+			cases: [{ caseId: "case-1" }],
 		});
 	});
 
@@ -236,8 +239,7 @@ describe("BuilderSession store", () => {
 		const moduleUuid = testUuid("module-1");
 		const selected = {
 			caseType: "household",
-			caseId: "case-1",
-			caseName: "Ana's household",
+			cases: [{ caseId: "case-1", caseName: "Ana's household" }],
 		};
 
 		store.getState().setPreviewMenuCaseSelection(moduleUuid, selected);
@@ -289,16 +291,16 @@ describe("BuilderSession store", () => {
 		const formUuid = testUuid("form-1");
 
 		/* Entering preview clears any stray target + selection. */
-		store
-			.getState()
-			.setPreviewCaseTarget({ formUuid, caseId: "case-1", caseName: "Ana" });
+		store.getState().setPreviewCaseTarget({
+			formUuid,
+			cases: [{ caseId: "case-1", caseName: "Ana" }],
+		});
 		store
 			.getState()
 			.setPreviewSelectedCase({ caseId: "case-1", caseName: "Ana" });
 		store.getState().setPreviewMenuCaseSelection(testUuid("module-1"), {
 			caseType: "household",
-			caseId: "case-1",
-			caseName: "Ana",
+			cases: [{ caseId: "case-1", caseName: "Ana" }],
 		});
 		store.getState().setPreviewing(true);
 		expect(store.getState().previewCaseTarget).toBeUndefined();
@@ -327,7 +329,7 @@ describe("BuilderSession store", () => {
 			.setPreviewPersonaUuid("11111111-1111-4111-8111-111111111111");
 		store.getState().setPreviewCaseTarget({
 			formUuid,
-			caseId: "case-from-source-project",
+			cases: [{ caseId: "case-from-source-project" }],
 		});
 		store.getState().setPreviewSelectedCase({
 			caseId: "case-from-source-project",
@@ -337,7 +339,7 @@ describe("BuilderSession store", () => {
 		store.getState().resetProjectScope();
 
 		expect(store.getState().previewing).toBe(true);
-		expect(store.getState().previewCaseTarget?.caseId).toBe(
+		expect(store.getState().previewCaseTarget?.cases?.[0]?.caseId).toBe(
 			"case-from-source-project",
 		);
 		expect(store.getState().previewSelectedCase?.caseId).toBe(
@@ -352,7 +354,7 @@ describe("BuilderSession store", () => {
 			role: "editor",
 			canEdit: true,
 		});
-		expect(store.getState().previewCaseTarget?.caseId).toBe(
+		expect(store.getState().previewCaseTarget?.cases?.[0]?.caseId).toBe(
 			"case-from-source-project",
 		);
 		expect(store.getState().previewPersonaUuid).toBe(

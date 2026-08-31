@@ -2146,7 +2146,7 @@ export class EngineController {
 	 * on `validateAll()` first; the engine assumes a valid form.
 	 */
 	computeSubmissionMutation(args: {
-		caseId?: string;
+		caseIds?: readonly string[];
 		viewerTimeZone?: string;
 	}): SubmissionMutation {
 		if (
@@ -2191,7 +2191,7 @@ export class EngineController {
 	}
 
 	async computeSubmissionMutationAsync(
-		args: { caseId?: string; viewerTimeZone?: string },
+		args: { caseIds?: readonly string[]; viewerTimeZone?: string },
 		expectedEntryKey: string,
 	): Promise<EngineSubmissionSnapshot | undefined> {
 		if (!(await this.awaitSettled(expectedEntryKey))) return undefined;

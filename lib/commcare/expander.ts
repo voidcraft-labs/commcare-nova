@@ -63,7 +63,7 @@ import {
 	moduleCaseTypeForActions,
 	type ProjectedFormLink,
 	projectFormLinks,
-	selectedCaseDatumId,
+	selectedCaseSessionDatum,
 } from "./formLinkProjection";
 import { projectCaseListForHq } from "./hqJson/caseList";
 import { buildXForm } from "./xform/builder";
@@ -255,12 +255,14 @@ export function expandDoc(
 			// lookup also enforces the connect-mode stash: per-form configs
 			// stashed across mode toggles never leak into a mode-off export.
 			const effectiveConnect = connectSlugs.get(formUuid);
-			const ownCaseDatumId = selectedCaseDatumId(
+			const ownCaseDatum = selectedCaseSessionDatum(
 				doc,
 				linkContext,
 				moduleUuid,
 				formUuid,
 			);
+			const ownCaseDatumId = ownCaseDatum?.id;
+			const formActions = linkContext.formActions(formUuid);
 
 			attachments[`${formUniqueId}.xml`] = buildXForm(doc, formUuid, {
 				xmlns,
@@ -268,9 +270,20 @@ export function expandDoc(
 				// reachable-case-type depth map matches the deep validator's accept
 				// map, which builds from `mod.caseType` directly.
 				...(mod.caseType && { moduleCaseType: mod.caseType }),
-				...(ownCaseDatumId !== undefined && {
-					selectedCaseIdRef: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
-				}),
+				...(ownCaseDatumId !== undefined &&
+					ownCaseDatum?.maxSelectValue === undefined && {
+						selectedCaseIdRef: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
+					}),
+				...(ownCaseDatumId !== undefined &&
+					ownCaseDatum?.maxSelectValue !== undefined && {
+						selectedCasesInstanceId: ownCaseDatumId,
+						...(form.type === "close" && {
+							multiSelectCloseCondition: formActions.close_case.condition,
+						}),
+						...(formActions.subcases.length > 0 && {
+							multiSelectSubcases: formActions.subcases,
+						}),
+					}),
 				...(effectiveConnect && { connect: effectiveConnect }),
 				...(assets && { assets }),
 				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
@@ -302,7 +315,7 @@ export function expandDoc(
 				localization.textMap(makeTranslationUnitId("form", formUuid, "name")),
 				xmlns,
 				CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
-				linkContext.formActions(formUuid),
+				formActions,
 				// Raw `mod.caseType` for the same reason as `buildXForm`'s
 				// `moduleCaseType` above: the depth map must match the deep
 				// validator's accept map.

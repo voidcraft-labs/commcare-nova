@@ -36,6 +36,7 @@ import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeChe
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
 import { moduleDisplayCondition } from "./displayConditions";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
+import { multiSelectTopology } from "./multiSelect";
 
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
@@ -243,6 +244,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	invalidCaseTypeFormat,
 	caseTypeTooLong,
 	missingCaseListColumns,
+	multiSelectTopology,
 	moduleDisplayCondition,
 	// Case-list-config rules (sit at module scope; the cross-form
 	// kind-vs-property-type rule lives at app scope in `app.ts`).
