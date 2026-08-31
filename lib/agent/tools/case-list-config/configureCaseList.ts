@@ -46,6 +46,7 @@ import {
 } from "../shared/entityAddresses";
 import type { ToolCallSummary } from "../shared/toolCallSummary";
 import {
+	CALCULATED_SEARCH_EXPRESSION_GUIDANCE,
 	columnInputSchema,
 	newUuid,
 	searchInputDefInputSchema,
@@ -64,7 +65,7 @@ export const configureCaseListInputSchema = z
 			.min(1)
 			.optional()
 			.describe(
-				"Known columns to add. Their input order is their initial Results and Details order. Supply columnUuid when an order in this call references the new column.",
+				`Known columns to add. Their input order is their initial Results and Details order. Supply columnUuid when an order in this call references the new column. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE}`,
 			),
 		searchInputs: z
 			.array(searchInputDefInputSchema)

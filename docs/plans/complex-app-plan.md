@@ -2349,8 +2349,8 @@ sharp edges rather than Nova bugs.
 [`complex-app/multi-select-related-cases-and-profile.md`](complex-app/multi-select-related-cases-and-profile.md)
 · depends on nothing outstanding · blocks nothing
 
-Two independent projections. **The file holds** the related-case query keys and
-visible-result exclusion, Nova's derived large-Search tuning and safe profile
+Two independent projections. **The file holds** the derived related-case query
+datum and visible-result exclusion, Nova's large-Search tuning and safe profile
 preservation, the project-space compatibility surface, and the removed
 `CaseSearch` fields that must never be modeled. Nova authors no sync or generic
 profile-property model.

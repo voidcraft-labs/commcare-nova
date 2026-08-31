@@ -5,6 +5,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
+	ancestorPath,
 	and,
 	concat,
 	count,
@@ -16,12 +17,20 @@ import {
 	match,
 	missing,
 	prop,
+	relationStep,
+	selfPath,
 	sessionContext,
 	sessionUser,
+	subcasePath,
 	term,
 	within,
 } from "../builders";
-import { expressionReadsCaseData, predicateReadsCaseData } from "../walk";
+import {
+	expressionReadsCaseData,
+	expressionReadsRelatedCaseData,
+	predicateReadsCaseData,
+	predicateReadsRelatedCaseData,
+} from "../walk";
 
 describe("expressionReadsCaseData", () => {
 	it("detects case reads at any expression depth", () => {
@@ -119,5 +128,75 @@ describe("predicateReadsCaseData", () => {
 				),
 			),
 		).toBe(false);
+	});
+});
+
+describe("expressionReadsRelatedCaseData", () => {
+	const parent = ancestorPath(relationStep("parent", "household"));
+
+	it("distinguishes current-case reads from relationship walks", () => {
+		expect(
+			expressionReadsRelatedCaseData(term(prop("patient", "case_name"))),
+		).toBe(false);
+		expect(
+			expressionReadsRelatedCaseData(
+				term(prop("patient", "case_name", selfPath())),
+			),
+		).toBe(false);
+		expect(
+			expressionReadsRelatedCaseData(term(prop("patient", "region", parent))),
+		).toBe(true);
+	});
+
+	it("keeps self cardinality local while detecting nested related reads", () => {
+		expect(expressionReadsRelatedCaseData(count(selfPath()))).toBe(false);
+		expect(
+			expressionReadsRelatedCaseData(
+				ifExpr(
+					exists(selfPath()),
+					term(literal("present")),
+					term(literal("missing")),
+				),
+			),
+		).toBe(false);
+		expect(
+			expressionReadsRelatedCaseData(
+				count(
+					selfPath(),
+					eq(term(prop("patient", "region", parent)), term(literal("north"))),
+				),
+			),
+		).toBe(true);
+	});
+
+	it("detects relationship aggregates without property leaves", () => {
+		expect(
+			expressionReadsRelatedCaseData(count(subcasePath("parent", "visit"))),
+		).toBe(true);
+	});
+});
+
+describe("predicateReadsRelatedCaseData", () => {
+	const parent = ancestorPath(relationStep("parent", "household"));
+
+	it("keeps self presence local", () => {
+		expect(predicateReadsRelatedCaseData(exists(selfPath()))).toBe(false);
+		expect(predicateReadsRelatedCaseData(missing(selfPath()))).toBe(false);
+	});
+
+	it("detects direct and nested relationship reads", () => {
+		expect(
+			predicateReadsRelatedCaseData(
+				eq(term(prop("patient", "region", parent)), term(literal("north"))),
+			),
+		).toBe(true);
+		expect(
+			predicateReadsRelatedCaseData(
+				missing(
+					selfPath(),
+					eq(term(prop("patient", "region", parent)), term(literal("north"))),
+				),
+			),
+		).toBe(true);
 	});
 });

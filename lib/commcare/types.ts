@@ -397,6 +397,9 @@ export interface DefaultCaseSearchProperty {
  * persisted flag. The web runtime honors the flag, which is the
  * shape Nova's `compileForPlatform` decision tree produces for
  * web. Persisting one shape gives both runtimes the right UX.
+ * `include_all_related_cases` is derived wire state: Nova sets it only
+ * when effective Search emits information that reads a supporting parent.
+ * It is never an author-facing option.
  */
 export interface CaseSearchConfig {
 	doc_type: "CaseSearch";
@@ -405,6 +408,7 @@ export interface CaseSearchConfig {
 	auto_launch: boolean;
 	default_search: boolean;
 	inline_search: boolean;
+	include_all_related_cases: boolean;
 	search_button_display_condition?: string;
 	default_properties: DefaultCaseSearchProperty[];
 	blacklisted_owner_ids_expression?: string;

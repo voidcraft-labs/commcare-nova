@@ -1,16 +1,32 @@
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { literal, prop, term } from "@/lib/domain/predicate";
+import { addCaseListColumnsInputSchema } from "../addCaseListColumns";
+import { configureCaseListInputSchema } from "../configureCaseList";
 import {
 	columnInputSchema,
 	searchInputDefInputSchema,
 	stampColumnUuid,
 	stampSearchInputUuid,
 } from "../shared";
+import { updateCaseListColumnInputSchema } from "../updateCaseListColumn";
 
 const UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 
 describe("case-list tools use the exact case-property vocabulary", () => {
+	it("explains the related-case shape available to calculated Search columns", () => {
+		for (const inputSchema of [
+			configureCaseListInputSchema,
+			addCaseListColumnsInputSchema,
+			updateCaseListColumnInputSchema,
+		]) {
+			const schema = JSON.stringify(z.toJSONSchema(inputSchema));
+			expect(schema).toContain("one parent property by itself");
+			expect(schema).toContain("Do not wrap the parent property");
+		}
+	});
+
 	it("preserves an accepted column field exactly", () => {
 		const column = stampColumnUuid(
 			{ kind: "plain", field: "external_id", header: "Value" },

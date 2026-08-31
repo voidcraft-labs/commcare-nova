@@ -227,6 +227,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: "soundness",
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE: "soundness",
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: "soundness",
+	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: "soundness",
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: "soundness",
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: "completeness",

@@ -12,6 +12,7 @@ import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import {
 	type CaseListConfig,
+	caseListColumnIsEmitted,
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
 	searchInputDefault,
@@ -26,6 +27,7 @@ import {
 } from "../../predicate";
 import { emitNormalizedExcludedOwnerIdsExpression } from "../case-list/nodesetFilter";
 import { SEARCH_SELECTED_CASES_ID } from "./claim";
+import { searchNeedsSupportingCases } from "./relatedCaseProjection";
 import { buildSearchPrompts, getAdvancedArmPredicates } from "./searchPrompts";
 import {
 	deriveSimpleArmPredicate,
@@ -53,6 +55,14 @@ const SEARCH_URL_TEMPLATE =
  * the wire-side translation, applied at the emission site below.
  */
 const EXCLUDED_OWNER_IDS_WIRE_KEY = "commcare_blacklisted_owner_ids";
+
+/**
+ * Private CCHQ query datum requesting the supporting case rows needed to
+ * evaluate relation-backed Search details. Nova derives it from emitted
+ * information; it is never authoring state.
+ */
+const INCLUDE_ALL_RELATED_CASES_WIRE_KEY =
+	"x_commcare_include_all_related_cases";
 
 /**
  * CCHQ wire-key for a CSQL query value, lifted from
@@ -120,7 +130,8 @@ export function buildSearchSession(args: {
 	// `commcare-hq/.../suite_xml/post_process/remote_requests.py::_remote_request_query_datums`:
 	// `case_type` first, then every `default_properties[]` entry
 	// (where `_xpath_query` lives on CCHQ's side), then
-	// `commcare_blacklisted_owner_ids`. Order is runtime-irrelevant —
+	// `commcare_blacklisted_owner_ids`, then the derived supporting-case
+	// request when emitted information needs it. Order is runtime-irrelevant —
 	// `RemoteQuerySessionManager.getRawQueryParams` keys data into a
 	// `Multimap<String, String>` by key — but the canonical order
 	// keeps Nova's local suite.xml structurally mirroring the suite
@@ -188,6 +199,20 @@ export function buildSearchSession(args: {
 			el("data", {
 				key: EXCLUDED_OWNER_IDS_WIRE_KEY,
 				ref: excludedOwnerIds,
+			}),
+		);
+	}
+
+	if (
+		searchNeedsSupportingCases(caseListConfig, {
+			...(args.typeContext ?? {}),
+			currentCaseType: caseType,
+		})
+	) {
+		dataElements.push(
+			el("data", {
+				key: INCLUDE_ALL_RELATED_CASES_WIRE_KEY,
+				ref: "'true'",
 			}),
 		);
 	}
@@ -376,7 +401,9 @@ export function buildSearchSession(args: {
 	// server-regenerated suite gets via
 	// `commcare-hq/.../suite_xml/post_process/instances.py::InstancesHelper.add_entry_instances`.
 	for (const column of caseListConfig.columns) {
-		if (column.kind !== "calculated") continue;
+		if (column.kind !== "calculated" || !caseListColumnIsEmitted(column)) {
+			continue;
+		}
 		for (const id of collectExpressionInstances(
 			column.expression,
 			args.lookupNaming,

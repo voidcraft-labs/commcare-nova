@@ -160,7 +160,13 @@ const linkColumnInputArm = linkColumnArm.omit(columnToolOwnedSlots).extend({
 });
 const calculatedColumnInputArm = calculatedColumnArm
 	.omit(columnToolOwnedSlots)
-	.extend({ ...newColumnIdentity, expression: valueExpressionInputSchema });
+	.extend({
+		...newColumnIdentity,
+		expression: valueExpressionInputSchema,
+	});
+
+export const CALCULATED_SEARCH_EXPRESSION_GUIDANCE =
+	"When the module uses Search, a calculated column can use the current case or show one parent property by itself. Do not wrap the parent property in another calculation.";
 
 export const columnInputSchema = z.discriminatedUnion("kind", [
 	plainColumnInputArm,

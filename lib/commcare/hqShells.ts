@@ -202,6 +202,7 @@ export function caseSearchConfigShell(): CaseSearchConfig {
 		auto_launch: false,
 		default_search: false,
 		inline_search: false,
+		include_all_related_cases: false,
 		default_properties: [],
 		title_label: {},
 		description: {},

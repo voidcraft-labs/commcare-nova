@@ -414,10 +414,15 @@ export function expressionReadsRelatedCaseData(
 		}
 	});
 	walkExpressionNodes(expression, (node) => {
-		if (node.kind === "count") readsRelated = true;
+		if (node.kind === "count" && node.via.kind !== "self") {
+			readsRelated = true;
+		}
 	});
 	walkExpressionPredicateNodes(expression, (predicate) => {
-		if (predicate.kind === "exists" || predicate.kind === "missing") {
+		if (
+			(predicate.kind === "exists" || predicate.kind === "missing") &&
+			predicate.via.kind !== "self"
+		) {
 			readsRelated = true;
 		}
 	});
@@ -437,10 +442,15 @@ export function predicateReadsRelatedCaseData(predicate: Predicate): boolean {
 		}
 	});
 	walkPredicateExpressionNodes(predicate, (node) => {
-		if (node.kind === "count") readsRelated = true;
+		if (node.kind === "count" && node.via.kind !== "self") {
+			readsRelated = true;
+		}
 	});
 	walkPredicateNodes(predicate, (node) => {
-		if (node.kind === "exists" || node.kind === "missing") {
+		if (
+			(node.kind === "exists" || node.kind === "missing") &&
+			node.via.kind !== "self"
+		) {
 			readsRelated = true;
 		}
 	});
