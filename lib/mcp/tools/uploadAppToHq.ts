@@ -117,6 +117,7 @@ import {
 } from "@/lib/deployment/service";
 import type { DeploymentResourceConflict } from "@/lib/deployment/types";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import { legacyFeatureFlagCompatibilityReport } from "@/lib/publish/projectSpaceCompatibilityLegacy";
 import { initMcpCall } from "../context";
 import {
 	McpInvalidInputError,
@@ -544,6 +545,12 @@ export function registerUploadAppToHq(
 					const record = outcome.deployment.deployment;
 					const remote = activeRemoteApp(outcome.deployment);
 					const hqAppId = remote?.remoteId ?? null;
+					const legacyCompatibility =
+						outcome.projectSpaceCompatibility === null
+							? null
+							: legacyFeatureFlagCompatibilityReport(
+									outcome.projectSpaceCompatibility,
+								);
 					call.current?.progress.notify(
 						"upload_complete",
 						`Uploaded. HQ app id ${hqAppId ?? "unknown"}`,
@@ -559,6 +566,11 @@ export function registerUploadAppToHq(
 						url: outcome.hqAppUrl,
 						warnings: outcome.warnings,
 						project_space_compatibility: outcome.projectSpaceCompatibility,
+						/* Rollout bridge for the released plugin. Values are projected from
+						 * semantic capabilities and contain no private HQ setting names. */
+						...(legacyCompatibility === null
+							? {}
+							: { feature_flag_requirements: legacyCompatibility }),
 						deployment_state: record.state,
 						deployment: describeDeployment(
 							outcome.deployment,

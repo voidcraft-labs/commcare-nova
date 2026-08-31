@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { withSentryConfig } from "@sentry/nextjs";
 import { createMDX } from "fumadocs-mdx/next";
 import type { NextConfig } from "next";
+import { docsRedirects } from "./config/docsRedirects";
 import { readReactProfilerConfig } from "./config/reactProfiler";
 
 const withMDX = createMDX();
@@ -13,6 +14,10 @@ const reactProfiler = readReactProfilerConfig();
 const buildRoot = fileURLToPath(new URL(".", import.meta.url));
 
 const nextConfig: NextConfig = {
+	/* Keep the retired docs URL working while clients and bookmarks move to the
+	 * semantic project-space guidance. Config redirects run before proxy host
+	 * routing, so constrain this one to the docs hostname. */
+	redirects: docsRedirects,
 	/* React DevTools must install its hook before React initializes. The audited
 	 * package's generated App Router wrapper runs too late, so the local harness
 	 * opts into Next's pre-hydration injection point instead. Build-time omission

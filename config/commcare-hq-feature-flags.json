@@ -59,8 +59,8 @@
 			"expectedParents": ["SYNC_SEARCH_CASE_CLAIM"],
 			"upstreamEvidence": [
 				{
-					"path": "corehq/apps/case_search/utils.py",
-					"contains": "if not toggles.CASE_SEARCH_ADVANCED.enabled(domain)"
+					"path": "corehq/apps/app_manager/suite_xml/post_process/remote_requests.py",
+					"contains": "if prop.default_value and self.app.enable_default_value_expression:"
 				},
 				{
 					"path": "corehq/apps/app_manager/feature_support.py",

@@ -457,6 +457,15 @@ describe("registerUploadAppToHq — happy path", () => {
 				status: "not_needed",
 				required_capabilities: [],
 			}),
+			feature_flag_requirements: {
+				verification: "not_required",
+				required_flags: [],
+				missing_flags: [],
+				unverified_flags: [],
+				support_email: expect.any(String),
+				docs_url: expect.any(String),
+				message: expect.any(String),
+			},
 		});
 		/* Uploading is not releasing: the state a successful publish reaches
 		 * is `uploaded`, and a client that reported it as live would be
@@ -564,6 +573,16 @@ describe("registerUploadAppToHq — happy path", () => {
 				required_capabilities: { id: string; state: string }[];
 				advisories: { id: string; state: string }[];
 			};
+			feature_flag_requirements: {
+				verification: string;
+				required_flags: Array<{
+					id: string;
+					slug: string;
+					namespaces: string[];
+				}>;
+				missing_flags: unknown[];
+				unverified_flags: unknown[];
+			};
 		};
 
 		expect(importApp).toHaveBeenCalledTimes(1);
@@ -579,6 +598,19 @@ describe("registerUploadAppToHq — happy path", () => {
 				}),
 			],
 		});
+		expect(parsed.feature_flag_requirements).toMatchObject({
+			verification: "verified",
+			required_flags: [
+				{ id: "case-search", slug: "case-search", namespaces: [] },
+			],
+			missing_flags: [],
+			unverified_flags: [],
+		});
+		const serialized = JSON.stringify(parsed.feature_flag_requirements);
+		expect(serialized).not.toContain("large-search-performance");
+		expect(serialized).not.toMatch(
+			/search_claim|case_search_advanced|commcare_connect|mm_case_properties|view_form_attachments|custom_properties|NAMESPACE_|TAG_/i,
+		);
 	});
 
 	it("blocks before upload when required project-space support is missing", async () => {

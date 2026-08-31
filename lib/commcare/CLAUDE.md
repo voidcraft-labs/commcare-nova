@@ -82,8 +82,11 @@ HQ accepts an API key there but separately requires the connected web account's
 Mobile App Access permission; a 403 is therefore a permission-specific
 unverified result, never evidence that Search is missing. Only the exact
 configured-off 404 is missing, and no result body is retained or logged.
-Advanced Search adds its private child setting to the SAME public Case search
-capability. Missing or unverified required capabilities block before writes.
+Only a Search field with a starting value adds the private child setting to the
+SAME public Case search capability, because HQ omits `<prompt default>` without
+it. HQ still emits and executes `_xpath_query` filters without that setting;
+the disabled path records telemetry but does not reject the query. Missing or
+unverified required capabilities block before writes.
 The large-search performance check is advisory: it controls only whether Nova
 can add its derived Search optimization and never blocks publishing or removes
 Search.
@@ -100,8 +103,10 @@ settings and never enter `BlueprintDoc`. Effective remote Search derives
 `cc-index-case-search-results=yes`, which indexes Search results in CommCare's
 temporary case storage and does not request or imitate a sync. Local CCZ emits
 the property because its supported runtime is fixed. Targetless HQ JSON carries
-the derived property as intent. Direct publishing includes it only when the
-selected project space supports the performance advisory.
+the derived property as intent. Direct publishing includes it when the selected
+project space supports the performance advisory. An inconclusive advisory
+preserves the target's current owned value on update; confirmed missing support
+removes it, as does removing Search from the app.
 
 HQ shallow-replaces the full `profile` object when an import includes one, so
 in-place updates read and validate the current source profile immediately

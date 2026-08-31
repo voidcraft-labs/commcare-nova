@@ -61,7 +61,7 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		).toEqual({ capabilities: [], advisories: [] });
 	});
 
-	it("groups base and advanced Search checks under one public capability", () => {
+	it("checks only base Search for a zero-input Search", () => {
 		const patient = module({ caseSearchConfig: {} });
 		const plan = projectSpaceCompatibilityProbePlan(
 			doc({ modules: { [patient.uuid]: patient } }),
@@ -71,11 +71,76 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		expect(plan.capabilities[0]?.capability.id).toBe("case-search");
 		expect(plan.capabilities[0]?.featureFlags.map((flag) => flag.id)).toEqual([
 			"case-search-base",
-			"advanced-case-search",
 		]);
 		expect(plan.capabilities[0]?.runtimeProbes).toEqual(["case-search"]);
 		expect(plan.capabilities[0]?.featureFlags[0]?.namespace).toBe("domain");
 		expect(plan.advisories[0]?.advisory.id).toBe("large-search-performance");
+	});
+
+	it("adds advanced Search only for a field starting value", () => {
+		const nameColumn = plainColumn(
+			testUuid("column-name-default"),
+			"name",
+			"Name",
+		);
+		const patient = module({
+			caseSearchConfig: {},
+			caseListConfig: {
+				columns: [nameColumn],
+				listColumnOrder: [nameColumn.uuid],
+				detailColumnOrder: [nameColumn.uuid],
+				searchInputs: [
+					{
+						uuid: testUuid("search-name-default"),
+						kind: "simple",
+						type: "text",
+						name: "name",
+						label: "Name",
+						property: "name",
+						default: term(literal("Ada")),
+					},
+				],
+			},
+		});
+		const plan = projectSpaceCompatibilityProbePlan(
+			doc({ modules: { [patient.uuid]: patient } }),
+		);
+
+		expect(plan.capabilities[0]?.featureFlags.map((flag) => flag.id)).toEqual([
+			"case-search-base",
+			"advanced-case-search",
+		]);
+		expect(plan.capabilities[0]?.capability.reasons).toContain(
+			"A Search field starts with a suggested value.",
+		);
+	});
+
+	it("does not require advanced Search for an app-defined query", () => {
+		const patient = module({
+			caseSearchConfig: {},
+			caseListConfig: {
+				columns: [],
+				listColumnOrder: [],
+				detailColumnOrder: [],
+				searchInputs: [
+					{
+						uuid: testUuid("search-advanced-query"),
+						kind: "advanced",
+						type: "text",
+						name: "query",
+						label: "Query",
+						predicate: { kind: "match-all" },
+					},
+				],
+			},
+		});
+		const plan = projectSpaceCompatibilityProbePlan(
+			doc({ modules: { [patient.uuid]: patient } }),
+		);
+
+		expect(plan.capabilities[0]?.featureFlags.map((flag) => flag.id)).toEqual([
+			"case-search-base",
+		]);
 	});
 
 	it("checks only base Search for an ordinary exact input", () => {

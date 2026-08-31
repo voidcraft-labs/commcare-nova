@@ -33,14 +33,14 @@ function application(withDerivedProfile = true): HqApplication {
 describe("target profile projection", () => {
 	it("keeps the derived property for a supported new app", () => {
 		const input = application();
-		expect(projectNewAppProfileForTarget(input, true)).toEqual({
+		expect(projectNewAppProfileForTarget(input, "available")).toEqual({
 			application: input,
 			profileChanged: false,
 		});
 	});
 
 	it("omits the advisory property for an unsupported new app", () => {
-		const projected = projectNewAppProfileForTarget(application(), false);
+		const projected = projectNewAppProfileForTarget(application(), "missing");
 		expect(projected.application.profile).toBeUndefined();
 		expect(Object.keys(projected.application).at(-1)).toBe("_attachments");
 	});
@@ -53,7 +53,7 @@ describe("target profile projection", () => {
 		input.profile.features = { foreign: { active: true } };
 		input.profile.custom_properties.foreign = "generated";
 
-		const projected = projectNewAppProfileForTarget(input, false);
+		const projected = projectNewAppProfileForTarget(input, "unverified");
 		expect(projected.application.profile).toEqual({
 			features: { foreign: { active: true } },
 			custom_properties: { foreign: "generated" },
@@ -75,7 +75,7 @@ describe("target profile projection", () => {
 					"cc-index-case-search-results": "no",
 				},
 			},
-			true,
+			"available",
 		);
 
 		expect(projected.profileChanged).toBe(true);
@@ -107,7 +107,7 @@ describe("target profile projection", () => {
 					"cc-index-case-search-results": "no",
 				},
 			},
-			true,
+			"available",
 		);
 
 		expect(projected.application.profile?.custom_properties).toEqual({
@@ -128,7 +128,7 @@ describe("target profile projection", () => {
 					"cc-index-case-search-results": "yes",
 				},
 			},
-			false,
+			"not-needed",
 		);
 
 		expect(projected.profileChanged).toBe(true);
@@ -152,10 +152,45 @@ describe("target profile projection", () => {
 					"cc-index-case-search-results": "yes",
 				},
 			},
-			true,
+			"available",
 		);
 
 		expect(projected).toMatchObject({ profileChanged: false });
 		expect(projected.application.profile).toBeUndefined();
+	});
+
+	it("preserves the current profile when advisory support is unverified", () => {
+		const projected = projectUpdatedAppProfileForTarget(
+			application(),
+			{
+				features: { foreign: { active: true } },
+				custom_properties: {
+					foreign: "kept",
+					"cc-index-case-search-results": "yes",
+				},
+			},
+			"unverified",
+		);
+
+		expect(projected).toMatchObject({ profileChanged: false });
+		expect(projected.application.profile).toBeUndefined();
+		expect(Object.keys(projected.application).at(-1)).toBe("_attachments");
+	});
+
+	it("removes the owned key after confirmed missing support", () => {
+		const projected = projectUpdatedAppProfileForTarget(
+			application(),
+			{
+				custom_properties: {
+					foreign: "kept",
+					"cc-index-case-search-results": "yes",
+				},
+			},
+			"missing",
+		);
+
+		expect(projected.application.profile?.custom_properties).toEqual({
+			foreign: "kept",
+		});
 	});
 });

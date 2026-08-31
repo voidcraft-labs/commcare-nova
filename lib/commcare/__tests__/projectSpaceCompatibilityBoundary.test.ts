@@ -30,6 +30,7 @@ const RETIRED_PUBLIC_NAMES = [
 const ROLLOUT_COMPATIBILITY_FILES = new Set([
 	"app/api/commcare/feature-flags/route.ts",
 	"lib/mcp/tools/getAppHqFeatureFlagsCompatibility.ts",
+	"lib/mcp/tools/uploadAppToHq.ts",
 	"lib/publish/projectSpaceCompatibilityLegacy.ts",
 ]);
 

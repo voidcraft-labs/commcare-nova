@@ -13,8 +13,8 @@ import {
 	effectiveCaseSearchConfig,
 	isCaptureField,
 	type Module,
+	searchInputDefault,
 } from "@/lib/domain";
-import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import {
 	type ProjectSpaceAdvisoryUse,
 	type ProjectSpaceCapabilityUse,
@@ -23,7 +23,6 @@ import {
 	projectSpaceCapabilityUse,
 	projectSpaceCompatibilityForUnknownTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
-import { simpleArmNeedsXPathQueryEmission } from "./suite/case-search/simpleArmDerivation";
 
 export * from "@/lib/publish/projectSpaceCompatibility";
 
@@ -62,60 +61,30 @@ export interface HqProjectSpaceCompatibilityProbePlan {
 }
 
 /**
- * Whether a module crosses HQ's advanced Search boundary.
+ * Whether a module needs Search prompt starting values on an HQ-built suite.
  *
- * The base Search runtime is always required for effective Search. The extra
- * private setting is applicable only when Nova emits `_xpath_query` behavior
- * or prompt defaults.
+ * HQ always emits and executes `_xpath_query`, even without its private child
+ * setting. The setting gates only `properties[].default_value` when HQ
+ * regenerates `<prompt default>`, so no other Search behavior belongs here.
  */
 function moduleRequiresAdvancedCaseSearch(module: Module): boolean {
 	if (effectiveCaseSearchConfig(module) === undefined) return false;
-	const list = module.caseListConfig;
-	if (!list) return false;
-	if (effectiveFilterForEmission(list.filter) !== undefined) return true;
-	if (list.searchInputs.length === 0) return true;
-
-	return list.searchInputs.some((input) => {
-		if (input.kind === "advanced") return true;
-		if ("default" in input && input.default !== undefined) return true;
-		return simpleArmNeedsXPathQueryEmission(input);
-	});
+	return (
+		module.caseListConfig?.searchInputs.some(
+			(input) => searchInputDefault(input) !== undefined,
+		) ?? false
+	);
 }
 
 function advancedCaseSearchReasons(module: Module): string[] {
 	if (!moduleRequiresAdvancedCaseSearch(module)) return [];
 	const list = module.caseListConfig;
 	if (!list) return [];
-	const reasons: string[] = [];
-
-	if (effectiveFilterForEmission(list.filter) !== undefined) {
-		reasons.push("Search results use an app-defined filter.");
-	}
-	if (list.searchInputs.length === 0) {
-		reasons.push("Search can open without asking for any inputs.");
-	}
-	if (list.searchInputs.some((input) => input.kind === "advanced")) {
-		reasons.push("A Search input uses an app-defined condition.");
-	}
-	if (
-		list.searchInputs.some(
-			(input) => "default" in input && input.default !== undefined,
-		)
-	) {
-		reasons.push("A Search input supplies a suggested value.");
-	}
-	if (
-		list.searchInputs.some(
-			(input) =>
-				input.kind === "simple" && simpleArmNeedsXPathQueryEmission(input),
-		)
-	) {
-		reasons.push("A Search input uses flexible matching.");
-	}
-
-	return reasons.length > 0
-		? reasons
-		: ["The app uses advanced Search behavior."];
+	return list.searchInputs.some(
+		(input) => searchInputDefault(input) !== undefined,
+	)
+		? ["A Search field starts with a suggested value."]
+		: [];
 }
 
 /** Semantic capabilities and private proof inputs required by this app. */

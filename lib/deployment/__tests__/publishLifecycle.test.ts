@@ -222,6 +222,20 @@ function validDoc() {
 	return doc;
 }
 
+function searchDoc() {
+	const doc = validDoc();
+	const module = Object.values(doc.modules)[0];
+	if (!module) throw new Error("Expected the fixture module");
+	module.caseSearchConfig = {};
+	module.caseListConfig = {
+		columns: [],
+		listColumnOrder: [],
+		detailColumnOrder: [],
+		searchInputs: [],
+	};
+	return doc;
+}
+
 function publishInput(overrides: Record<string, unknown> = {}) {
 	return {
 		scope: SCOPE,
@@ -1197,6 +1211,81 @@ describe("publishAppToHq — update in place vs create", () => {
 		expect(outcome.landed).toBe(true);
 		expect(outcome).toMatchObject({ hqAppAction: "updated" });
 	});
+
+	it.each(["unverified", "absent"] as const)(
+		"preserves the current Search profile when advisory support is %s",
+		async (advisoryResult) => {
+			const preparedDoc = searchDoc();
+			vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
+				ok: true,
+				prepared: {
+					mode: "hq-upload",
+					doc: preparedDoc,
+					compiledAtSeq: 7,
+					assets: new Map(),
+					lookupTargets: { tables: [], columns: [] },
+					lookupSnapshot: undefined,
+					lookupContext: { kind: "unavailable" },
+				},
+			} as never);
+			vi.mocked(probeHqProjectSpaceCompatibility).mockImplementationOnce(
+				async (_creds, domain, plan) => {
+					const capabilities = plan.capabilities.map((item) => ({
+						capability: item.capability,
+						state: "available" as const,
+					}));
+					const advisories =
+						advisoryResult === "unverified"
+							? plan.advisories.map((item) => ({
+									advisory: item.advisory,
+									state: "unverified" as const,
+								}))
+							: [];
+					return {
+						capabilities,
+						advisories,
+						availableAdvisories: [],
+						report: projectSpaceCompatibilityForTarget(
+							domain,
+							capabilities,
+							advisories,
+						),
+					};
+				},
+			);
+			vi.mocked(readDeployment).mockImplementation(
+				async () =>
+					({
+						deployment: record({ state: "released" }),
+						active: [mapping()],
+						superseded: [],
+					}) as never,
+			);
+			vi.mocked(readHqAppSourceProfile).mockResolvedValueOnce({
+				profile: {
+					custom_properties: {
+						foreign: "kept",
+						"cc-index-case-search-results": "yes",
+					},
+				},
+			});
+			vi.mocked(expandDoc).mockReturnValueOnce({
+				profile: {
+					custom_properties: {
+						"cc-index-case-search-results": "yes",
+					},
+				},
+				_attachments: {},
+			} as never);
+
+			await publishAppToHq(publishInput({ doc: preparedDoc }));
+
+			const imported = vi.mocked(importApp).mock.calls[0]?.[3] as {
+				profile?: unknown;
+			};
+			expect(imported.profile).toBeUndefined();
+		},
+	);
 
 	it("refuses an update when the current HQ app source is unavailable", async () => {
 		vi.mocked(readDeployment).mockImplementation(

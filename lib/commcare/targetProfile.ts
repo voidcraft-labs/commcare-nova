@@ -16,6 +16,13 @@ export interface TargetProfileProjection {
 	readonly profileChanged: boolean;
 }
 
+/** How this app's derived Search profile intent should meet one HQ target. */
+export type DerivedProfileTargetState =
+	| "not-needed"
+	| "available"
+	| "missing"
+	| "unverified";
+
 function withProfile(
 	application: HqApplication,
 	profile: HqApplicationProfile | undefined,
@@ -73,9 +80,9 @@ function withoutOwnedGeneratedProperties(
 /** Prepare a new-app import for a target whose advisory support is known. */
 export function projectNewAppProfileForTarget(
 	application: HqApplication,
-	supportsDerivedProfile: boolean,
+	targetState: DerivedProfileTargetState,
 ): TargetProfileProjection {
-	if (supportsDerivedProfile || application.profile === undefined) {
+	if (targetState === "available" || application.profile === undefined) {
 		return { application, profileChanged: false };
 	}
 	return {
@@ -92,11 +99,20 @@ export function projectNewAppProfileForTarget(
 export function projectUpdatedAppProfileForTarget(
 	application: HqApplication,
 	currentProfile: HqApplicationProfile,
-	supportsDerivedProfile: boolean,
+	targetState: DerivedProfileTargetState,
 ): TargetProfileProjection {
-	const desired = supportsDerivedProfile
-		? generatedProperties(application)
-		: {};
+	const generated = generatedProperties(application);
+	/* An inconclusive advisory cannot justify changing known target state. If
+	 * Search still needs the optimization, omit `profile` entirely and let HQ
+	 * retain the complete current bag. When Search is gone, service passes
+	 * `not-needed` instead, which deliberately removes the owned key. */
+	if (targetState === "unverified") {
+		return {
+			application: withProfile(application, undefined),
+			profileChanged: false,
+		};
+	}
+	const desired = targetState === "available" ? generated : {};
 	const currentCustom = currentProfile.custom_properties ?? {};
 	const profileChanged = NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS.some(
 		(key) => {

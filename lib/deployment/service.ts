@@ -6,6 +6,7 @@ import {
 	importApp,
 	uploadAppMediaBundle,
 } from "@/lib/commcare/client";
+import { hasEffectiveSearch } from "@/lib/commcare/derivedProfile";
 import { expandDoc } from "@/lib/commcare/expander";
 import { readHqAppSourceProfile } from "@/lib/commcare/hq/appSource";
 import type { HqLocationPush } from "@/lib/commcare/hq/locations";
@@ -19,6 +20,7 @@ import { buildMediaBulkUploadZip } from "@/lib/commcare/multimedia/bulkUploadZip
 import type { CommCareServer } from "@/lib/commcare/servers";
 import { COMMCARE_SERVERS } from "@/lib/commcare/servers";
 import {
+	type DerivedProfileTargetState,
 	projectNewAppProfileForTarget,
 	projectUpdatedAppProfileForTarget,
 } from "@/lib/commcare/targetProfile";
@@ -605,18 +607,21 @@ export async function publishAppToHq(
 		attachmentTarget: prepared.attachmentTarget,
 		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
 	});
-	const supportsDerivedProfile =
-		preflight.projectSpaceCompatibility.advisories.some(
-			(advisory) =>
-				advisory.id === "large-search-performance" &&
-				advisory.state === "available",
+	const derivedProfileTargetState: DerivedProfileTargetState = (() => {
+		if (!hasEffectiveSearch(prepared.doc)) return "not-needed";
+		const advisory = preflight.projectSpaceCompatibility.advisories.find(
+			(item) => item.id === "large-search-performance",
 		);
+		return advisory?.state === "available" || advisory?.state === "missing"
+			? advisory.state
+			: "unverified";
+	})();
 	let hqJson = generatedHqJson;
 	let preImportFailure: CommCareApiError | undefined;
 	if (updateTarget === null) {
 		hqJson = projectNewAppProfileForTarget(
 			generatedHqJson,
-			supportsDerivedProfile,
+			derivedProfileTargetState,
 		).application;
 	} else {
 		/* This read intentionally sits immediately before import. HQ shallow-
@@ -673,7 +678,7 @@ export async function publishAppToHq(
 			hqJson = projectUpdatedAppProfileForTarget(
 				generatedHqJson,
 				source.profile,
-				supportsDerivedProfile,
+				derivedProfileTargetState,
 			).application;
 		}
 	}
