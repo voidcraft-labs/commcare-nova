@@ -422,7 +422,7 @@ describe("PublishDialog", () => {
 
 		const alert = await screen.findByRole("alert");
 		expect(alert.textContent).toContain(
-			"Nova couldn't confirm this project space can run the app",
+			"Nova couldn't confirm that “Project Space” can run the app",
 		);
 		expect(alert.textContent).toContain("Case search");
 		expect(alert.textContent).toContain("Attachments saved to cases");
@@ -589,13 +589,15 @@ describe("PublishDialog", () => {
 		const alerts = screen.getAllByRole("alert");
 		expect(alerts).toHaveLength(1);
 		expect(alerts[0]?.textContent).toContain("Case search");
+		expect(alerts[0]?.textContent).toContain("“Project Space”");
 		expect(alerts[0]?.textContent).not.toContain("Duplicate refusal detail");
 		expect(upload.hasAttribute("disabled")).toBe(true);
 
 		fireEvent.click(screen.getByRole("button", { name: "Check again" }));
-		expect(
-			screen.getByText("Checking whether this project space can run the app"),
-		).toBeTruthy();
+		const loading = screen.getByText(
+			"Checking whether this project space can run the app",
+		);
+		expect(loading.closest('[role="status"]')).not.toBeNull();
 		expect(upload.hasAttribute("disabled")).toBe(true);
 		await act(async () => {
 			resolveRetry?.(await compatibilityPreflight("project-space"));
@@ -603,6 +605,55 @@ describe("PublishDialog", () => {
 
 		await waitFor(() => expect(upload.hasAttribute("disabled")).toBe(false));
 		expect(onLoadProjectSpaceCompatibility).toHaveBeenCalledTimes(2);
+	});
+
+	it("keeps the checked target ready when an earlier preflight refuses without a compatibility report", async () => {
+		mocks.fetch.mockResolvedValueOnce(
+			new Response(
+				JSON.stringify({
+					success: false,
+					refusal: {
+						phase: "preflight",
+						failure: {
+							code: "hq_resource_conflict",
+							message:
+								"A lookup table on this project space already uses this name.",
+							details: [],
+						},
+						resourceConflicts: [
+							{
+								kind: "lookup-table",
+								novaResourceId: "table-1",
+								name: "Clinic directory",
+								identity: "clinic_directory",
+								remoteId: "remote-table-1",
+							},
+						],
+					},
+					warnings: [],
+					preview_project_space: null,
+					project_space_compatibility: null,
+				}),
+				{ status: 200, headers: { "Content-Type": "application/json" } },
+			),
+		);
+		renderDialog();
+		const upload = await screen.findByRole("button", { name: "Upload" });
+		await waitFor(() => expect(upload.hasAttribute("disabled")).toBe(false));
+
+		fireEvent.click(upload);
+		await screen.findByText("Nova couldn't finish publishing");
+		const alert = screen.getByRole("alert");
+		expect(alert.textContent).toContain(
+			"A lookup table on this project space already uses this name.",
+		);
+		expect(
+			screen.getByRole("checkbox", {
+				name: /Clinic directory \(clinic_directory\)/,
+			}),
+		).toBeTruthy();
+		expect(screen.queryByRole("button", { name: "Check again" })).toBeNull();
+		expect(upload.hasAttribute("disabled")).toBe(false);
 	});
 
 	it("ignores a download completion from a closed dialog after it reopens", async () => {

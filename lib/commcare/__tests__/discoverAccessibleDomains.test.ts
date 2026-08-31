@@ -36,7 +36,7 @@ function res(status: number, body: unknown) {
 /** Build a `/api/user_domains/` page body from a list of domain slugs. */
 function userDomainsBody(slugs: string[]) {
 	return {
-		meta: { limit: 100, next: null, offset: 0, total_count: slugs.length },
+		meta: { total_count: slugs.length },
 		objects: slugs.map((s) => ({ domain_name: s, project_name: `${s} (HR)` })),
 	};
 }

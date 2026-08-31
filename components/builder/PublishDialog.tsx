@@ -204,6 +204,18 @@ function compatibilityAllowsDirectUpload(
 	);
 }
 
+function compatibilityTargetDisplayName(
+	report: ProjectSpaceCompatibilityReport | undefined,
+	domains: readonly Domain[],
+): string | undefined {
+	const targetDomain = report?.target_domain;
+	if (!targetDomain) return undefined;
+	return (
+		domains.find((domain) => domain.name === targetDomain)?.displayName ??
+		targetDomain
+	);
+}
+
 /** The deployments this app already has, loaded when the dialog opens. */
 type ExistingDeployments =
 	| { type: "idle" }
@@ -575,17 +587,20 @@ export function PublishDialog({
 			const data = (await response.json()) as Parameters<
 				typeof publishOutcome
 			>[1] & {
-				project_space_compatibility?: ProjectSpaceCompatibilityReport;
+				project_space_compatibility?: ProjectSpaceCompatibilityReport | null;
 			};
 			if (!isCurrent()) return;
+			const serverCompatibility = data.project_space_compatibility ?? undefined;
 			/* The publish-time probe is newer authority than the disclosure check
 			 * that enabled the button. Keep its exact answer as the browser gate so
 			 * a target that changed between those requests cannot be submitted again
-			 * until a person explicitly checks it again. */
-			if (data.project_space_compatibility !== undefined) {
+			 * until a person explicitly checks it again. A null report means an
+			 * earlier preflight refused the attempt before compatibility was checked,
+			 * so the earlier answer remains the gate for a corrected retry. */
+			if (serverCompatibility !== undefined) {
 				setCompatibilityState({
 					type: "ready",
-					report: data.project_space_compatibility,
+					report: serverCompatibility,
 				});
 			}
 
@@ -627,7 +642,7 @@ export function PublishDialog({
 					hqAppAction: outcome.hqAppAction,
 					appUrl: outcome.appUrl,
 					warnings: outcome.warnings,
-					projectSpaceCompatibility: data.project_space_compatibility,
+					projectSpaceCompatibility: serverCompatibility,
 					target:
 						record === undefined
 							? null
@@ -644,7 +659,7 @@ export function PublishDialog({
 				},
 				resourceConflicts: outcome.resourceConflicts,
 				warnings: outcome.warnings,
-				projectSpaceCompatibility: data.project_space_compatibility,
+				projectSpaceCompatibility: serverCompatibility,
 			});
 		} catch (error) {
 			if (
@@ -828,6 +843,10 @@ export function PublishDialog({
 										tone="done"
 										warnings={status.warnings}
 										projectSpaceCompatibility={status.projectSpaceCompatibility}
+										projectSpaceName={compatibilityTargetDisplayName(
+											status.projectSpaceCompatibility,
+											availableDomains,
+										)}
 									>
 										{/* The app is THERE, which is not the same as ready
 										    for workers. The record says which, so the
@@ -873,6 +892,10 @@ export function PublishDialog({
 												projectSpaceCompatibility={
 													status.projectSpaceCompatibility
 												}
+												projectSpaceName={compatibilityTargetDisplayName(
+													status.projectSpaceCompatibility,
+													availableDomains,
+												)}
 											>
 												{/* The one refusal a person can answer from here.
 												    Everything else needs a fix elsewhere; this needs
@@ -952,6 +975,12 @@ export function PublishDialog({
 								<CompatibilityPreflight
 									state={compatibilityState}
 									domainChecked={target === "hq"}
+									projectSpaceName={compatibilityTargetDisplayName(
+										compatibilityState.type === "ready"
+											? compatibilityState.report
+											: undefined,
+										availableDomains,
+									)}
 									onRefresh={
 										target === "hq" || compatibilityState.type === "error"
 											? handleCheckCompatibilityAgain
@@ -1265,15 +1294,20 @@ function UploadForm({
 function CompatibilityPreflight({
 	state,
 	domainChecked = false,
+	projectSpaceName,
 	onRefresh,
 }: {
 	state: ProjectSpaceCompatibilityState;
 	domainChecked?: boolean;
+	projectSpaceName?: string;
 	onRefresh?: () => void;
 }) {
 	if (state.type === "loading") {
 		return (
-			<div className="mt-3 flex items-center gap-2 rounded-lg border border-white/[0.04] bg-white/[0.03] px-3 py-2.5">
+			<div
+				role="status"
+				className="mt-3 flex items-center gap-2 rounded-lg border border-white/[0.04] bg-white/[0.03] px-3 py-2.5"
+			>
 				<Icon
 					icon={tablerLoader2}
 					className="size-4 shrink-0 animate-spin text-nova-violet-bright"
@@ -1314,7 +1348,10 @@ function CompatibilityPreflight({
 	const report = state.report;
 	return (
 		<div>
-			<ProjectSpaceCompatibilityNotice report={report} />
+			<ProjectSpaceCompatibilityNotice
+				report={report}
+				projectSpaceName={projectSpaceName}
+			/>
 			{onRefresh && (
 				<div className="flex justify-end">
 					<Button type="button" variant="ghost" onClick={onRefresh}>
@@ -1331,6 +1368,7 @@ function PublishSuccess({
 	title,
 	warnings = [],
 	projectSpaceCompatibility,
+	projectSpaceName,
 	advisories = [],
 	tone = "done",
 	blocked,
@@ -1339,6 +1377,8 @@ function PublishSuccess({
 	title: string;
 	warnings?: string[];
 	projectSpaceCompatibility?: ProjectSpaceCompatibilityReport;
+	/** Human-facing name resolved from the report's authoritative target. */
+	projectSpaceName?: string;
 	/** Only a download has these: a publish always knows its own target. */
 	advisories?: readonly ExportAdvisory[];
 	/** A refused publish reaches this screen too, and must not be
@@ -1415,7 +1455,10 @@ function PublishSuccess({
 			)}
 
 			{projectSpaceCompatibility && (
-				<ProjectSpaceCompatibilityNotice report={projectSpaceCompatibility} />
+				<ProjectSpaceCompatibilityNotice
+					report={projectSpaceCompatibility}
+					projectSpaceName={projectSpaceName}
+				/>
 			)}
 
 			{children}
@@ -1495,11 +1538,19 @@ function ResourceConflictChoice({
 
 function ProjectSpaceCompatibilityNotice({
 	report,
+	projectSpaceName,
 }: {
 	report: ProjectSpaceCompatibilityReport;
+	projectSpaceName?: string;
 }) {
 	const blocked = report.status === "blocked";
 	const notChecked = report.status === "not_checked";
+	const targetSubject = projectSpaceName
+		? `“${projectSpaceName}”`
+		: "This project space";
+	const targetObject = projectSpaceName
+		? `“${projectSpaceName}”`
+		: "this project space";
 	const title =
 		report.status === "not_needed"
 			? "This app doesn't need additional project-space support"
@@ -1509,8 +1560,8 @@ function ProjectSpaceCompatibilityNotice({
 					? report.blockers.some(
 							(capability) => capability.state === "unverified",
 						)
-						? "Nova couldn't confirm this project space can run the app"
-						: "This project space needs more support to run the app"
+						? `Nova couldn't confirm that ${targetObject} can run the app`
+						: `${targetSubject} needs more support to run the app`
 					: "Choose a project space that can run this app";
 	const capabilities = blocked
 		? report.blockers
@@ -1524,7 +1575,7 @@ function ProjectSpaceCompatibilityNotice({
 		(advisory) => advisory.state !== "available",
 	);
 	const summary = blocked
-		? "Nothing has been sent. Review what this project space needs below, then check again."
+		? `Nothing has been sent to ${targetObject}. Review what it needs below, then check again.`
 		: report.message;
 
 	return (
@@ -1573,10 +1624,10 @@ function ProjectSpaceCompatibilityNotice({
 								{blocked ? (
 									<p className="text-nova-text-secondary">
 										{capability.state === "missing"
-											? `This project space doesn't support ${capability.label}.`
+											? `${targetSubject} doesn't support ${capability.label}.`
 											: capability.issue === "connected-account-permission"
-												? `The CommCare HQ account connected to Nova needs Mobile App Access before Nova can check ${capability.label}. Ask a project-space administrator to add that permission, then check again.`
-												: `Nova couldn't confirm whether this project space supports ${capability.label}. Check your CommCare HQ connection, then try again.`}
+												? `The CommCare HQ account connected to Nova needs Mobile App Access before Nova can check ${capability.label} for ${targetObject}. Ask a project-space administrator to add that permission, then check again.`
+												: `Nova couldn't confirm whether ${targetObject} supports ${capability.label}. Check your CommCare HQ connection, then try again.`}
 									</p>
 								) : null}
 							</li>

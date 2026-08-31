@@ -74,7 +74,9 @@ Direct publish preflight checks the selected project space before any remote
 write. Domain-only settings use the `UserDomainsResource` filter. A
 negative result is missing only after the unfiltered endpoint proves the target
 is still visible; transport, shape, namespace, and unknown-setting failures are
-unverified. Case search has an additional qualified read against the mobile
+unverified. Current HQ returns the complete unpaginated list with one numeric
+`meta.total_count`; the sibling paginator that returns a null count does not own
+this endpoint. Case search has an additional qualified read against the mobile
 Search endpoint, which checks both its base toggle and `CaseSearchConfig.enabled`.
 HQ accepts an API key there but separately requires the connected web account's
 Mobile App Access permission; a 403 is therefore a permission-specific

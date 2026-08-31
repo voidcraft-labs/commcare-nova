@@ -257,7 +257,7 @@ describe("probeHqProjectSpaceCompatibility", () => {
 			vi.fn(() =>
 				Promise.resolve(
 					response(200, {
-						meta: { limit: 100, next: null, offset: 0, total_count: 1 },
+						meta: { total_count: 1 },
 						objects: [{ project_name: "Missing its domain identity" }],
 					}),
 				),
@@ -270,6 +270,31 @@ describe("probeHqProjectSpaceCompatibility", () => {
 			searchPlan(),
 		);
 		expect(result.capabilities[0]?.state).toBe("unverified");
+	});
+
+	it("rejects a null count from the current numeric-count endpoint", async () => {
+		const fetchMock = vi.fn(() =>
+			Promise.resolve(
+				response(200, {
+					meta: { total_count: null },
+					objects: [
+						{
+							domain_name: "clinic-space",
+							project_name: "Clinic Space",
+						},
+					],
+				}),
+			),
+		);
+		vi.stubGlobal("fetch", fetchMock);
+
+		const result = await probeHqProjectSpaceCompatibility(
+			CREDS,
+			"clinic-space",
+			searchPlan(),
+		);
+		expect(result.capabilities[0]?.state).toBe("unverified");
+		expect(fetchMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("reports an available performance advisory without making it required", async () => {
