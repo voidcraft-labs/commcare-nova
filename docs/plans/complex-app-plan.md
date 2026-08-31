@@ -2346,9 +2346,11 @@ returned Search cases in the downstream runtime's temporary storage. It is not
 an authored setting, restore, timer, or post-submit data refresh. Preview keeps
 using Nova's live Project case rows, and Nova models no sync lifecycle. Local
 CCZ and new-app HQ JSON include the optimization automatically. A direct HQ
-publish includes it only when the chosen project space supports it; otherwise
-Search still publishes and the compatibility report explains that large result
-sets may open more slowly.
+publish adds it when the chosen project space confirms support and leaves it
+out when support is confirmed missing. If the advisory check is inconclusive,
+a new app leaves the optimization out while an in-place update preserves the
+target app's current value. Search still publishes, and the compatibility
+report explains that large result sets may open more slowly.
 
 A direct in-place update reads the target app source immediately before import.
 Nova removes only its allowlisted derived profile keys, overlays the values the
@@ -2385,6 +2387,7 @@ withholding so you can tell when you need it. Read that file, and
 
 Units are named, not numbered: the file's name is the unit's identity, so a
 unit that ships leaves no gap and nothing ever renumbers.
+
 ### Session endpoints and deep links
 
 [`complex-app/session-endpoints-and-deep-links.md`](complex-app/session-endpoints-and-deep-links.md)

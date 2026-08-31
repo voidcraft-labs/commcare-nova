@@ -788,17 +788,19 @@ rather than a wire one. `isEdgeRefusal` marks those responses
 (`CommCareApiError.edgeRefusal`) so no surface reports a proxy's 403 as a
 verdict about the key or the account's permissions.
 
-**The emitted app document carries only fields Nova authors.** HQ's update
-is an overlay merge (`_merge_source_into_app`): a field present in the
-source overwrites the HQ app's value, an absent one is retained. So
-target-owned settings and state — `cloudcare_enabled`, `profile`,
-`case_sharing`, `secure_submissions`, the build/release metadata, and the
-rest of HQ's app Settings page — are never emitted (each sat at exactly
-HQ's schema default, so create is unchanged), and `logo_refs` is emitted
-only when the app has a Nova-authored logo. The rule and its rationale
-live at `hqShells.ts::applicationShell`; adding a shell field means
-deciding whether Nova authors it, because every emitted field stomps the
-target's value on every republish.
+**The generated app shell carries only fields Nova authors.** HQ's update is an
+overlay merge (`_merge_source_into_app`): a field present in the source
+overwrites the HQ app's value, and an absent one is retained. So target-owned
+settings and state — `cloudcare_enabled`, `case_sharing`,
+`secure_submissions`, the build/release metadata, and the rest of HQ's app
+Settings page — are never emitted by `hqShells.ts::applicationShell`, and
+`logo_refs` is emitted only when the app has a Nova-authored logo. `profile` is
+the narrow exception added by the derived projection above: a new-app artifact
+may carry Nova's allowlisted derived properties, and an in-place update may
+emit the target's complete current profile only to change those properties. An
+inconclusive advisory update omits `profile` and preserves the target's current
+value. Adding any other shell field means deciding whether Nova authors it,
+because every emitted field stomps the target's value on every republish.
 
 ## Not-yet-modeled
 
