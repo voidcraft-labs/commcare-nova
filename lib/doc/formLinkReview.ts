@@ -129,8 +129,10 @@ export type FormLinkTargetVerdict =
 /**
  * Whether a link on `formUuid` may point at `target`. `editingLinkUuid`
  * names the link being retargeted so its current edge is ignored. `datums`
- * is the explicit datum map the proposed link would store; absence means the
- * destination may match this form's session values automatically.
+ * is the explicit datum map the proposed link would store. When it is absent,
+ * the Builder first tries automatic matching and falls back to the complete
+ * manual map its seed would create. A destination is admitted only when that
+ * actual seed mode is legal.
  */
 export function formLinkTargetVerdict(
 	doc: BlueprintDoc,
@@ -139,13 +141,24 @@ export function formLinkTargetVerdict(
 	target: FormLinkTarget,
 	datums?: FormLink["datums"],
 ): FormLinkTargetVerdict {
-	return formLinkTargetVerdictForDatumMode(
+	const proposed = formLinkTargetVerdictForDatumMode(
 		doc,
 		formUuid,
 		editingLinkUuid,
 		target,
 		datums !== undefined,
 	);
+	if (!proposed.ok || datums !== undefined) return proposed;
+
+	return formLinkCarryVerdict(doc, formUuid, target).kind === "manual-required"
+		? formLinkTargetVerdictForDatumMode(
+				doc,
+				formUuid,
+				editingLinkUuid,
+				target,
+				true,
+			)
+		: proposed;
 }
 
 /**
@@ -262,7 +275,13 @@ export function formLinkRequiredDatums(
 	formUuid: Uuid,
 	target: FormLinkTarget,
 ): readonly FormLinkRequiredDatum[] {
-	if (formLinkTargetVerdict(doc, formUuid, undefined, target).ok === false) {
+	/* Read the automatic-mode topology directly. The public target verdict
+	 * asks this function which carry mode the Builder will seed, so routing
+	 * that question back through it would recurse. */
+	if (
+		formLinkTargetVerdictForDatumMode(doc, formUuid, undefined, target, false)
+			.ok === false
+	) {
 		return [];
 	}
 	// The buildable check reads only the target's module; the probe's uuid

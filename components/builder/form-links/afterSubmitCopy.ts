@@ -150,6 +150,14 @@ export const EMPTY_CARRIED_VALUE_REFUSAL =
 export const SEVERAL_CASES_CARRY_AUTOMATICALLY =
 	"This link carries the selected cases automatically. They travel together, so there's no separate value to enter for each case.";
 
+/** Recovery copy for a stale explicit map on a several-case link. */
+export const SEVERAL_CASES_MANUAL_CARRY_NEEDS_REPAIR =
+	"This link has separate values for selected cases that have to travel together. Carrying them automatically repairs the link.";
+
+/** Recovery copy when neither automatic nor explicit carry reaches a form. */
+export const COMPLETE_SELECTION_NEEDS_FORM_LIST =
+	"This form can't carry the complete case selection directly there. The destination's form list lets the person choose matching cases instead.";
+
 /** Why nothing needs carrying to this destination. */
 export function nothingNeededCopy(targetType: FormLinkTarget["type"]): string {
 	return targetType === "module"

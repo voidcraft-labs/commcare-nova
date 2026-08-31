@@ -24,6 +24,7 @@ import {
 import {
 	formLinkAddChoices,
 	formLinkCarryVerdict,
+	formLinkManualCarryVerdict,
 	formLinkMoveVerdicts,
 	formLinkRequiredDatums,
 	formLinkTargetVerdict,
@@ -51,6 +52,8 @@ import {
 import {
 	CARE,
 	fixture,
+	HOUSEHOLDS,
+	INTAKE,
 	SOURCE,
 	toInspect,
 	toNote,
@@ -159,6 +162,73 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 		expect(targetRefusal(verdict, nameOf)).toBe(
 			"This form can't send the person straight back into itself.",
 		);
+	});
+
+	it("withholds a manual-required destination when a collection cannot be split into explicit values", () => {
+		const nested = produce(doc, (draft) => {
+			const source = draft.modules[INTAKE]?.caseListConfig;
+			const target = draft.modules[CARE]?.caseListConfig;
+			if (source === undefined || target === undefined) {
+				throw new Error("fixture");
+			}
+			source.selection = { kind: "multiple", maximum: 10 };
+			target.selection = { kind: "multiple", maximum: 10 };
+			draft.forms[SOURCE].type = "followup";
+			draft.modules[CARE].parentModuleUuid = HOUSEHOLDS;
+			draft.moduleOrder = [HOUSEHOLDS, CARE, INTAKE];
+			for (const formUuid of [SOURCE, VISIT]) {
+				for (const fieldUuid of draft.fieldOrder[formUuid] ?? []) {
+					const field = draft.fields[fieldUuid];
+					if (field !== undefined && "caseWrite" in field) {
+						delete field.caseWrite;
+					}
+				}
+			}
+		});
+
+		expect(formLinkCarryVerdict(nested, SOURCE, toVisit)).toEqual({
+			kind: "manual-required",
+			datumIds: ["case_id"],
+		});
+		const manualVerdict = formLinkManualCarryVerdict(
+			nested,
+			SOURCE,
+			testUuid("prospective-nested-link"),
+			toVisit,
+		);
+		expect(manualVerdict).toMatchObject({
+			ok: false,
+			reason: "selection-cardinality",
+		});
+		expect(formLinkTargetVerdict(nested, SOURCE, undefined, toVisit)).toEqual(
+			manualVerdict,
+		);
+
+		const parse = parserFor(nested, SOURCE);
+		let offered = 0;
+		for (const target of pickerTargets(nested)) {
+			if (!formLinkTargetVerdict(nested, SOURCE, undefined, target).ok)
+				continue;
+			offered += 1;
+			const seed = seedFor(nested, SOURCE, target);
+			commit(
+				nested,
+				planFormLinkAdd(
+					nested,
+					SOURCE,
+					seedConditionalLink(seed, parse, testUuid(`nested-c-${offered}`)),
+				),
+			);
+			commit(
+				nested,
+				planFormLinkAdd(
+					nested,
+					SOURCE,
+					seedOtherwiseLink(seed, parse, testUuid(`nested-o-${offered}`)),
+				),
+			);
+		}
+		expect(offered).toBeGreaterThan(0);
 	});
 
 	it("explains why a form that changes selected case types cannot carry the collection", () => {
