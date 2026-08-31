@@ -558,6 +558,31 @@ export type SubmissionMutation = SubmissionProtocol &
 	);
 
 /**
+ * Open-tab compatibility shape for a FormScreen that was loaded before
+ * several-case selection shipped. The old client names its one followup/close
+ * target as `caseId`; the Server Action preserves that exact object for
+ * durable receipt hashing, then normalizes it to canonical `caseIds` before
+ * deriving any program or storage effect.
+ *
+ * This is deliberately a wire-boundary type, not an engine mutation. New
+ * callers only produce `SubmissionMutation`, and no downstream runtime is
+ * allowed to recover a representative scalar from a several-case selection.
+ */
+export type LegacySingleCaseSubmissionMutation = SubmissionProtocol &
+	(
+		| (Omit<Extract<SubmissionMutation, { kind: "followup" }>, "caseIds"> & {
+				readonly caseId: string;
+		  })
+		| (Omit<Extract<SubmissionMutation, { kind: "close" }>, "caseIds"> & {
+				readonly caseId: string;
+		  })
+	);
+
+export type SubmissionWireMutation =
+	| SubmissionMutation
+	| LegacySingleCaseSubmissionMutation;
+
+/**
  * Result of submitting a `SubmissionMutation` through the
  * case-store. The success arms mirror `SubmissionMutation` so a
  * caller can branch on the same discriminator across pre- and
@@ -568,6 +593,8 @@ export type SubmissionResult =
 	| {
 			kind: "registration";
 			caseId: string;
+			/** Flat compatibility alias for a pre-deploy FormScreen. */
+			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only when replaying a historical flat child-id receipt whose
 			 * authored-child/parent mapping cannot be reconstructed safely. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
@@ -582,6 +609,11 @@ export type SubmissionResult =
 	| {
 			kind: "followup";
 			caseIds: ReadonlyArray<string>;
+			/** Present only for a singleton result. A true batch has no scalar
+			 * representative, so Nova never fabricates one. */
+			caseId?: string;
+			/** Flat compatibility alias for a pre-deploy FormScreen. */
+			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only for a historical flat child-id receipt. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
 			caseDatabasePatch?: {
@@ -595,6 +627,11 @@ export type SubmissionResult =
 	| {
 			kind: "close";
 			caseIds: ReadonlyArray<string>;
+			/** Present only for a singleton result. A true batch has no scalar
+			 * representative, so Nova never fabricates one. */
+			caseId?: string;
+			/** Flat compatibility alias for a pre-deploy FormScreen. */
+			childCaseIds?: ReadonlyArray<string>;
 			/** Absent only for a historical flat child-id receipt. */
 			createdChildren?: ReadonlyArray<CreatedChildCaseReceipt>;
 			caseDatabasePatch?: {

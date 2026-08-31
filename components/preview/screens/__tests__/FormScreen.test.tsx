@@ -125,6 +125,13 @@ const NESTED_CHILD_FIELD_UUID = testUuid(
 	"00000000-0000-0000-0000-000000000d07",
 );
 const NESTED_LINK_UUID = testUuid("00000000-0000-0000-0000-000000000d08");
+const FLAT_TARGET_MODULE_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000d09",
+);
+const FLAT_TARGET_FORM_UUID = testUuid("00000000-0000-0000-0000-000000000d10");
+const FLAT_TARGET_COLUMN_UUID = testUuid(
+	"00000000-0000-0000-0000-000000000d11",
+);
 
 /* The currentLocation is mutated per-test (one shared `Location`
  *  carrier the `useLocation` mock reads from) so each test can pin
@@ -350,6 +357,7 @@ function renderFormScreen(opts: {
 	postSubmitCaseDatabase?: boolean;
 	usercaseAfterSubmit?: boolean;
 	closeAfterSubmit?: boolean;
+	flatModuleAfterSubmit?: boolean;
 	runtimeFault?: boolean;
 }) {
 	currentLocation = {
@@ -447,6 +455,29 @@ function renderFormScreen(opts: {
 								},
 							}
 						: {}),
+					...(opts.flatModuleAfterSubmit === true
+						? {
+								[FLAT_TARGET_MODULE_UUID]: {
+									uuid: FLAT_TARGET_MODULE_UUID,
+									id: "flat_target_module",
+									name: "Other patients",
+									caseType: CASE_TYPE,
+									caseListConfig: {
+										columns: [
+											plainColumn(
+												FLAT_TARGET_COLUMN_UUID,
+												"case_name",
+												"Case name",
+											),
+										],
+										listColumnOrder: [FLAT_TARGET_COLUMN_UUID],
+										detailColumnOrder: [FLAT_TARGET_COLUMN_UUID],
+										searchInputs: [],
+										selection: { kind: "multiple" as const, maximum: 10 },
+									},
+								},
+							}
+						: {}),
 				},
 				forms: {
 					[REG_FORM_UUID]: {
@@ -493,7 +524,19 @@ function renderFormScreen(opts: {
 										},
 									],
 								}
-							: {}),
+							: opts.flatModuleAfterSubmit === true
+								? {
+										formLinks: [
+											{
+												uuid: NESTED_LINK_UUID,
+												target: {
+													type: "module" as const,
+													moduleUuid: FLAT_TARGET_MODULE_UUID,
+												},
+											},
+										],
+									}
+								: {}),
 					},
 					[SURVEY_FORM_UUID]: {
 						uuid: SURVEY_FORM_UUID,
@@ -601,6 +644,16 @@ function renderFormScreen(opts: {
 									uuid: NESTED_TARGET_FORM_UUID,
 									id: "encounter_followup",
 									name: "Encounter follow-up",
+									type: "followup" as const,
+								},
+							}
+						: {}),
+					...(opts.flatModuleAfterSubmit === true
+						? {
+								[FLAT_TARGET_FORM_UUID]: {
+									uuid: FLAT_TARGET_FORM_UUID,
+									id: "flat_target_followup",
+									name: "Other patient follow-up",
 									type: "followup" as const,
 								},
 							}
@@ -731,6 +784,9 @@ function renderFormScreen(opts: {
 					...(opts.nestedAfterSubmit !== undefined
 						? [NESTED_TARGET_MODULE_UUID]
 						: []),
+					...(opts.flatModuleAfterSubmit === true
+						? [FLAT_TARGET_MODULE_UUID]
+						: []),
 				],
 				formOrder: {
 					...(opts.menuCaseRelationship !== undefined
@@ -747,6 +803,9 @@ function renderFormScreen(opts: {
 					],
 					...(opts.nestedAfterSubmit !== undefined
 						? { [NESTED_TARGET_MODULE_UUID]: [NESTED_TARGET_FORM_UUID] }
+						: {}),
+					...(opts.flatModuleAfterSubmit === true
+						? { [FLAT_TARGET_MODULE_UUID]: [FLAT_TARGET_FORM_UUID] }
 						: {}),
 				},
 				fieldOrder: {
@@ -773,6 +832,9 @@ function renderFormScreen(opts: {
 					[REPEAT_UUID]: [REPEAT_PHOTO_UUID],
 					...(opts.nestedAfterSubmit !== undefined
 						? { [NESTED_TARGET_FORM_UUID]: [] }
+						: {}),
+					...(opts.flatModuleAfterSubmit === true
+						? { [FLAT_TARGET_FORM_UUID]: [] }
 						: {}),
 				},
 			}}
@@ -905,6 +967,7 @@ beforeEach(async () => {
 	onBackMock.mockClear();
 	navigateMock.goHome.mockClear();
 	navigateMock.openModule.mockClear();
+	navigateMock.openCaseList.mockClear();
 	navigateMock.openForm.mockClear();
 	navigateMock.replace.mockClear();
 	setPreviewCaseTargetMock.mockClear();
@@ -1794,6 +1857,67 @@ describe("FormScreen — nested after-submit case session", () => {
 			},
 		});
 		expect(vi.mocked(loadCaseDataAction)).not.toHaveBeenCalled();
+	});
+
+	it("starts fresh Results selection when a several-case link targets a flat module", async () => {
+		const firstClosed = {
+			...formCaseRow("case-first"),
+			case_name: "First patient",
+			status: "closed",
+			closed_on: new Date("2026-08-25T12:00:00.000Z"),
+		};
+		const secondClosed = {
+			...formCaseRow("case-second"),
+			case_name: "Second patient",
+			status: "closed",
+			closed_on: new Date("2026-08-25T12:00:01.000Z"),
+		};
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "close",
+			caseIds: ["case-second", "case-first"],
+			createdChildren: [],
+			caseDatabasePatch: {
+				rows: [firstClosed, secondClosed],
+				indices: [],
+			},
+		});
+		previewMenuCaseSelectionsMock = {
+			[MODULE_UUID]: {
+				caseType: CASE_TYPE,
+				cases: [
+					{ caseId: "case-second", caseName: "Second patient" },
+					{ caseId: "case-first", caseName: "First patient" },
+				],
+			},
+		};
+		renderFormScreen({
+			formUuid: CLOSE_FORM_UUID,
+			cases: [
+				{ caseId: "case-second", caseName: "Second patient" },
+				{ caseId: "case-first", caseName: "First patient" },
+			],
+			multipleSelection: true,
+			flatModuleAfterSubmit: true,
+		});
+
+		fireEvent.click(await screen.findByRole("button", { name: /^submit$/i }));
+
+		/* HQ's flat module frame carries its command and no case datum. Preview
+		 * therefore opens Results and asks for a target selection instead of
+		 * smuggling the source form's selected-entities collection across. */
+		await waitFor(() =>
+			expect(navigateMock.openCaseList).toHaveBeenCalledWith(
+				FLAT_TARGET_MODULE_UUID,
+			),
+		);
+		expect(navigateMock.openModule).not.toHaveBeenCalledWith(
+			FLAT_TARGET_MODULE_UUID,
+		);
+		expect(setPreviewMenuCaseSelectionMock).not.toHaveBeenCalledWith(
+			FLAT_TARGET_MODULE_UUID,
+			expect.anything(),
+		);
+		expect(setPreviewCaseTargetMock).not.toHaveBeenCalled();
 	});
 });
 

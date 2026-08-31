@@ -37,6 +37,7 @@ import {
 	formLinkSelectionIsCompatible,
 	type Uuid,
 } from "@/lib/domain";
+import { possibleFinalSessionCaseTypes } from "./caseOperationOrder";
 import { afterSubmitPlan, formLinkIsConditionalIn } from "./formLinkMutations";
 
 export type FormLinkMoveVerdict =
@@ -112,6 +113,12 @@ export type FormLinkTargetVerdict =
 			readonly sourceMaximum: number;
 			readonly targetMaximum: number;
 	  }
+	| {
+			readonly ok: false;
+			readonly reason: "selection-case-type";
+			readonly expectedCaseType: string;
+			readonly possibleFinalCaseTypes: readonly string[];
+	  }
 	/** The chain of form uuids from the target back to this form, inclusive. */
 	| {
 			readonly ok: false;
@@ -121,13 +128,16 @@ export type FormLinkTargetVerdict =
 
 /**
  * Whether a link on `formUuid` may point at `target`. `editingLinkUuid`
- * names the link being retargeted so its current edge is ignored.
+ * names the link being retargeted so its current edge is ignored. `datums`
+ * is the explicit datum map the proposed link would store; absence means the
+ * destination may match this form's session values automatically.
  */
 export function formLinkTargetVerdict(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
 	editingLinkUuid: Uuid | undefined,
 	target: FormLinkTarget,
+	datums?: FormLink["datums"],
 ): FormLinkTargetVerdict {
 	const mod = doc.modules[target.moduleUuid];
 	if (mod === undefined) return { ok: false, reason: "target-not-found" };
@@ -155,7 +165,7 @@ export function formLinkTargetVerdict(
 			targetModule: mod,
 			sourceLoadsCase: CASE_LOADING_FORM_TYPES.has(sourceForm.type),
 			targetLoadsCase: CASE_LOADING_FORM_TYPES.has(targetForm.type),
-			hasAuthoredDatums: false,
+			hasAuthoredDatums: datums !== undefined,
 		})
 	) {
 		return {
@@ -166,6 +176,26 @@ export function formLinkTargetVerdict(
 			sourceMaximum: caseSelectionMaximum(sourceModule),
 			targetMaximum: caseSelectionMaximum(mod),
 		};
+	}
+	if (
+		sourceForm !== undefined &&
+		sourceModule !== undefined &&
+		CASE_LOADING_FORM_TYPES.has(sourceForm.type) &&
+		CASE_LOADING_FORM_TYPES.has(targetForm.type) &&
+		caseSelectionCardinality(sourceModule) === "multiple" &&
+		mod.caseType !== undefined
+	) {
+		const possibleFinalCaseTypes = [
+			...possibleFinalSessionCaseTypes(doc, formUuid),
+		];
+		if (possibleFinalCaseTypes.some((caseType) => caseType !== mod.caseType)) {
+			return {
+				ok: false,
+				reason: "selection-case-type",
+				expectedCaseType: mod.caseType,
+				possibleFinalCaseTypes,
+			};
+		}
 	}
 	const adjacency = formLinkAdjacency(doc, {
 		formUuid,

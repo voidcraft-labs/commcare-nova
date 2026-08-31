@@ -180,11 +180,15 @@ function targetRefusal(
 	formUuid: Uuid,
 	editing: Uuid | undefined,
 	target: FormLinkTarget,
+	datums?: FormLink["datums"],
 ): FormLinkRefusal | undefined {
-	const verdict = formLinkTargetVerdict(doc, formUuid, editing, target);
+	const verdict = formLinkTargetVerdict(doc, formUuid, editing, target, datums);
 	if (verdict.ok) return undefined;
-	return verdict.reason === "cycle"
-		? { kind: "cycle", chain: verdict.chain }
+	if (verdict.reason === "cycle") {
+		return { kind: "cycle", chain: verdict.chain };
+	}
+	return verdict.reason === "selection-case-type"
+		? { kind: "selection-cardinality" }
 		: { kind: verdict.reason };
 }
 
@@ -206,7 +210,13 @@ export function planFormLinkAdd(
 	if (plan.links.some((candidate) => candidate.uuid === link.uuid)) {
 		return refuse({ kind: "duplicate-uuid", uuid: link.uuid });
 	}
-	const badTarget = targetRefusal(doc, formUuid, undefined, link.target);
+	const badTarget = targetRefusal(
+		doc,
+		formUuid,
+		undefined,
+		link.target,
+		link.datums,
+	);
 	if (badTarget !== undefined) return refuse(badTarget);
 	if (
 		after !== undefined &&
@@ -304,10 +314,6 @@ export function planFormLinkUpdate(
 	}
 	if (changed.length === 0) return { ok: true, mutations: [] };
 
-	if (changed.includes("target")) {
-		const badTarget = targetRefusal(doc, formUuid, next.uuid, next.target);
-		if (badTarget !== undefined) return refuse(badTarget);
-	}
 	/* A retarget that leaves the carried values alone drops the ones the new
 	 * destination never reads: HQ's manual path iterates the TARGET's datums
 	 * and the gate refuses the leftovers (`FORM_LINK_DATUM_UNUSED`), so the
@@ -315,7 +321,11 @@ export function planFormLinkUpdate(
 	 * caller that names only the target. A name the destination still reads
 	 * is kept; an empty remainder clears the slot; the plan says what went.
 	 * Values the caller sets in the same edit are its own. */
-	let datums = next.datums;
+	const target = changed.includes("target") ? next.target : existing.target;
+	const condition = changed.includes("condition")
+		? next.condition
+		: existing.condition;
+	let datums = changed.includes("datums") ? next.datums : existing.datums;
 	let droppedDatums: readonly string[] = [];
 	if (
 		changed.includes("target") &&
@@ -323,9 +333,7 @@ export function planFormLinkUpdate(
 		datums !== undefined
 	) {
 		const needed = new Set(
-			formLinkRequiredDatums(doc, formUuid, next.target).map(
-				(datum) => datum.id,
-			),
+			formLinkRequiredDatums(doc, formUuid, target).map((datum) => datum.id),
 		);
 		droppedDatums = datums
 			.filter((datum) => !needed.has(datum.name))
@@ -333,16 +341,25 @@ export function planFormLinkUpdate(
 		const kept = datums.filter((datum) => needed.has(datum.name));
 		datums = kept.length > 0 ? kept : undefined;
 	}
+	/* Selection compatibility depends on the FINAL link, not only its target:
+	 * explicit datums switch CommCare from collection matching to scalar manual
+	 * values. Check both retargets and datum-only edits with the values this
+	 * plan will actually store, after dropping values the destination no longer
+	 * reads. */
+	if (changed.includes("target") || changed.includes("datums")) {
+		const badTarget = targetRefusal(doc, formUuid, next.uuid, target, datums);
+		if (badTarget !== undefined) return refuse(badTarget);
+	}
 	const settled: FormLink = {
 		uuid: next.uuid,
-		...(next.condition !== undefined && { condition: next.condition }),
-		target: next.target,
+		...(condition !== undefined && { condition }),
+		target,
 		...(datums !== undefined && { datums }),
 	};
 	const resulting = plan.links.map((link) =>
 		link.uuid === next.uuid ? settled : link,
 	);
-	const nextConditional = formLinkIsConditionalIn(doc, next);
+	const nextConditional = formLinkIsConditionalIn(doc, settled);
 	if (!nextConditional) {
 		const blocking = resulting.slice(index + 1).map((link) => link.uuid);
 		if (blocking.length > 0) {

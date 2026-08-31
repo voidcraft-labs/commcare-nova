@@ -59,6 +59,8 @@ export function targetRefusalReason(
 			return "This form can't send the person straight back into itself.";
 		case "selection-cardinality":
 			return "This form can't carry its complete case selection there. Open the destination's form list so the person can choose again.";
+		case "selection-case-type":
+			return `This form can change the selected cases' type before they get there. Open the destination's form list so the person can choose matching cases, or keep every selected case as “${verdict.expectedCaseType}”.`;
 		case "cycle": {
 			const steps = verdict.chain.map((uuid, index) =>
 				index === verdict.chain.length - 1

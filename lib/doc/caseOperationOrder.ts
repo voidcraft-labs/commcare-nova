@@ -342,6 +342,161 @@ export function caseOperationConditionalGuardUuids(
 	return analyzeCaseOperationTargetOrder(doc, formUuid, operations).guards;
 }
 
+interface SessionCaseTypeState {
+	readonly caseType: string;
+	/** Predicate-bearing operation UUIDs known true on this branch. */
+	readonly trueGuards: ReadonlySet<Uuid>;
+	/** Predicate-bearing operation UUIDs known false on this branch. */
+	readonly falseGuards: ReadonlySet<Uuid>;
+}
+
+const MAX_SESSION_CASE_TYPE_STATES = 256;
+
+function sessionCaseTypeStateKey(state: SessionCaseTypeState): string {
+	return `${state.caseType}|${[...state.trueGuards].sort().join(",")}|${[
+		...state.falseGuards,
+	]
+		.sort()
+		.join(",")}`;
+}
+
+function dedupeSessionCaseTypeStates(
+	states: readonly SessionCaseTypeState[],
+): SessionCaseTypeState[] {
+	return [
+		...new Map(
+			states.map((state) => [sessionCaseTypeStateKey(state), state]),
+		).values(),
+	];
+}
+
+/**
+ * Every case type the form's loaded session case can have after its advanced
+ * operation program finishes.
+ *
+ * A direct several-case form link carries the exact loaded identities into the
+ * destination. Its session datum is authored for one case type, so admitting
+ * that carry from the module's pre-submit type alone is unsound when a
+ * session-targeted operation can retype any selected case first.
+ *
+ * Conditions are tracked as branch facts rather than treating every retype as
+ * final. The inherited guard map is the same one the XForm and Preview use: an
+ * unconditional restoration guarded by the earlier conditional transition
+ * therefore closes that branch, while a conditional restoration leaves both
+ * types possible. The bounded-state fallback returns every session retype it
+ * has seen or can still see. That can refuse an exceptionally branch-heavy
+ * program, but it can never admit an unsafe automatic carry.
+ */
+export function possibleFinalSessionCaseTypes(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	operations: readonly CaseOperation[] = orderedCaseOperations(
+		doc.forms[formUuid] ?? {},
+	),
+): ReadonlySet<string> {
+	const initialCaseType = moduleCaseTypeForForm(doc, formUuid);
+	if (initialCaseType === undefined) return new Set();
+
+	const inheritedGuards = caseOperationConditionalGuardUuids(
+		doc,
+		formUuid,
+		operations,
+	);
+	const operationsByUuid = new Map(
+		operations.map((operation) => [operation.uuid, operation]),
+	);
+	const conservativeTypes = new Set<string>([initialCaseType]);
+	for (const operation of operations) {
+		if (
+			operation.action !== "create" &&
+			operation.target.kind === "session" &&
+			operation.retype !== undefined
+		) {
+			conservativeTypes.add(operation.retype);
+		}
+	}
+
+	let states: SessionCaseTypeState[] = [
+		{
+			caseType: initialCaseType,
+			trueGuards: new Set(),
+			falseGuards: new Set(),
+		},
+	];
+
+	for (const operation of operations) {
+		if (
+			operation.action === "create" ||
+			operation.target.kind !== "session" ||
+			operation.retype === undefined ||
+			operation.retype === operation.caseType
+		) {
+			continue;
+		}
+
+		const requiredGuards = new Set<Uuid>();
+		let neverExecutes = false;
+		const includeCondition = (guardUuid: Uuid): void => {
+			const condition = operationsByUuid.get(guardUuid)?.condition;
+			if (condition?.kind === "match-all") return;
+			if (condition?.kind === "match-none") {
+				neverExecutes = true;
+				return;
+			}
+			requiredGuards.add(guardUuid);
+		};
+		for (const guardUuid of inheritedGuards.get(operation.uuid) ?? []) {
+			includeCondition(guardUuid);
+		}
+		if (operation.condition !== undefined) includeCondition(operation.uuid);
+		if (neverExecutes) continue;
+
+		const next: SessionCaseTypeState[] = [];
+		for (const state of states) {
+			if (
+				state.caseType !== operation.caseType ||
+				[...requiredGuards].some((guard) => state.falseGuards.has(guard))
+			) {
+				next.push(state);
+				continue;
+			}
+
+			const unknownGuards = [...requiredGuards].filter(
+				(guard) => !state.trueGuards.has(guard),
+			);
+			const executingTrueGuards = new Set(state.trueGuards);
+			for (const guard of unknownGuards) executingTrueGuards.add(guard);
+			next.push({
+				caseType: operation.retype,
+				trueGuards: executingTrueGuards,
+				falseGuards: state.falseGuards,
+			});
+
+			// Partition the skipped branch by the first unknown guard that is
+			// false. This preserves exact truth facts for later inherited guards
+			// without enumerating arbitrary values of conditions after that point.
+			for (const [index, falseGuard] of unknownGuards.entries()) {
+				const skippedTrueGuards = new Set(state.trueGuards);
+				for (const trueGuard of unknownGuards.slice(0, index)) {
+					skippedTrueGuards.add(trueGuard);
+				}
+				next.push({
+					caseType: state.caseType,
+					trueGuards: skippedTrueGuards,
+					falseGuards: new Set([...state.falseGuards, falseGuard]),
+				});
+			}
+		}
+
+		states = dedupeSessionCaseTypeStates(next);
+		if (states.length > MAX_SESSION_CASE_TYPE_STATES) {
+			return conservativeTypes;
+		}
+	}
+
+	return new Set(states.map((state) => state.caseType));
+}
+
 /**
  * Runtime expression targets are authorized against the one pre-submission
  * case snapshot, even after an earlier operation has semantically retyped the

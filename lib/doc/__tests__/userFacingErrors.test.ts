@@ -160,6 +160,22 @@ describe("userFacingError — voice", () => {
 		expect(line).toMatch(/remove the repeated/i);
 	});
 
+	it("explains a changed several-case selection without hiding the repair", () => {
+		const line = userFacingError(
+			validationError(
+				"FORM_LINK_SELECTION_CASE_TYPE_CHANGED",
+				"form",
+				"verbose internal message",
+				{ formName: "Review patients" },
+				{ expectedCaseType: "patient" },
+			),
+		);
+
+		expect(line).toBe(
+			'A Case change in "Review patients" can change the selected cases to another type before the next form opens. Send people to the destination\'s form list so they can choose matching cases, or keep every selected case as "patient".',
+		);
+	});
+
 	it("shows an empty or whitespace choice value for what it is, never as a bare pair of quotes", () => {
 		const render = (optionValue: string, problem: string) =>
 			userFacingError(

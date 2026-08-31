@@ -8,6 +8,7 @@
  * silently choosing one member of the collection.
  */
 
+import { possibleFinalSessionCaseTypes } from "@/lib/doc/caseOperationOrder";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
@@ -25,6 +26,8 @@ import {
 } from "@/lib/domain";
 import {
 	expressionReadsCaseData,
+	type Predicate,
+	predicateReadsCaseData,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import {
@@ -234,20 +237,37 @@ function referencePartsReadCase(value: unknown): boolean {
 	);
 }
 
-function predicateAstReadsCase(value: unknown): boolean {
+function predicateAstReadsCase(
+	value: unknown,
+	root: "predicate" | "value-expression",
+): boolean {
 	if (typeof value !== "object" || value === null || !("kind" in value)) {
 		return false;
 	}
-	return expressionReadsCaseData(value as ValueExpression);
+	return root === "predicate"
+		? predicateReadsCaseData(value as Predicate)
+		: expressionReadsCaseData(value as ValueExpression);
 }
 
 function expressionSurfaceReadsCase(
 	kind: "xpath-ast" | "prose" | "predicate-ast",
 	value: unknown,
+	predicateRoot: boolean = false,
 ): boolean {
 	return kind === "predicate-ast"
-		? predicateAstReadsCase(value)
+		? predicateAstReadsCase(
+				value,
+				predicateRoot ? "predicate" : "value-expression",
+			)
 		: referencePartsReadCase(value);
+}
+
+function formSlotHasPredicateRoot(slot: string): boolean {
+	return (
+		slot === "form_display_condition" ||
+		slot === "case_operation_condition" ||
+		slot === "case_operation_write_condition"
+	);
 }
 
 /**
@@ -377,7 +397,15 @@ export function multiSelectFormSemantics(
 			continue;
 		}
 		for (const entry of readSlotValues(form, slot.path)) {
-			if (!expressionSurfaceReadsCase(slot.kind, entry.value)) continue;
+			if (
+				!expressionSurfaceReadsCase(
+					slot.kind,
+					entry.value,
+					formSlotHasPredicateRoot(slot.slot),
+				)
+			) {
+				continue;
+			}
 			const operationIndex = entry.indices[0];
 			if (slot.slot.startsWith("case_operation_")) {
 				const operation =
@@ -428,6 +456,10 @@ export function formLinkSelectionCardinality(
 	const sourceCardinality = caseSelectionCardinality(module);
 	const sourceMaximum = caseSelectionMaximum(module);
 	const fanoutTypes = fannedChildCaseTypes(inventory);
+	const finalSessionCaseTypes = possibleFinalSessionCaseTypes(
+		doc,
+		ctx.formUuid,
+	);
 	const errors: ValidationError[] = [];
 	const loc = formLocation(ctx);
 	for (const link of form.formLinks) {
@@ -463,7 +495,32 @@ export function formLinkSelectionCardinality(
 			targetLoadsCase: true,
 			hasAuthoredDatums: link.datums !== undefined,
 		});
-		if (compatible) continue;
+		if (compatible) {
+			const expectedCaseType = targetModule.caseType;
+			const incompatibleFinalCaseTypes = [...finalSessionCaseTypes].filter(
+				(caseType) => caseType !== expectedCaseType,
+			);
+			if (
+				sourceCardinality === "multiple" &&
+				expectedCaseType !== undefined &&
+				incompatibleFinalCaseTypes.length > 0
+			) {
+				errors.push(
+					validationError(
+						"FORM_LINK_SELECTION_CASE_TYPE_CHANGED",
+						"form",
+						`"${form.name}" can change selected cases to ${incompatibleFinalCaseTypes.map((caseType) => `"${caseType}"`).join(" or ")} before linking to "${targetForm.name}", which opens only "${expectedCaseType}" cases. Link to the destination module so the next cases can be chosen there, or keep every selected case as "${expectedCaseType}".`,
+						loc,
+						{
+							linkUuid: link.uuid,
+							expectedCaseType,
+							possibleFinalCaseTypes: [...finalSessionCaseTypes].join(", "),
+						},
+					),
+				);
+			}
+			continue;
+		}
 
 		errors.push(
 			validationError(

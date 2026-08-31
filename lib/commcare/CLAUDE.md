@@ -505,6 +505,10 @@ CommCare case wire. The primary preload/update action is absent on a
 batch-consuming form. Explicit session-targeted operations lower once per
 selected value, with authored-repeat order outside selected-case order; every
 per-case wrapper reads the current value from the selected-entities instance.
+An automatic direct-form carry is admitted only when every possible final type
+of those selected session cases still matches the destination form. Conditional
+retypes retain both branches; an inherited unconditional restoration closes the
+transitioned branch because it runs everywhere that transition did.
 The operation wrapper, implicit close, child creation, and their correlated
 `id-of` values are asserted as exact XForm partials in Nova, because HQ's own
 `tests/data/form_preparation_v2/multi_no_actions.xml` proves only that HQ drops

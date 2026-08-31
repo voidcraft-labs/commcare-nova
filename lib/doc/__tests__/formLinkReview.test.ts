@@ -7,7 +7,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { planFormLinkMove } from "@/lib/doc/formLinkMutations";
 import {
@@ -284,6 +284,82 @@ describe("formLinkTargetVerdict", () => {
 			targetCardinality: "multiple",
 			sourceMaximum: 10,
 			targetMaximum: 5,
+		});
+	});
+
+	it("checks the datum mode the proposed link will actually store", () => {
+		const doc = produce(fixture(), (draft) => {
+			const source = draft.modules[CARE]?.caseListConfig;
+			const target = draft.modules[INTAKE]?.caseListConfig;
+			if (source === undefined || target === undefined)
+				throw new Error("fixture");
+			source.selection = { kind: "multiple", maximum: 10 };
+			target.selection = { kind: "multiple", maximum: 10 };
+			draft.forms[REGISTER].type = "followup";
+		});
+		const target: FormLinkTarget = {
+			type: "form",
+			moduleUuid: INTAKE,
+			formUuid: REGISTER,
+		};
+
+		expect(formLinkTargetVerdict(doc, VISIT_AGAIN, undefined, target)).toEqual({
+			ok: true,
+		});
+		expect(
+			formLinkTargetVerdict(doc, VISIT_AGAIN, undefined, target, [
+				{ name: "case_id", xpath: xp("'patient-id'") },
+			]),
+		).toMatchObject({
+			ok: false,
+			reason: "selection-cardinality",
+			sourceCardinality: "multiple",
+			targetCardinality: "multiple",
+		});
+	});
+
+	it("refuses an automatic collection carry when the source can change the selected case type", () => {
+		const doc = produce(fixture(), (draft) => {
+			draft.caseTypes ??= [];
+			draft.caseTypes.push({
+				name: "visit",
+				properties: [{ name: "mood", label: proseText("Mood") }],
+			});
+			const source = draft.modules[CARE]?.caseListConfig;
+			const target = draft.modules[INTAKE]?.caseListConfig;
+			if (source === undefined || target === undefined) {
+				throw new Error("fixture");
+			}
+			source.selection = { kind: "multiple", maximum: 10 };
+			target.selection = { kind: "multiple", maximum: 10 };
+			draft.forms[REGISTER].type = "followup";
+			const visit = draft.forms[VISIT];
+			visit.caseOperations = [
+				{
+					uuid: testUuid("retype-selected"),
+					id: "retype_selected",
+					action: "update",
+					caseType: "patient",
+					target: { kind: "session" },
+					retype: "visit",
+				},
+			];
+			const moodUuid = draft.fieldOrder[VISIT]?.[0];
+			const mood = moodUuid === undefined ? undefined : draft.fields[moodUuid];
+			if (mood?.kind === "text") delete mood.caseWrite;
+		});
+
+		expect(
+			formLinkTargetVerdict(doc, VISIT, undefined, {
+				type: "form",
+				moduleUuid: INTAKE,
+				formUuid: REGISTER,
+			}),
+		).toEqual({
+			ok: false,
+			reason: "selection-case-type",
+			expectedCaseType: "patient",
+			possibleFinalCaseTypes: ["visit"],
 		});
 	});
 });

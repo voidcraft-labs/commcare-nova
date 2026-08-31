@@ -127,7 +127,10 @@ import {
 	SAMPLE_CASE_DEFAULT_COUNT,
 	seedSampleCases,
 } from "../caseDataBindingHelpers";
-import type { SubmissionMutation } from "../caseDataBindingTypes";
+import type {
+	SubmissionMutation,
+	SubmissionWireMutation,
+} from "../caseDataBindingTypes";
 import { previewAsMe } from "../identity";
 import type { SearchInputValues } from "../runtimeBindings";
 
@@ -4587,6 +4590,7 @@ describe("submitFormAction", () => {
 		expect(result).toEqual({
 			kind: "registration",
 			caseId: ALICE_CASE_ID,
+			childCaseIds: [VISIT_CASE_ID],
 			createdChildren: [
 				{
 					authoredChildIndex: 0,
@@ -4596,6 +4600,156 @@ describe("submitFormAction", () => {
 			],
 			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
+	});
+
+	it("normalizes a pre-deploy scalar case request while preserving its receipt identity and response aliases", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		const { withProjectContext } = await import("@/lib/case-store");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const committedBlueprint = buildDoc({
+			appName: "Open followup tab",
+			caseTypes: [PATIENT_CASE_TYPE],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					forms: [
+						{
+							uuid: FINAL_FORM_UUID,
+							name: "Follow up patient",
+							type: "followup",
+							fields: [],
+						},
+					],
+				},
+			],
+		});
+		const blueprintDigest = canonicalJsonDigest(
+			toPersistableDoc(committedBlueprint),
+		);
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: committedBlueprint,
+				mutation_seq: 1,
+				project_id: PROJECT_A,
+			},
+		});
+		const applySubmission = vi.fn().mockResolvedValueOnce({
+			primaryCaseIds: [ALICE_CASE_ID],
+			createdChildren: [],
+			operations: [],
+			blueprintDigest,
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+		});
+		vi.mocked(withProjectContext).mockResolvedValueOnce(
+			actionStore({ applySubmission }),
+		);
+		const mutation: SubmissionWireMutation = {
+			kind: "followup",
+			...FINAL_SUBMISSION_PROTOCOL,
+			caseId: ALICE_CASE_ID,
+			patch: { properties: {} },
+			children: [],
+		};
+		const replayIdentity = previewAsMe({ id: OWNER_A });
+		if (replayIdentity === null) throw new Error("Expected replay identity.");
+		const legacyReceipt = buildSubmissionReceiptIdentity({
+			appId: APP_ID,
+			identity: replayIdentity,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+		});
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await expect(
+			submitFormAction(
+				mutation as unknown as SubmissionMutation,
+				APP_ID,
+				blueprintDigest,
+			),
+		).resolves.toEqual({
+			kind: "followup",
+			caseIds: [ALICE_CASE_ID],
+			caseId: ALICE_CASE_ID,
+			childCaseIds: [],
+			createdChildren: [],
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+		});
+		expect(applySubmission).toHaveBeenCalledWith({
+			appId: APP_ID,
+			ordinary: {
+				kind: "followup",
+				caseIds: [ALICE_CASE_ID],
+				caseType: "patient",
+				selection: { kind: "single", maximum: 1 },
+				patch: { properties: {} },
+				children: [],
+			},
+			submissionReceipt: {
+				entryKey: FINAL_ENTRY_KEY,
+				formUuid: FINAL_FORM_UUID,
+				expectedAppMutationSeq: 1,
+				blueprintDigest,
+				requestDigest: legacyReceipt.requestDigest,
+			},
+		});
+	});
+
+	it("replays a pre-deploy scalar case receipt with both old and new result contracts", async () => {
+		const { getSession } = await import("@/lib/auth-utils");
+		vi.mocked(getSession).mockResolvedValueOnce({
+			user: { id: OWNER_A },
+		} as unknown as Awaited<ReturnType<typeof getSession>>);
+		const mutation: SubmissionWireMutation = {
+			kind: "close",
+			...FINAL_SUBMISSION_PROTOCOL,
+			caseId: ALICE_CASE_ID,
+			patch: { properties: {} },
+			children: [],
+		};
+		const replayIdentity = previewAsMe({ id: OWNER_A });
+		if (replayIdentity === null) throw new Error("Expected replay identity.");
+		const receipt = buildSubmissionReceiptIdentity({
+			appId: APP_ID,
+			identity: replayIdentity,
+			mutation,
+			projection: validateCaptureSubmissionProjection(mutation),
+		});
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
+			kind: "replay",
+			projectId: PROJECT_A,
+			receipt: {
+				formUuid: FINAL_FORM_UUID,
+				requestDigest: receipt.requestDigest,
+				result: {
+					primaryCaseId: ALICE_CASE_ID,
+					childCaseIds: [VISIT_CASE_ID],
+					operations: [],
+					blueprintDigest: FINAL_BLUEPRINT_DIGEST,
+					caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+				},
+			},
+		});
+
+		const { submitFormAction } = await import("../caseDataBinding");
+		await expect(
+			submitFormAction(
+				mutation as unknown as SubmissionMutation,
+				APP_ID,
+				FINAL_BLUEPRINT_DIGEST,
+			),
+		).resolves.toEqual({
+			kind: "close",
+			caseIds: [ALICE_CASE_ID],
+			caseId: ALICE_CASE_ID,
+			childCaseIds: [VISIT_CASE_ID],
+			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
+		});
+		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
 	});
 
 	/**
@@ -5438,6 +5592,7 @@ describe("submitFormAction", () => {
 		).resolves.toEqual({
 			kind: "registration",
 			caseId: ALICE_CASE_ID,
+			childCaseIds: [VISIT_CASE_ID],
 			caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 		});
 		expect(loadAuthorizedFormSubmissionSnapshotMock).toHaveBeenCalledWith({

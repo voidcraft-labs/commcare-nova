@@ -644,6 +644,16 @@ transaction. A failed target or effect rolls the complete batch back. The
 domain gate has already excluded singular primary-case preload/write wiring,
 so the form engine never invents a representative case value.
 
+The submission Server Action is also an open-tab deployment boundary. A
+pre-deploy FormScreen may still send its one followup/close target as `caseId`:
+the action keeps that raw object for the durable request digest, normalizes it
+to canonical `caseIds: [caseId]` before deriving authority or effects, and
+returns the old scalar `caseId` plus flat `childCaseIds` aliases alongside the
+new result. The scalar alias exists only when the canonical result contains
+exactly one primary case. A real several-case result never chooses a
+representative. This also lets a response-lost old request match and replay a
+receipt committed by either side of the deployment.
+
 The committed form is the authority for the ordinary submission arm. A
 client discriminator that disagrees with its committed type is rejected
 before capture preparation or case effects. For a conditional close, the

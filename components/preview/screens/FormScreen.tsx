@@ -412,6 +412,10 @@ function automaticLinkedCaseCollection(args: {
 }): PreviewTargetCaseCollection | undefined {
 	if (
 		args.choice.kind !== "link" ||
+		/* HQ's flat module frame contains only the module command. It does not
+		 * carry a case-selection datum, so entering that module must begin its
+		 * ordinary Results journey instead of inheriting Preview's collection. */
+		args.choice.link.target.type !== "form" ||
 		args.choice.link.datums !== undefined ||
 		args.sourceModuleUuid === undefined ||
 		args.sourceFormType === undefined ||
@@ -430,7 +434,6 @@ function automaticLinkedCaseCollection(args: {
 		return undefined;
 	}
 	if (
-		args.choice.link.target.type === "form" &&
 		!CASE_LOADING_FORM_TYPES.has(
 			args.doc.forms[args.choice.link.target.formUuid]?.type ?? "survey",
 		)

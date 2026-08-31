@@ -89,6 +89,7 @@ import {
 import { reportUnexpectedActionError } from "./caseDataBindingTelemetry";
 import type {
 	ConversionImpactResult,
+	LegacySingleCaseSubmissionMutation,
 	LoadCaseCountResult,
 	LoadCaseDataResult,
 	LoadCasesResult,
@@ -102,6 +103,7 @@ import type {
 	SetParkedValuesDismissedResult,
 	SubmissionMutation,
 	SubmissionResult,
+	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
 import { SearchInputValuesError } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
@@ -1188,9 +1190,46 @@ export async function loadFilterPreviewAction(args: {
  * Caller-supplied `appId` is passed through verbatim, matching the
  * shape the other Server Actions in this file use. The bound
  * `CaseStore` enforces tenant scoping at the SQL layer; the action
- * does not re-check `appId` against `mutation.caseId` for
+ * does not re-check `appId` against `mutation.caseIds` for
  * followup / close.
  */
+/** Normalize the only retired submission slot that must survive a deploy for
+ * an already-open FormScreen. The raw object remains separate: receipt hashes
+ * are protocol history, so a response-lost request has to hash exactly as the
+ * deployment that first accepted it did. */
+function normalizeSubmissionWireMutation(
+	mutation: SubmissionWireMutation,
+): SubmissionMutation {
+	if (mutation.kind !== "followup" && mutation.kind !== "close") {
+		return mutation;
+	}
+	const record = mutation as unknown as Record<string, unknown>;
+	const hasCaseIds = Object.hasOwn(record, "caseIds");
+	const hasCaseId = Object.hasOwn(record, "caseId");
+	if (hasCaseIds && hasCaseId) {
+		throw new CaptureSubmissionRejectedError(
+			"A form submission cannot name both one case and a case selection.",
+		);
+	}
+	if (hasCaseIds) return mutation as SubmissionMutation;
+	if (
+		!hasCaseId ||
+		typeof record.caseId !== "string" ||
+		record.caseId.length === 0
+	) {
+		throw new CaptureSubmissionRejectedError(
+			"A followup or close submission requires at least one selected case.",
+		);
+	}
+	const legacyMutation = mutation as LegacySingleCaseSubmissionMutation;
+	if (legacyMutation.kind === "followup") {
+		const { caseId, ...canonicalSlots } = legacyMutation;
+		return { ...canonicalSlots, caseIds: [caseId] };
+	}
+	const { caseId, ...canonicalSlots } = legacyMutation;
+	return { ...canonicalSlots, caseIds: [caseId] };
+}
+
 export async function submitFormAction(
 	mutation: SubmissionMutation,
 	appId: string,
@@ -1206,7 +1245,9 @@ export async function submitFormAction(
 		 * is required: Server Action payloads are untrusted JSON. Consume the
 		 * normalized projection below so missing/stale clients cannot bypass
 		 * receipt, capture-intent, or committed-operation derivation. */
-		const projection = validateCaptureSubmissionProjection(mutation);
+		const wireMutation = mutation as unknown as SubmissionWireMutation;
+		const projection = validateCaptureSubmissionProjection(wireMutation);
+		const normalizedMutation = normalizeSubmissionWireMutation(wireMutation);
 		if (!/^[a-f0-9]{64}$/.test(expectedBlueprintDigest)) {
 			return {
 				kind: "blueprint-changed",
@@ -1244,7 +1285,7 @@ export async function submitFormAction(
 				const receipt = buildSubmissionReceiptIdentity({
 					appId,
 					identity: replayIdentity,
-					mutation,
+					mutation: wireMutation,
 					projection,
 					viewerTimeZone,
 				});
@@ -1254,7 +1295,7 @@ export async function submitFormAction(
 				);
 				if (verdict.kind === "replay") {
 					return submissionResultFromEnvelope(
-						mutation,
+						normalizedMutation,
 						verdict.result,
 						expectedBlueprintDigest,
 					);
@@ -1328,7 +1369,8 @@ export async function submitFormAction(
 			blueprintDigest: expectedBlueprintDigest,
 			identity,
 			lookupScope: scope,
-			mutation,
+			mutation: normalizedMutation,
+			receiptMutation: wireMutation,
 			projection,
 			viewerTimeZone,
 		});
@@ -1344,11 +1386,11 @@ export async function submitFormAction(
 		// boundary: the whole submission is one transaction, so a heal
 		// retry re-runs the whole envelope with nothing partial persisted.
 		const result = await store.applySubmission(
-			submissionEnvelopeArgs(mutation, appId, built),
+			submissionEnvelopeArgs(normalizedMutation, appId, built),
 		);
 
 		return submissionResultFromEnvelope(
-			mutation,
+			normalizedMutation,
 			result,
 			expectedBlueprintDigest,
 		);
@@ -1386,6 +1428,9 @@ function submissionResultFromEnvelope(
 	 * rather than reading today's rows and pretending they were submission-time
 	 * state. */
 	const caseDatabasePatch = result.caseDatabasePatch;
+	const childCaseIds =
+		result.legacyChildCaseIds ??
+		result.createdChildren.map((createdChild) => createdChild.caseId);
 	if (mutation.kind === "survey") {
 		return {
 			kind: "survey",
@@ -1411,6 +1456,7 @@ function submissionResultFromEnvelope(
 		return {
 			kind: "registration",
 			caseId: result.primaryCaseIds[0] as string,
+			childCaseIds,
 			...(result.legacyChildCaseIds === undefined
 				? { createdChildren: result.createdChildren }
 				: {}),
@@ -1420,6 +1466,10 @@ function submissionResultFromEnvelope(
 	return {
 		kind: mutation.kind,
 		caseIds: result.primaryCaseIds,
+		...(result.primaryCaseIds.length === 1
+			? { caseId: result.primaryCaseIds[0] as string }
+			: {}),
+		childCaseIds,
 		...(result.legacyChildCaseIds === undefined
 			? { createdChildren: result.createdChildren }
 			: {}),

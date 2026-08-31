@@ -161,6 +161,22 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 		);
 	});
 
+	it("explains why a form that changes selected case types cannot carry the collection", () => {
+		expect(
+			targetRefusal(
+				{
+					ok: false,
+					reason: "selection-case-type",
+					expectedCaseType: "patient",
+					possibleFinalCaseTypes: ["patient", "visit"],
+				},
+				nameOf,
+			),
+		).toBe(
+			"This form can change the selected cases' type before they get there. Open the destination's form list so the person can choose matching cases, or keep every selected case as “patient”.",
+		);
+	});
+
 	it("names the chain for a destination whose links lead back here", () => {
 		const looped = fixture([], {
 			visitLinks: [

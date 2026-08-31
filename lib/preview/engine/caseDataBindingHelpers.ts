@@ -146,6 +146,7 @@ import type {
 	PopulateSampleCasesResult,
 	SubmissionAnswerEntry,
 	SubmissionMutation,
+	SubmissionWireMutation,
 } from "./caseDataBindingTypes";
 import { formAnswerXPathValue } from "./dataInstance";
 import {
@@ -1286,7 +1287,10 @@ function canonicalJson(value: unknown): string {
 export function buildSubmissionReceiptIdentity(args: {
 	readonly appId: string;
 	readonly identity: ResolvedPreviewIdentity;
-	readonly mutation: SubmissionMutation;
+	/** Exact Server Action wire object. A pre-deploy scalar `caseId` must stay
+	 * structurally unchanged here so a response-lost request still matches the
+	 * receipt the older deployment committed. */
+	readonly mutation: SubmissionWireMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
 }): SubmissionReceiptIdentity {
@@ -1344,10 +1348,20 @@ export async function buildSubmissionOperationProgram(args: {
 	readonly identity: ResolvedPreviewIdentity;
 	readonly lookupScope: LookupScope;
 	readonly mutation: SubmissionMutation;
+	/** Exact unnormalized request used only for durable receipt identity. */
+	readonly receiptMutation?: SubmissionWireMutation;
 	readonly projection: CaptureSubmissionProjection;
 	readonly viewerTimeZone?: string;
 }): Promise<BuiltSubmissionOperations> {
-	const receiptIdentity = buildSubmissionReceiptIdentity(args);
+	const receiptIdentity = buildSubmissionReceiptIdentity({
+		appId: args.appId,
+		identity: args.identity,
+		mutation: args.receiptMutation ?? args.mutation,
+		projection: args.projection,
+		...(args.viewerTimeZone === undefined
+			? {}
+			: { viewerTimeZone: args.viewerTimeZone }),
+	});
 
 	const app = args.committedApp;
 	if (app.blueprint.forms[args.projection.formUuid] === undefined) {

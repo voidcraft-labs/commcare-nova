@@ -3,13 +3,14 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { CaseOperation, Form } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { eq, formField, literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
 
 const KEY = testUuid("11111111-1111-4111-8111-111111111111");
 const SESSION_UPDATE = testUuid("22222222-2222-4222-8222-222222222222");
 const CREATE = testUuid("33333333-3333-4333-8333-333333333333");
+const SESSION_RESTORE = testUuid("88888888-8888-4888-8888-888888888888");
 const SOURCE_MODULE = testUuid("44444444-4444-4444-8444-444444444444");
 const SOURCE_FORM = testUuid("55555555-5555-4555-8555-555555555555");
 const TARGET_MODULE = testUuid("66666666-6666-4666-8666-666666666666");
@@ -19,6 +20,81 @@ function multipleConfig(maximum = 10) {
 	return {
 		...caseListConfig([{ field: "case_name", header: "Name" }]),
 		selection: { kind: "multiple" as const, maximum },
+	};
+}
+
+function directCollectionLinkDoc(
+	caseOperations: readonly CaseOperation[] = [],
+) {
+	const doc = buildDoc({
+		caseTypes: [
+			{ name: "patient", properties: [] },
+			{ name: "visit", properties: [] },
+		],
+		modules: [
+			{
+				uuid: SOURCE_MODULE,
+				name: "Source",
+				caseType: "patient",
+				caseListConfig: multipleConfig(10),
+				forms: [
+					{
+						uuid: SOURCE_FORM,
+						name: "Source form",
+						type: "followup",
+						fields: [f({ uuid: KEY, kind: "text", id: "decision" })],
+						formLinks: [
+							{
+								target: {
+									type: "form",
+									moduleUuid: TARGET_MODULE,
+									formUuid: TARGET_FORM,
+								},
+							},
+						],
+					},
+				],
+			},
+			{
+				uuid: TARGET_MODULE,
+				name: "Target",
+				caseType: "patient",
+				caseListConfig: multipleConfig(10),
+				forms: [
+					{
+						uuid: TARGET_FORM,
+						name: "Target form",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note" })],
+					},
+				],
+			},
+		],
+	});
+	(doc.forms[SOURCE_FORM] as Form).caseOperations = [...caseOperations];
+	return doc;
+}
+
+function retypeSelected(condition?: CaseOperation["condition"]): CaseOperation {
+	return {
+		uuid: SESSION_UPDATE,
+		id: "retype_selected",
+		action: "update",
+		caseType: "patient",
+		target: { kind: "session" },
+		retype: "visit",
+		...(condition !== undefined && { condition }),
+	};
+}
+
+function restoreSelected(): CaseOperation {
+	return {
+		uuid: SESSION_RESTORE,
+		id: "restore_selected",
+		action: "update",
+		caseType: "visit",
+		target: { kind: "session" },
+		retype: "patient",
 	};
 }
 
@@ -349,6 +425,32 @@ describe("multi-select absolute validation", () => {
 			],
 		});
 		expect(codes(doc)).toContain("FORM_LINK_SELECTION_CARDINALITY");
+	});
+
+	it("refuses to carry selected cases after a session operation can change their type", () => {
+		const doc = directCollectionLinkDoc([
+			retypeSelected(eq(formField(KEY), literal("change"))),
+		]);
+		const finding = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
+			(error) => error.code === "FORM_LINK_SELECTION_CASE_TYPE_CHANGED",
+		);
+
+		expect(finding).toMatchObject({
+			location: { formUuid: SOURCE_FORM, formName: "Source form" },
+			details: {
+				expectedCaseType: "patient",
+				possibleFinalCaseTypes: "visit, patient",
+			},
+		});
+	});
+
+	it("allows the carry when an inherited unconditional operation restores every changed case", () => {
+		const doc = directCollectionLinkDoc([
+			retypeSelected(eq(formField(KEY), literal("change"))),
+			restoreSelected(),
+		]);
+
+		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CASE_TYPE_CHANGED");
 	});
 
 	it("refuses to carry one phantom child id after creating a child per selected parent", () => {

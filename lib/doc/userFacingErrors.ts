@@ -627,6 +627,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a value named ${q(det(e, "datumName", ""))} that its destination never reads. Remove it, or rename it to one the destination needs.`,
 	FORM_LINK_SELECTION_CARDINALITY: (e) =>
 		`${q(formName(e))} can't carry its complete case selection straight into that form. Send people to the destination's form list so they can choose again, or give both forms the same case selection and limit.`,
+	FORM_LINK_SELECTION_CASE_TYPE_CHANGED: (e) =>
+		`A Case change in ${q(formName(e))} can change the selected cases to another type before the next form opens. Send people to the destination's form list so they can choose matching cases, or keep every selected case as ${q(det(e, "expectedCaseType", "the destination's case type"))}.`,
 	CONNECT_ID_TOO_LONG: (e) =>
 		`The Connect ID ${q(det(e, "connectId", ""))} in ${q(formName(e))} is too long. Keep it to 50 characters or fewer.`,
 	CONNECT_ID_INVALID_FORMAT: (e) =>
