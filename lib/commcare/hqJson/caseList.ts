@@ -98,6 +98,10 @@ import {
 import { TILE_VERTICAL_ALIGN_WIRE } from "../suite/case-list/tileStyle";
 import { compileForPlatform } from "../suite/case-search/compileForPlatform";
 import {
+	classifyRelatedCaseSearchExpression,
+	searchNeedsSupportingCases,
+} from "../suite/case-search/relatedCaseProjection";
+import {
 	PROMPT_ATTRIBUTE_MAPPINGS,
 	type RuntimeCsqlPromptValidation,
 	searchInputSuppressesAutoMatch,
@@ -144,6 +148,12 @@ function hqEnumPlaceholder(index: number): string {
  * carries the inline lowered XPath rather than a property name
  * (CCHQ's `detail_screen.py::FormattedDetailColumn.xpath` reads
  * `column.field` directly as the XPath when this flag is set).
+ * Effective Search has one narrower exception: a whole-expression parent
+ * property becomes a context-relative calculated XPath. CCHQ copies the same
+ * expression into its Search detail; `current()/../case` follows the containing
+ * casedb or Search roster without naming either instance, and every canonical
+ * relation case-type qualifier remains explicit. Larger related calculations
+ * are rejected by the validator before this projection runs.
  *
  * The `id-mapping` arm produces CCHQ's `translatable-enum` format with the
  * `(key, {lang: label})` per-entry shape projected from Nova's complete
@@ -163,12 +173,29 @@ function projectColumnToDetail(
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
+	projectSearchRelatedCases = false,
 ): WireDetailColumn {
 	const headerRecord = localization.textMap(
 		makeTranslationUnitId("column", column.uuid, "header"),
 	);
 
 	if (column.kind === "calculated") {
+		if (projectSearchRelatedCases) {
+			const relatedProjection = classifyRelatedCaseSearchExpression(
+				column.expression,
+				{
+					...(typeContext ?? {}),
+					...(caseType === undefined ? {} : { currentCaseType: caseType }),
+				},
+			);
+			if (relatedProjection.kind === "ancestor-property") {
+				return {
+					...detailColumn(relatedProjection.hqExpression, headerRecord),
+					format: "calculate",
+					useXpathExpression: true,
+				};
+			}
+		}
 		const calcXpath = emitOnDeviceExpression(
 			column.expression,
 			undefined,
@@ -338,6 +365,7 @@ function projectColumnForShortDetail(
 	caseProperties: readonly CaseProperty[] = [],
 	typeContext?: TypeContext,
 	lookupNaming?: LookupWireNaming,
+	projectSearchRelatedCases = false,
 ): WireDetailColumn {
 	const projected = projectColumnToDetail(
 		column,
@@ -348,6 +376,7 @@ function projectColumnForShortDetail(
 		caseProperties,
 		typeContext,
 		lookupNaming,
+		projectSearchRelatedCases,
 	);
 	const visible = column.visibleInList ?? true;
 	if (visible) return projected;
@@ -479,13 +508,34 @@ function projectSortElements(
 				sort_calculation: "",
 			};
 		}
+		const projectedColumn = wireColumns[columnIndex];
+		if (
+			projectedColumn !== undefined &&
+			projectedColumn.useXpathExpression !== true
+		) {
+			return {
+				field: projectedColumn.field,
+				type,
+				direction,
+				blanks: "",
+				display: {},
+				sort_calculation: "",
+			};
+		}
 		return {
 			field: `_cc_calculated_${columnIndex}`,
 			type,
 			direction,
 			blanks: "",
 			display: {},
-			sort_calculation: directive.calcXpath,
+			// Sort the exact calculated expression stored on the projected HQ
+			// column. It normally equals `directive.calcXpath`; effective Search's
+			// admitted parent-property arm is intentionally context-relative so the
+			// copied Search detail does not retain a casedb-root sort expression.
+			sort_calculation:
+				projectedColumn?.useXpathExpression === true
+					? projectedColumn.field
+					: directive.calcXpath,
 		};
 	});
 }
@@ -764,6 +814,8 @@ const ZERO_INPUT_SEARCH_SENTINEL: DefaultCaseSearchProperty = {
  *   - `caseListConfig.filter` + advanced-arm predicates →
  *     `default_properties` (the single AND-composed `_xpath_query`
  *     slot).
+ *   - Emitted parent-property information →
+ *     `include_all_related_cases: true`.
  *
  * `auto_launch`, `default_search`, and `inline_search` are
  * persistent CCHQ state — the CCHQ runtime regenerates the suite
@@ -883,6 +935,13 @@ function buildSearchConfigDocument(
 		config.auto_launch = wire.autoLaunch;
 		config.default_search = wire.defaultSearch;
 		config.inline_search = wire.inlineSearch;
+		config.include_all_related_cases = searchNeedsSupportingCases(
+			caseListConfig,
+			{
+				...(typeContext ?? {}),
+				...(_caseType === undefined ? {} : { currentCaseType: _caseType }),
+			},
+		);
 	}
 
 	return config;
@@ -927,6 +986,7 @@ export function projectCaseListForHq(
 	const localization = commCareLocalization(doc);
 	const caseListConfig = mod.caseListConfig;
 	const caseSearchConfig = effectiveCaseSearchConfig(mod);
+	const projectSearchRelatedCases = caseSearchConfig !== undefined;
 	const typeContext = moduleTypeContext(mod, doc);
 	const caseProperties =
 		effectiveCaseTypes(doc).find((type) => type.name === mod.caseType)
@@ -952,6 +1012,7 @@ export function projectCaseListForHq(
 			caseProperties,
 			typeContext,
 			lookupNaming,
+			projectSearchRelatedCases,
 		),
 	);
 	const longColumns = longSourceColumns.map((c) =>
@@ -964,6 +1025,7 @@ export function projectCaseListForHq(
 			caseProperties,
 			typeContext,
 			lookupNaming,
+			projectSearchRelatedCases,
 		),
 	);
 	const sortElements = projectSortElements(

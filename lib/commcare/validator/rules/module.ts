@@ -34,6 +34,7 @@ import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
+import { searchRelatedCalculationCompatibility } from "./case-search/searchRelatedCalculationCompatibility";
 import { moduleDisplayCondition } from "./displayConditions";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
 import { multiSelectTopology } from "./multiSelect";
@@ -276,5 +277,6 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	// still emit.
 	searchButtonDisplayConditionTypeCheck,
 	excludedOwnerIdsTypeCheck,
+	searchRelatedCalculationCompatibility,
 	caseSearchConfigRequiresCaseType,
 ];

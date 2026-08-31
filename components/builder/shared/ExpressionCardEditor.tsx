@@ -43,7 +43,10 @@
 import { useCallback, useMemo } from "react";
 import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
-import { valueExpressionRuntimeEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
+import {
+	type PredicateEditVerdict,
+	valueExpressionRuntimeEditVerdict,
+} from "@/lib/doc/hooks/predicateVerdicts";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
@@ -120,6 +123,11 @@ interface ExpressionCardEditorProps {
 	 * `ANY_CONSTRAINT` (no narrowing).
 	 */
 	readonly constraint?: SlotConstraint;
+	/** Optional whole-candidate admission owned by the mounting surface. */
+	readonly candidateEditVerdict?: (
+		candidate: ValueExpression,
+		context: TypeContext,
+	) => PredicateEditVerdict;
 	/**
 	 * Surfaces the boolean validity verdict to the parent on every
 	 * onChange. The editor authors valid by construction: no sequence
@@ -151,6 +159,7 @@ export function ExpressionCardEditor({
 	caseDataScope = "per-case",
 	evaluationTarget = "on-device",
 	constraint = ANY_CONSTRAINT,
+	candidateEditVerdict,
 	onValidityChange,
 }: ExpressionCardEditorProps) {
 	const lookupCatalog = useBuilderLookupCatalog();
@@ -222,11 +231,15 @@ export function ExpressionCardEditor({
 				evaluationTarget,
 				typeCtx,
 			);
-			return verdict.ok
+			const surfaceVerdict = verdict.ok
+				? candidateEditVerdict?.(candidate, typeCtx)
+				: undefined;
+			const finalVerdict = verdict.ok ? surfaceVerdict : verdict;
+			return finalVerdict === undefined || finalVerdict.ok
 				? ({ admitted: true } as const)
-				: ({ admitted: false, reason: verdict.reason } as const);
+				: ({ admitted: false, reason: finalVerdict.reason } as const);
 		},
-		[value, evaluationTarget, typeCtx],
+		[value, evaluationTarget, typeCtx, candidateEditVerdict],
 	);
 
 	// Standardized parent-validity propagation: fires on mount + on

@@ -21,7 +21,8 @@
 //      `case_type` first, then the `_xpath_query` elements (when any
 //      clause is present and non-trivial — CCHQ's generator loops
 //      `default_properties` right after `case_type`), then
-//      `commcare_blacklisted_owner_ids` (when set). One `_xpath_query`
+//      `commcare_blacklisted_owner_ids` (when set), then the derived
+//      supporting-case switch (when needed). One `_xpath_query`
 //      element PER composed clause; the server AND-composes every
 //      value it receives under the key
 //      (`corehq/apps/case_search/utils.py::_apply_filter`).
@@ -443,6 +444,43 @@ describe("emitSearchSession — _xpath_query AND-composition", () => {
 		});
 		expect(instances.has("commcaresession")).toBe(true);
 		expect(instances.has("casedb")).toBe(true);
+	});
+
+	it("does not declare an instance for a fully hidden unsorted calculation", () => {
+		const inputRef = {
+			kind: "input" as const,
+			searchInputUuid: INPUT_UUIDS.a,
+		};
+		const hidden = calculatedColumn(
+			testUuid("00000000-0000-4000-8000-cccc00000004"),
+			"Hidden input",
+			term(inputRef),
+			{ visibleInList: false, visibleInDetail: false },
+		);
+		const dormantInstances = emitSearchSession({
+			caseListConfig: makeListConfig({ columns: [hidden] }),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		}).instances;
+		const sortCarrierInstances = emitSearchSession({
+			caseListConfig: makeListConfig({
+				columns: [
+					{
+						...hidden,
+						sort: { direction: "asc", priority: 0 },
+					},
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		}).instances;
+
+		expect(dormantInstances.has("search-input:results")).toBe(false);
+		expect(sortCarrierInstances.has("search-input:results")).toBe(true);
 	});
 
 	it("emits the filter and an advanced-arm predicate as sibling _xpath_query slots", () => {
@@ -876,6 +914,132 @@ describe("emitSearchSession — simple-arm-with-via _xpath_query routing", () =>
 		const xpathSlice = xml.split(`key="_xpath_query"`)[1] ?? "";
 		expect(xpathSlice).not.toContain(`@name=&apos;full_name&apos;`);
 	});
+});
+
+// ── Supporting cases for emitted Search information ────────────────
+
+describe("emitSearchSession — parent information in Search details", () => {
+	const parentName = () =>
+		calculatedColumn(
+			testUuid("00000000-0000-4000-8000-cccc00000002"),
+			"Household",
+			term(
+				prop(
+					"patient",
+					"case_name",
+					ancestorPath(relationStep("parent", "household")),
+				),
+			),
+		);
+
+	it("orders supporting cases after case type, query filters, and owner exclusions", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				columns: [parentName()],
+				filter: eq(prop("patient", "active"), literal("yes")),
+			}),
+			caseSearchConfig: {
+				excludedOwnerIds: term(literal("owner-a")),
+			},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+
+		expect(xml).toContain(
+			'<data key="x_commcare_include_all_related_cases" ref="&apos;true&apos;"/>',
+		);
+		const caseType = xml.indexOf('key="case_type"');
+		const query = xml.indexOf('key="_xpath_query"');
+		const excludedOwners = xml.indexOf('key="commcare_blacklisted_owner_ids"');
+		const includeSupportingCases = xml.indexOf(
+			'key="x_commcare_include_all_related_cases"',
+		);
+		expect(caseType).toBeGreaterThan(-1);
+		expect(caseType).toBeLessThan(query);
+		expect(query).toBeLessThan(excludedOwners);
+		expect(excludedOwners).toBeLessThan(includeSupportingCases);
+	});
+
+	it("does not carry supporting cases for current-case information", () => {
+		const { xml } = emitSearchSession({
+			caseListConfig: makeListConfig({
+				columns: [
+					calculatedColumn(
+						testUuid("00000000-0000-4000-8000-cccc00000003"),
+						"Patient",
+						term(prop("patient", "case_name")),
+					),
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		});
+
+		expect(xml).not.toContain("x_commcare_include_all_related_cases");
+	});
+
+	it("ignores a fully hidden unsorted definition but carries a hidden sort source", () => {
+		const hidden = parentName();
+		const hiddenUnsorted = emitSearchSession({
+			caseListConfig: makeListConfig({
+				columns: [
+					{
+						...hidden,
+						visibleInList: false,
+						visibleInDetail: false,
+					},
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		}).xml;
+		const hiddenSorted = emitSearchSession({
+			caseListConfig: makeListConfig({
+				columns: [
+					{
+						...hidden,
+						visibleInList: false,
+						visibleInDetail: false,
+						sort: { direction: "asc", priority: 0 },
+					},
+				],
+			}),
+			caseSearchConfig: {},
+			wire: WEB_LIST_FIRST,
+			caseType: "patient",
+			moduleIndex: 0,
+		}).xml;
+
+		expect(hiddenUnsorted).not.toContain(
+			"x_commcare_include_all_related_cases",
+		);
+		expect(hiddenSorted).toContain("x_commcare_include_all_related_cases");
+	});
+
+	it.each([undefined, { kind: "multiple" as const, maximum: 5 }])(
+		"keeps supporting cases out of the selectable rows for scalar and several-case selection",
+		(selection) => {
+			const { xml } = emitSearchSession({
+				caseListConfig: makeListConfig({
+					columns: [parentName()],
+					...(selection === undefined ? {} : { selection }),
+				}),
+				caseSearchConfig: {},
+				wire: WEB_LIST_FIRST,
+				caseType: "patient",
+				moduleIndex: 0,
+			});
+
+			expect(
+				xml.match(/not\(commcare_is_related_case=true\(\)\)/g),
+			).toHaveLength(1);
+		},
+	);
 });
 
 // ── <datum> nodeset shape ────────────────────────────────────────────

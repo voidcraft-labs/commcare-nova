@@ -4,6 +4,7 @@ import {
 	buildDoc,
 	type CaseListConfigSpec,
 	caseListConfig,
+	type DocSpec,
 	f,
 	resolveCaseListConfig,
 	xp,
@@ -4213,6 +4214,9 @@ const HQ_PROJECTION_PATIENT_CASE_TYPE = {
 function buildHqProjectionDoc(
 	caseListConfig: CaseListConfigSpec,
 	caseSearchConfig?: Module["caseSearchConfig"],
+	caseTypes: NonNullable<DocSpec["caseTypes"]> = [
+		HQ_PROJECTION_PATIENT_CASE_TYPE,
+	],
 ) {
 	return buildDoc({
 		appName: "HQ Projection",
@@ -4239,7 +4243,7 @@ function buildHqProjectionDoc(
 				],
 			},
 		],
-		caseTypes: [HQ_PROJECTION_PATIENT_CASE_TYPE],
+		caseTypes,
 	});
 }
 
@@ -4904,6 +4908,150 @@ describe("expandDoc HQ JSON projection — case_list_filter", () => {
 });
 
 describe("expandDoc HQ JSON projection — search_config", () => {
+	describe("parent information", () => {
+		const relatedCaseTypes = [
+			{ ...HQ_PROJECTION_PATIENT_CASE_TYPE, parent_type: "household" },
+			{
+				name: "household",
+				properties: [
+					{ name: "case_name", label: "Name", data_type: "text" as const },
+				],
+			},
+		];
+		const parentName = (slots: Parameters<typeof calculatedColumn>[3] = {}) =>
+			calculatedColumn(
+				testUuid("00000000-0000-4000-8000-000000040090"),
+				"Household",
+				term(
+					prop(
+						"patient",
+						"case_name",
+						ancestorPath(relationStep("parent", "household")),
+					),
+				),
+				slots,
+			);
+
+		it("carries a parent property with one typed expression for ordinary and Search details", () => {
+			const module = expandDoc(
+				buildHqProjectionDoc(
+					{ columns: [parentName()], searchInputs: [] },
+					{},
+					relatedCaseTypes,
+				),
+			).modules[0];
+
+			expect(module.search_config.include_all_related_cases).toBe(true);
+			for (const detail of [
+				module.case_details.short,
+				module.case_details.long,
+			]) {
+				expect(detail.columns[0]).toMatchObject({
+					field:
+						"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
+					format: "calculate",
+					useXpathExpression: true,
+				});
+			}
+		});
+
+		it("stores a parent case id as an attribute-backed typed expression", () => {
+			const parentCaseId = calculatedColumn(
+				testUuid("00000000-0000-4000-8000-000000040091"),
+				"Household id",
+				term(
+					prop(
+						"patient",
+						"case_id",
+						ancestorPath(relationStep("parent", "household")),
+					),
+				),
+			);
+			const module = expandDoc(
+				buildHqProjectionDoc(
+					{ columns: [parentCaseId], searchInputs: [] },
+					{},
+					relatedCaseTypes,
+				),
+			).modules[0];
+
+			expect(module.case_details.short.columns[0]).toMatchObject({
+				field:
+					"current()/../case[@case_id=current()/index/parent and @case_type='household']/@case_id",
+				format: "calculate",
+				useXpathExpression: true,
+			});
+		});
+
+		it("does not change a parent calculation when Search is not part of the module", () => {
+			const module = expandDoc(
+				buildHqProjectionDoc(
+					{ columns: [parentName()], searchInputs: [] },
+					undefined,
+					relatedCaseTypes,
+				),
+			).modules[0];
+
+			expect(module.search_config.include_all_related_cases).toBe(false);
+			expect(module.case_details.short.columns[0]).toMatchObject({
+				format: "calculate",
+				useXpathExpression: true,
+			});
+		});
+
+		it("ignores a fully hidden unsorted definition", () => {
+			const module = expandDoc(
+				buildHqProjectionDoc(
+					{
+						columns: [
+							parentName({
+								visibleInList: false,
+								visibleInDetail: false,
+							}),
+						],
+						searchInputs: [],
+					},
+					{},
+					relatedCaseTypes,
+				),
+			).modules[0];
+
+			expect(module.search_config.include_all_related_cases).toBe(false);
+		});
+
+		it("joins a hidden parent-property sort to the typed calculation", () => {
+			const module = expandDoc(
+				buildHqProjectionDoc(
+					{
+						columns: [
+							parentName({
+								visibleInList: false,
+								visibleInDetail: false,
+								sort: { direction: "asc", priority: 0 },
+							}),
+						],
+						searchInputs: [],
+					},
+					{},
+					relatedCaseTypes,
+				),
+			).modules[0];
+
+			expect(module.search_config.include_all_related_cases).toBe(true);
+			expect(module.case_details.short.columns[0]).toMatchObject({
+				field:
+					"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
+				format: "invisible",
+				useXpathExpression: true,
+			});
+			expect(module.case_details.short.sort_elements[0]).toMatchObject({
+				field: "_cc_calculated_0",
+				sort_calculation:
+					"current()/../case[@case_id=current()/index/parent and @case_type='household']/case_name",
+			});
+		});
+	});
+
 	it("preserves an intentional zero-input Search action through HQ JSON", () => {
 		const doc = buildHqProjectionDoc(
 			{

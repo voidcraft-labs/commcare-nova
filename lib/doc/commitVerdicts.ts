@@ -42,6 +42,7 @@ import {
 } from "@/lib/commcare/predicate/csqlRepresentability";
 import { walkCsqlOnDeviceNodes } from "@/lib/commcare/predicate/csqlRuntimeWalk";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
+import { classifyRelatedCaseSearchExpression } from "@/lib/commcare/suite/case-search/relatedCaseProjection";
 import type { ValidationScope } from "@/lib/commcare/validator";
 import {
 	type ValidationError,
@@ -86,6 +87,7 @@ import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import type {
 	MatchMode,
 	Predicate,
+	RelationEvaluationScopeContext,
 	TypeContext,
 	ValueExpression,
 } from "@/lib/domain/predicate";
@@ -174,6 +176,28 @@ export function valueExpressionRuntimeEditVerdict(
 	return issue === undefined
 		? { ok: true }
 		: { ok: false, reason: dateAddEditIssueReason(issue) };
+}
+
+const SEARCH_RELATED_CALCULATION_EDIT_REASON =
+	"Search can show one parent property by itself, but it can't use other related-case information in this calculated item. Choose the parent property by itself, or build the calculation from this case.";
+
+/**
+ * Whole-candidate authoring verdict for a calculated Results/Details value in
+ * an effective Search module.
+ *
+ * Builder authoring asks the compile boundary's classifier whether the whole
+ * expression is current-case-only or one directly projected ancestor
+ * property. Keeping the decision there also preserves its graph resolution
+ * and reserved-path rules without restating them here.
+ */
+export function caseSearchCalculatedExpressionEditVerdict(
+	candidate: ValueExpression,
+	context: RelationEvaluationScopeContext,
+): PredicateEditVerdict {
+	return classifyRelatedCaseSearchExpression(candidate, context).kind !==
+		"unsupported"
+		? { ok: true }
+		: { ok: false, reason: SEARCH_RELATED_CALCULATION_EDIT_REASON };
 }
 
 /**

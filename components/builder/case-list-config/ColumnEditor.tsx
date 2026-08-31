@@ -91,6 +91,8 @@ interface ColumnEditorProps {
 	 */
 	readonly currentCaseType: string;
 	readonly userProperties?: readonly UserProperty[];
+	/** Whether the module currently emits the Search workflow. */
+	readonly searchIsEffective?: boolean;
 	/**
 	 * Reports whether the supplied field/display pair satisfies the
 	 * same admission predicate as the kind and property pickers.
@@ -107,12 +109,13 @@ export function ColumnEditor({
 	caseTypes,
 	currentCaseType,
 	userProperties = [],
+	searchIsEffective = false,
 	onValidityChange,
 }: ColumnEditorProps) {
 	const projectProse = useProseProjection();
 	const ctx = useMemo<ColumnEditContext>(
-		() => ({ caseTypes, currentCaseType, userProperties }),
-		[caseTypes, currentCaseType, userProperties],
+		() => ({ caseTypes, currentCaseType, userProperties, searchIsEffective }),
+		[caseTypes, currentCaseType, userProperties, searchIsEffective],
 	);
 
 	// Per-kind applicability check. Calculated columns have no

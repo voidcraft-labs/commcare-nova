@@ -1426,6 +1426,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			activeTab: tab,
 			config,
 			searchConfig,
+			searchIsEffective: effectiveSearchConfig !== undefined,
 			caseTypes,
 			userProperties,
 			caseType,
@@ -1975,6 +1976,7 @@ interface ResolveInspectorArgs {
 	readonly activeTab: CaseListWorkspaceTab;
 	readonly config: CaseListConfig;
 	readonly searchConfig: CaseSearchConfig | undefined;
+	readonly searchIsEffective: boolean;
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
 	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly caseType: string;
@@ -2055,6 +2057,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 							caseTypes={args.caseTypes}
 							userProperties={args.userProperties}
 							currentCaseType={args.caseType}
+							searchIsEffective={args.searchIsEffective}
 							tileOn={args.tileOn}
 							tileIssues={args.tileIssues.get(column.uuid) ?? NO_TILE_ISSUES}
 							onChange={(next) => args.replaceColumn(column.uuid, next)}
@@ -2176,6 +2179,7 @@ function ColumnInspectorBody({
 	caseTypes,
 	userProperties,
 	currentCaseType,
+	searchIsEffective,
 	tileOn,
 	tileIssues,
 	onChange,
@@ -2195,6 +2199,7 @@ function ColumnInspectorBody({
 	readonly caseTypes: ReturnType<typeof useEffectiveCaseTypes>;
 	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly currentCaseType: string;
+	readonly searchIsEffective: boolean;
 	readonly tileOn: boolean;
 	readonly tileIssues: readonly string[];
 	readonly onChange: (next: Column) => void;
@@ -2235,6 +2240,7 @@ function ColumnInspectorBody({
 				caseTypes={caseTypes}
 				userProperties={userProperties}
 				currentCaseType={currentCaseType}
+				searchIsEffective={searchIsEffective}
 			/>
 			<TileCellInspector
 				column={column}

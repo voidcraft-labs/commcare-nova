@@ -72,6 +72,8 @@ export interface ColumnEditContext {
 	/** The case-type the column reads against. */
 	readonly currentCaseType: string;
 	readonly userProperties?: readonly UserProperty[];
+	/** Whether this module currently has an effective Search path. */
+	readonly searchIsEffective?: boolean;
 }
 
 /**

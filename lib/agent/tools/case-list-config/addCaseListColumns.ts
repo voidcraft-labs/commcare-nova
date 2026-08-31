@@ -35,7 +35,12 @@ import {
 	resolveModuleAddress,
 } from "../shared/entityAddresses";
 import type { MutationSuccess } from "../shared/toolCallSummary";
-import { columnInputSchema, newUuid, stampColumnUuid } from "./shared";
+import {
+	CALCULATED_SEARCH_EXPRESSION_GUIDANCE,
+	columnInputSchema,
+	newUuid,
+	stampColumnUuid,
+} from "./shared";
 
 export const addCaseListColumnsInputSchema = moduleAddressSchema
 	.extend({
@@ -43,7 +48,7 @@ export const addCaseListColumnsInputSchema = moduleAddressSchema
 			.array(columnInputSchema)
 			.min(1)
 			.describe(
-				"The columns to append, in display order. Supply columnUuid when another item in this call references the column; otherwise Nova mints it.",
+				`The columns to append, in display order. Supply columnUuid when another item in this call references the column; otherwise Nova mints it. ${CALCULATED_SEARCH_EXPRESSION_GUIDANCE}`,
 			),
 	})
 	.strict();

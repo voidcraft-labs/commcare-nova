@@ -114,14 +114,14 @@ export type ValidationErrorCode =
 	| "CASE_LIST_TILE_GROUP_HEADER_EMPTY"
 	| "FIELD_KIND_PROPERTY_TYPE_MISMATCH"
 	| "FIELD_KIND_WRITERS_DISAGREE"
-	// Case-search-config rules — fire only when `caseSearchConfig`
-	// is present on the module. Without it, no `<remote-request>` is
-	// emitted, so each rule short-circuits cleanly when the config
-	// slot is absent.
+	// Case-search rules. Slot-specific checks read authored
+	// `caseSearchConfig`; structural compatibility checks follow effective
+	// Search, including the markerless-input path that also emits Search.
 	| "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_TYPE_ERROR"
 	| "CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE"
 	| "CASE_SEARCH_EXCLUDED_OWNER_IDS_CASE_DATA_UNAVAILABLE"
 	| "CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR"
+	| "CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE"
 	| "CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE"
 	// Form-level
 	| "EMPTY_FORM"

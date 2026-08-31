@@ -4,6 +4,7 @@ import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
 	advancedSearchInputDef,
 	type CaseSearchConfig,
+	type CaseType,
 	type Column,
 	calculatedColumn,
 	idMappingColumn,
@@ -15,7 +16,9 @@ import {
 } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
+	ancestorPath,
 	dateAdd,
+	double,
 	eq,
 	isBlank,
 	literal,
@@ -23,6 +26,7 @@ import {
 	now,
 	type Predicate,
 	prop,
+	relationStep,
 	sessionContext,
 	tableLookup,
 	term,
@@ -54,11 +58,13 @@ function docWith({
 	searchInputs = [],
 	caseSearchConfig,
 	columns = [plainColumn(testUuid("name-column"), "case_name", "Name")],
+	caseTypes,
 }: {
 	readonly filter?: Predicate;
 	readonly searchInputs?: SearchInputDef[];
 	readonly caseSearchConfig?: CaseSearchConfig;
 	readonly columns?: Column[];
+	readonly caseTypes?: CaseType[];
 } = {}) {
 	return buildDoc({
 		appName: "Clinic",
@@ -76,7 +82,7 @@ function docWith({
 				forms: [form],
 			},
 		],
-		caseTypes: [
+		caseTypes: caseTypes ?? [
 			{
 				name: "client",
 				properties: [
@@ -169,6 +175,59 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 		expect(verdict.filterBroken).toBe(true);
 		expect(verdict.searchInputsBroken).toBe(true);
 		expect(verdict.brokenColumnUuids).toContain(CALCULATED_UUID);
+	});
+
+	it("routes an unsupported Search related-case calculation to its calculated field", () => {
+		const doc = docWith({
+			caseSearchConfig: {},
+			caseTypes: [
+				{
+					name: "client",
+					parent_type: "household",
+					properties: [
+						{
+							name: "case_name",
+							label: proseText("Name"),
+							data_type: "text",
+						},
+					],
+				},
+				{
+					name: "household",
+					properties: [
+						{
+							name: "score",
+							label: proseText("Score"),
+							data_type: "int",
+						},
+					],
+				},
+			],
+			columns: [
+				plainColumn(testUuid("name-column"), "case_name", "Name"),
+				calculatedColumn(
+					CALCULATED_UUID,
+					"Household score",
+					double(
+						term(
+							prop(
+								"client",
+								"score",
+								ancestorPath(relationStep("parent", "household")),
+							),
+						),
+					),
+				),
+			],
+		});
+
+		expect(
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				MODULE_UUID,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).brokenColumnUuids,
+		).toContain(CALCULATED_UUID);
 	});
 
 	it("marks a column broken for an empty id-mapping value", () => {

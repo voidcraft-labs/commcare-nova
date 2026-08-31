@@ -23,6 +23,7 @@
 import { INSPECTOR_LABEL_CLS } from "@/components/builder/inspector/inspectorChrome";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
+import { caseSearchCalculatedExpressionEditVerdict } from "@/lib/doc/hooks/predicateVerdicts";
 import type { Column } from "@/lib/domain";
 import { calculatedColumn } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
@@ -84,6 +85,11 @@ export function CalculatedColumnCard({
 					caseTypes={ctx.caseTypes}
 					currentCaseType={ctx.currentCaseType}
 					userProperties={ctx.userProperties}
+					candidateEditVerdict={
+						ctx.searchIsEffective
+							? caseSearchCalculatedExpressionEditVerdict
+							: undefined
+					}
 				/>
 			</div>
 		</div>
