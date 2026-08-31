@@ -508,7 +508,10 @@ per-case wrapper reads the current value from the selected-entities instance.
 An automatic direct-form carry is admitted only when every possible final type
 of those selected session cases still matches the destination form. Conditional
 retypes retain both branches; an inherited unconditional restoration closes the
-transitioned branch because it runs everywhere that transition did.
+transitioned branch because it runs everywhere that transition did. A runtime
+expression target also contributes a possible selected-case branch unless the
+shared case-operation identity proof can show it is distinct; repeated use of
+the same expression keeps that alias decision correlated across transitions.
 The operation wrapper, implicit close, child creation, and their correlated
 `id-of` values are asserted as exact XForm partials in Nova, because HQ's own
 `tests/data/form_preparation_v2/multi_no_actions.xml` proves only that HQ drops

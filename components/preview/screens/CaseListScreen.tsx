@@ -665,13 +665,38 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const [validatingSelection, setValidatingSelection] = useState(false);
 	const selectionRevisionRef = useRef(0);
 	const selectionScopeRef = useRef(selectionScopeKey);
-	const selectionValidationTokenRef = useRef<object | undefined>(undefined);
 	if (selectionScopeRef.current !== selectionScopeKey) {
 		selectionScopeRef.current = selectionScopeKey;
 		selectionRevisionRef.current += 1;
 	}
 	const multipleSelection = config?.selection;
 	const selectionMaximum = multipleSelection?.maximum ?? 1;
+	/* A collaborator can replace the live case-list configuration while an
+	 * authoritative selection read is in flight. Keep both the configuration
+	 * identity and its projected limit in the attempt identity: neither the old
+	 * query nor an old closure may authorize navigation for the new document. */
+	const selectionConfiguration = useMemo(
+		() => ({ config, maximum: selectionMaximum }),
+		[config, selectionMaximum],
+	);
+	const selectionConfigurationRef = useRef(selectionConfiguration);
+	const selectionValidationTokenRef = useRef<
+		| {
+				scopeKey: string;
+				revision: number;
+				configuration: typeof selectionConfiguration;
+		  }
+		| undefined
+	>(undefined);
+	if (selectionConfigurationRef.current !== selectionConfiguration) {
+		/* Publish the new configuration during render, before a response can race
+		 * the effect that releases the frozen UI. Keep the old token until either
+		 * that committed effect or the request's `finally` retires it: an abandoned
+		 * concurrent render must not strand `validatingSelection` without an owner.
+		 * The comparison is identity-based because every committed case-list edit
+		 * replaces its configuration object. */
+		selectionConfigurationRef.current = selectionConfiguration;
+	}
 	const setSelectedChoices = useCallback(
 		(next: readonly PreviewCaseChoice[]) => {
 			selectionRevisionRef.current += 1;
@@ -687,6 +712,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		selectionValidationTokenRef.current = undefined;
 		setValidatingSelection(false);
 	}, [selectionScopeKey]);
+	useEffect(() => {
+		const activeToken = selectionValidationTokenRef.current;
+		if (activeToken?.configuration === selectionConfiguration) return;
+		/* The live ref retires stale navigation synchronously during render. This
+		 * committed effect independently owns UI cleanup, so a StrictMode restart
+		 * cannot consume a one-render change flag and leave the controls frozen. */
+		selectionValidationTokenRef.current = undefined;
+		setValidatingSelection(false);
+	}, [selectionConfiguration]);
 	useEffect(() => {
 		if (previewing) return;
 		setMultiSelectionState({ scopeKey: selectionScopeKey, choices: [] });
@@ -1288,8 +1322,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const finishSelectedCaseNavigation = (
 		choices: readonly PreviewCaseChoice[],
 	) => {
-		if (selectionBlocker !== undefined) {
-			setSelectionAnnouncement(selectionBlocker);
+		/* Read the live limit at the final effect boundary. The async caller's
+		 * render may predate a collaborator lowering it, and preserving the exact
+		 * selected set is safer than silently trimming cases to make it fit. */
+		const currentSelectionBlocker = previewCaseSelectionMessage(
+			choices.length,
+			selectionConfigurationRef.current.maximum,
+		);
+		if (currentSelectionBlocker !== undefined) {
+			setSelectionAnnouncement(currentSelectionBlocker);
 			return;
 		}
 		if (selectsForMenu) {
@@ -1330,6 +1371,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		const validationToken = {
 			scopeKey: selectionScopeKey,
 			revision: selectionRevisionRef.current,
+			configuration: selectionConfiguration,
 		};
 		selectionValidationTokenRef.current = validationToken;
 		setValidatingSelection(true);
@@ -1345,7 +1387,8 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			const validationIsCurrent =
 				selectionValidationTokenRef.current === validationToken &&
 				selectionScopeRef.current === validationToken.scopeKey &&
-				selectionRevisionRef.current === validationToken.revision;
+				selectionRevisionRef.current === validationToken.revision &&
+				selectionConfigurationRef.current === validationToken.configuration;
 			if (!validationIsCurrent) return;
 			if (result.kind === "rows") {
 				const reconciled = reconcilePreviewCaseChoices(

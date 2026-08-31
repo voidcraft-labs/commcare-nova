@@ -36,6 +36,7 @@ import {
 	waitFor,
 	within,
 } from "@testing-library/react";
+import { StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
@@ -376,6 +377,84 @@ describe("CaseListScreen — several-case selection", () => {
 		expect(setPreviewCaseTargetMock).not.toHaveBeenCalled();
 		expect(navigateMock.openForm).not.toHaveBeenCalled();
 	});
+
+	it("keeps the selected cases and releases validation under StrictMode when a collaborator lowers the limit", async () => {
+		const rows = [
+			makeRow("case-a", { case_name: "Alice" }),
+			makeRow("case-b", { case_name: "Bo" }),
+		];
+		const validation = deferred<{
+			readonly kind: "rows";
+			readonly rows: readonly CaseRowWithCalculated[];
+			readonly constraintSource: "unconstrained";
+		}>();
+		vi.mocked(loadCasesAction).mockImplementation(async (args) =>
+			"caseIds" in args
+				? await validation.promise
+				: {
+						constraintSource: "unconstrained",
+						kind: "rows",
+						rows,
+					},
+		);
+		renderCaseListScreen({
+			columns: [
+				plainColumn(COL_NAME_UUID, "case_name", "Name", {
+					visibleInDetail: false,
+				}),
+			],
+			selection: { kind: "multiple", maximum: 2 },
+			strictMode: true,
+		});
+
+		fireEvent.click(
+			await screen.findByRole("checkbox", { name: "Choose Alice" }),
+		);
+		fireEvent.click(screen.getByRole("checkbox", { name: "Choose Bo" }));
+		fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+		await screen.findByRole("button", { name: "Checking cases" });
+
+		const store = capturedDocStore;
+		if (store === undefined) throw new Error("doc store was not captured");
+		act(() => {
+			store.getState().applyMany([
+				{
+					kind: "setCaseListMeta",
+					uuid: MODULE_UUID,
+					patch: { selection: { kind: "multiple", maximum: 1 } },
+				},
+			]);
+		});
+
+		expect(screen.getByText("2 cases selected")).toBeDefined();
+		expect(
+			screen.getByText("Choose 1 fewer case to continue", {
+				selector: "#multi-case-selection-blocker",
+			}),
+		).toBeDefined();
+		expect(
+			(screen.getByRole("button", { name: "Continue" }) as HTMLButtonElement)
+				.disabled,
+		).toBe(true);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Review selected cases" }),
+		);
+		const dialog = screen.getByRole("dialog");
+		expect(within(dialog).getByText("Alice")).toBeDefined();
+		expect(within(dialog).getByText("Bo")).toBeDefined();
+
+		await act(async () => {
+			validation.resolve({
+				constraintSource: "unconstrained",
+				kind: "rows",
+				rows,
+			});
+			await validation.promise;
+		});
+		expect(setPreviewCaseTargetMock).not.toHaveBeenCalled();
+		expect(navigateMock.openForm).not.toHaveBeenCalled();
+	});
 });
 
 vi.mock("@/lib/session/hooks", async () => {
@@ -545,6 +624,8 @@ function renderCaseListScreen(opts: {
 	/** Give the fixture patient type a separately rooted household case parent. */
 	includeIndependentCaseParent?: boolean;
 	selection?: { readonly kind: "multiple"; readonly maximum: number };
+	/** Exercise update effects across React's development double render. */
+	strictMode?: boolean;
 }) {
 	const includeCaseLoadingForm = opts.includeCaseLoadingForm !== false;
 	const extraForms = opts.secondCaseLoadingForm
@@ -561,7 +642,7 @@ function renderCaseListScreen(opts: {
 			}
 		: {};
 	const extraFormOrder = opts.secondCaseLoadingForm ? [CLOSE_FORM_UUID] : [];
-	const tree = () => (
+	const Content = () => (
 		<BlueprintDocProvider
 			appId={APP_ID}
 			initialDoc={{
@@ -768,6 +849,14 @@ function renderCaseListScreen(opts: {
 			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>
 	);
+	const tree = () =>
+		opts.strictMode ? (
+			<StrictMode>
+				<Content />
+			</StrictMode>
+		) : (
+			<Content />
+		);
 	const result = render(tree());
 	return Object.assign(result, {
 		rerenderAt(location: Location) {

@@ -46,6 +46,7 @@ import {
 	type FormLinkTargetVerdict,
 	formLinkAddChoices,
 	formLinkCarryVerdict,
+	formLinkManualCarryVerdict,
 	formLinkMoveVerdicts,
 	formLinkRequiredDatums,
 	formLinkTargetVerdict,
@@ -89,6 +90,10 @@ export interface FormLinksView {
 	) => readonly FormLinkRequiredDatum[];
 	/** Whether those datums can be carried automatically from this form. */
 	readonly carryVerdict: (target: FormLinkTarget) => FormLinkCarryVerdict;
+	/** Whether this link may replace automatic matching with explicit values. */
+	readonly manualCarryVerdict: (
+		link: Pick<FormLink, "uuid" | "target">,
+	) => FormLinkTargetVerdict;
 	/** Which kinds of link the add control may offer right now. */
 	readonly addChoices: () => FormLinkAddChoices;
 	/** The remove plan, for the confirm copy (it names a fallback pin). */
@@ -136,6 +141,11 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 	);
 	const carryVerdict = useCallback(
 		(target: FormLinkTarget) => formLinkCarryVerdict(doc, formUuid, target),
+		[doc, formUuid],
+	);
+	const manualCarryVerdict = useCallback(
+		(link: Pick<FormLink, "uuid" | "target">) =>
+			formLinkManualCarryVerdict(doc, formUuid, link.uuid, link.target),
 		[doc, formUuid],
 	);
 	const addChoices = useCallback(
@@ -264,6 +274,7 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 			targetVerdict,
 			requiredDatums,
 			carryVerdict,
+			manualCarryVerdict,
 			addChoices,
 			removalPlan,
 			fallbackPlan,
@@ -280,6 +291,7 @@ export function useFormLinks(formUuid: Uuid): FormLinksView {
 			targetVerdict,
 			requiredDatums,
 			carryVerdict,
+			manualCarryVerdict,
 			addChoices,
 			removalPlan,
 			fallbackPlan,

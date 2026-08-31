@@ -146,6 +146,10 @@ export const CARRIED_VALUE_HINT =
 export const EMPTY_CARRIED_VALUE_REFUSAL =
 	"A carried value needs an expression. Give the case id the destination should open, or carry it automatically instead.";
 
+/** Why a several-case selection has no manual carried-value mode. */
+export const SEVERAL_CASES_CARRY_AUTOMATICALLY =
+	"This link carries the selected cases automatically. They travel together, so there's no separate value to enter for each case.";
+
 /** Why nothing needs carrying to this destination. */
 export function nothingNeededCopy(targetType: FormLinkTarget["type"]): string {
 	return targetType === "module"

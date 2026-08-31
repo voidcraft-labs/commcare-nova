@@ -344,17 +344,17 @@ export function caseOperationConditionalGuardUuids(
 
 interface SessionCaseTypeState {
 	readonly caseType: string;
-	/** Predicate-bearing operation UUIDs known true on this branch. */
-	readonly trueGuards: ReadonlySet<Uuid>;
-	/** Predicate-bearing operation UUIDs known false on this branch. */
-	readonly falseGuards: ReadonlySet<Uuid>;
+	/** Condition and target-alias facts known true on this branch. */
+	readonly trueFacts: ReadonlySet<string>;
+	/** Condition and target-alias facts known false on this branch. */
+	readonly falseFacts: ReadonlySet<string>;
 }
 
 const MAX_SESSION_CASE_TYPE_STATES = 256;
 
 function sessionCaseTypeStateKey(state: SessionCaseTypeState): string {
-	return `${state.caseType}|${[...state.trueGuards].sort().join(",")}|${[
-		...state.falseGuards,
+	return `${state.caseType}|${[...state.trueFacts].sort().join(",")}|${[
+		...state.falseFacts,
 	]
 		.sort()
 		.join(",")}`;
@@ -370,6 +370,50 @@ function dedupeSessionCaseTypeStates(
 	];
 }
 
+function conditionFact(uuid: Uuid): string {
+	return `condition:${uuid}`;
+}
+
+/**
+ * Correlated runtime-alias fact for every non-session retype target that may
+ * resolve to the loaded session case. Structurally identical expression/op
+ * targets share one fact; a generated create (or another target the existing
+ * identity proof can separate) gets no fact because it cannot affect the
+ * selected case.
+ */
+function sessionAliasFactsByOperation(
+	operations: readonly CaseOperation[],
+): ReadonlyMap<Uuid, string> {
+	const sessionTarget: KnownTarget = { kind: "session" };
+	const createsByUuid = new Map<Uuid, CaseOperation>();
+	const representatives: KnownTarget[] = [];
+	const facts = new Map<Uuid, string>();
+	for (const operation of operations) {
+		const target = operation.target;
+		if (operation.action === "create") {
+			createsByUuid.set(operation.uuid, operation);
+			continue;
+		}
+		if (
+			target.kind === "new" ||
+			target.kind === "session" ||
+			operation.retype === undefined ||
+			caseOperationTargetsProvablyDistinct(target, sessionTarget, createsByUuid)
+		) {
+			continue;
+		}
+		let index = representatives.findIndex((candidate) =>
+			sameCaseOperationTargetIdentity(candidate, target),
+		);
+		if (index === -1) {
+			index = representatives.length;
+			representatives.push(target);
+		}
+		facts.set(operation.uuid, `session-alias:${index}`);
+	}
+	return facts;
+}
+
 /**
  * Every case type the form's loaded session case can have after its advanced
  * operation program finishes.
@@ -377,14 +421,16 @@ function dedupeSessionCaseTypeStates(
  * A direct several-case form link carries the exact loaded identities into the
  * destination. Its session datum is authored for one case type, so admitting
  * that carry from the module's pre-submit type alone is unsound when a
- * session-targeted operation can retype any selected case first.
+ * session-targeted operation, or a runtime target that may alias one selected
+ * case, can retype it first.
  *
  * Conditions are tracked as branch facts rather than treating every retype as
  * final. The inherited guard map is the same one the XForm and Preview use: an
  * unconditional restoration guarded by the earlier conditional transition
  * therefore closes that branch, while a conditional restoration leaves both
- * types possible. The bounded-state fallback returns every session retype it
- * has seen or can still see. That can refuse an exceptionally branch-heavy
+ * types possible. The bounded-state fallback returns every type from an exact
+ * or possible-alias transition, using that same identity proof to leave
+ * provably distinct retypes out. It can refuse an exceptionally branch-heavy
  * program, but it can never admit an unsafe automatic carry.
  */
 export function possibleFinalSessionCaseTypes(
@@ -405,12 +451,13 @@ export function possibleFinalSessionCaseTypes(
 	const operationsByUuid = new Map(
 		operations.map((operation) => [operation.uuid, operation]),
 	);
+	const aliasFacts = sessionAliasFactsByOperation(operations);
 	const conservativeTypes = new Set<string>([initialCaseType]);
 	for (const operation of operations) {
 		if (
 			operation.action !== "create" &&
-			operation.target.kind === "session" &&
-			operation.retype !== undefined
+			operation.retype !== undefined &&
+			(operation.target.kind === "session" || aliasFacts.has(operation.uuid))
 		) {
 			conservativeTypes.add(operation.retype);
 		}
@@ -419,22 +466,29 @@ export function possibleFinalSessionCaseTypes(
 	let states: SessionCaseTypeState[] = [
 		{
 			caseType: initialCaseType,
-			trueGuards: new Set(),
-			falseGuards: new Set(),
+			trueFacts: new Set(),
+			falseFacts: new Set(),
 		},
 	];
 
 	for (const operation of operations) {
 		if (
 			operation.action === "create" ||
-			operation.target.kind !== "session" ||
 			operation.retype === undefined ||
 			operation.retype === operation.caseType
 		) {
 			continue;
 		}
 
-		const requiredGuards = new Set<Uuid>();
+		const aliasFact =
+			operation.target.kind === "session"
+				? undefined
+				: aliasFacts.get(operation.uuid);
+		if (operation.target.kind !== "session" && aliasFact === undefined) {
+			continue;
+		}
+
+		const requiredFacts = new Set<string>();
 		let neverExecutes = false;
 		const includeCondition = (guardUuid: Uuid): void => {
 			const condition = operationsByUuid.get(guardUuid)?.condition;
@@ -443,47 +497,48 @@ export function possibleFinalSessionCaseTypes(
 				neverExecutes = true;
 				return;
 			}
-			requiredGuards.add(guardUuid);
+			requiredFacts.add(conditionFact(guardUuid));
 		};
 		for (const guardUuid of inheritedGuards.get(operation.uuid) ?? []) {
 			includeCondition(guardUuid);
 		}
 		if (operation.condition !== undefined) includeCondition(operation.uuid);
+		if (aliasFact !== undefined) requiredFacts.add(aliasFact);
 		if (neverExecutes) continue;
 
 		const next: SessionCaseTypeState[] = [];
 		for (const state of states) {
 			if (
 				state.caseType !== operation.caseType ||
-				[...requiredGuards].some((guard) => state.falseGuards.has(guard))
+				[...requiredFacts].some((fact) => state.falseFacts.has(fact))
 			) {
 				next.push(state);
 				continue;
 			}
 
-			const unknownGuards = [...requiredGuards].filter(
-				(guard) => !state.trueGuards.has(guard),
+			const unknownFacts = [...requiredFacts].filter(
+				(fact) => !state.trueFacts.has(fact),
 			);
-			const executingTrueGuards = new Set(state.trueGuards);
-			for (const guard of unknownGuards) executingTrueGuards.add(guard);
+			const executingTrueFacts = new Set(state.trueFacts);
+			for (const fact of unknownFacts) executingTrueFacts.add(fact);
 			next.push({
 				caseType: operation.retype,
-				trueGuards: executingTrueGuards,
-				falseGuards: state.falseGuards,
+				trueFacts: executingTrueFacts,
+				falseFacts: state.falseFacts,
 			});
 
-			// Partition the skipped branch by the first unknown guard that is
-			// false. This preserves exact truth facts for later inherited guards
+			// Partition the skipped branch by the first unknown fact that is
+			// false. This preserves exact truth facts for later conditions/aliases
 			// without enumerating arbitrary values of conditions after that point.
-			for (const [index, falseGuard] of unknownGuards.entries()) {
-				const skippedTrueGuards = new Set(state.trueGuards);
-				for (const trueGuard of unknownGuards.slice(0, index)) {
-					skippedTrueGuards.add(trueGuard);
+			for (const [index, falseFact] of unknownFacts.entries()) {
+				const skippedTrueFacts = new Set(state.trueFacts);
+				for (const trueFact of unknownFacts.slice(0, index)) {
+					skippedTrueFacts.add(trueFact);
 				}
 				next.push({
 					caseType: state.caseType,
-					trueGuards: skippedTrueGuards,
-					falseGuards: new Set([...state.falseGuards, falseGuard]),
+					trueFacts: skippedTrueFacts,
+					falseFacts: new Set([...state.falseFacts, falseFact]),
 				});
 			}
 		}

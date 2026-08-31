@@ -13,12 +13,14 @@ import { planFormLinkMove } from "@/lib/doc/formLinkMutations";
 import {
 	formLinkAddChoices,
 	formLinkCarryVerdict,
+	formLinkManualCarryVerdict,
 	formLinkMoveVerdicts,
 	formLinkRequiredDatums,
 	formLinkTargetVerdict,
 } from "@/lib/doc/formLinkReview";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, FormLinkTarget } from "@/lib/domain";
+import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
 const INTAKE = testUuid("mod-intake");
@@ -316,9 +318,20 @@ describe("formLinkTargetVerdict", () => {
 			sourceCardinality: "multiple",
 			targetCardinality: "multiple",
 		});
+		expect(
+			formLinkManualCarryVerdict(
+				doc,
+				VISIT_AGAIN,
+				testUuid("prospective-link"),
+				target,
+			),
+		).toMatchObject({
+			ok: false,
+			reason: "selection-cardinality",
+		});
 	});
 
-	it("refuses an automatic collection carry when the source can change the selected case type", () => {
+	it("refuses an automatic collection carry when a runtime target may be one selected case", () => {
 		const doc = produce(fixture(), (draft) => {
 			draft.caseTypes ??= [];
 			draft.caseTypes.push({
@@ -340,7 +353,10 @@ describe("formLinkTargetVerdict", () => {
 					id: "retype_selected",
 					action: "update",
 					caseType: "patient",
-					target: { kind: "session" },
+					target: {
+						kind: "expression",
+						expr: term(literal("runtime-patient-id")),
+					},
 					retype: "visit",
 				},
 			];
@@ -359,7 +375,7 @@ describe("formLinkTargetVerdict", () => {
 			ok: false,
 			reason: "selection-case-type",
 			expectedCaseType: "patient",
-			possibleFinalCaseTypes: ["visit"],
+			possibleFinalCaseTypes: ["visit", "patient"],
 		});
 	});
 });

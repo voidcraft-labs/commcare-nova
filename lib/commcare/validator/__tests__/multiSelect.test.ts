@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { possibleFinalSessionCaseTypes } from "@/lib/doc/caseOperationOrder";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { CaseOperation, Form } from "@/lib/domain";
 import { eq, formField, literal, term } from "@/lib/domain/predicate";
@@ -94,6 +95,34 @@ function restoreSelected(): CaseOperation {
 		action: "update",
 		caseType: "visit",
 		target: { kind: "session" },
+		retype: "patient",
+	};
+}
+
+function retypePossiblySelectedExpression(): CaseOperation {
+	return {
+		uuid: SESSION_UPDATE,
+		id: "retype_possible_selected_case",
+		action: "update",
+		caseType: "patient",
+		target: {
+			kind: "expression",
+			expr: term(literal("runtime-patient-id")),
+		},
+		retype: "visit",
+	};
+}
+
+function restorePossiblySelectedExpression(): CaseOperation {
+	return {
+		uuid: SESSION_RESTORE,
+		id: "restore_possible_selected_case",
+		action: "update",
+		caseType: "visit",
+		target: {
+			kind: "expression",
+			expr: term(literal("runtime-patient-id")),
+		},
 		retype: "patient",
 	};
 }
@@ -451,6 +480,93 @@ describe("multi-select absolute validation", () => {
 		]);
 
 		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CASE_TYPE_CHANGED");
+	});
+
+	it("refuses the carry when an expression-target retype may address a selected case", () => {
+		const doc = directCollectionLinkDoc([retypePossiblySelectedExpression()]);
+		const finding = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).find(
+			(error) => error.code === "FORM_LINK_SELECTION_CASE_TYPE_CHANGED",
+		);
+
+		expect(finding).toMatchObject({
+			details: {
+				expectedCaseType: "patient",
+				possibleFinalCaseTypes: "visit, patient",
+			},
+		});
+	});
+
+	it("allows the carry when the same possible alias unconditionally restores its type", () => {
+		const doc = directCollectionLinkDoc([
+			retypePossiblySelectedExpression(),
+			restorePossiblySelectedExpression(),
+		]);
+
+		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CASE_TYPE_CHANGED");
+	});
+
+	it("ignores a retype of a generated case that cannot alias the selection", () => {
+		const doc = directCollectionLinkDoc([
+			{
+				uuid: CREATE,
+				id: "create_separate_patient",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: term(literal("Separate patient")),
+			},
+			{
+				uuid: SESSION_UPDATE,
+				id: "retype_separate_patient",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "op", opUuid: CREATE },
+				retype: "visit",
+			},
+		]);
+
+		expect(codes(doc)).not.toContain("FORM_LINK_SELECTION_CASE_TYPE_CHANGED");
+	});
+
+	it("keeps provably distinct retypes out of the branch-overflow fallback", () => {
+		const generated = testUuid("overflow-generated");
+		const operations: CaseOperation[] = [
+			{
+				uuid: generated,
+				id: "create_generated_patient",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: term(literal("Generated patient")),
+			},
+			{
+				uuid: testUuid("overflow-distinct-retype"),
+				id: "retype_generated_patient",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "op", opUuid: generated },
+				retype: "client",
+			},
+			...Array.from({ length: 14 }, (_, index): CaseOperation => {
+				const patientToVisit = index % 2 === 0;
+				return {
+					uuid: testUuid(`overflow-alias-${index}`),
+					id: `retype_possible_alias_${index}`,
+					action: "update",
+					caseType: patientToVisit ? "patient" : "visit",
+					target: {
+						kind: "expression",
+						expr: term(literal(`runtime-case-${index}`)),
+					},
+					retype: patientToVisit ? "visit" : "patient",
+				};
+			}),
+		];
+		const doc = directCollectionLinkDoc(operations);
+
+		expect([...possibleFinalSessionCaseTypes(doc, SOURCE_FORM)].sort()).toEqual(
+			["patient", "visit"],
+		);
 	});
 
 	it("refuses to carry one phantom child id after creating a child per selected parent", () => {

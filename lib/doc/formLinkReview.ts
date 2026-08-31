@@ -139,6 +139,43 @@ export function formLinkTargetVerdict(
 	target: FormLinkTarget,
 	datums?: FormLink["datums"],
 ): FormLinkTargetVerdict {
+	return formLinkTargetVerdictForDatumMode(
+		doc,
+		formUuid,
+		editingLinkUuid,
+		target,
+		datums !== undefined,
+	);
+}
+
+/**
+ * Whether the carried values editor may replace automatic matching with an
+ * explicit datum map. Collection-shaped selection must travel as one
+ * collection, so an otherwise-compatible direct link can still refuse this
+ * manual mode. `editingLinkUuid` ignores the link's own current graph edge.
+ */
+export function formLinkManualCarryVerdict(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	editingLinkUuid: Uuid,
+	target: FormLinkTarget,
+): FormLinkTargetVerdict {
+	return formLinkTargetVerdictForDatumMode(
+		doc,
+		formUuid,
+		editingLinkUuid,
+		target,
+		true,
+	);
+}
+
+function formLinkTargetVerdictForDatumMode(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	editingLinkUuid: Uuid | undefined,
+	target: FormLinkTarget,
+	hasAuthoredDatums: boolean,
+): FormLinkTargetVerdict {
 	const mod = doc.modules[target.moduleUuid];
 	if (mod === undefined) return { ok: false, reason: "target-not-found" };
 	if (target.type === "module") return { ok: true };
@@ -165,7 +202,7 @@ export function formLinkTargetVerdict(
 			targetModule: mod,
 			sourceLoadsCase: CASE_LOADING_FORM_TYPES.has(sourceForm.type),
 			targetLoadsCase: CASE_LOADING_FORM_TYPES.has(targetForm.type),
-			hasAuthoredDatums: datums !== undefined,
+			hasAuthoredDatums,
 		})
 	) {
 		return {

@@ -1233,7 +1233,11 @@ the author writes the real one — and the detail opens with the editor ready
 state). A destination whose selection datums this form cannot match
 automatically (`formLinkCarryVerdict` → `manual-required`) is seeded with one
 `''` per required datum so `FORM_LINK_DATUMS_INCOMPLETE` never meets a fresh
-link. `__tests__/formLinkValidByConstruction.test.ts` pins every offered seed,
+link. An automatic several-case carry has no manual alternative:
+`formLinkManualCarryVerdict` withholds **Work it out here**, because an explicit
+datum map cannot stand in for the complete selected collection. The canvas says
+the selected cases travel together automatically instead.
+`__tests__/formLinkValidByConstruction.test.ts` pins every offered seed,
 retarget, and conversion against `mutationCommitVerdict`.
 
 **Conditionality is a kind, not a slot.** A conditional link's editor refuses
