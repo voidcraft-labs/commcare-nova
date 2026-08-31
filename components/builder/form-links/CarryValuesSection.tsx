@@ -92,7 +92,7 @@ export function CarryValuesSection({
 
 	return (
 		<div className="space-y-4">
-			{carry.kind === "manual-required" && manualCarryUnavailable ? (
+			{invalidManual && carry.kind !== "automatic" ? (
 				<p className="text-[14px] leading-relaxed text-nova-text-secondary">
 					{COMPLETE_SELECTION_NEEDS_FORM_LIST}
 				</p>

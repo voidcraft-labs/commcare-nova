@@ -272,14 +272,13 @@ describe("formLinkTargetVerdict", () => {
 			target.selection = { kind: "multiple", maximum: 5 };
 			draft.forms[REGISTER].type = "followup";
 		});
+		const target: FormLinkTarget = {
+			type: "form",
+			moduleUuid: INTAKE,
+			formUuid: REGISTER,
+		};
 
-		expect(
-			formLinkTargetVerdict(doc, VISIT, undefined, {
-				type: "form",
-				moduleUuid: INTAKE,
-				formUuid: REGISTER,
-			}),
-		).toEqual({
+		expect(formLinkTargetVerdict(doc, VISIT, undefined, target)).toEqual({
 			ok: false,
 			reason: "selection-cardinality",
 			sourceCardinality: "multiple",
@@ -287,6 +286,18 @@ describe("formLinkTargetVerdict", () => {
 			sourceMaximum: 10,
 			targetMaximum: 5,
 		});
+		expect(formLinkRequiredDatums(doc, VISIT, target)).toEqual([]);
+		expect(formLinkCarryVerdict(doc, VISIT, target)).toEqual({
+			kind: "nothing-needed",
+		});
+		expect(
+			formLinkManualCarryVerdict(
+				doc,
+				VISIT,
+				testUuid("incompatible-link"),
+				target,
+			),
+		).toMatchObject({ ok: false, reason: "selection-cardinality" });
 	});
 
 	it("checks the datum mode the proposed link will actually store", () => {

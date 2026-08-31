@@ -127,12 +127,11 @@ describe("CarryValuesSection", () => {
 		expect(onCommit).toHaveBeenCalledWith(link);
 	});
 
-	it("directs an impossible manual carry to the destination's form list", () => {
+	it("directs an incompatible stored map to the destination's form list", () => {
 		const impossible = {
 			...automaticView(false),
 			carryVerdict: () => ({
-				kind: "manual-required" as const,
-				datumIds: ["case_id"],
+				kind: "nothing-needed" as const,
 			}),
 		} as FormLinksView;
 		const staleManual: FormLink = {
