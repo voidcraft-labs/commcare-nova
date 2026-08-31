@@ -357,10 +357,10 @@ describe("PublishDialog", () => {
 			}),
 		});
 
-		const status = await screen.findByRole("status");
-		expect(status.textContent).toContain(
+		const title = await screen.findByText(
 			"This app doesn't need additional project-space support",
 		);
+		expect(title.closest('[role="status"]')).not.toBeNull();
 		expect(
 			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
 		).toBe(false);
