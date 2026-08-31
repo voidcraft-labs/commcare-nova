@@ -4,16 +4,14 @@ import type {
 	CommCareApiError,
 	CommCareCredentials,
 } from "@/lib/commcare/client";
-import {
-	featureFlagReportForPrepublish,
-	requiredHqFeatureFlags,
-} from "@/lib/commcare/featureFlags";
+import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import {
 	listHqLocations,
 	listHqLocationTypes,
 } from "@/lib/commcare/hq/locations";
 import { listHqLookupTables } from "@/lib/commcare/hq/lookupTables";
 import type { LookupWorkbook } from "@/lib/commcare/lookup/workbook";
+import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
@@ -27,7 +25,7 @@ import type { PreparedExportBoundary } from "@/lib/export/boundaryValidation";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
-import type { HqFeatureFlagReport } from "@/lib/publish/hqFeatureFlags";
+import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
 import { attachmentUrlTarget } from "./attachmentTarget";
 import {
 	ambiguousReverseHopsOnTarget,
@@ -81,7 +79,7 @@ export const PREFLIGHT_CHECK_IDS = [
 	"app-readiness",
 	"project-data",
 	"organization",
-	"feature-flags",
+	"project-space-compatibility",
 	"required-worker-data",
 	"worker-record-writes",
 ] as const;
@@ -145,7 +143,7 @@ export type PreflightResult =
 				 */
 				readonly locations: readonly StoredLocation[];
 			};
-			readonly featureFlags: HqFeatureFlagReport | null;
+			readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport;
 	  }
 	| {
 			readonly checks: readonly PreflightCheck[];
@@ -155,7 +153,7 @@ export type PreflightResult =
 				readonly failure: DeploymentFailure;
 			};
 			readonly ready: null;
-			readonly featureFlags: null;
+			readonly projectSpaceCompatibility: ProjectSpaceCompatibilityReport | null;
 			/**
 			 * The resources this run refused to write over. Empty for every
 			 * refusal that is not a name clash, and the caller passes it
@@ -218,6 +216,7 @@ function blockedOutcome(
 		| "hq_not_connected"
 		| "domain_not_authorized"
 		| "app_not_ready"
+		| "project_space_incompatible"
 		| "hq_resource_state_unknown"
 		| "hq_resource_conflict"
 		| "hq_organization_mismatch",
@@ -330,7 +329,7 @@ export async function runDeploymentPreflight(
 				checks,
 				outcome: blockedOutcome(input.now, "hq_not_connected", detail),
 				ready: null,
-				featureFlags: null,
+				projectSpaceCompatibility: null,
 				conflicts: [],
 			};
 		}
@@ -355,7 +354,7 @@ export async function runDeploymentPreflight(
 				reachable,
 			),
 			ready: null,
-			featureFlags: null,
+			projectSpaceCompatibility: null,
 			conflicts: [],
 		};
 	}
@@ -381,7 +380,7 @@ export async function runDeploymentPreflight(
 			checks,
 			outcome: blockedOutcome(input.now, "hq_not_connected", detail),
 			ready: null,
-			featureFlags: null,
+			projectSpaceCompatibility: null,
 			conflicts: [],
 		};
 	}
@@ -429,7 +428,7 @@ export async function runDeploymentPreflight(
 			checks,
 			outcome: blockedOutcome(input.now, "app_not_ready", detail, details),
 			ready: null,
-			featureFlags: null,
+			projectSpaceCompatibility: null,
 			conflicts: [],
 		};
 	}
@@ -475,7 +474,7 @@ export async function runDeploymentPreflight(
 				checks,
 				outcome: blockedOutcome(input.now, "hq_resource_state_unknown", detail),
 				ready: null,
-				featureFlags: null,
+				projectSpaceCompatibility: null,
 				conflicts: [],
 			};
 		}
@@ -520,7 +519,7 @@ export async function runDeploymentPreflight(
 					describeConflicts(conflicts),
 				),
 				ready: null,
-				featureFlags: null,
+				projectSpaceCompatibility: null,
 				conflicts,
 			};
 		}
@@ -586,7 +585,7 @@ export async function runDeploymentPreflight(
 						detail,
 					),
 					ready: null,
-					featureFlags: null,
+					projectSpaceCompatibility: null,
 					conflicts: [],
 				};
 			};
@@ -629,7 +628,7 @@ export async function runDeploymentPreflight(
 						detail,
 					),
 					ready: null,
-					featureFlags: null,
+					projectSpaceCompatibility: null,
 					conflicts: [],
 				};
 			}
@@ -662,7 +661,7 @@ export async function runDeploymentPreflight(
 						items,
 					),
 					ready: null,
-					featureFlags: null,
+					projectSpaceCompatibility: null,
 					conflicts: [],
 				};
 			}
@@ -696,7 +695,7 @@ export async function runDeploymentPreflight(
 						items,
 					),
 					ready: null,
-					featureFlags: null,
+					projectSpaceCompatibility: null,
 					conflicts,
 				};
 			}
@@ -711,33 +710,60 @@ export async function runDeploymentPreflight(
 		}
 	}
 
-	// ── 5. Which feature flags does the app need? ───────────────────
-	// Requirements only. Preflight deliberately does NOT probe the target:
-	// the authoritative check runs against the exact domain CommCare HQ
-	// accepted, AFTER the import, and probing here as well would pay for
-	// the same paginated round trip twice on the critical path while the
-	// answer could still change in between. The publish dialog and MCP's
-	// `get_app_hq_feature_flags` already offer a probe before publishing,
-	// for authors who want one first.
-	//
-	// Never a blocker either way, by standing product contract: a flag
-	// report is deployment information, and refusing to publish over one
-	// would let a target's configuration edit the app.
-	const requirements = requiredHqFeatureFlags(boundary.prepared.doc);
-	const featureFlags: HqFeatureFlagReport | null =
-		requirements.length === 0
-			? null
-			: featureFlagReportForPrepublish(boundary.prepared.doc);
+	// ── 5. Can this project space run what the app uses? ────────────
+	// This is the authoritative publish-time check. A prior dialog or MCP read
+	// is disclosure, not reusable authority: the target can change between that
+	// read and this publish. Required support that is missing or unverified
+	// stops here, before the first lookup table, place, or app write. Advisory
+	// support never stops the publish; it only decides whether Nova includes its
+	// derived large-Search optimization in the target app profile.
+	const compatibilityPlan = projectSpaceCompatibilityProbePlan(
+		boundary.prepared.doc,
+	);
+	const compatibilityProbes = await probeHqProjectSpaceCompatibility(
+		creds,
+		domain,
+		compatibilityPlan,
+	);
+	const projectSpaceCompatibility = compatibilityProbes.report;
+	const unavailableAdvisories = projectSpaceCompatibility.advisories.filter(
+		(advisory) => advisory.state !== "available",
+	);
 	checks.push({
-		id: "feature-flags",
-		title: "Feature flags",
-		status: requirements.length === 0 ? "passed" : "attention",
-		detail:
-			requirements.length === 0
-				? "This app doesn't need any CommCare HQ feature flags."
-				: `These have to be on for “${domain}”. Publishing works either way; the parts of the app that need them won't until they are. Nova checks the target after the app lands.`,
-		items: requirements.map((requirement) => requirement.label),
+		id: "project-space-compatibility",
+		title: "Project-space compatibility",
+		status:
+			projectSpaceCompatibility.status === "blocked"
+				? "blocked"
+				: unavailableAdvisories.length > 0
+					? "attention"
+					: "passed",
+		detail: projectSpaceCompatibility.message,
+		items:
+			projectSpaceCompatibility.status === "blocked"
+				? projectSpaceCompatibility.blockers.map(
+						(blocker) => `${blocker.label}: ${blocker.description}`,
+					)
+				: unavailableAdvisories.map(
+						(advisory) => `${advisory.title}: ${advisory.message}`,
+					),
 	});
+	if (projectSpaceCompatibility.status === "blocked") {
+		return {
+			checks,
+			outcome: blockedOutcome(
+				input.now,
+				"project_space_incompatible",
+				projectSpaceCompatibility.message,
+				projectSpaceCompatibility.blockers.map(
+					(blocker) => `${blocker.label}: ${blocker.description}`,
+				),
+			),
+			ready: null,
+			projectSpaceCompatibility,
+			conflicts: [],
+		};
+	}
 
 	// ── 6. Will the workers you create there have what they need? ───
 	// Attention rather than blocking: a publish creates no workers, so
@@ -758,7 +784,7 @@ export async function runDeploymentPreflight(
 		items: workerGaps,
 	});
 
-	// ── 5. Does this app write to the worker's own record? ──────────
+	// ── 7. Does this app write to the worker's own record? ──────────
 	// Attention rather than a blocker, and the sharpest edge on this list.
 	// The usercase is gated by the paid `USERCASE` privilege
 	// (`app_manager/util.py::domain_has_usercase_access`), and on a project
@@ -791,7 +817,7 @@ export async function runDeploymentPreflight(
 			locationPush,
 			locations,
 		},
-		featureFlags,
+		projectSpaceCompatibility,
 	};
 }
 

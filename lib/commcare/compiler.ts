@@ -36,6 +36,7 @@ import AdmZip from "adm-zip";
 import render from "dom-serializer";
 import type { Element } from "domhandler";
 import type { FormActions, HqApplication } from "@/lib/commcare";
+import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import {
 	caseListSessionDatums,
@@ -170,6 +171,7 @@ export function compileCcz(
 		appName,
 		buildLogoProfileProperty(doc.logo, assets, "compileCcz logo"),
 		opts.compiledAtSeq,
+		derivedProfileProperties(doc),
 	);
 	files["media_suite.xml"] = mediaBundle.mediaSuiteXml;
 
@@ -957,11 +959,16 @@ export function compileCcz(
  * compile time; it's stamped into `cc-content-version` so the archive
  * names the exact document version it was built from. Absent (tests +
  * callers with no live seq) falls back to `"1"`.
+ *
+ * `derivedProperties` contains only Nova-owned profile optimizations. Each is
+ * emitted with `force="true"`, matching CommCare HQ's custom-property profile
+ * template. An empty record preserves the historical profile byte shape.
  */
 function generateProfile(
 	appName: string,
 	logoProperty?: Element,
 	compiledAtSeq?: number,
+	derivedProperties: Readonly<Record<string, string>> = {},
 ): string {
 	const profileEl = el(
 		"profile",
@@ -979,6 +986,9 @@ function generateProfile(
 				value: String(compiledAtSeq ?? 1),
 			}),
 			el("property", { key: "cc-app-version", value: "1" }),
+			...Object.entries(derivedProperties).map(([key, value]) =>
+				el("property", { key, value, force: "true" }),
+			),
 			...(logoProperty ? [logoProperty] : []),
 			el("features", {}, [el("users", { active: "true" })]),
 			el("suite", {}, [

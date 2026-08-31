@@ -15,9 +15,12 @@ import {
 	type PublishDownloadOutcome,
 } from "@/components/builder/PublishDialog";
 import {
-	HQ_FEATURE_FLAG_REQUIREMENTS,
-	type HqFeatureFlagReport,
-} from "@/lib/publish/hqFeatureFlags";
+	PROJECT_SPACE_ADVISORIES,
+	PROJECT_SPACE_CAPABILITIES,
+	PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
+	PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
+	type ProjectSpaceCompatibilityReport,
+} from "@/lib/publish/projectSpaceCompatibility";
 
 const mocks = vi.hoisted(() => ({
 	fetch: vi.fn(),
@@ -30,16 +33,10 @@ const mocks = vi.hoisted(() => ({
 	},
 }));
 
-/* The dialog asks the server where the app already stands as soon as it
- * opens. That is a Server Action reaching auth and Postgres, which has no
- * business running in a component test — and left real it resolves after
- * the test ends, which is exactly the escaped-update the setup file
- * fails on. */
 vi.mock("@/lib/deployment/actions", () => ({
 	readDeploymentsAction: vi.fn(async () => ({ success: true, data: [] })),
 	refreshDeploymentAction: vi.fn(),
 }));
-
 vi.mock("@/lib/collab/context", () => ({
 	useReconcilerContext: () => null,
 }));
@@ -57,37 +54,83 @@ vi.mock("@/lib/session/provider", () => ({
 	}),
 }));
 
-const caseSearch = HQ_FEATURE_FLAG_REQUIREMENTS[0];
-const advancedCaseSearch = HQ_FEATURE_FLAG_REQUIREMENTS[1];
-const downloadReport: HqFeatureFlagReport = {
-	verification: "not_checked",
-	required_flags: [caseSearch],
-	missing_flags: [],
-	unverified_flags: [caseSearch],
-	support_email: "support@dimagi.com",
-	docs_url: "https://docs.commcare.app/feature-flags",
-	message:
-		"This app requires Simple Case Search. The destination project space hasn't been checked.",
+const caseSearch = {
+	...PROJECT_SPACE_CAPABILITIES["case-search"],
+	reasons: ["The Patients module searches across available cases."],
+};
+const caseAttachments = {
+	...PROJECT_SPACE_CAPABILITIES["case-attachments"],
+	reasons: ["The Visit photo question saves its file on the case."],
+};
+const largeSearch = {
+	...PROJECT_SPACE_ADVISORIES["large-search-performance"],
+	reasons: caseSearch.reasons,
 };
 
-const prepublishReport: HqFeatureFlagReport = {
-	...downloadReport,
+const uncheckedReport: ProjectSpaceCompatibilityReport = {
+	status: "not_checked",
+	required_capabilities: [{ ...caseSearch, state: "not_checked" }],
+	blockers: [],
+	advisories: [
+		{
+			...largeSearch,
+			state: "not_checked",
+			message:
+				"Nova can check this after you choose a CommCare HQ project space.",
+		},
+	],
+	support_email: PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
+	docs_url: PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
 	message:
-		"This app requires Simple Case Search. No project space has been checked yet, so these are requirements, not flags known to be off.",
+		"Choose a project space that supports everything this app uses before importing the file.",
 };
 
-function featureFlagPreflight(domain?: string) {
+function readyReport(domain: string): ProjectSpaceCompatibilityReport {
+	return {
+		status: "ready",
+		target_domain: domain,
+		required_capabilities: [{ ...caseSearch, state: "available" }],
+		blockers: [],
+		advisories: [
+			{
+				...largeSearch,
+				state: "available",
+				message: "This project space can optimize large Search results.",
+			},
+		],
+		support_email: PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
+		docs_url: PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
+		message: "This project space supports everything this app uses.",
+	};
+}
+
+function blockedReport(domain: string): ProjectSpaceCompatibilityReport {
+	const missing = { ...caseSearch, state: "missing" as const };
+	const unverified = { ...caseAttachments, state: "unverified" as const };
+	return {
+		status: "blocked",
+		target_domain: domain,
+		required_capabilities: [missing, unverified],
+		blockers: [missing, unverified],
+		advisories: [
+			{
+				...largeSearch,
+				state: "missing",
+				message:
+					"This project space can run the app, but large Search results may take longer to open.",
+			},
+		],
+		support_email: PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
+		docs_url: PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
+		message:
+			"This project space isn't ready for this app. It doesn't support Case search. Nova couldn't confirm Attachments saved to cases. Nothing has been sent.",
+	};
+}
+
+function compatibilityPreflight(domain?: string) {
 	return Promise.resolve({
 		ok: true as const,
-		report: domain
-			? {
-					...prepublishReport,
-					verification: "verified" as const,
-					target_domain: domain,
-					unverified_flags: [],
-					message: `All required feature flags are enabled for the “${domain}” project space.`,
-				}
-			: prepublishReport,
+		report: domain ? readyReport(domain) : uncheckedReport,
 	});
 }
 
@@ -104,12 +147,12 @@ function renderDialog(
 		onOpenPublishing: vi.fn(),
 		isRefreshingHqConnection: false,
 		onRefreshHqConnection: vi.fn(),
-		onLoadFeatureFlags: vi.fn((domain?: string) =>
-			featureFlagPreflight(domain),
+		onLoadProjectSpaceCompatibility: vi.fn((domain?: string) =>
+			compatibilityPreflight(domain),
 		),
 		onDownloadJson: vi.fn().mockResolvedValue({
 			ok: true,
-			featureFlagReport: downloadReport,
+			projectSpaceCompatibility: uncheckedReport,
 		}),
 		onDownloadCcz: vi.fn().mockResolvedValue({ ok: true }),
 		...overrides,
@@ -140,134 +183,71 @@ describe("PublishDialog", () => {
 		await settleBaseUiTransitions();
 	});
 
-	it("keeps all publish destinations in one modal", async () => {
-		const onLoadFeatureFlags = vi.fn((domain?: string) =>
-			featureFlagPreflight(domain),
+	it("keeps direct upload and both file downloads in one modal", async () => {
+		const onLoadProjectSpaceCompatibility = vi.fn((domain?: string) =>
+			compatibilityPreflight(domain),
 		);
-		renderDialog({ onLoadFeatureFlags });
-		expect(screen.getByRole("dialog").textContent).toContain("Publish app");
-		const publishOption = screen.getByRole("combobox", {
-			name: "Publish option",
-		});
-		expect(publishOption.textContent).toContain("CommCare HQ");
-		const selectedValueRow = publishOption.querySelector(
-			"[data-slot=select-value] > span",
-		);
-		expect(selectedValueRow?.classList.contains("whitespace-nowrap")).toBe(
-			true,
-		);
-		expect(
-			selectedValueRow?.querySelector("span")?.classList.contains("truncate"),
-		).toBe(true);
-		const publishDescriptionId = publishOption.getAttribute("aria-describedby");
-		expect(publishDescriptionId).toBe("publish-target-description");
-		expect(
-			document.getElementById(publishDescriptionId ?? "")?.textContent,
-		).toBe("Upload directly to a connected project space");
-		await screen.findByText("Feature flags are ready");
-		expect(
-			screen
-				.getByRole("button", { name: "Upload" })
-				.closest("[data-slot=dialog-footer]"),
-		).not.toBeNull();
+		renderDialog({ onLoadProjectSpaceCompatibility });
 
-		fireEvent.click(publishOption);
-		await settleBaseUiTransitions();
-		const hqFileOption = screen.getByRole("option", {
-			name: "CommCare HQ app file",
-		});
-		const hqFileDescriptionId = hqFileOption.getAttribute("aria-describedby");
-		expect(hqFileDescriptionId).toBe("publish-target-web-description");
+		expect(screen.getByRole("dialog").textContent).toContain("Publish app");
+		await screen.findByText("This project space can run the app");
 		expect(
-			document.getElementById(hqFileDescriptionId ?? "")?.textContent,
-		).toMatch(/Download a JSON file to import into CommCare HQ/i);
-		fireEvent.pointerDown(hqFileOption, { pointerType: "mouse" });
-		fireEvent.click(hqFileOption);
-		await settleBaseUiTransitions();
+			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
+		).toBe(false);
+
+		await choosePublishOption("CommCare HQ app file");
 		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
-		await screen.findByText("This app uses CommCare HQ feature flags");
-		expect(
-			screen.getAllByText("This app uses CommCare HQ feature flags"),
-		).toHaveLength(1);
-		await waitFor(() => expect(onLoadFeatureFlags).toHaveBeenCalledTimes(2));
-		expect(
-			screen.getByText(/Download a JSON file to import into CommCare HQ/i, {
-				selector: 'p[data-slot="field-description"]',
-			}),
-		).toBeTruthy();
+		await screen.findByText("Choose a project space that can run this app");
 
 		await choosePublishOption("CommCare mobile app file");
 		expect(screen.getByRole("button", { name: "Download CCZ" })).toBeTruthy();
 		expect(
-			screen.getAllByText("This app uses CommCare HQ feature flags"),
-		).toHaveLength(1);
-		expect(onLoadFeatureFlags).toHaveBeenCalledTimes(2);
+			screen.getByText("Choose a project space that can run this app"),
+		).toBeTruthy();
+		expect(onLoadProjectSpaceCompatibility).toHaveBeenCalledTimes(2);
 	});
 
-	it("keeps file publishing available to viewers without exposing HQ writes", async () => {
+	it("keeps file downloads available to viewers without exposing direct upload", async () => {
 		mocks.renderCanEdit = false;
 		mocks.sessionState.canEdit = false;
 		renderDialog({ canUploadToHq: false });
+
 		expect(
 			screen.getByRole("combobox", { name: "Publish option" }).textContent,
 		).toContain("CommCare HQ app file");
 		expect(screen.getByRole("button", { name: "Download JSON" })).toBeTruthy();
-		await screen.findByText("This app uses CommCare HQ feature flags");
+		await screen.findByText("Choose a project space that can run this app");
 
 		fireEvent.click(screen.getByRole("combobox", { name: "Publish option" }));
 		await settleBaseUiTransitions();
 		expect(screen.queryByRole("option", { name: "CommCare HQ" })).toBeNull();
-		const mobileOption = screen.getByRole("option", {
-			name: "CommCare mobile app file",
-		});
-		fireEvent.pointerDown(mobileOption, { pointerType: "mouse" });
-		fireEvent.click(mobileOption);
-		await settleBaseUiTransitions();
-		expect(screen.getByRole("button", { name: "Download CCZ" })).toBeTruthy();
 	});
 
-	it("keeps HQ requirements hidden until HQ is connected and offers recovery", async () => {
-		const onLoadFeatureFlags = vi.fn((domain?: string) =>
-			featureFlagPreflight(domain),
+	it("offers connection recovery while leaving file options available", async () => {
+		const onLoadProjectSpaceCompatibility = vi.fn((domain?: string) =>
+			compatibilityPreflight(domain),
 		);
 		const onRefreshHqConnection = vi.fn();
 		renderDialog({
 			availableDomains: [],
-			onLoadFeatureFlags,
+			onLoadProjectSpaceCompatibility,
 			onRefreshHqConnection,
 		});
 
 		expect(screen.getByText("Connect CommCare HQ to upload")).toBeTruthy();
-		expect(
-			screen.getByText(
-				/still choose a CommCare HQ app file or mobile app file/i,
-			),
-		).toBeTruthy();
-		expect(onLoadFeatureFlags).not.toHaveBeenCalled();
-		expect(
-			screen.queryByText("This app uses CommCare HQ feature flags"),
-		).toBeNull();
-		const settings = screen.getByRole("link", { name: "Open Settings" });
-		expect(settings.getAttribute("href")).toBe("/settings");
-		expect(settings.getAttribute("target")).toBe("_blank");
-
+		expect(onLoadProjectSpaceCompatibility).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("button", { name: "Check connection" }));
 		expect(onRefreshHqConnection).toHaveBeenCalledOnce();
 
 		await choosePublishOption("CommCare HQ app file");
-		await screen.findByText("This app uses CommCare HQ feature flags");
-		expect(onLoadFeatureFlags).toHaveBeenCalledWith(
+		await screen.findByText("Choose a project space that can run this app");
+		expect(onLoadProjectSpaceCompatibility).toHaveBeenCalledWith(
 			undefined,
 			expect.any(AbortSignal),
 		);
-		await choosePublishOption("CommCare HQ");
-		expect(screen.getByText("Connect CommCare HQ to upload")).toBeTruthy();
-		expect(
-			screen.queryByText("This app uses CommCare HQ feature flags"),
-		).toBeNull();
 	});
 
-	it("rechecks the live Project capability before starting an HQ upload", async () => {
+	it("rechecks live edit authority before starting a direct upload", async () => {
 		mocks.sessionState.canEdit = false;
 		const { view } = renderDialog();
 		const upload = await screen.findByRole("button", { name: "Upload" });
@@ -277,132 +257,105 @@ describe("PublishDialog", () => {
 		view.unmount();
 	});
 
-	it("explains unverified file requirements before download without calling them missing", async () => {
+	it("explains file requirements without exposing support codes", async () => {
 		const { props } = renderDialog();
 		await choosePublishOption("CommCare HQ app file");
 
-		await screen.findByText("This app uses CommCare HQ feature flags");
-		expect(screen.getByRole("status").textContent).toContain(
-			"The destination project space hasn't been checked",
+		const statusTitle = await screen.findByText(
+			"Choose a project space that can run this app",
 		);
-		expect(screen.getByRole("status").textContent).toContain(
-			"If this flag needs to be enabled",
+		const status = statusTitle.closest('[role="status"]');
+		expect(status?.textContent).toContain("Case search");
+		expect(status?.textContent).toContain(
+			"Choose a project space that supports everything this app uses",
 		);
+		expect(status?.textContent).not.toMatch(/search_claim|slug|namespace/i);
 		expect(screen.queryByRole("alert")).toBeNull();
-		expect(props.onDownloadJson).not.toHaveBeenCalled();
-		expect(screen.queryByText("search_claim")).toBeNull();
-		expect(screen.getAllByText("support@dimagi.com")).toHaveLength(1);
-		expect(screen.queryByText(/isn't enabled/i)).toBeNull();
 
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Download JSON" }),
-		);
-
-		const downloadComplete = await screen.findByText(
-			"CommCare HQ app file downloaded",
-		);
-		expect(downloadComplete.closest('[role="status"]')).not.toBeNull();
-		expect(
-			screen.getByText(/destination project space hasn't been checked/i),
-		).toBeTruthy();
-		expect(screen.queryByText("search_claim")).toBeNull();
-		expect(screen.getAllByText("support@dimagi.com")).toHaveLength(1);
-		expect(screen.queryByText(/isn't enabled/i)).toBeNull();
+		fireEvent.click(screen.getByRole("button", { name: "Download JSON" }));
+		await screen.findByText("CommCare HQ app file downloaded");
 		expect(props.onDownloadJson).toHaveBeenCalledOnce();
-		const learnMore = screen.getByRole("link", {
-			name: /Learn more about Simple Case Search/,
-		});
-		expect(learnMore.getAttribute("target")).toBe("_blank");
+		expect(document.body.textContent).not.toMatch(/search_claim/);
 	});
 
-	it("checks the selected HQ project space on open and refreshes on request", async () => {
-		const onLoadFeatureFlags = vi.fn((domain?: string) =>
-			featureFlagPreflight(domain),
+	it("checks the selected project space on open and on an explicit retry", async () => {
+		const onLoadProjectSpaceCompatibility = vi.fn((domain?: string) =>
+			compatibilityPreflight(domain),
 		);
-		renderDialog({ onLoadFeatureFlags });
+		renderDialog({ onLoadProjectSpaceCompatibility });
 
-		const readyStatus = await screen.findByText("Feature flags are ready");
-		expect(readyStatus.closest('[role="status"]')).not.toBeNull();
-		expect(onLoadFeatureFlags).toHaveBeenCalledWith(
+		await screen.findByText("This project space can run the app");
+		expect(onLoadProjectSpaceCompatibility).toHaveBeenCalledWith(
 			"project-space",
 			expect.any(AbortSignal),
 		);
 		fireEvent.click(screen.getByRole("button", { name: "Check again" }));
-		await waitFor(() => expect(onLoadFeatureFlags).toHaveBeenCalledTimes(2));
+		await waitFor(() =>
+			expect(onLoadProjectSpaceCompatibility).toHaveBeenCalledTimes(2),
+		);
 	});
 
-	it("keeps publish actions blocked until a failed preflight succeeds", async () => {
-		let attempts = 0;
-		const onLoadFeatureFlags = vi.fn((domain?: string) => {
-			attempts += 1;
-			if (attempts <= 2) {
-				return Promise.resolve({
-					ok: false as const,
-					message:
-						"The feature flag check didn't finish. Try again in this window",
-				});
-			}
-			return featureFlagPreflight(domain);
-		});
-		const { props } = renderDialog({ onLoadFeatureFlags });
+	it("blocks direct upload when compatibility cannot be checked but leaves downloads available", async () => {
+		const onLoadProjectSpaceCompatibility = vi.fn(async () => ({
+			ok: false as const,
+			message:
+				"Nova couldn't check whether this project space can run the app. Try again in this window",
+		}));
+		const { props } = renderDialog({ onLoadProjectSpaceCompatibility });
 
-		const errorMessage = await screen.findByText(
-			"The feature flag check didn't finish. Try again in this window",
+		const error = await screen.findByText(
+			"Nova couldn't check whether this project space can run the app. Try again in this window",
 		);
-		expect(errorMessage.closest('[role="alert"]')).not.toBeNull();
-		const upload = screen.getByRole("button", { name: "Upload" });
-		expect(upload.hasAttribute("disabled")).toBe(true);
-		fireEvent.click(upload);
-		expect(mocks.fetch).not.toHaveBeenCalled();
+		expect(error.closest('[role="alert"]')).not.toBeNull();
+		expect(
+			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
+		).toBe(true);
 
 		await choosePublishOption("CommCare HQ app file");
-		await screen.findByText(
-			"The feature flag check didn't finish. Try again in this window",
-		);
 		const download = screen.getByRole("button", { name: "Download JSON" });
-		expect(download.hasAttribute("disabled")).toBe(true);
+		expect(download.hasAttribute("disabled")).toBe(false);
 		fireEvent.click(download);
-		expect(props.onDownloadJson).not.toHaveBeenCalled();
-
-		fireEvent.click(screen.getByRole("button", { name: "Try again" }));
-		await screen.findByText("This app uses CommCare HQ feature flags");
-		await waitFor(() => expect(download.hasAttribute("disabled")).toBe(false));
+		await waitFor(() => expect(props.onDownloadJson).toHaveBeenCalledOnce());
 	});
 
-	it("announces when the app doesn't need feature flags", async () => {
-		const noFlagsReport: HqFeatureFlagReport = {
-			verification: "not_required",
+	it("states when the app needs no special project-space support", async () => {
+		const report: ProjectSpaceCompatibilityReport = {
+			status: "not_needed",
 			target_domain: "project-space",
-			required_flags: [],
-			missing_flags: [],
-			unverified_flags: [],
-			support_email: "support@dimagi.com",
-			docs_url: "https://docs.commcare.app/feature-flags",
-			message:
-				"This app doesn't use any features that need a CommCare HQ feature flag.",
+			required_capabilities: [],
+			blockers: [],
+			advisories: [],
+			support_email: PROJECT_SPACE_COMPATIBILITY_SUPPORT_EMAIL,
+			docs_url: PROJECT_SPACE_COMPATIBILITY_DOCS_URL,
+			message: "This app doesn't need any special project-space support.",
 		};
 		renderDialog({
-			onLoadFeatureFlags: vi.fn().mockResolvedValue({
+			onLoadProjectSpaceCompatibility: vi.fn().mockResolvedValue({
 				ok: true,
-				report: noFlagsReport,
+				report,
 			}),
 		});
 
 		const status = await screen.findByRole("status");
 		expect(status.textContent).toContain(
-			"This app doesn't need any CommCare HQ feature flags",
+			"This app doesn't need additional project-space support",
 		);
+		expect(
+			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
+		).toBe(false);
 	});
 
-	it("waits for an explicit project space before checking HQ flags", async () => {
-		type FeatureFlagOutcome = Awaited<ReturnType<typeof featureFlagPreflight>>;
+	it("waits for a project-space choice before checking a multi-space connection", async () => {
+		type CompatibilityOutcome = Awaited<
+			ReturnType<typeof compatibilityPreflight>
+		>;
 		const domainResolvers = new Map<
 			string,
-			(outcome: FeatureFlagOutcome) => void
+			(outcome: CompatibilityOutcome) => void
 		>();
-		const onLoadFeatureFlags = vi.fn((domain?: string) => {
-			if (!domain) return featureFlagPreflight();
-			return new Promise<FeatureFlagOutcome>((resolve) => {
+		const onLoadProjectSpaceCompatibility = vi.fn((domain?: string) => {
+			if (!domain) return compatibilityPreflight();
+			return new Promise<CompatibilityOutcome>((resolve) => {
 				domainResolvers.set(domain, resolve);
 			});
 		});
@@ -411,133 +364,175 @@ describe("PublishDialog", () => {
 				{ name: "alpha-space", displayName: "Alpha Space" },
 				{ name: "beta-space", displayName: "Beta Space" },
 			],
-			onLoadFeatureFlags,
+			onLoadProjectSpaceCompatibility,
 		});
 
-		expect(onLoadFeatureFlags).not.toHaveBeenCalled();
-		expect(
-			screen.queryByText("This app uses CommCare HQ feature flags"),
-		).toBeNull();
+		expect(onLoadProjectSpaceCompatibility).not.toHaveBeenCalled();
 		fireEvent.click(screen.getByRole("combobox", { name: "Project space" }));
 		fireEvent.click(await screen.findByRole("option", { name: "Alpha Space" }));
-
 		expect(
-			screen.queryByText("This app uses CommCare HQ feature flags"),
-		).toBeNull();
-		expect(
-			screen.getByText("Checking feature flags for this project space"),
+			screen.getByText("Checking whether this project space can run the app"),
 		).toBeTruthy();
 		expect(
 			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
 		).toBe(true);
+
 		await waitFor(() =>
-			expect(onLoadFeatureFlags).toHaveBeenLastCalledWith(
+			expect(onLoadProjectSpaceCompatibility).toHaveBeenLastCalledWith(
 				"alpha-space",
 				expect.any(AbortSignal),
 			),
 		);
-
 		await act(async () => {
 			domainResolvers.get("alpha-space")?.(
-				await featureFlagPreflight("alpha-space"),
+				await compatibilityPreflight("alpha-space"),
 			);
 		});
-		await screen.findByText("Feature flags are ready");
+		await screen.findByText("This project space can run the app");
 	});
 
-	it("keeps an inconclusive HQ check informational", async () => {
-		const inconclusiveReport: HqFeatureFlagReport = {
-			...prepublishReport,
-			verification: "unavailable",
-			target_domain: "project-space",
-			missing_flags: [],
-			unverified_flags: [caseSearch],
-			message:
-				"CommCare HQ could not confirm whether Simple Case Search is enabled for the project-space project space.",
-		};
+	it("blocks missing and unverified required support without hiding an advisory", async () => {
 		renderDialog({
-			onLoadFeatureFlags: vi.fn(async () => ({
+			onLoadProjectSpaceCompatibility: vi.fn(async (domain?: string) => ({
 				ok: true as const,
-				report: inconclusiveReport,
+				report: blockedReport(domain ?? "project-space"),
 			})),
 		});
 
-		await screen.findByText("Feature flag check incomplete");
-		expect(screen.getByRole("status").textContent).toContain(
-			"CommCare HQ couldn't confirm",
+		const alert = await screen.findByRole("alert");
+		expect(alert.textContent).toContain(
+			"Nova couldn't confirm this project space can run the app",
 		);
-		expect(screen.queryByRole("alert")).toBeNull();
+		expect(alert.textContent).toContain("Case search");
+		expect(alert.textContent).toContain("Attachments saved to cases");
+		expect(alert.textContent).toContain("Dimagi Support");
+		expect(
+			screen.getByText("Large searches may open more slowly"),
+		).toBeTruthy();
+		expect(
+			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
+		).toBe(true);
+		expect(document.body.textContent).not.toMatch(
+			/search_claim|slug|namespace/i,
+		);
 	});
 
-	it("separates confirmed missing flags from flags HQ couldn't verify", async () => {
-		const partialReport: HqFeatureFlagReport = {
-			...prepublishReport,
-			verification: "partial",
-			target_domain: "project-space",
-			required_flags: [caseSearch, advancedCaseSearch],
-			missing_flags: [caseSearch],
-			unverified_flags: [advancedCaseSearch],
-			message:
-				"Simple Case Search isn't enabled. CommCare HQ couldn't confirm Advanced Case Search.",
+	it("never lets a performance advisory disable direct upload", async () => {
+		const ready = readyReport("project-space");
+		const report: ProjectSpaceCompatibilityReport = {
+			...ready,
+			advisories: [
+				{
+					...largeSearch,
+					state: "missing",
+					message:
+						"This project space can run the app, but large Search results may take longer to open.",
+				},
+			],
 		};
 		renderDialog({
-			onLoadFeatureFlags: vi.fn(async () => ({
+			onLoadProjectSpaceCompatibility: vi.fn(async () => ({
 				ok: true as const,
-				report: partialReport,
+				report,
 			})),
 		});
 
-		const missingNotice = await screen.findByRole("alert");
-		const unverifiedTitle = await screen.findByText(
-			"Feature flag check incomplete",
-		);
-		const unverifiedNotice = unverifiedTitle.closest('[role="status"]');
-		expect(unverifiedNotice).not.toBeNull();
-		expect(missingNotice.textContent).toContain("Simple Case Search");
-		expect(missingNotice.textContent).not.toContain("Advanced Case Search");
-		expect(missingNotice.textContent).toContain("To have this flag enabled");
-		expect(unverifiedNotice?.textContent).toContain("Advanced Case Search");
-		expect(unverifiedNotice?.textContent).not.toContain("Simple Case Search");
-		expect(unverifiedNotice?.textContent).toContain(
-			"If this flag needs to be enabled",
-		);
+		await screen.findByText("Large searches may open more slowly");
+		expect(
+			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
+		).toBe(false);
 	});
 
-	it("surfaces flags HQ confirmed missing after a successful upload", async () => {
-		const uploadReport: HqFeatureFlagReport = {
-			...downloadReport,
-			verification: "verified",
-			target_domain: "project-space",
-			missing_flags: [caseSearch],
-			unverified_flags: [],
-			message:
-				"Simple Case Search (search_claim) isn't enabled for the project-space project space. The app was still published. Contact support@dimagi.com.",
-		};
+	it("does not reuse an earlier compatibility answer after the dialog reopens", async () => {
+		type CompatibilityOutcome = Awaited<
+			ReturnType<typeof compatibilityPreflight>
+		>;
+		let resolveRecheck: ((outcome: CompatibilityOutcome) => void) | undefined;
+		const onLoadProjectSpaceCompatibility = vi
+			.fn<(domain?: string) => Promise<CompatibilityOutcome>>()
+			.mockImplementationOnce((domain) => compatibilityPreflight(domain))
+			.mockImplementationOnce(
+				() =>
+					new Promise<CompatibilityOutcome>((resolve) => {
+						resolveRecheck = resolve;
+					}),
+			);
+
+		function Harness() {
+			const [open, setOpen] = useState(true);
+			return (
+				<>
+					<button type="button" onClick={() => setOpen(true)}>
+						Reopen publish
+					</button>
+					<PublishDialog
+						open={open}
+						onClose={() => setOpen(false)}
+						getAppId={() => "app-1"}
+						availableDomains={[
+							{ name: "project-space", displayName: "Project Space" },
+						]}
+						connectionServer="production"
+						canUploadToHq
+						onOpenPublishing={vi.fn()}
+						isRefreshingHqConnection={false}
+						onRefreshHqConnection={vi.fn()}
+						onLoadProjectSpaceCompatibility={onLoadProjectSpaceCompatibility}
+						onDownloadJson={vi.fn().mockResolvedValue({ ok: true })}
+						onDownloadCcz={vi.fn().mockResolvedValue({ ok: true })}
+					/>
+				</>
+			);
+		}
+
+		render(<Harness />);
+		const upload = await screen.findByRole("button", { name: "Upload" });
+		await waitFor(() => expect(upload.hasAttribute("disabled")).toBe(false));
+		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+		fireEvent.click(screen.getByRole("button", { name: "Reopen publish" }));
+
+		expect(
+			screen.getByRole("button", { name: "Upload" }).hasAttribute("disabled"),
+		).toBe(true);
+		await screen.findByText(
+			"Checking whether this project space can run the app",
+		);
+		await act(async () => {
+			resolveRecheck?.(await compatibilityPreflight("project-space"));
+		});
+	});
+
+	it("shows one compatibility alert when the upload preflight refuses", async () => {
 		mocks.fetch.mockResolvedValueOnce(
 			new Response(
 				JSON.stringify({
-					success: true,
-					url: "https://hq.example/app",
+					success: false,
+					refusal: {
+						phase: "preflight",
+						failure: {
+							code: "project_space_incompatible",
+							message: "Duplicate refusal detail",
+							details: [],
+						},
+						resourceConflicts: [],
+					},
 					warnings: [],
-					feature_flag_requirements: uploadReport,
+					preview_project_space: null,
+					project_space_compatibility: blockedReport("project-space"),
 				}),
-				{ status: 201, headers: { "Content-Type": "application/json" } },
+				{ status: 200, headers: { "Content-Type": "application/json" } },
 			),
 		);
-
 		renderDialog();
-		await screen.findByText("Feature flags are ready");
-		fireEvent.click(await screen.findByRole("button", { name: "Upload" }));
-		await screen.findByText("Feature flags aren't enabled");
-		expect(screen.getByRole("alert")).toBeTruthy();
-		expect(
-			screen.getByText("Your app is on CommCare HQ").closest('[role="status"]'),
-		).not.toBeNull();
-		expect(
-			screen.getByText(/isn't enabled for the “project-space” project space/i),
-		).toBeTruthy();
-		expect(screen.queryByText("search_claim")).toBeNull();
-		expect(screen.getAllByText("support@dimagi.com")).toHaveLength(1);
+		const upload = await screen.findByRole("button", { name: "Upload" });
+		await waitFor(() => expect(upload.hasAttribute("disabled")).toBe(false));
+
+		fireEvent.click(upload);
+		await screen.findByText("Nova couldn't finish publishing");
+		const alerts = screen.getAllByRole("alert");
+		expect(alerts).toHaveLength(1);
+		expect(alerts[0]?.textContent).toContain("Case search");
+		expect(alerts[0]?.textContent).not.toContain("Duplicate refusal detail");
 	});
 
 	it("ignores a download completion from a closed dialog after it reopens", async () => {
@@ -570,8 +565,8 @@ describe("PublishDialog", () => {
 						onOpenPublishing={vi.fn()}
 						isRefreshingHqConnection={false}
 						onRefreshHqConnection={vi.fn()}
-						onLoadFeatureFlags={(domain, _signal) =>
-							featureFlagPreflight(domain)
+						onLoadProjectSpaceCompatibility={(domain) =>
+							compatibilityPreflight(domain)
 						}
 						onDownloadJson={onDownloadJson}
 						onDownloadCcz={vi.fn().mockResolvedValue({ ok: true })}
@@ -582,17 +577,18 @@ describe("PublishDialog", () => {
 
 		render(<Harness />);
 		await choosePublishOption("CommCare HQ app file");
-		await screen.findByText("This app uses CommCare HQ feature flags");
-		fireEvent.click(
-			await screen.findByRole("button", { name: "Download JSON" }),
-		);
+		await screen.findByText("Choose a project space that can run this app");
+		fireEvent.click(screen.getByRole("button", { name: "Download JSON" }));
 		expect(onDownloadJson).toHaveBeenCalledOnce();
 		fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
 		fireEvent.click(screen.getByRole("button", { name: "Reopen publish" }));
 		await choosePublishOption("CommCare HQ app file");
 
 		await act(async () => {
-			resolveDownload?.({ ok: true, featureFlagReport: downloadReport });
+			resolveDownload?.({
+				ok: true,
+				projectSpaceCompatibility: uncheckedReport,
+			});
 			await Promise.resolve();
 		});
 

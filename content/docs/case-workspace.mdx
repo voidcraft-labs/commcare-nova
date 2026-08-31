@@ -246,6 +246,18 @@ property controls Default order. The parent stays out of the choices and does
 not open with the selected case's form. Preview reads the current shared case
 data directly, so there is nothing else to configure.
 
+When Search reaches cases that are not already available in the app, the
+destination project space needs **Case search** support. Nova checks for that
+support before a direct publish and sends nothing if it is missing or cannot be
+confirmed. Downloads stay available so you can choose and check the destination
+later. See [Project-space compatibility](/docs/project-space-compatibility).
+
+Nova also includes faster handling for large Search results automatically when
+the project space supports it. That performance check never blocks publishing.
+It does not add a second copy of the case data or a refresh step. Preview keeps
+reading the current shared cases, and Nova adds no data-refresh setting to
+manage.
+
 For dates, **Exact value** means the complete selected calendar day, including
 datetime values later that day. Choose **Between dates** when people should
 enter both a start and an end; Nova changes the field to one paired **Date

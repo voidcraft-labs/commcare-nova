@@ -317,11 +317,12 @@ These decisions are closed unless the project owner explicitly reopens them.
   on a domain carrying HQ's toggle — on a stock domain
   `update_strategy.py::_apply_attachments_action` returns before doing anything,
   so the block parses and is then silently dropped.
-  That prerequisite is reported like every other feature flag and **never gates
-  the offer or the publish**: a target's configuration does not get to edit the
-  app (`lib/deployment/CLAUDE.md`), so the deprecation and the requirement are
-  stated in the chooser instead and the author decides. What the mode does
-  foreclose is reading the property back — it holds no scalar at all, which
+  The authored mode remains available without presenting HQ configuration to
+  the author, while Nova derives the semantic **Attachments saved to cases**
+  requirement and blocks a concrete publish target that cannot run it. The
+  private toggle name stays confined to the CommCare emission and audit
+  boundary. What the mode does foreclose is reading the property back — it
+  holds no scalar at all, which
   `lib/domain/attachmentSlots.ts::casePropertyIsAttachmentSlot` is the single
   predicate for, and the case-list gate refuses a column over one rather than
   shipping a column that renders blank on every case. Inline picture

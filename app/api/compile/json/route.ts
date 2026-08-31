@@ -1,12 +1,12 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { handleApiError } from "@/lib/apiError";
 import { expandDoc } from "@/lib/commcare/expander";
-import {
-	encodeHqFeatureFlagReport,
-	featureFlagReportForDownload,
-	HQ_FEATURE_FLAG_REPORT_HEADER,
-} from "@/lib/commcare/featureFlags";
 import { buildHqJsonExportArchive } from "@/lib/commcare/multimedia/hqJsonExportArchive";
+import {
+	encodeProjectSpaceCompatibilityReport,
+	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
+	projectSpaceCompatibilityForDownload,
+} from "@/lib/commcare/projectSpaceCompatibility";
 import {
 	EXPORT_ADVISORY_HEADER,
 	encodeExportAdvisories,
@@ -66,8 +66,10 @@ export async function POST(req: NextRequest) {
 		// and keeps Unicode, so the download filename can be ASCII while the
 		// member preserves the app's real name.
 		const appName = sanitizeFilename(doc.appName);
-		const featureFlagReport = featureFlagReportForDownload(doc);
-		const featureFlagHeader = encodeHqFeatureFlagReport(featureFlagReport);
+		const projectSpaceCompatibilityHeader =
+			encodeProjectSpaceCompatibilityReport(
+				projectSpaceCompatibilityForDownload(doc),
+			);
 		// The import file is complete and correct; the advisories say what it
 		// could not carry, so they ride beside it rather than replacing it.
 		const advisoryHeader = encodeExportAdvisories(
@@ -86,7 +88,8 @@ export async function POST(req: NextRequest) {
 					"Content-Type": "application/json",
 					"Content-Disposition": `attachment; filename="${appName}.json"`,
 					"X-Compiled-At-Seq": String(compiledAtSeq),
-					[HQ_FEATURE_FLAG_REPORT_HEADER]: featureFlagHeader,
+					[PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER]:
+						projectSpaceCompatibilityHeader,
 					[EXPORT_ADVISORY_HEADER]: advisoryHeader,
 				},
 			});
@@ -107,7 +110,8 @@ export async function POST(req: NextRequest) {
 				"Content-Type": "application/zip",
 				"Content-Disposition": `attachment; filename="${appName}.zip"`,
 				"X-Compiled-At-Seq": String(compiledAtSeq),
-				[HQ_FEATURE_FLAG_REPORT_HEADER]: featureFlagHeader,
+				[PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER]:
+					projectSpaceCompatibilityHeader,
 				[EXPORT_ADVISORY_HEADER]: advisoryHeader,
 			},
 		});

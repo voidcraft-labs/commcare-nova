@@ -378,8 +378,8 @@ language prerequisite. The remaining setup facts are exact:
 case updates require Data Cleanup (Pro+), alerts
 require Reminders Framework (Standard+), SMS adds Outbound SMS at send time,
 SMS Survey additionally requires Inbound SMS access, and Connect content
-requires the `COMMCARE_CONNECT` domain toggle plus every resolved recipient
-being a CommCare mobile worker with an active PersonalID link at runtime,
+requires CommCare Connect support in the project space plus every resolved
+recipient being a CommCare mobile worker with an active PersonalID link at runtime,
 the hourly task visits each project once daily at `auto_case_update_hour`
 (midnight UTC by default), and the default halt threshold is 10,000 updates per
 project, case type, and database partition per run. HQ checks that threshold
@@ -1694,10 +1694,11 @@ binds spelled `relevant="count(<question>) = 1"` plus `@src`
 predicate the case-list gate and the authoring surfaces read to refuse a
 column that could only ever render blank.
 
-Both modes name a project-space feature flag, advisory as every flag here is:
-`MM_CASE_PROPERTIES` (deprecated) or the block is discarded without a word,
-and `VIEW_FORM_ATTACHMENT` or a worker without the Submission History
-permission cannot open the link. Neither ever blocks a publish.
+Both modes contribute semantic requirements to Nova's project-space
+compatibility gate. **Attachments saved to cases** is required or CommCare HQ
+silently discards the attachment block. **Links to captured files** is required
+or a worker cannot open the stored link. Nova checks those capabilities before
+publishing to a concrete target without exposing the underlying HQ settings.
 
 **A `link` column renders a property holding an address as something a worker
 can open.** `<template form="markdown">` over
@@ -1988,29 +1989,33 @@ mapping is superseded only by the recreate after an HQ-side deletion, and the
 superseded row is retained rather than deleted so an app left behind stays
 nameable.
 
-The emitted app document carries only fields Nova authors: target-owned
-settings and state (`cloudcare_enabled`, `profile`, `case_sharing`, the
-build/release metadata, the rest of the `commcare-app-settings.yml`
-attributes) are never emitted, so the overlay merge retains a project's
-HQ-side configuration across republishes, and `logo_refs` is emitted only
-when the app has a Nova-authored logo (`lib/commcare/hqShells.ts` states the
-rule).
+The emitted app document carries only fields Nova authors. Target-owned
+settings and state (`cloudcare_enabled`, `case_sharing`, the build/release
+metadata, and the rest of the `commcare-app-settings.yml` attributes) are
+absent, so the overlay merge retains a project's HQ-side configuration across
+republishes, and `logo_refs` appears only when the app has a Nova-authored logo.
+The narrow profile exception is derived Search tuning: a new-app JSON may carry
+Nova's one owned optimization, while a direct update reads the current HQ app
+source immediately before import and sends the complete existing profile only
+when that owned value must change. `lib/commcare/hqShells.ts`,
+`derivedProfile.ts`, and `targetProfile.ts` state the rule.
 
 Preflight is a dependency graph with two kinds of edge. A blocking edge is a
-real prerequisite — no connection, an app the export boundary refuses, or
-Project data or places Nova may not write over — and failing one leaves the
-deployment `incomplete` before anything externally visible happens. The
-`project-data` and `organization` edges are the two that talk to HQ during
-preflight, each appearing only when the app carries that thing; the table
+real prerequisite: no connection, an app the export boundary refuses, required
+project-space support Nova cannot confirm, or Project data or places Nova may
+not write over. Failing one leaves the deployment `incomplete` before any
+remote write. The `project-data`, `organization`, and project-space
+compatibility edges talk to HQ during preflight, each appearing only when the
+app carries that thing; the table
 refusal is all-or-nothing because the workbook is one upload and a half-pushed
 project space has no honest state to describe it, and the place refusals are
 decided in full before the first batch for the same reason one level down. An attention edge is something the target needs that Nova
 cannot do from here, so it becomes a line in the setup artifact rather than a
 refusal; whether a persona satisfies a `required` worker property is one of
 these, because refusing a publish over it would refuse one that works while
-Nova creates no workers. Feature-flag reports remain advisory by standing
-contract: refusing a publish over one would let a target's configuration edit
-the app.
+Nova creates no workers. Search-result indexing is another attention edge: it
+can make large Search results open faster, but its absence never removes Search
+or blocks publishing.
 
 The setup artifact regenerates from the document on every read and is never
 stored — a stored copy goes stale the first time a worker property is renamed,
@@ -2051,7 +2056,8 @@ never reached it), and both callers read whether THIS attempt landed rather
 than inferring it from a state that describes the target. Deployments
 are reachable from the Builder and from MCP (`get_deployment`,
 `refresh_deployment`) and deliberately NOT from the Solutions
-Architect, the same standing decision that keeps `get_app_hq_feature_flags` off
+Architect, the same standing decision that keeps
+`check_project_space_compatibility` off
 that surface. Deployments carry `app_id` and `project_id` but not the composite tenant key
 case rows use, because the auth-app tenancy migration keeps an exact catalog of
 everything referencing `apps.project_id` and blocks additions; coherence is
@@ -2073,8 +2079,8 @@ checking and provisioning write and are withheld from viewers. The Workers
 panel lives inside each record's card there and NOWHERE else — it is the only
 place a worker's password is ever shown, and `DeploymentStatus` takes the
 panel as a composed slot precisely so a second credential surface cannot exist
-by accident. The Publish dialog keeps the destination select, the feature-flag
-preflight, the publish itself, and the landed outcome's record; above its form
+by accident. The Publish dialog keeps the destination select, the
+project-space compatibility check, the publish itself, and the landed outcome's record; above its form
 the targets the app has already reached render as compact rows linking to the
 section rather than as a second full copy that would have to be kept honest.
 `components/builder/CLAUDE.md` and `lib/deployment/CLAUDE.md` own the
@@ -2084,17 +2090,18 @@ walkthrough (a district/facility organization, owner-relative routing,
 preview-as-persona restore scope, provisioning, and publishing in one
 scenario).
 
-Publishing also reports the HQ feature flags required by the emitted app.
-Direct upload checks the selected project space after import and distinguishes
-flags confirmed missing from flags whose state could not be verified; JSON and
-CCZ name the requirements without claiming to know the eventual destination's
-state. The Builder keeps all three choices and their durable follow-up in one
-Publish dialog, MCP returns the same structured distinction, and the public
-feature-flag guide tells users to contact `support@dimagi.com` for a named
-project space. One central manifest drives detection, copy, docs, and a weekly
-audit against current CommCare HQ source so a graduated or renamed flag becomes
-an actionable failing check instead of stale product behavior.
-`content/docs/publishing.mdx` is the user-facing guide.
+Publishing reports whether the selected project space can run the app in Nova's
+own vocabulary: Case search, CommCare Connect, attachments saved to cases, and
+links to captured files. Direct upload checks required support before any
+remote write. Confirmed missing support and support Nova cannot verify both stop
+the attempt with a concrete next step; the large-Search optimization is an
+advisory and never blocks. JSON and CCZ describe the capabilities a destination
+needs without claiming one has been checked. Builder and MCP share that semantic
+contract, while a private manifest retains the downstream names and source
+evidence that establish it. A weekly source audit turns upstream drift into a
+failing check without exposing those implementation details to an author or
+agent. `content/docs/publishing.mdx` and
+`content/docs/project-space-compatibility.mdx` are the user-facing guides.
 
 ### Projects, moves, and multiplayer
 
@@ -2321,11 +2328,56 @@ instance and form shape are pinned to
 endpoint fixture under `tests/data/session_endpoint_remote_request_multi_select.xml`
 belongs to the remaining endpoint unit, which consumes this datum foundation.
 
+### Related-case Search results and derived project-space compatibility
+
+Search-result display has one shared supporting-case inventory. When an emitted
+Results, Details, or Default-order calculation is exactly one parent-property
+read, Nova asks the Search response to carry the related cases automatically.
+The query emits `x_commcare_include_all_related_cases` with a true ref, while
+the visible nodeset excludes rows marked `commcare_is_related_case=true()`.
+Those rows can supply parent values without becoming selectable cases, form
+data sources, or automatic navigation targets. A saved definition hidden from
+both screens and absent from sorting does not change the query. HQ's
+`tests/data/suite/search_command_detail.xml` pins the calculated parent read;
+Nova's suite tests pin the additional query datum and exclusion bytes.
+
+Effective Search also derives one private profile optimization that indexes
+returned Search cases in the downstream runtime's temporary storage. It is not
+an authored setting, restore, timer, or post-submit data refresh. Preview keeps
+using Nova's live Project case rows, and Nova models no sync lifecycle. Local
+CCZ and new-app HQ JSON include the optimization automatically. A direct HQ
+publish includes it only when the chosen project space supports it; otherwise
+Search still publishes and the compatibility report explains that large result
+sets may open more slowly.
+
+A direct in-place update reads the target app source immediately before import.
+Nova removes only its allowlisted derived profile keys, overlays the values the
+current app still needs, and preserves every foreign profile member. When that
+overlay is already current, the import omits `profile`; when the source or its
+profile bag is missing or malformed, the app import stops instead of guessing.
+A downloaded HQ JSON artifact remains a complete new-app description, not a
+safe patch for an existing app.
+
+Project-space compatibility is semantic on every public surface. Builder and
+MCP name the app feature, its checked state, the consequence, and the next step;
+downstream setting names, namespaces, and probe arrays stay private to the
+CommCare boundary. Case search, CommCare Connect, attachments stored on cases,
+and worker-openable attachment links are required capabilities. Missing or
+unverified required support blocks direct publishing before any remote write.
+The large-Search optimization is advisory and never blocks construction,
+Preview, downloads, or publishing. The design agent does not carry a deployment
+constraint ledger; the explicit MCP compatibility read is deployment-only, and
+the shared upload lifecycle always performs its own authoritative check.
+
+The removed upstream `CaseSearch` fields `search_label`,
+`additional_relevant`, `dynamic_search`, and `search_filter` are not modeled or
+reproduced.
+
 ---
 
 ## What remains
 
-Two units, one file each. **Every entry below is a pointer, not a summary of
+One unit remains. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -2344,17 +2396,6 @@ creates, why `respect_relevancy` exists only on forms, what a case-list endpoint
 excludes, the runtime replay sequence, and the documented divergences that are
 sharp edges rather than Nova bugs.
 
-### Related-case pulls and derived compatibility
-
-[`complex-app/multi-select-related-cases-and-profile.md`](complex-app/multi-select-related-cases-and-profile.md)
-· depends on nothing outstanding · blocks nothing
-
-Two independent projections. **The file holds** the derived related-case query
-datum and visible-result exclusion, Nova's large-Search tuning and safe profile
-preservation, the project-space compatibility surface, and the removed
-`CaseSearch` fields that must never be modeled. Nova authors no sync or generic
-profile-property model.
-
 ---
 
 ## Dependency order
@@ -2364,11 +2405,8 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | — |
-| [related-case pulls and derived compatibility](complex-app/multi-select-related-cases-and-profile.md) | — |
 
-Both remaining units have no outstanding prerequisites and can start in either
-order. Nothing waits on either one, so each can land whenever its own contract
-is complete.
+The remaining unit has no outstanding prerequisites and nothing waits on it.
 
 ---
 

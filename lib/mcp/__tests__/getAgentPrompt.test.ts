@@ -262,7 +262,7 @@ describe("registerGetAgentPrompt — build modes", () => {
 		});
 	}
 
-	it("gives autonomous builds a non-blocking feature-flag FYI", async () => {
+	it("keeps project-space compatibility out of autonomous app design", async () => {
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
@@ -270,18 +270,11 @@ describe("registerGetAgentPrompt — build modes", () => {
 			mode: "autonomous_build",
 		});
 
-		expect(text).toContain("Publishing FYI");
-		expect(text).toContain("call get_app_hq_feature_flags exactly once");
-		expect(text).toContain("final handoff");
-		expect(text).toContain("Do not call it after individual mutations");
-		expect(text).toContain("not a Nova authoring gate");
-		expect(text).toContain("do not remove, undo, avoid, or revise");
-		expect(text).toContain("feature_flag_requirements.required_flags");
-		expect(text).toContain("domain_checked: false");
-		expect(text).toContain("normal completion message");
-		expect(text).toContain("support@dimagi.com");
-		expect(text).toContain("creating a document");
-		expect(text).not.toContain("Simple Case Search (search_claim)");
+		expect(text).not.toContain("Publishing FYI");
+		expect(text).not.toContain("get_app_hq_feature_flags");
+		expect(text).not.toContain("check_project_space_compatibility");
+		expect(text).not.toContain("project_space_compatibility");
+		expect(text).not.toContain("support@dimagi.com");
 		expect(text).toContain("NOVA-PROMPT-END");
 	});
 

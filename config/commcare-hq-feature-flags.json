@@ -4,20 +4,31 @@
 		"toggleRegistryPath": "corehq/toggles/__init__.py",
 		"probeResourcePath": "corehq/apps/api/resources/v0_5.py",
 		"probeEvidence": [
+			"paginator_class = DoesNothingPaginator",
 			"feature_flag = request.GET.get(\"feature_flag\")",
 			"feature_flag not in toggles.all_toggle_slugs()",
 			"toggles.toggles_dict(username=username, domain=domain)"
+		],
+		"probePaginatorPath": "corehq/apps/api/resources/pagination.py",
+		"probePaginatorEvidence": [
+			"class DoesNothingPaginator(Paginator):",
+			"\"meta\": {'total_count': self.get_count()}"
+		],
+		"caseSearchProbePath": "corehq/apps/ota/views.py",
+		"caseSearchProbeEvidence": [
+			"CASE_SEARCH_DISABLED_MSG = \"Case search is not enabled for this project\"",
+			"@mobile_auth",
+			"@toggles.SYNC_SEARCH_CASE_CLAIM.required_decorator(plain_message=CASE_SEARCH_DISABLED_MSG)",
+			"if not case_search_enabled_for_domain(domain):"
 		]
 	},
 	"flags": [
 		{
-			"id": "case-search",
+			"id": "case-search-base",
+			"capability": "case-search",
+			"role": "required",
 			"slug": "search_claim",
 			"symbol": "SYNC_SEARCH_CASE_CLAIM",
-			"label": "Simple Case Search",
-			"description": "Lets workers search for cases that are not already on their device",
-			"requiredFor": "Any module with a Search action or Search inputs",
-			"docsAnchor": "simple-case-search",
 			"expectedTag": "TAG_FROZEN",
 			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
 			"upstreamEvidence": [
@@ -29,12 +40,10 @@
 		},
 		{
 			"id": "advanced-case-search",
+			"capability": "case-search",
+			"role": "required",
 			"slug": "case_search_advanced",
 			"symbol": "CASE_SEARCH_ADVANCED",
-			"label": "Advanced Case Search",
-			"description": "Adds more powerful case search options, including filters, flexible matching, and suggested search values",
-			"requiredFor": "A Search action with no inputs, or a case search with filters, flexible or special matching, or a suggested search value",
-			"docsAnchor": "advanced-case-search",
 			"expectedTag": "TAG_FROZEN",
 			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
 			"expectedParents": ["SYNC_SEARCH_CASE_CLAIM"],
@@ -51,12 +60,10 @@
 		},
 		{
 			"id": "commcare-connect",
+			"capability": "commcare-connect",
+			"role": "required",
 			"slug": "commcare_connect",
 			"symbol": "COMMCARE_CONNECT",
-			"label": "CommCare Connect",
-			"description": "Enables CommCare Connect Learn and Deliver app features",
-			"requiredFor": "An app configured for CommCare Connect Learn or Deliver",
-			"docsAnchor": "commcare-connect",
 			"expectedTag": "TAG_CONNECT_DIVISION",
 			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
 			"upstreamEvidence": [
@@ -67,17 +74,19 @@
 				{
 					"path": "corehq/apps/users/views/mobile/users.py",
 					"contains": "toggles.COMMCARE_CONNECT.enabled(domain)"
+				},
+				{
+					"path": "corehq/messaging/scheduling/forms.py",
+					"contains": "COMMCARE_CONNECT.enabled(self.domain)"
 				}
 			]
 		},
 		{
-			"id": "multimedia-case-properties",
+			"id": "case-attachments",
+			"capability": "case-attachments",
+			"role": "required",
 			"slug": "mm_case_properties",
 			"symbol": "MM_CASE_PROPERTIES",
-			"label": "Multimedia Case Properties",
-			"description": "Stores an attachment question's file on the case itself, rather than a link to it",
-			"requiredFor": "An attachment question that saves to a case with the attachment mode",
-			"docsAnchor": "multimedia-case-properties",
 			"expectedTag": "TAG_DEPRECATED",
 			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
 			"upstreamEvidence": [
@@ -88,19 +97,32 @@
 			]
 		},
 		{
-			"id": "view-form-attachment",
+			"id": "attachment-links",
+			"capability": "attachment-links",
+			"role": "required",
 			"slug": "view_form_attachments",
 			"symbol": "VIEW_FORM_ATTACHMENT",
-			"label": "View Form Attachments",
-			"description": "Lets a mobile worker open a form attachment without the Submission History report permission",
-			"requiredFor": "An attachment question that saves a link to a case, so workers can open the link",
-			"docsAnchor": "view-form-attachments",
 			"expectedTag": "TAG_GA_PATH",
 			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
 			"upstreamEvidence": [
 				{
 					"path": "corehq/apps/reports/views.py",
 					"contains": "if VIEW_FORM_ATTACHMENT.enabled(domain):"
+				}
+			]
+		},
+		{
+			"id": "large-search-performance",
+			"capability": "large-search-performance",
+			"role": "advisory",
+			"slug": "custom_properties",
+			"symbol": "CUSTOM_PROPERTIES",
+			"expectedTag": "TAG_FROZEN",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/app_manager/models/applications.py",
+					"contains": "if toggles.CUSTOM_PROPERTIES.enabled(self.domain) and \"custom_properties\" in self__profile:"
 				}
 			]
 		}

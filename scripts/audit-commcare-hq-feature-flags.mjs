@@ -1,15 +1,15 @@
 #!/usr/bin/env node
 
 /**
- * Detect upstream lifecycle drift in every CommCare HQ feature flag used by
- * Commcare Nova.
+ * Detect upstream lifecycle drift in the private CommCare HQ settings used to
+ * prove Nova's semantic project-space compatibility contract.
  *
  * This intentionally reads source instead of importing CommCare HQ: the audit
  * runs in Nova CI without bootstrapping HQ's Python/Django environment. It
  * checks the toggle declaration (symbol, slug, tag, namespaces) plus at least
- * one runtime/authoring gate for each requirement. A GA/tag change or removed
- * gate therefore becomes an actionable scheduled failure instead of tribal
- * knowledge four months later.
+ * one runtime/authoring gate for each setting. It also pins the API-key-safe
+ * Case Search readiness path. A GA/tag change or removed gate therefore
+ * becomes an actionable scheduled failure instead of tribal knowledge.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -62,6 +62,41 @@ if (!existsSync(probeResourcePath)) {
 		if (!probeResource.includes(expected)) {
 			failures.push(
 				`Feature-flag probe behavior changed in ${manifest.source.probeResourcePath}: ${JSON.stringify(expected)}`,
+			);
+		}
+	}
+}
+
+const caseSearchProbePath = resolve(
+	hqRoot,
+	manifest.source.caseSearchProbePath,
+);
+if (!existsSync(caseSearchProbePath)) {
+	failures.push(
+		`Case Search compatibility probe disappeared: ${manifest.source.caseSearchProbePath}`,
+	);
+} else {
+	const source = readFileSync(caseSearchProbePath, "utf8");
+	for (const expected of manifest.source.caseSearchProbeEvidence) {
+		if (!source.includes(expected)) {
+			failures.push(
+				`Case Search compatibility probe changed in ${manifest.source.caseSearchProbePath}: ${JSON.stringify(expected)}`,
+			);
+		}
+	}
+}
+
+const probePaginatorPath = resolve(hqRoot, manifest.source.probePaginatorPath);
+if (!existsSync(probePaginatorPath)) {
+	failures.push(
+		`Feature-flag probe paginator disappeared: ${manifest.source.probePaginatorPath}`,
+	);
+} else {
+	const source = readFileSync(probePaginatorPath, "utf8");
+	for (const expected of manifest.source.probePaginatorEvidence) {
+		if (!source.includes(expected)) {
+			failures.push(
+				`Feature-flag probe response shape changed in ${manifest.source.probePaginatorPath}: ${JSON.stringify(expected)}`,
 			);
 		}
 	}
@@ -130,16 +165,16 @@ for (const flag of manifest.flags) {
 if (failures.length > 0) {
 	console.error(
 		[
-			"CommCare HQ feature-flag assumptions changed:",
+			"CommCare HQ project-space compatibility assumptions changed:",
 			...failures.map((failure) => `- ${failure}`),
 			"",
-			"Review the current HQ behavior. If a feature is now generally available, remove or update its Nova detector, publish notice, docs entry, and manifest row together.",
+			"Review the current HQ behavior. Update the private probe plan and semantic capability contract together; never expose the underlying setting names through public surfaces.",
 		].join("\n"),
 	);
 	process.exitCode = 1;
 } else {
 	console.log(
-		`Verified ${manifest.flags.length} CommCare HQ feature-flag requirement(s) used by Commcare Nova against ${hqRoot}`,
+		`Verified ${manifest.flags.length} private CommCare HQ compatibility setting(s) used by CommCare Nova against ${hqRoot}`,
 	);
 }
 

@@ -1151,7 +1151,7 @@ describe("automation domain and projections", () => {
 		expect(text).not.toContain("at most 10,000");
 		expect(text).toContain("once daily");
 		expect(text).toContain("does not run this automation in Preview");
-		expect(text).toContain("RUN_AUTO_CASE_UPDATES_ON_SAVE");
+		expect(text).toContain("whenever a case is saved");
 		expect(text).toContain("project-wide");
 		expect(text).not.toContain("50,000");
 		for (const path of [
@@ -1528,7 +1528,7 @@ describe("automation domain and projections", () => {
 			},
 			[],
 		).caveats.join(" ");
-		expect(connectGuide).toContain("COMMCARE_CONNECT");
+		expect(connectGuide).toContain("CommCare Connect support");
 		expect(connectGuide).toContain("CommCare mobile worker (CommCareUser)");
 		expect(connectGuide).toContain("active PersonalID link");
 
@@ -1669,7 +1669,9 @@ describe("automation domain and projections", () => {
 		expect(steps).toContain("select “JSON”");
 		expect(steps).toContain("User-configurable report (UCR) filter 1");
 		expect(steps).toContain("Registered custom criterion 2");
-		expect(caveats).toContain("CASE_UPDATES_UCR_FILTERS");
+		expect(caveats).toContain(
+			"support user-configurable report (UCR) filter conditions",
+		);
 		expect(caveats).toContain("registered custom criterion");
 		expect(caveats).toContain(
 			"JSON recipient-filter mode only to system administrators",

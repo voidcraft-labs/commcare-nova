@@ -95,7 +95,7 @@ never table tags, export names, or display labels.
 | `list_apps` | List your apps with optional status filter, sort, and pagination. Each entry names the Nova Project the app lives in (`project_id` + `project_name`). |
 | `search_apps` | Fuzzy search by name. Case-insensitive, tolerates typos. Entries carry the same Project columns as `list_apps`. |
 | `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, personas, and its organization model. The summary opens with the app's Nova Project, so your agent always knows whose workspace it's editing. |
-| `get_app_hq_feature_flags` | List only the CommCare HQ feature flags the app currently requires, with app-specific reasons, plain-language explanations, and public documentation links. Optionally pass one explicit connected `domain` to separate confirmed missing flags from checks HQ could not answer. |
+| `check_project_space_compatibility` | Check whether one explicitly selected CommCare HQ project space can run the app. Returns required app capabilities, blockers, non-blocking performance guidance, and next steps without changing the app or project space. |
 
 ## Languages and translations
 
@@ -147,41 +147,42 @@ would actually see. Missing and out-of-date target entries also fall back to the
 current canonical source at runtime, so incomplete translation work never
 creates an invalid app.
 
-## Checking CommCare HQ feature flags
+## Checking project-space compatibility
 
-`get_app_hq_feature_flags` is a read-only check. An agent can call it without
-publishing or changing the app. Feature-flag checks are advisory and never make
-an otherwise valid compile or upload fail.
+`check_project_space_compatibility` is a read-only destination check. It needs
+both `app_id` and an explicit `domain`, and it checks exactly that CommCare HQ
+project space without compiling, uploading, or changing either side.
 
-With only `app_id`, the tool returns the flags the app requires, why each one is
-needed, a plain-language description, and a link to its public documentation.
-The result has `domain_checked: false`: it describes destination requirements
-and does not claim that any flag is enabled or missing.
+Call `get_hq_connection` first to list the available project spaces. Use the
+domain the user selects, and never choose among several project spaces on their
+behalf. The check requires `nova.hq.read` because it contacts CommCare HQ.
 
-With `app_id` and one explicit connected `domain`, the tool checks that exact
-CommCare HQ project space. The result separates:
+The result returns `project_space_compatibility` with:
 
-- `required_flags`: every flag the app uses;
-- `missing_flags`: flags CommCare HQ confirmed are not enabled; and
-- `unverified_flags`: flags the check could not confirm either way.
+- `status`: `not_needed`, `ready`, or `blocked` for the checked destination
+- `target_domain`: the exact project space that was checked
+- `required_capabilities`: the app features that need project-space support,
+  including why the app uses each one and whether it is `available`, `missing`,
+  or `unverified`
+- `blockers`: required capabilities that are missing or could not be confirmed
+- `advisories`: guidance that never blocks publishing, including slower large
+  Search results when the faster path is unavailable or unverified
+- `message`, `support_email`, and `docs_url`: a plain-language result and the
+  next place to go
 
-Use `get_hq_connection` to list the project spaces available to the connection,
-then use the project space the user selected. The tool checks one domain at a
-time and never chooses a destination on the user's behalf. The result includes
-the support address and public documentation links so an agent can pass the
-relevant details to the user before publishing.
+A missing or unverified required capability blocks a later direct publish
+before lookup tables, places, or the app are sent. An advisory never blocks.
+`upload_app_to_hq` performs its own authoritative check immediately before any
+remote write, even when the agent called `check_project_space_compatibility`
+earlier. A successful upload and a `project_space_incompatible` error both
+return `project_space_compatibility` so the agent can explain the checked result.
 
-The returned `feature_flag_requirements.required_flags` include app-specific
-`reasons`, a plain-language `description`, and a stable `docs_url`. The
-domain-aware path requires `nova.hq.read`; the domainless path requires only
-ordinary app read access.
-
-`compile_app` uses `verification: "not_checked"` because Commcare Nova does not know
-where a downloaded artifact will be used. Its `required_flags` are destination
-requirements, not flags known to be off. After a successful direct upload,
-`upload_app_to_hq` returns a new check for the accepted target domain. Every
-action-needed message names `support@dimagi.com`; include the target project
-space in the request.
+`compile_app` stays available because a download has no selected destination.
+When the app has destination requirements, its leading
+`nova_project_space_compatibility` result block contains
+`project_space_compatibility` with `status: "not_checked"`. The same report is
+also available in `_meta["nova/projectSpaceCompatibility"]`. Check the actual
+destination later with `check_project_space_compatibility`.
 
 ## Creating and deleting apps
 
@@ -398,10 +399,10 @@ configured in HQ unchanged.
 
 The returned guide identifies the exact current HTML route templates:
 `/a/<domain>/data/edit/automatic_updates/` for automatic case updates and
-`/a/<domain>/messaging/conditional/` for conditional alerts. HQ's deprecated
-`RUN_AUTO_CASE_UPDATES_ON_SAVE` switch is project-wide and can trigger every
-active case-update rule for a saved case type, so it is a deployment caveat,
-not a field in commcare nova's per-rule schema.
+`/a/<domain>/messaging/conditional/` for conditional alerts. CommCare HQ can be
+configured to run every active case-update rule for a case type whenever a case
+is saved. That behavior is project-wide, so it is a deployment caveat, not a
+field in commcare nova's per-rule schema.
 
 The loaded schema mirrors the two current HTML forms without a shared criteria
 superset. Automatic updates accept value/date comparisons against case,
@@ -437,9 +438,10 @@ accepted; blank, nonmatching, or unparseable values use 12:00 PM. Concrete HQ
 worker/group recipient IDs must be nonblank and have no surrounding whitespace.
 Connect content also refuses matched-case, parent-case, all-child-cases,
 case-property-email, and case-group recipients. Returned guidance states that
-SMS Survey requires Inbound SMS access. Connect content requires the
-`COMMCARE_CONNECT` domain toggle, and every resolved recipient must be a
-CommCare mobile worker with an active PersonalID link. Checkbox-style,
+SMS Survey requires Inbound SMS access. Connect content requires CommCare
+Connect support in the project space, which Nova checks before publishing, and
+every resolved recipient must be a CommCare mobile worker with an active
+PersonalID link. Checkbox-style,
 case-property, and custom recipient kinds are singletons; list recipients cannot
 repeat a concrete target. Descendant controls require a location recipient,
 location-level filters require descendants, and each worker-property filter key
@@ -467,8 +469,8 @@ same canonical parts, while the generated guide alone projects them to HQ
 recipient/content IDs and setup-only condition text must be concrete, trimmed,
 and nonblank. A setup-only condition has an explicit `ucr-filter` or
 `registered-custom` kind; the returned guide names the former's
-`CASE_UPDATES_UCR_FILTERS` toggle and the latter's system-administrator save
-requirement. The returned guide also names HQ's system-administrator save
+project-space support and the latter's system-administrator save requirement.
+The returned guide also names HQ's system-administrator save
 requirement whenever a custom recipient or custom content handler is present;
 registration plus project-administrator access is not sufficient.
 
@@ -916,9 +918,9 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 
 | Tool | What it does |
 |---|---|
-| `compile_app` | Compile to CommCare HQ format: the JSON shape HQ accepts (a zip bundling that JSON with the media files and the `lookup-tables.xlsx` workbook when the app has either), or a `.ccz` archive. If the app needs [feature flags](../feature-flags.mdx), a separate result block lists them as unverified destination requirements. |
+| `compile_app` | Compile to CommCare HQ format: the JSON shape HQ accepts (a zip bundling that JSON with the media files and the `lookup-tables.xlsx` workbook when the app has either), or a `.ccz` archive. When the app needs destination support, a separate [project-space compatibility](../project-space-compatibility.mdx) block lists it as not checked without blocking the download. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Commcare Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
-| `upload_app_to_hq` | Push the app to CommCare HQ: its lookup tables and its organization's places first, then the app itself. The first upload to a project space creates the app there; uploading again updates that same HQ app in place (`hq_app_action` in the result says which happened). Pass `domain` to choose the target space when your key reaches several; returns the HQ app URL, the deployment's state, the app's required [feature flags](../feature-flags.mdx) checked against that space, and the setup steps the project space still needs by hand. |
+| `upload_app_to_hq` | Push the app to CommCare HQ: its lookup tables and its organization's places first, then the app itself. The first upload to a project space creates the app there; uploading again updates that same HQ app in place (`hq_app_action` in the result says which happened). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. |
 | `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `resources`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. Reads Commcare Nova's own record, without contacting CommCare HQ. |
 | `refresh_deployment` | Ask CommCare HQ again what has happened to a published app, and update the stored state. Read-only against CommCare HQ. It can move a deployment forward, and can move it back when a build stops being released there. |
 | `provision_workers` | Create CommCare mobile-worker accounts on a project space for the app's personas, or bring existing ones into step with what the app says. The app must already be published there. Each new account carries that persona's worker information and places, and comes back with a password that exists only in that answer. |

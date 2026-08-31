@@ -21,9 +21,9 @@ import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { expandDoc } from "@/lib/commcare/expander";
 import {
-	decodeHqFeatureFlagReport,
-	HQ_FEATURE_FLAG_REPORT_HEADER,
-} from "@/lib/commcare/featureFlags";
+	decodeProjectSpaceCompatibilityReport,
+	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
+} from "@/lib/commcare/projectSpaceCompatibility";
 import { validationError } from "@/lib/commcare/validator/errors";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
@@ -150,6 +150,11 @@ describe("POST /api/compile/json", () => {
 		expect(prepareExportBoundary).toHaveBeenCalledWith(
 			expect.objectContaining({ mode: "hq-json" }),
 		);
+		expect(
+			decodeProjectSpaceCompatibilityReport(
+				res.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
+			)?.status,
+		).toBe("not_needed");
 	});
 
 	it("returns a zip bundling the json + HQ-format multimedia.zip when the app has media", async () => {
@@ -247,16 +252,16 @@ describe("POST /api/compile/json", () => {
 		expect(readme).toContain("districts");
 	});
 
-	it("returns file requirements as unverified response metadata", async () => {
+	it("returns unchecked destination compatibility as response metadata", async () => {
 		loadsDoc(docWithCaseSearch());
 		const res = await POST(reqWith({ appId: "a1" }));
-		const report = decodeHqFeatureFlagReport(
-			res.headers.get(HQ_FEATURE_FLAG_REPORT_HEADER),
+		const report = decodeProjectSpaceCompatibilityReport(
+			res.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
 		);
-		expect(report?.verification).toBe("not_checked");
-		expect(report?.missing_flags).toEqual([]);
-		expect(report?.required_flags).toEqual([
-			expect.objectContaining({ slug: "search_claim" }),
+		expect(report?.status).toBe("not_checked");
+		expect(report?.blockers).toEqual([]);
+		expect(report?.required_capabilities).toEqual([
+			expect.objectContaining({ id: "case-search", state: "not_checked" }),
 		]);
 		expect(JSON.parse(await res.text())).toMatchObject({
 			name: "Vaccine Tracker",

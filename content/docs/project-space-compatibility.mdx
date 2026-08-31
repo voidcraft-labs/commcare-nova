@@ -1,0 +1,83 @@
+---
+title: Project-space compatibility
+description: Learn how Nova checks whether a CommCare HQ project space can run the features your app uses.
+---
+
+Some app features need matching support from the CommCare HQ project space
+where the app will run. Nova recognizes those features from the app itself and
+checks the destination for you. There is no separate list of technical settings
+to configure in Nova.
+
+Compatibility belongs to the destination, not the app file. The same app can be
+ready for one project space and need attention in another.
+
+## What happens before a direct publish
+
+Choose **CommCare HQ** in the Publish window, then choose the project space.
+Nova checks whether that exact space can run everything the app uses before it
+sends lookup tables, places, or the app.
+
+The result is one of four clear states:
+
+- **Nothing to check.** The app does not use any capability that needs a
+  destination check.
+- **Ready.** The project space supports everything the app uses.
+- **Not ready.** The project space is missing required support. Nova names the
+  app capability and waits, so nothing is sent.
+- **Couldn't confirm.** Nova could not verify required support. Nothing is sent.
+  Check the CommCare HQ connection, then try again.
+
+Nova checks again as part of every direct publish. A result from an earlier
+check is useful guidance, but it cannot become stale permission to write to a
+project space.
+
+<Callout type="info">
+A performance advisory never blocks publishing. The app can run, but Nova lets
+you know when a large Search may open more slowly.
+</Callout>
+
+## Downloads stay available
+
+You can always create a **CommCare HQ app file** or **CommCare mobile app file**
+when the app is valid. A download has no chosen project space, so its
+compatibility report says which capabilities the destination needs without
+claiming they were checked there.
+
+Before importing the file, choose the destination and check that project space
+in Nova or with `check_project_space_compatibility` through the MCP server.
+The manual CommCare HQ app file describes a new app. It is not a safe update for
+an app that is already on CommCare HQ.
+
+## Search stays live
+
+When an app uses Case search, Nova also looks for support that can make large
+Search results open faster. Nova includes that optimization automatically when
+the destination supports it. If the optimization is unavailable or cannot be
+confirmed, publishing continues and the result explains that large searches
+may open more slowly.
+
+This is only a performance improvement. Case data stays live, and there is no
+refresh or data-copy control to manage. Preview reads the current shared case
+data directly.
+
+## When a project space needs support
+
+Ask a project-space administrator or [Dimagi Support](mailto:support@dimagi.com)
+to enable the capability Nova names. Include:
+
+- The CommCare HQ project-space name
+- The capability names shown by Nova
+- A note that the app is being published from commcare nova
+
+You do not need to change the app or find a hidden control. Check the project
+space again after the support is available, then publish.
+
+## Capabilities Nova may check
+
+<ProjectSpaceCapabilityCatalog />
+
+<Callout type="info">
+This check covers the project-space capabilities Nova knows the app requires.
+It does not replace CommCare HQ plan access, account permissions, or worker
+permissions.
+</Callout>

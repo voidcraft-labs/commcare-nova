@@ -1,9 +1,9 @@
 /**
- * Read-only publish preflight for the current app's CommCare HQ feature flags.
- * With no domain it returns exact app requirements; with a selected domain it
- * also probes current HQ state. This stays under the CommCare API boundary so
- * the browser can use the wire-aware detector without importing or duplicating
- * it.
+ * Read-only publish preflight for a CommCare HQ project space.
+ *
+ * With no domain this describes what the app needs in semantic product terms.
+ * With a selected domain it also checks whether that project space can run the
+ * app. Private HQ probes stay behind the CommCare boundary.
  */
 
 import type { NextRequest } from "next/server";
@@ -14,16 +14,19 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
-import { isValidDomainSlug, probeHqFeatureFlags } from "@/lib/commcare/client";
 import {
-	featureFlagReportForPrepublish,
-	featureFlagReportForUpload,
-	requiredHqFeatureFlags,
-} from "@/lib/commcare/featureFlags";
+	isValidDomainSlug,
+	probeHqProjectSpaceCompatibility,
+} from "@/lib/commcare/client";
+import {
+	projectSpaceCompatibilityForPrepublish,
+	projectSpaceCompatibilityProbePlan,
+} from "@/lib/commcare/projectSpaceCompatibility";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import type { PersistableDoc } from "@/lib/domain";
+import { projectSpaceCompatibilityForTarget } from "@/lib/publish/projectSpaceCompatibility";
 
 export async function POST(req: NextRequest) {
 	try {
@@ -42,15 +45,11 @@ export async function POST(req: NextRequest) {
 			throw new ApiError("Invalid project space name", 400);
 		}
 
-		// Same Project-view gate and persisted document source used by compile.
-		// The app-only preflight stops here; a selected domain additionally uses
-		// the caller's stored credentials for a read-only HQ probe below. Neither
-		// path compiles the app or reads its external resources.
 		const access = await resolveAppAccess(appId, session.user.id, "view");
 		const doc = hydratePersistedBlueprint(
 			access.app.blueprint as PersistableDoc,
 		);
-		let report = featureFlagReportForPrepublish(doc);
+		let report = projectSpaceCompatibilityForPrepublish(doc);
 		const domain =
 			typeof request?.domain === "string" ? request.domain.trim() : "";
 		if (domain) {
@@ -73,27 +72,32 @@ export async function POST(req: NextRequest) {
 				}
 				throw new ApiError("Choose a project space to check.", 400);
 			}
-			const probes = await probeHqFeatureFlags(
+
+			const plan = projectSpaceCompatibilityProbePlan(doc);
+			const probes = await probeHqProjectSpaceCompatibility(
 				credentialResult.creds,
 				credentialResult.domain.name,
-				requiredHqFeatureFlags(doc),
+				plan,
 			);
-			report = featureFlagReportForUpload(
+			report = projectSpaceCompatibilityForTarget(
 				credentialResult.domain.name,
-				probes,
-				"prepublish",
+				probes.capabilities,
+				probes.advisories,
 			);
 		}
 
 		return Response.json(
-			{ feature_flag_requirements: report },
+			{ project_space_compatibility: report },
 			{ headers: { "Cache-Control": "private, no-store" } },
 		);
 	} catch (err) {
 		const response = handleApiError(
 			err instanceof Error
 				? err
-				: new ApiError("Failed to inspect feature-flag requirements", 500),
+				: new ApiError(
+						"Nova couldn't check whether this project space can run the app",
+						500,
+					),
 		);
 		response.headers.set("Cache-Control", "private, no-store");
 		return response;

@@ -5,7 +5,7 @@
  * **These are kept off the Solutions Architect, and that is deliberate.**
  * The SA speaks domain vocabulary and does not own CommCare deployment
  * concerns, the same standing decision that keeps
- * `get_app_hq_feature_flags` off that surface. A deployment is not
+ * `check_project_space_compatibility` off that surface. A deployment is not
  * authored vocabulary: it is durable state about somebody else's server,
  * and an agent designing an app has no business reasoning about it. That
  * says nothing about the builder, which reaches the same operations

@@ -186,7 +186,7 @@ export async function POST(req: NextRequest) {
 				preflight: outcome.checks,
 				setup_artifact: outcome.artifact,
 				warnings: outcome.warnings,
-				feature_flag_requirements: outcome.featureFlags,
+				project_space_compatibility: outcome.projectSpaceCompatibility,
 				url: outcome.hqAppUrl,
 			},
 			/* 201 only when the publish actually created the HQ app; an

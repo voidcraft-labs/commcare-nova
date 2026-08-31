@@ -122,7 +122,7 @@ beforeEach(() => {
 			sections: [],
 		},
 		warnings: [],
-		featureFlags: null,
+		projectSpaceCompatibility: null,
 		hqAppUrl: `https://www.commcarehq.org/a/${DOMAIN}/apps/view/hq-abc/`,
 	} as never);
 });
@@ -206,6 +206,7 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 			success: boolean;
 			deployment: { deployment: { state: string } };
 			setup_artifact: { domain: string };
+			project_space_compatibility: unknown;
 			url: string;
 		};
 
@@ -213,6 +214,7 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 		expect(body.success).toBe(true);
 		expect(body.deployment.deployment.state).toBe("uploaded");
 		expect(body.setup_artifact.domain).toBe(DOMAIN);
+		expect(body.project_space_compatibility).toBeNull();
 		expect(body.url).toContain("/a/acme/apps/view/");
 	});
 
@@ -253,7 +255,7 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 				sections: [],
 			},
 			warnings: [],
-			featureFlags: null,
+			projectSpaceCompatibility: null,
 			hqAppUrl: `https://www.commcarehq.org/a/${DOMAIN}/apps/view/hq-abc/`,
 		} as never);
 		/* The table now carries a different tag, which is what makes the old
@@ -303,7 +305,7 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 				sections: [],
 			},
 			warnings: [],
-			featureFlags: null,
+			projectSpaceCompatibility: null,
 			hqAppUrl: `https://www.commcarehq.org/a/${DOMAIN}/apps/view/hq-abc/`,
 		} as never);
 
@@ -358,7 +360,7 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 				sections: [],
 			},
 			warnings: [],
-			featureFlags: null,
+			projectSpaceCompatibility: null,
 			hqAppUrl: null,
 		} as never);
 
@@ -396,7 +398,7 @@ describe("POST /api/commcare/upload — answering with the record", () => {
 				sections: [],
 			},
 			warnings: [],
-			featureFlags: null,
+			projectSpaceCompatibility: null,
 			hqAppUrl: null,
 		} as never);
 

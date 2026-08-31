@@ -58,37 +58,54 @@ its only consumers are the wire plan and the language-identity migration
 script. An `eng`-only app — including every app with an absent localization
 root — emits byte-identical output to the historical `en`-only shape.
 
-### CommCare HQ feature-flag lifecycle
+### CommCare HQ project-space compatibility
 
-`config/commcare-hq-feature-flags.json` is the single lifecycle catalog for HQ
-feature flags required by wire Nova emits today. `featureFlags.ts` derives the
-wire-specific requirement detector; `lib/publish/hqFeatureFlags.ts` derives the
-serialized HTTP/MCP contract, public UI/docs catalog, and autonomous FYI without
-giving browser code access to this emission boundary. Add an entry only with an
-actual Nova emitter and exact current HQ source evidence. Remove or update it
-when the upstream flag graduates or changes; never leave a retired flag as
-historical documentation.
+Public surfaces speak only semantic capabilities from
+`lib/publish/projectSpaceCompatibility.ts`: Case search, CommCare Connect,
+attachments saved to cases, and links to captured files. Literal HQ setting
+names, namespaces, and raw probe arrays live only in
+`config/commcare-hq-feature-flags.json`, `projectSpaceCompatibility.ts`, and the
+server-side HQ client. They are implementation details, never settings a person
+or an agent chooses. Add a private catalog entry only with an actual Nova
+emitter and exact current HQ source evidence. Remove or update it when the
+upstream setting graduates or changes; never retain retired settings as history.
 
-The publish modal's read-only preflight probes a selected HQ domain on open,
-selection, and explicit refresh; direct HQ upload probes the selected domain
-again only after `import_app` succeeds. Each required domain-only flag is
-queried through the paginated
-`UserDomainsResource` feature-flag filter. A negative result is confirmed
-missing; an HTTP/shape/namespace failure is unverified and never blocks or
-relabels the successful upload. JSON and CCZ have no target domain, so their
-report is always `not_checked`: the flags are requirements, not known missing.
-The MCP-only `get_app_hq_feature_flags` tool exposes the same detector before
-any publish: each requirement carries app-specific reasons and inline public
-docs content/links. With no domain it makes no state claim; with one explicit
-connected domain it uses the same probe and missing/unverified distinction as
-the modal. Keep it MCP-only; Nova's internal SA speaks domain vocabulary and
-does not own CommCare deployment concerns.
+Direct publish preflight checks the selected project space before any remote
+write. Domain-only settings use the `UserDomainsResource` filter. A
+negative result is missing only after the unfiltered endpoint proves the target
+is still visible; transport, shape, namespace, and unknown-setting failures are
+unverified. Case search has an additional qualified read against the mobile
+Search endpoint, which is API-key compatible and checks both its base toggle
+and `CaseSearchConfig.enabled`; only its exact configured-off 404 is missing,
+and no result body is retained or logged. Advanced Search adds its private child
+setting to the SAME public Case search capability. Missing or unverified
+required capabilities block before writes. The large-search performance check
+is advisory: it controls only whether Nova can add its derived Search
+optimization and never blocks publishing or removes Search.
+
+JSON and CCZ have no target project space, so compatibility is `not_checked`.
 The weekly `commcare-hq-feature-flags` workflow runs
 `scripts/audit-commcare-hq-feature-flags.mjs` against current upstream HQ and
-fails when symbols, slugs, namespaces, tags, or the recorded emitter evidence
-drift. It also pins the shared `UserDomainsResource` filter/unknown-slug probe
-contract. That failure is the retirement/GA or probe-compatibility review
+fails when private symbols, names, namespaces, tags, runtime gates, or probe
+behavior drift. That failure is the retirement/GA or probe-compatibility review
 signal.
+
+Nova derives profile properties from app behavior; they are not authored
+settings and never enter `BlueprintDoc`. Effective remote Search derives
+`cc-index-case-search-results=yes`, which indexes Search results in CommCare's
+temporary case storage and does not request or imitate a sync. Local CCZ emits
+the property because its supported runtime is fixed. Targetless HQ JSON carries
+the derived property as intent. Direct publishing includes it only when the
+selected project space supports the performance advisory.
+
+HQ shallow-replaces the full `profile` object when an import includes one, so
+in-place updates read and validate the current source profile immediately
+before import. Nova preserves every foreign profile section and custom property,
+changes or removes only `NOVA_OWNED_DERIVED_PROFILE_PROPERTY_KEYS`, and omits
+`profile` entirely when its owned state is already correct. A source read or
+shape failure stops the app import; never invent an empty profile bag. New apps
+have no target state to preserve. `_attachments` remains the final HQ JSON key
+after every projection.
 
 ### Shared field-string accessor
 

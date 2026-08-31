@@ -17,8 +17,13 @@
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
-import { importApp, uploadAppMediaBundle } from "@/lib/commcare/client";
+import {
+	importApp,
+	probeHqProjectSpaceCompatibility,
+	uploadAppMediaBundle,
+} from "@/lib/commcare/client";
 import { expandDoc } from "@/lib/commcare/expander";
+import { readHqAppSourceProfile } from "@/lib/commcare/hq/appSource";
 import {
 	listHqLocations,
 	listHqLocationTypes,
@@ -33,6 +38,7 @@ import { getCredentialsForUpload } from "@/lib/db/settings";
 import { proseText } from "@/lib/domain/prose";
 import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { readOrganization } from "@/lib/organization/service";
+import { projectSpaceCompatibilityForTarget } from "@/lib/publish/projectSpaceCompatibility";
 import { observeDeployment } from "../observe";
 import { publishAppToHq, refreshDeployment } from "../service";
 import { applyAttemptOutcome } from "../stateMachine";
@@ -53,8 +59,11 @@ vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
 vi.mock("@/lib/commcare/client", async (orig) => ({
 	...(await orig<typeof import("@/lib/commcare/client")>()),
 	importApp: vi.fn(),
-	probeHqFeatureFlags: vi.fn(async () => []),
+	probeHqProjectSpaceCompatibility: vi.fn(),
 	uploadAppMediaBundle: vi.fn(),
+}));
+vi.mock("@/lib/commcare/hq/appSource", () => ({
+	readHqAppSourceProfile: vi.fn(),
 }));
 vi.mock("@/lib/commcare/multimedia/bulkUploadZip", () => ({
 	buildMediaBulkUploadZip: vi.fn(() => Buffer.from("zip")),
@@ -271,6 +280,29 @@ beforeEach(() => {
 			lookupContext: { kind: "unavailable" },
 		},
 	} as never);
+	vi.mocked(probeHqProjectSpaceCompatibility).mockImplementation(
+		async (_creds, domain, plan) => {
+			const capabilities = plan.capabilities.map((item) => ({
+				capability: item.capability,
+				state: "available" as const,
+			}));
+			const advisories = plan.advisories.map((item) => ({
+				advisory: item.advisory,
+				state: "available" as const,
+			}));
+			return {
+				capabilities,
+				advisories,
+				availableAdvisories: advisories.map((item) => item.advisory.id),
+				report: projectSpaceCompatibilityForTarget(
+					domain,
+					capabilities,
+					advisories,
+				),
+			};
+		},
+	);
+	vi.mocked(readHqAppSourceProfile).mockResolvedValue({ profile: {} });
 	vi.mocked(expandDoc).mockReturnValue({} as never);
 	vi.mocked(importApp).mockResolvedValue({
 		success: true,
@@ -309,6 +341,37 @@ describe("publishAppToHq — blocking edges", () => {
 		expect(check?.status).toBe("blocked");
 		expect(check?.items).toContain("other");
 		expect(outcome.refusal?.failure.code).toBe("domain_not_authorized");
+		expect(importApp).not.toHaveBeenCalled();
+	});
+
+	it("blocks required project-space support before any remote write", async () => {
+		const capability = {
+			id: "case-search" as const,
+			label: "Case search",
+			description:
+				"Lets workers search across cases that are not already available in the app.",
+			reasons: ["The app uses Search."],
+		};
+		const capabilities = [{ capability, state: "missing" as const }];
+		vi.mocked(probeHqProjectSpaceCompatibility).mockResolvedValueOnce({
+			capabilities,
+			advisories: [],
+			availableAdvisories: [],
+			report: projectSpaceCompatibilityForTarget("acme", capabilities, []),
+		});
+		const onUploadStarted = vi.fn();
+
+		const outcome = await publishAppToHq(publishInput({ onUploadStarted }));
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal?.failure.code).toBe("project_space_incompatible");
+		expect(outcome.projectSpaceCompatibility).toMatchObject({
+			status: "blocked",
+			blockers: [{ id: "case-search", state: "missing" }],
+		});
+		expect(onUploadStarted).not.toHaveBeenCalled();
+		expect(uploadLookupTableWorkbook).not.toHaveBeenCalled();
+		expect(patchHqLocations).not.toHaveBeenCalled();
 		expect(importApp).not.toHaveBeenCalled();
 	});
 
@@ -1092,6 +1155,7 @@ describe("publishAppToHq — update in place vs create", () => {
 		const outcome = await publishAppToHq(publishInput());
 
 		expect(vi.mocked(importApp).mock.calls[0]?.[4]).toBeUndefined();
+		expect(readHqAppSourceProfile).not.toHaveBeenCalled();
 		expect(outcome.landed).toBe(true);
 		expect(outcome).toMatchObject({ hqAppAction: "created" });
 	});
@@ -1114,6 +1178,14 @@ describe("publishAppToHq — update in place vs create", () => {
 
 		const outcome = await publishAppToHq(publishInput());
 
+		expect(readHqAppSourceProfile).toHaveBeenCalledWith(
+			{ username: "u", apiKey: "k", server: "production" },
+			"acme",
+			"hq-1",
+		);
+		expect(
+			vi.mocked(readHqAppSourceProfile).mock.invocationCallOrder[0],
+		).toBeLessThan(vi.mocked(importApp).mock.invocationCallOrder[0] ?? 0);
 		expect(vi.mocked(importApp).mock.calls[0]?.[4]).toBe("hq-1");
 		// Same remote id back, plus the version the update reported — the
 		// store's same-remote-id arm updates the live mapping in place.
@@ -1124,6 +1196,77 @@ describe("publishAppToHq — update in place vs create", () => {
 		});
 		expect(outcome.landed).toBe(true);
 		expect(outcome).toMatchObject({ hqAppAction: "updated" });
+	});
+
+	it("refuses an update when the current HQ app source is unavailable", async () => {
+		vi.mocked(readDeployment).mockImplementation(
+			async () =>
+				({
+					deployment: record({ state: "released" }),
+					active: [mapping()],
+					superseded: [],
+				}) as never,
+		);
+		vi.mocked(readHqAppSourceProfile).mockResolvedValueOnce({
+			success: false,
+			status: 502,
+		});
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.landed).toBe(false);
+		expect(outcome.refusal).toMatchObject({
+			phase: "upload",
+			failure: { code: "hq_app_state_unknown" },
+		});
+		expect(importApp).not.toHaveBeenCalled();
+		expect(recordRemoteResource).not.toHaveBeenCalled();
+	});
+
+	it("records a source 404 as a missing app so the next publish can recreate it", async () => {
+		vi.mocked(readDeployment).mockImplementation(
+			async () =>
+				({
+					deployment: record({ state: "released" }),
+					active: [mapping()],
+					superseded: [],
+				}) as never,
+		);
+		vi.mocked(readHqAppSourceProfile).mockResolvedValueOnce({
+			success: false,
+			status: 404,
+		});
+		vi.mocked(applyDeploymentObservation).mockResolvedValue({
+			view: {
+				deployment: record({ state: "incomplete", resumePhase: "upload" }),
+				active: [mapping()],
+				superseded: [],
+			},
+			applied: true,
+		} as never);
+
+		const outcome = await publishAppToHq(publishInput());
+
+		expect(outcome.refusal?.failure.code).toBe("remote_app_missing");
+		expect(importApp).not.toHaveBeenCalled();
+		expect(applyDeploymentObservation).toHaveBeenCalledWith(
+			SCOPE,
+			{ server: "production", domain: "acme" },
+			expect.objectContaining({
+				observedRemoteId: "hq-1",
+				observedPushedAt: "2026-08-06T00:00:00.000Z",
+				outcomes: [
+					[
+						"upload",
+						expect.objectContaining({
+							failure: expect.objectContaining({
+								code: "remote_app_missing",
+							}),
+						}),
+					],
+				],
+			}),
+		);
 	});
 
 	it.each(["remote_app_missing", "hq_rejected_upload"])(
