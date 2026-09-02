@@ -41,7 +41,7 @@ import {
 	type BlueprintDoc,
 	type SelectOptionsSource,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import type { LogWriter } from "@/lib/log/writer";
 import { parseLookupRevision } from "@/lib/lookup/schema";
@@ -59,6 +59,10 @@ import type {
 import type { CanonicalMutationHost } from "../workspace/canonicalHost";
 import { CanonicalMutationWorkspace } from "../workspace/canonicalWorkspace";
 import type { ToolInvocationContext } from "../workspace/types";
+
+/** The shared table-definition fixture, re-exported so the agent suites keep
+ *  one import for their whole lookup harness. */
+export { lookupTableDefinition } from "@/lib/__tests__/lookupFixtures";
 
 /**
  * Default accumulator seed. Tests that need a specific run config
@@ -358,29 +362,6 @@ export function lookupSelectDoc(
 		],
 	});
 	return hydratePersistedBlueprint(toPersistableDoc(doc));
-}
-
-/** A rows-free text-column table definition for {@link echoLookupDefinitions}. */
-export function lookupTableDefinition(args: {
-	readonly id: LookupTableId;
-	readonly name: string;
-	readonly tag: string;
-	readonly columns: readonly {
-		readonly id: LookupColumnId;
-		readonly wireName: string;
-		readonly label: string;
-	}[];
-}): LookupTableDefinition {
-	return {
-		id: args.id,
-		name: args.name,
-		tag: args.tag,
-		definitionRevision: parseLookupRevision("1"),
-		columns: args.columns.map((column) => ({
-			...column,
-			dataType: "text" as const,
-		})),
-	};
 }
 
 /**

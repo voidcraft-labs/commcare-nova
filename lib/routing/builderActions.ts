@@ -14,6 +14,7 @@ import { useContext, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import {
 	describeCommitFindings,
 	mutationCommitVerdict,
@@ -23,7 +24,10 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { flattenFieldRefs } from "@/lib/doc/navigation";
-import { BlueprintDocContext } from "@/lib/doc/provider";
+import {
+	BlueprintDocContext,
+	BlueprintEditableContext,
+} from "@/lib/doc/provider";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, type BlueprintDoc } from "@/lib/doc/types";
 import { findFieldElement, flashUndoHighlight } from "@/lib/routing/domQueries";
@@ -70,7 +74,8 @@ import { useActiveFieldId, useSetFocusHint } from "@/lib/session/hooks";
  * holds (`useLookupCommitState`). The gate is absolute: on a doc that carries
  * a lookup-backed select, an unavailable context refuses EVERY step, including
  * one that never touched the lookup, so the caller supplies the same context
- * every other builder write runs under.
+ * every other builder write runs under — after `builderWriteAdmission` has
+ * already refused a viewer and a catalog that is loading or failed.
  *
  * Pure of React + the store so it is exercised as a state model.
  */
@@ -90,7 +95,8 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 	const activeFieldId = useActiveFieldId();
 	const setFocusHint = useSetFocusHint();
 	const projectToast = useProjectToast();
-	const { lookupContext } = useLookupCommitState();
+	const canEdit = useContext(BlueprintEditableContext);
+	const lookupCommitState = useLookupCommitState();
 
 	return useMemo(() => {
 		function run(action: "undo" | "redo"): void {
@@ -100,16 +106,32 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 			const batch = action === "undo" ? state.undoBatch() : state.redoBatch();
 			if (batch === undefined) return;
 
-			/* GATE BEFORE MUTATING. A peer's committed change can make the recorded
-			 * step's batch reintroduce a finding, so refuse with the reason rather
-			 * than applying it and letting the PUT 409 into a conflict reload. */
-			const verdict = undoRedoGateVerdict(state, batch, lookupContext);
-			if (!verdict.ok) {
+			const refuse = (message: string) =>
 				projectToast(
 					"warning",
 					action === "undo" ? "Can't undo" : "Can't redo",
-					verdict.message,
+					message,
 				);
+
+			/* ADMIT, THEN GATE, BEFORE MUTATING. The admission is the one every
+			 * gated dispatch runs first (view-only access, a lookup catalog that
+			 * is loading or failed), so an undo refuses in the same voice. Then
+			 * the verdict: a peer's committed change can make the recorded
+			 * step's batch reintroduce a finding, so refuse with the reason
+			 * rather than applying it and letting the PUT 409 into a conflict
+			 * reload. */
+			const admission = builderWriteAdmission({ canEdit, lookupCommitState });
+			if (!admission.ok) {
+				refuse(admission.messages.join(" "));
+				return;
+			}
+			const verdict = undoRedoGateVerdict(
+				state,
+				batch,
+				lookupCommitState.lookupContext,
+			);
+			if (!verdict.ok) {
+				refuse(verdict.message);
 				return;
 			}
 
@@ -162,7 +184,8 @@ export function useUndoRedo(): { undo: () => void; redo: () => void } {
 		activeFieldId,
 		setFocusHint,
 		projectToast,
-		lookupContext,
+		canEdit,
+		lookupCommitState,
 	]);
 }
 

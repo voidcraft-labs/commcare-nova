@@ -14,21 +14,17 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
+	availableLookupContext,
+	DESTINATIONS_LOOKUP,
+} from "@/lib/__tests__/lookupFixtures";
+import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
-import {
-	LOOKUP_CONTEXT_UNAVAILABLE,
-	type LookupValidationContext,
-} from "@/lib/doc/lookupReferences";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc } from "@/lib/doc/types";
-import {
-	lookupColumnIdSchema,
-	lookupTableIdSchema,
-} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
-import { parseLookupRevision } from "@/lib/lookup/schema";
 import { undoRedoGateVerdict } from "@/lib/routing/builderActions";
 
 /** Hydrate a spec-built doc into a fully-indexed working doc (fieldParent +
@@ -117,33 +113,7 @@ describe("undoRedoGateVerdict", () => {
  * select, the verdict must run under the Project's lookup context the builder
  * holds — with an unavailable one, every undo and redo is refused. */
 describe("undoRedoGateVerdict on a doc that carries a lookup source", () => {
-	const TABLE = lookupTableIdSchema.parse(
-		"01912d68-783e-7000-8000-00000000a001",
-	);
-	const VALUE = lookupColumnIdSchema.parse(
-		"01912d68-783e-7000-8000-00000000c001",
-	);
-	const LABEL = lookupColumnIdSchema.parse(
-		"01912d68-783e-7000-8000-00000000c002",
-	);
-	const REVISION = parseLookupRevision("1");
-	const AVAILABLE: LookupValidationContext = {
-		kind: "available",
-		projectId: "project-1",
-		projectRevision: REVISION,
-		definitions: [
-			{
-				id: TABLE,
-				name: "Destinations",
-				tag: "destinations",
-				definitionRevision: REVISION,
-				columns: [
-					{ id: VALUE, wireName: "code", label: "Code", dataType: "text" },
-					{ id: LABEL, wireName: "name", label: "Name", dataType: "text" },
-				],
-			},
-		],
-	};
+	const AVAILABLE = availableLookupContext([DESTINATIONS_LOOKUP.definition]);
 
 	function displayedWithLookupSelect(): BlueprintDoc {
 		return docWithFields([
@@ -152,12 +122,7 @@ describe("undoRedoGateVerdict on a doc that carries a lookup source", () => {
 				kind: "single_select",
 				id: "destination",
 				label: proseText("Destination"),
-				optionsSource: {
-					kind: "lookup",
-					tableId: TABLE,
-					valueColumnId: VALUE,
-					labelColumnId: LABEL,
-				},
+				optionsSource: DESTINATIONS_LOOKUP.optionsSource,
 			},
 			{ uuid: "q-b", kind: "text", id: "b", label: proseText("B-renamed") },
 		]);

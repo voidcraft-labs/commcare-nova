@@ -17,9 +17,12 @@ import type {
 	UnconfirmedWorker,
 } from "@/lib/deployment/workerProvisionPlan";
 import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
+import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
+import { BlueprintEditableContext } from "@/lib/doc/provider";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
@@ -205,11 +208,28 @@ export function useSwitchConnectMode(): (
 	opts?: { announce?: boolean },
 ) => CommitOutcome {
 	const switchConnectMode = useBuilderSession((s) => s.switchConnectMode);
-	const { lookupContext } = useLookupCommitState();
+	const canEdit = useContext(BlueprintEditableContext);
+	const lookupCommitState = useLookupCommitState();
 	return useCallback(
-		(type, stagedBlocks, opts) =>
-			switchConnectMode(type, stagedBlocks, { ...opts, lookupContext }),
-		[switchConnectMode, lookupContext],
+		(type, stagedBlocks, opts) => {
+			const announce = opts?.announce !== false;
+			/* The same admission every gated dispatch runs first — a viewer's
+			 * switch and a switch while the lookup catalog is loading or failed
+			 * refuse here, in the builder's voice, before the store plans and
+			 * verdicts anything. */
+			const admission = builderWriteAdmission({ canEdit, lookupCommitState });
+			if (!admission.ok) {
+				if (announce) notifyRejectedCommit(admission.messages);
+				return { ok: false, messages: admission.messages };
+			}
+			return switchConnectMode({
+				type,
+				blocks: stagedBlocks,
+				lookupContext: lookupCommitState.lookupContext,
+				announce,
+			});
+		},
+		[switchConnectMode, canEdit, lookupCommitState],
 	);
 }
 
