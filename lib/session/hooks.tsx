@@ -9,7 +9,7 @@
  */
 "use client";
 
-import { useContext, useMemo } from "react";
+import { useCallback, useContext, useMemo } from "react";
 import { useStore } from "zustand";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type {
@@ -17,8 +17,12 @@ import type {
 	UnconfirmedWorker,
 } from "@/lib/deployment/workerProvisionPlan";
 import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
+import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
+import { BlueprintEditableContext } from "@/lib/doc/provider";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
 import type { Event } from "@/lib/log/types";
@@ -194,13 +198,39 @@ export function useSetSidebarOpen(): (
 /** Composite action: switch the app-level connect mode — one gated batch
  *  (`setConnectType` + each participating form's block), stash lifecycle
  *  included. Returns the commit outcome so the caller's UI can react to
- *  a rejection. See `BuilderSessionState.switchConnectMode`. */
+ *  a rejection. Binds the builder's live Project lookup context into the
+ *  gate, the same context every other builder write runs under, so a doc
+ *  that carries a lookup-backed select can still switch modes. See
+ *  `BuilderSessionState.switchConnectMode`. */
 export function useSwitchConnectMode(): (
 	type: ConnectType | null,
 	stagedBlocks?: Record<string, ConnectConfig>,
 	opts?: { announce?: boolean },
 ) => CommitOutcome {
-	return useBuilderSession((s) => s.switchConnectMode);
+	const switchConnectMode = useBuilderSession((s) => s.switchConnectMode);
+	const canEdit = useContext(BlueprintEditableContext);
+	const lookupCommitState = useLookupCommitState();
+	return useCallback(
+		(type, stagedBlocks, opts) => {
+			const announce = opts?.announce !== false;
+			/* The same admission every gated dispatch runs first — a viewer's
+			 * switch and a switch while the lookup catalog is loading or failed
+			 * refuse here, in the builder's voice, before the store plans and
+			 * verdicts anything. */
+			const admission = builderWriteAdmission({ canEdit, lookupCommitState });
+			if (!admission.ok) {
+				if (announce) notifyRejectedCommit(admission.messages);
+				return { ok: false, messages: admission.messages };
+			}
+			return switchConnectMode({
+				type,
+				blocks: stagedBlocks,
+				lookupContext: lookupCommitState.lookupContext,
+				announce,
+			});
+		},
+		[switchConnectMode, canEdit, lookupCommitState],
+	);
 }
 
 /** The last Connect mode the app was in before Connect was toggled off —

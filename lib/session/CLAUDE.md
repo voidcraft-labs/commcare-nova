@@ -60,7 +60,14 @@ stashes and `lastConnectType` as the next-dialog default. `switchConnectMode`
 never infers a target mode from that hint. Its caller supplies an explicit mode
 and, for learn/deliver, the complete desired participant blocks; the store
 delegates document planning to `lib/doc/connectTargetState.ts` and gates the
-returned batch once. A null target clears the app mode and every form block;
+returned batch once, under the Project lookup context the one
+`ConnectSwitchRequest` carries beside the target and blocks.
+`useSwitchConnectMode` first runs the shared `builderWriteAdmission` (a viewer,
+a lookup catalog still loading or failed) and then binds the builder's live
+context from `useLookupCommitState`, so a doc that carries a lookup-backed
+select can still switch modes; the store deliberately has no default for the
+context, because the gate is absolute and an unavailable one refuses every
+switch on such a doc. A null target clears the app mode and every form block;
 an enabled target clears every unlisted block. The stash is updated only after
 the document batch commits and can never make a dormant Connect configuration
 part of the blueprint.

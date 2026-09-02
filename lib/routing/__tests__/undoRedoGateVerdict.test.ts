@@ -14,9 +14,14 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
+	availableLookupContext,
+	DESTINATIONS_LOOKUP,
+} from "@/lib/__tests__/lookupFixtures";
+import {
 	hydratePersistedBlueprint,
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { proseText } from "@/lib/domain/prose";
@@ -60,14 +65,18 @@ describe("undoRedoGateVerdict", () => {
 			{ uuid: "q-a", kind: "text", id: "a", label: proseText("A-renamed") },
 			{ uuid: "q-b", kind: "text", id: "b", label: proseText("B") },
 		]);
-		const verdict = undoRedoGateVerdict(displayed, [
-			{
-				kind: "updateField",
-				uuid: testUuid("q-a"),
-				targetKind: "text",
-				patch: { label: proseText("A") },
-			},
-		]);
+		const verdict = undoRedoGateVerdict(
+			displayed,
+			[
+				{
+					kind: "updateField",
+					uuid: testUuid("q-a"),
+					targetKind: "text",
+					patch: { label: proseText("A") },
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(true);
 	});
 
@@ -75,7 +84,9 @@ describe("undoRedoGateVerdict", () => {
 		const displayed = docWithFields([
 			{ uuid: "q-a", kind: "text", id: "a", label: proseText("A") },
 		]);
-		expect(undoRedoGateVerdict(displayed, [])).toEqual({ ok: true });
+		expect(
+			undoRedoGateVerdict(displayed, [], LOOKUP_CONTEXT_UNAVAILABLE),
+		).toEqual({ ok: true });
 	});
 
 	it("refuses a step that would introduce a finding", () => {
@@ -84,13 +95,64 @@ describe("undoRedoGateVerdict", () => {
 		const displayed = docWithFields([
 			{ uuid: "q-a", kind: "text", id: "a", label: proseText("A") },
 		]);
-		const verdict = undoRedoGateVerdict(displayed, [
-			{ kind: "removeField", uuid: testUuid("q-a") },
-		]);
+		const verdict = undoRedoGateVerdict(
+			displayed,
+			[{ kind: "removeField", uuid: testUuid("q-a") }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
 		expect(verdict.ok).toBe(false);
 		if (!verdict.ok) {
 			// The message is the person-to-person rejection prose.
 			expect(verdict.message).toContain("wasn't applied");
 		}
+	});
+});
+
+/* The gate is absolute: a lookup reference it cannot check is a soundness
+ * finding, whatever the step touched. So on a doc that carries a lookup-backed
+ * select, the verdict must run under the Project's lookup context the builder
+ * holds — with an unavailable one, every undo and redo is refused. */
+describe("undoRedoGateVerdict on a doc that carries a lookup source", () => {
+	const AVAILABLE = availableLookupContext([DESTINATIONS_LOOKUP.definition]);
+
+	function displayedWithLookupSelect(): BlueprintDoc {
+		return docWithFields([
+			{
+				uuid: "q-a",
+				kind: "single_select",
+				id: "destination",
+				label: proseText("Destination"),
+				optionsSource: DESTINATIONS_LOOKUP.optionsSource,
+			},
+			{ uuid: "q-b", kind: "text", id: "b", label: proseText("B-renamed") },
+		]);
+	}
+
+	const takeBackRename = [
+		{
+			kind: "updateField" as const,
+			uuid: testUuid("q-b"),
+			targetKind: "text" as const,
+			patch: { label: proseText("B") },
+		},
+	];
+
+	it("passes an unrelated step under the Project's lookup context", () => {
+		expect(
+			undoRedoGateVerdict(
+				displayedWithLookupSelect(),
+				takeBackRename,
+				AVAILABLE,
+			),
+		).toEqual({ ok: true });
+	});
+
+	it("refuses the same step when the lookup context is unavailable — fail closed", () => {
+		const verdict = undoRedoGateVerdict(
+			displayedWithLookupSelect(),
+			takeBackRename,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(false);
 	});
 });

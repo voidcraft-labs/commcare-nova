@@ -43,6 +43,7 @@
 import { useContext, useMemo } from "react";
 import type { CaseDisplaySurface } from "@/components/builder/case-list-config/workspaceProjection";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import {
 	type CaseTypeRetirement,
 	planCaseTypeRetirementOnRemove,
@@ -732,29 +733,19 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 						messages: string[];
 						findings?: readonly StructuredCommitFinding[];
 				  } => {
-				/* View-only access — no user edit reaches the store. The visible
-				 * affordances are already hidden for a viewer; this is the
-				 * airtight backstop for any that aren't, so a stray dispatch
-				 * explains itself instead of silently mutating a doc that can
-				 * never persist. */
-				if (!canEdit) {
-					const lines = [
-						"You have view-only access to this app. Ask a Project admin for edit access to make changes.",
-					];
-					if (announce) notifyRejectedCommit(lines);
-					return { ok: false, messages: lines };
-				}
-				if (
-					lookupCommitState.kind === "loading" ||
-					lookupCommitState.kind === "error"
-				) {
-					const lines = [
-						lookupCommitState.kind === "loading"
-							? "Project data is still loading. Wait for it to finish before editing this app."
-							: "Nova could not load this Project's data-table definitions. Try again before editing this app.",
-					];
-					if (announce) notifyRejectedCommit(lines);
-					return { ok: false, messages: lines };
+				/* The shared pre-verdict admission: view-only access (no user edit
+				 * reaches the store — the airtight backstop for any affordance
+				 * that wasn't hidden) and a lookup catalog that is still loading
+				 * or failed to load (the verdict would run under a context that
+				 * is not the live one). The Connect-mode switch and undo/redo run
+				 * the same admission, so all three refuse in one voice. */
+				const admission = builderWriteAdmission({
+					canEdit,
+					lookupCommitState,
+				});
+				if (!admission.ok) {
+					if (announce) notifyRejectedCommit(admission.messages);
+					return { ok: false, messages: admission.messages };
 				}
 				const doc = get();
 				const snapshotAuthoringLanguage =

@@ -38,7 +38,7 @@ import {
 } from "@/lib/deployment/workerProvisionPlan";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { planConnectTargetState } from "@/lib/doc/connectTargetState";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
@@ -91,6 +91,24 @@ export interface EditScrollMemory {
 	offset: number;
 	/** Snapshot of measured row sizes (`virtualizer.measurementsCache`). */
 	measurements: VirtualItem[];
+}
+
+/** What `switchConnectMode` is asked to reach, and what it gates the planned
+ *  batch under. */
+export interface ConnectSwitchRequest {
+	/** The mode to reach; `null` turns Connect off. */
+	readonly type: ConnectType | null;
+	/** For learn/deliver, the AUTHORITATIVE complete set of participating
+	 *  forms with their blocks; a form absent here stays auxiliary. Omitted
+	 *  (or empty) means no participants — which the planner refuses for a
+	 *  non-null mode. */
+	readonly blocks?: Record<string, ConnectConfig>;
+	/** The Project's lookup-definition context the commit verdict runs
+	 *  against — the builder's live one, from `useLookupCommitState`. */
+	readonly lookupContext: LookupValidationContext;
+	/** `false` when the caller presents the rejection itself (the manager's
+	 *  footer); otherwise a rejection announces through the error toast. */
+	readonly announce?: boolean;
 }
 
 /**
@@ -579,12 +597,14 @@ export interface BuilderSessionState {
 	 *  nothing. A pass commits as one undo entry. A rejection announces via
 	 *  the error toast unless the caller opts out with `announce: false`
 	 *  because it presents the outcome itself (the manager's footer) — one
-	 *  rejection, one presentation. */
-	switchConnectMode: (
-		type: ConnectType | null,
-		desiredBlocks?: Record<string, ConnectConfig>,
-		opts?: { announce?: boolean },
-	) => CommitOutcome;
+	 *  rejection, one presentation.
+	 *
+	 *  `request.lookupContext` is the Project's lookup-definition context the
+	 *  verdict runs under; `useSwitchConnectMode` binds the builder's live one
+	 *  after running the shared builder write admission. The gate is absolute,
+	 *  so on a doc that carries a lookup-backed select an unavailable context
+	 *  refuses every switch, which is why the store cannot default it. */
+	switchConnectMode: (request: ConnectSwitchRequest) => CommitOutcome;
 
 	/** Get a single form's stashed connect config (does not remove it). */
 	getFormConnectStash: (
@@ -1000,12 +1020,10 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				// ── Connect stash actions ───────────────────────────────
 
-				switchConnectMode(
-					type: ConnectType | null,
-					desiredBlocks?: Record<string, ConnectConfig>,
-					opts?: { announce?: boolean },
-				): CommitOutcome {
+				switchConnectMode(request: ConnectSwitchRequest): CommitOutcome {
 					if (!docStoreRef) return { ok: false, messages: [] };
+					const { type, blocks: desiredBlocks } = request;
+					const announce = request.announce !== false;
 					const s = get();
 					const docState = docStoreRef.getState();
 
@@ -1036,9 +1054,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 								},
 					);
 					if (!plan.ok) {
-						if (opts?.announce !== false) {
-							notifyRejectedCommit([...plan.messages]);
-						}
+						if (announce) notifyRejectedCommit([...plan.messages]);
 						return { ok: false, messages: [...plan.messages] };
 					}
 
@@ -1102,16 +1118,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const verdict = mutationCommitVerdict(
 						docState,
 						plan.mutations,
-						LOOKUP_CONTEXT_UNAVAILABLE,
+						request.lookupContext,
 					);
 					if (!verdict.ok) {
 						// Concise builder copy for both the toast and the returned
 						// outcome (the manager footer reads it); the SA keeps the
 						// verbose `ValidationError.message`.
 						const lines = userFacingErrors(verdict.findings);
-						if (opts?.announce !== false) {
-							notifyRejectedCommit(lines);
-						}
+						if (announce) notifyRejectedCommit(lines);
 						return { ok: false, messages: lines };
 					}
 					/* Commit the validated candidate (one reducer run, one undo
