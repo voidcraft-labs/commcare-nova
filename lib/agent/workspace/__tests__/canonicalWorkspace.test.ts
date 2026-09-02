@@ -21,27 +21,22 @@
  */
 
 import { describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
+	echoLookupDefinitions,
+	LOOKUP_SELECT_DOC,
+	lookupSelectDoc,
+	lookupTableDefinition,
 	makeCanonicalGenesisDoc,
 	makeToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
-import {
-	hydratePersistedBlueprint,
-	toPersistableDoc,
-} from "@/lib/doc/fieldParent";
 import { replaceFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
-import { asUuid } from "@/lib/domain";
 import {
 	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { proseText } from "@/lib/domain/prose";
-import type { CanonicalMutationHost } from "../canonicalHost";
 import type { ToolInvocationContext } from "../types";
 
 function renameBatch(name: string): Mutation[] {
@@ -280,9 +275,6 @@ describe("ToolInvocationContext — no persistence bypass", () => {
  * snapshot AND the candidate. A swap from table A to table B is the case that
  * tells the three apart — the union asks for [A, B]; a snapshot-only gate asks
  * for [A] (and calls B unavailable); a candidate-only gate asks for [B]. */
-const LOOKUP_MODULE = asUuid("11111111-1111-4111-8111-111111111111");
-const LOOKUP_FORM = asUuid("22222222-2222-4222-8222-222222222222");
-const LOOKUP_SELECT = asUuid("33333333-3333-4333-8333-333333333333");
 const TABLE_A = lookupTableIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000a001",
 );
@@ -295,69 +287,39 @@ const VALUE_COLUMN = lookupColumnIdSchema.parse(
 const LABEL_COLUMN = lookupColumnIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000c002",
 );
-
-function docBoundTo(tableId: LookupTableId): BlueprintDoc {
-	const doc = buildDoc({
-		modules: [
-			{
-				uuid: LOOKUP_MODULE,
-				id: "referrals",
-				name: "Referrals",
-				forms: [
-					{
-						uuid: LOOKUP_FORM,
-						id: "intake",
-						name: "Intake",
-						type: "survey",
-						fields: [
-							f({
-								uuid: LOOKUP_SELECT,
-								kind: "single_select",
-								id: "destination",
-								label: proseText("Destination"),
-								optionsSource: {
-									kind: "lookup",
-									tableId,
-									valueColumnId: VALUE_COLUMN,
-									labelColumnId: LABEL_COLUMN,
-								},
-							}),
-						],
-					},
-				],
-			},
+const CATALOG = [TABLE_A, TABLE_B].map((id) =>
+	lookupTableDefinition({
+		id,
+		name: `Table ${id}`,
+		tag: "table",
+		columns: [
+			{ id: VALUE_COLUMN, wireName: "code", label: "Code" },
+			{ id: LABEL_COLUMN, wireName: "name", label: "Name" },
 		],
-	});
-	return hydratePersistedBlueprint(toPersistableDoc(doc));
+	}),
+);
+
+function lookupSource(tableId: LookupTableId) {
+	return {
+		kind: "lookup" as const,
+		tableId,
+		valueColumnId: VALUE_COLUMN,
+		labelColumnId: LABEL_COLUMN,
+	};
 }
 
 function swapToTableB(): Mutation {
-	return replaceFieldOptionsSourceMutation(LOOKUP_SELECT, "single_select", {
-		kind: "lookup",
-		tableId: TABLE_B,
-		valueColumnId: VALUE_COLUMN,
-		labelColumnId: LABEL_COLUMN,
-	});
+	return replaceFieldOptionsSourceMutation(
+		LOOKUP_SELECT_DOC.selectUuid,
+		"single_select",
+		lookupSource(TABLE_B),
+	);
 }
 
 function makeLookupHarness() {
-	const lookupDefinitions = vi.fn(async (tableIds: readonly Uuid[]) => ({
-		projectId: "project-test",
-		projectRevision: 1,
-		definitions: tableIds.map((id) => ({
-			id,
-			name: `Table ${id}`,
-			tag: "table",
-			revision: 1,
-			columns: [
-				{ id: VALUE_COLUMN, wireName: "code", label: "Code", dataType: "text" },
-				{ id: LABEL_COLUMN, wireName: "name", label: "Name", dataType: "text" },
-			],
-		})),
-	}));
-	const h = makeToolWorkspaceHarness(docBoundTo(TABLE_A), {
-		lookupDefinitions:
-			lookupDefinitions as unknown as CanonicalMutationHost["lookupDefinitions"],
+	const lookupDefinitions = echoLookupDefinitions(CATALOG);
+	const h = makeToolWorkspaceHarness(lookupSelectDoc(lookupSource(TABLE_A)), {
+		lookupDefinitions,
 	});
 	return { h, lookupDefinitions };
 }
@@ -375,7 +337,7 @@ describe("CanonicalMutationWorkspace — lookup context", () => {
 		expect(lookupDefinitions).toHaveBeenCalledTimes(1);
 		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE_A, TABLE_B]);
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
-		expect(h.currentDoc().fields[LOOKUP_SELECT]).toMatchObject({
+		expect(h.currentDoc().fields[LOOKUP_SELECT_DOC.selectUuid]).toMatchObject({
 			optionsSource: { kind: "lookup", tableId: TABLE_B },
 		});
 	});

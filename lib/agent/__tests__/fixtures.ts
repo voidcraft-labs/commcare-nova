@@ -21,6 +21,7 @@
 // `mock.calls[i][j]` explicitly.
 import type { UIMessageStreamWriter } from "ai";
 import { vi } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { Session } from "@/lib/auth";
 import { seedApplyBlueprintChangeTestWriter } from "@/lib/db/__tests__/applyBlueprintChangeTestWriter";
 import { type AccumulatorSeed, UsageAccumulator } from "@/lib/db/usage";
@@ -28,11 +29,26 @@ import {
 	mutationCommitVerdict,
 	type PreparedMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
+import {
+	hydratePersistedBlueprint,
+	toPersistableDoc,
+} from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { AdmittedMutationStages } from "@/lib/doc/mutationAdmission";
 import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type SelectOptionsSource,
+} from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import { proseText } from "@/lib/domain/prose";
 import type { LogWriter } from "@/lib/log/writer";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import type {
+	LookupDefinitionsSnapshot,
+	LookupTableDefinition,
+} from "@/lib/lookup/types";
 import { McpContext } from "@/lib/mcp/context";
 import type { ProgressEmitter } from "@/lib/mcp/progress";
 import { GenerationContext } from "../generationContext";
@@ -297,6 +313,101 @@ export interface ToolWorkspaceHarness {
 	recordMutations: ReturnType<typeof vi.fn>;
 	recordMutationStages: ReturnType<typeof vi.fn>;
 	conversionImpact: ReturnType<typeof vi.fn>;
+}
+
+/** The stable identities {@link lookupSelectDoc} builds with. */
+export const LOOKUP_SELECT_DOC = {
+	moduleUuid: asUuid("11111111-1111-4111-8111-111111111111"),
+	formUuid: asUuid("22222222-2222-4222-8222-222222222222"),
+	selectUuid: asUuid("33333333-3333-4333-8333-333333333333"),
+} as const;
+
+/**
+ * One module, one survey form, one single-select `destination` drawing on
+ * the given choice source — lookup-bound, or inline for the fresh-app shape a
+ * first table binding starts from. Round-tripped through the persisted shape
+ * so it carries exactly what a loaded app carries.
+ */
+export function lookupSelectDoc(
+	optionsSource: SelectOptionsSource,
+): BlueprintDoc {
+	const doc = buildDoc({
+		modules: [
+			{
+				uuid: LOOKUP_SELECT_DOC.moduleUuid,
+				id: "referrals",
+				name: "Referrals",
+				forms: [
+					{
+						uuid: LOOKUP_SELECT_DOC.formUuid,
+						id: "intake",
+						name: "Intake",
+						type: "survey",
+						fields: [
+							f({
+								uuid: LOOKUP_SELECT_DOC.selectUuid,
+								kind: "single_select",
+								id: "destination",
+								label: proseText("Destination"),
+								optionsSource,
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+	return hydratePersistedBlueprint(toPersistableDoc(doc));
+}
+
+/** A rows-free text-column table definition for {@link echoLookupDefinitions}. */
+export function lookupTableDefinition(args: {
+	readonly id: LookupTableId;
+	readonly name: string;
+	readonly tag: string;
+	readonly columns: readonly {
+		readonly id: LookupColumnId;
+		readonly wireName: string;
+		readonly label: string;
+	}[];
+}): LookupTableDefinition {
+	return {
+		id: args.id,
+		name: args.name,
+		tag: args.tag,
+		definitionRevision: parseLookupRevision("1"),
+		columns: args.columns.map((column) => ({
+			...column,
+			dataType: "text" as const,
+		})),
+	};
+}
+
+/**
+ * A `lookupDefinitions` reader over a fixed catalog. It answers exactly the
+ * requested ids it knows, so the ids a gate asked for are visible in the spy's
+ * arguments, and an id it never asked for is absent from the snapshot — which
+ * the validator reports as a table that isn't available, the honest outcome
+ * for a reference the gate failed to resolve.
+ */
+export function echoLookupDefinitions(
+	catalog: readonly LookupTableDefinition[],
+) {
+	const byId = new Map(
+		catalog.map((definition) => [definition.id, definition] as const),
+	);
+	return vi.fn(
+		async (
+			tableIds: readonly LookupTableId[],
+		): Promise<LookupDefinitionsSnapshot> => ({
+			projectId: "project-test",
+			projectRevision: parseLookupRevision("1"),
+			definitions: tableIds.flatMap((id) => {
+				const definition = byId.get(id);
+				return definition === undefined ? [] : [definition];
+			}),
+		}),
+	);
 }
 
 export interface MakeToolWorkspaceHarnessOptions {

@@ -36,6 +36,8 @@ import {
 	evaluatePreparedMutationCandidate,
 	type MutationCommitVerdict,
 	mutationWireCanonicalityRejection,
+	type PreparedMutationCandidate,
+	preparedCandidateHasAdmissionIssue,
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
 import {
@@ -52,6 +54,7 @@ import {
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
 import type { BlueprintDoc } from "@/lib/domain";
+import type { RecordMutationsResult } from "../toolExecutionContext";
 import type { CanonicalMutationHost } from "./canonicalHost";
 import type {
 	MutationApplicationPolicy,
@@ -298,6 +301,15 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 		admitted: AdmittedMutationBatch,
 	): Promise<MutationCommitVerdict> {
 		const prepared = prepareMutationCandidate(prevDoc, admitted);
+		if (preparedCandidateHasAdmissionIssue(prepared)) {
+			/* The verdict is the admission finding alone, and it reads no lookup
+			 * context — so the Project definition read is skipped rather than
+			 * risked ahead of the finding the caller needs. */
+			return evaluatePreparedMutationCandidate(
+				prepared,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+		}
 		return evaluatePreparedMutationCandidate(
 			prepared,
 			await lookupContextForCandidate(this.host, prevDoc, prepared.nextDoc),
@@ -305,12 +317,50 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 	}
 
 	/**
-	 * The one write path for every single-batch mutating tool: gate the batch
-	 * through {@link gateAdmittedBatch}, then persist via the host.
+	 * Gate an admitted batch, then persist it through the caller's host method
+	 * and adopt what the host committed. A rejected batch persists NOTHING:
+	 * the gate runs before the write, so an invalid intermediate state never
+	 * reaches Postgres or the mutation stream, on the chat surface and MCP
+	 * alike. An empty batch validates the unchanged candidate and returns it
+	 * without touching the host.
 	 *
-	 * A rejected batch persists NOTHING: the gate runs before the write, so an
-	 * invalid intermediate state never reaches Postgres or the mutation
-	 * stream, on the chat surface and MCP alike.
+	 * The canonical commit re-applies onto the FRESH stored doc, so its
+	 * `committedDoc` may carry a peer's concurrent edit merged in — the
+	 * workspace continues against THAT, not the local candidate. A pre-commit
+	 * finding returns here (no reload); an authoritative commit conflict
+	 * throws `BlueprintCommitRejectedError`, which is NOT caught here — it
+	 * propagates to `invoke`'s conflict recovery.
+	 */
+	private async gateThenPersist(
+		prevDoc: BlueprintDoc,
+		admitted: AdmittedMutationBatch,
+		persist: (
+			prepared: PreparedMutationCandidate,
+		) => Promise<RecordMutationsResult>,
+	): Promise<WorkspaceMutationOutcome> {
+		const verdict = await this.gateAdmittedBatch(prevDoc, admitted);
+		if (!verdict.ok) {
+			return { ok: false, error: describeCommitFindings(verdict.findings) };
+		}
+		if (verdict.mutations.length === 0) {
+			return {
+				ok: true,
+				newDoc: verdict.nextDoc,
+				mutations: verdict.mutations,
+			};
+		}
+		const result = await persist(verdict.prepared);
+		this.adopt(result.committedDoc, result.seq ?? null);
+		return {
+			ok: true,
+			newDoc: result.committedDoc,
+			mutations: verdict.mutations,
+		};
+	}
+
+	/**
+	 * The one write path for every single-batch mutating tool: admit the
+	 * batch, then {@link gateThenPersist} it through the host's single save.
 	 */
 	private async applyBatchAgainst(
 		prevDoc: BlueprintDoc,
@@ -325,35 +375,9 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 			if (!(error instanceof MutationWireCanonicalityError)) throw error;
 			return wireCanonicalityOutcome(prevDoc, error);
 		}
-		const verdict = await this.gateAdmittedBatch(prevDoc, admitted);
-		if (!verdict.ok) {
-			return { ok: false, error: describeCommitFindings(verdict.findings) };
-		}
-		if (verdict.mutations.length > 0) {
-			/* The canonical commit re-applies onto the FRESH stored doc, so its
-			 * `committedDoc` may carry a peer's concurrent edit merged in — the
-			 * workspace continues against THAT, not the local candidate. A
-			 * pre-commit finding already returned above (no reload); an
-			 * authoritative commit conflict throws `BlueprintCommitRejectedError`,
-			 * which is NOT caught here — it propagates to `invoke`'s conflict
-			 * recovery. */
-			const result = await this.host.recordMutations(
-				verdict.prepared,
-				stage,
-				policy,
-			);
-			this.adopt(result.committedDoc, result.seq ?? null);
-			return {
-				ok: true,
-				newDoc: result.committedDoc,
-				mutations: verdict.mutations,
-			};
-		}
-		return {
-			ok: true,
-			newDoc: verdict.nextDoc,
-			mutations: verdict.mutations,
-		};
+		return this.gateThenPersist(prevDoc, admitted, (prepared) =>
+			this.host.recordMutations(prepared, stage, policy),
+		);
 	}
 
 	/**
@@ -383,18 +407,8 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 			if (!(error instanceof MutationWireCanonicalityError)) throw error;
 			return wireCanonicalityOutcome(prevDoc, error);
 		}
-		const verdict = await this.gateAdmittedBatch(prevDoc, admitted.batch);
-		if (!verdict.ok) {
-			return { ok: false, error: describeCommitFindings(verdict.findings) };
-		}
-		if (admitted.batch.length === 0) {
-			return { ok: true, newDoc: prevDoc, mutations: admitted.batch };
-		}
-		const result = await this.host.recordMutationStages(
-			verdict.prepared,
-			admitted,
+		return this.gateThenPersist(prevDoc, admitted.batch, (prepared) =>
+			this.host.recordMutationStages(prepared, admitted),
 		);
-		this.adopt(result.committedDoc, result.seq ?? null);
-		return { ok: true, newDoc: result.committedDoc, mutations: admitted.batch };
 	}
 }

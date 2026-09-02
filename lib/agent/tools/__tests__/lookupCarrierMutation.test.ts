@@ -18,29 +18,30 @@
  * Project data table at all.
  */
 
-import { describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import {
-	hydratePersistedBlueprint,
-	toPersistableDoc,
-} from "@/lib/doc/fieldParent";
+import { describe, expect, it } from "vitest";
 import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import {
-	type LookupTableId,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
-import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
-import type { CanonicalMutationHost } from "../../workspace/canonicalHost";
+import {
+	echoLookupDefinitions,
+	LOOKUP_SELECT_DOC,
+	lookupSelectDoc,
+	lookupTableDefinition,
+	makeToolWorkspaceHarness,
+} from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
 import { setFieldOptionsSourceTool } from "../setFieldOptionsSource";
 import { updateModuleTool } from "../updateModule";
 
-const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
-const FORM = asUuid("22222222-2222-4222-8222-222222222222");
-const SELECT = asUuid("33333333-3333-4333-8333-333333333333");
+const {
+	moduleUuid: MODULE,
+	formUuid: FORM,
+	selectUuid: SELECT,
+} = LOOKUP_SELECT_DOC;
 
 const TABLE = lookupTableIdSchema.parse("01912d68-783e-7000-8000-00000000a001");
 const VALUE = lookupColumnIdSchema.parse(
@@ -60,8 +61,27 @@ const VALUE_B = lookupColumnIdSchema.parse(
 const LABEL_B = lookupColumnIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000c012",
 );
-const OPTION_A = asUuid("44444444-4444-4444-8444-444444444444");
-const OPTION_B = asUuid("55555555-5555-4555-8555-555555555555");
+
+const CATALOG = [
+	lookupTableDefinition({
+		id: TABLE,
+		name: "Referral destinations",
+		tag: "referral_destinations",
+		columns: [
+			{ id: VALUE, wireName: "code", label: "Code" },
+			{ id: LABEL, wireName: "name", label: "Name" },
+		],
+	}),
+	lookupTableDefinition({
+		id: TABLE_B,
+		name: "Facilities",
+		tag: "facilities",
+		columns: [
+			{ id: VALUE_B, wireName: "code", label: "Code" },
+			{ id: LABEL_B, wireName: "name", label: "Name" },
+		],
+	}),
+];
 
 const LOOKUP_SOURCE = {
 	kind: "lookup" as const,
@@ -70,155 +90,46 @@ const LOOKUP_SOURCE = {
 	labelColumnId: LABEL,
 };
 
+const SECOND_LOOKUP_SOURCE = {
+	kind: "lookup" as const,
+	tableId: TABLE_B,
+	valueColumnId: VALUE_B,
+	labelColumnId: LABEL_B,
+};
+
 /** A doc whose select draws its choices from a Project data table. */
 function docWithLookupCarrier(): BlueprintDoc {
-	const doc = buildDoc({
-		modules: [
-			{
-				uuid: MODULE,
-				id: "referrals",
-				name: "Referrals",
-				forms: [
-					{
-						uuid: FORM,
-						id: "intake",
-						name: "Intake",
-						type: "survey",
-						fields: [
-							f({
-								uuid: SELECT,
-								kind: "single_select",
-								id: "destination",
-								label: proseText("Destination"),
-								optionsSource: {
-									kind: "lookup",
-									tableId: TABLE,
-									valueColumnId: VALUE,
-									labelColumnId: LABEL,
-								},
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
-	return hydratePersistedBlueprint(toPersistableDoc(doc));
+	return lookupSelectDoc(LOOKUP_SOURCE);
 }
 
-/** The same form, but the select's choices are inline: a doc with no lookup
- *  reference anywhere — the fresh-app shape a first table binding starts from. */
+/** The same form with inline choices: a doc with no lookup reference
+ *  anywhere — the fresh-app shape a first table binding starts from. */
 function docWithInlineSelect(): BlueprintDoc {
-	const doc = buildDoc({
-		modules: [
+	return lookupSelectDoc({
+		kind: "inline",
+		options: [
 			{
-				uuid: MODULE,
-				id: "referrals",
-				name: "Referrals",
-				forms: [
-					{
-						uuid: FORM,
-						id: "intake",
-						name: "Intake",
-						type: "survey",
-						fields: [
-							f({
-								uuid: SELECT,
-								kind: "single_select",
-								id: "destination",
-								label: proseText("Destination"),
-								optionsSource: {
-									kind: "inline",
-									options: [
-										{
-											uuid: OPTION_A,
-											value: "clinic",
-											label: proseText("Clinic"),
-											order: "a1",
-										},
-										{
-											uuid: OPTION_B,
-											value: "hospital",
-											label: proseText("Hospital"),
-											order: "a2",
-										},
-									],
-								},
-							}),
-						],
-					},
-				],
+				uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+				value: "clinic",
+				label: proseText("Clinic"),
+			},
+			{
+				uuid: asUuid("55555555-5555-4555-8555-555555555555"),
+				value: "hospital",
+				label: proseText("Hospital"),
 			},
 		],
 	});
-	return hydratePersistedBlueprint(toPersistableDoc(doc));
 }
 
 function makeHarness(
 	doc: BlueprintDoc,
 	options: { readonly answering: boolean },
 ) {
-	/* Echoes every requested id as a definition, so a call for the union of
-	 * two tables answers for both — and a call that omits one shows in the
-	 * mock's arguments instead of being masked by a definition it never asked
-	 * for. */
-	const lookupDefinitions = vi.fn(
-		async (tableIds: readonly LookupTableId[]) => ({
-			projectId: "project-1",
-			projectRevision: 1,
-			definitions: tableIds.map((id) =>
-				id === TABLE_B
-					? {
-							id,
-							name: "Facilities",
-							tag: "facilities",
-							revision: 1,
-							columns: [
-								{
-									id: VALUE_B,
-									wireName: "code",
-									label: "Code",
-									dataType: "text",
-								},
-								{
-									id: LABEL_B,
-									wireName: "name",
-									label: "Name",
-									dataType: "text",
-								},
-							],
-						}
-					: {
-							id,
-							name: "Referral destinations",
-							tag: "referral_destinations",
-							revision: 1,
-							columns: [
-								{
-									id: VALUE,
-									wireName: "code",
-									label: "Code",
-									dataType: "text",
-								},
-								{
-									id: LABEL,
-									wireName: "name",
-									label: "Name",
-									dataType: "text",
-								},
-							],
-						},
-			),
-		}),
-	);
+	const lookupDefinitions = echoLookupDefinitions(CATALOG);
 	const h = makeToolWorkspaceHarness(doc, {
 		appId: "app-1",
-		...(options.answering
-			? {
-					lookupDefinitions:
-						lookupDefinitions as unknown as CanonicalMutationHost["lookupDefinitions"],
-				}
-			: {}),
+		...(options.answering ? { lookupDefinitions } : {}),
 	});
 	return { h, lookupDefinitions };
 }
@@ -312,12 +223,6 @@ describe("introducing a lookup reference", () => {
 		const { h, lookupDefinitions } = makeHarness(docWithLookupCarrier(), {
 			answering: true,
 		});
-		const secondSource = {
-			kind: "lookup" as const,
-			tableId: TABLE_B,
-			valueColumnId: VALUE_B,
-			labelColumnId: LABEL_B,
-		};
 
 		const out = await h.runTool(addFieldsTool, {
 			moduleUuid: MODULE,
@@ -327,7 +232,7 @@ describe("introducing a lookup reference", () => {
 					kind: "single_select",
 					id: "facility",
 					label: proseText("Facility"),
-					optionsSource: secondSource,
+					optionsSource: SECOND_LOOKUP_SOURCE,
 				},
 			],
 		});
