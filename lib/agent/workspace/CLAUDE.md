@@ -67,8 +67,13 @@ protocol error, never a silent overwrite.
 ## Tests
 
 `__tests__/canonicalWorkspace.test.ts` — ordering, one-write budget, stale
-revision, gate rejection, adoption, conflict recovery (with and without a
+revision, gate rejection, the lookup-context union (a table swap must resolve
+definitions for both the snapshot's table and the candidate's, on `applyBatch`
+and `applyStages` alike), adoption, conflict recovery (with and without a
 host reload), and the no-persistence-methods introspection. Semantic parity
 of the whole surface lives in the existing tool/adapter suites
 (`lib/agent/tools/__tests__`, `lib/mcp/__tests__/sharedToolAdapter.test.ts`,
-`lib/mcp/__tests__/stagedToolTransactionalCommit.test.ts`).
+`lib/mcp/__tests__/stagedToolTransactionalCommit.test.ts`);
+`lib/agent/tools/__tests__/lookupCarrierMutation.test.ts` is the tool-level
+home for mutations on a doc that carries a lookup reference and for mutations
+that introduce one.

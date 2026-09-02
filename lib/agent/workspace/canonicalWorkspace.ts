@@ -34,7 +34,7 @@ import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import {
 	describeCommitFindings,
 	evaluatePreparedMutationCandidate,
-	mutationCommitVerdict,
+	type MutationCommitVerdict,
 	mutationWireCanonicalityRejection,
 	prepareMutationCandidate,
 } from "@/lib/doc/commitVerdicts";
@@ -45,7 +45,9 @@ import {
 	unionLookupReferenceTargetSets,
 } from "@/lib/doc/lookupReferences";
 import {
+	type AdmittedMutationBatch,
 	type AdmittedMutationStages,
+	admitMutationBatch,
 	admitMutationStages,
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
@@ -88,6 +90,20 @@ async function lookupContextForCandidate(
 		projectRevision: snapshot.projectRevision,
 		definitions: snapshot.definitions,
 	};
+}
+
+/**
+ * The outcome for a batch whose wire form is not canonical: the same
+ * `MUTATION_WIRE_CANONICALITY_INVALID` finding the doc-level verdict renders,
+ * so a tool body sees one rejection shape whichever write path it took.
+ */
+function wireCanonicalityOutcome(
+	prevDoc: BlueprintDoc,
+	error: MutationWireCanonicalityError,
+): WorkspaceMutationOutcome {
+	const rejected = mutationWireCanonicalityRejection(prevDoc, error);
+	if (rejected.ok) throw new Error("Canonicality rejection was accepted");
+	return { ok: false, error: describeCommitFindings(rejected.findings) };
 }
 
 export interface CanonicalMutationWorkspaceOptions {
@@ -263,13 +279,36 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 	}
 
 	/**
-	 * The one write path for every single-batch mutating tool: gate the batch
-	 * through the validity verdict, then persist via the host.
+	 * The one optimistic gate both write paths run: prepare the admitted batch
+	 * ONCE, then evaluate the candidate against the lookup context unioned
+	 * over the snapshot AND the candidate. The candidate half is what lets a
+	 * batch INTRODUCE a lookup reference — a select's first table binding, or
+	 * a second table on an app already bound to one; a context resolved from
+	 * the snapshot alone has no definition for the new table and refuses the
+	 * reference as uncheckable. Callers never hold `nextDoc` before this runs,
+	 * so they cannot hand the context the wrong document.
 	 *
-	 * The gate (`lib/doc/commitVerdicts.ts::mutationCommitVerdict` over
-	 * `evaluateCommit`) accepts a batch iff it introduces no validator
-	 * finding of a gating class — shape, soundness, or completeness. A
-	 * rejected batch persists NOTHING: the gate runs before the write, so an
+	 * The verdict (`prepareMutationCandidate` + `evaluatePreparedMutationCandidate`
+	 * over `evaluateCommit`, the composition `lib/doc/commitVerdicts.ts::mutationCommitVerdict`
+	 * also runs) accepts a batch iff it introduces no validator finding of a
+	 * gating class — shape, soundness, or completeness.
+	 */
+	private async gateAdmittedBatch(
+		prevDoc: BlueprintDoc,
+		admitted: AdmittedMutationBatch,
+	): Promise<MutationCommitVerdict> {
+		const prepared = prepareMutationCandidate(prevDoc, admitted);
+		return evaluatePreparedMutationCandidate(
+			prepared,
+			await lookupContextForCandidate(this.host, prevDoc, prepared.nextDoc),
+		);
+	}
+
+	/**
+	 * The one write path for every single-batch mutating tool: gate the batch
+	 * through {@link gateAdmittedBatch}, then persist via the host.
+	 *
+	 * A rejected batch persists NOTHING: the gate runs before the write, so an
 	 * invalid intermediate state never reaches Postgres or the mutation
 	 * stream, on the chat surface and MCP alike.
 	 */
@@ -279,11 +318,14 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 		stage: string | undefined,
 		policy: MutationApplicationPolicy | undefined,
 	): Promise<WorkspaceMutationOutcome> {
-		const verdict = mutationCommitVerdict(
-			prevDoc,
-			mutations,
-			await lookupContextForCandidate(this.host, prevDoc, prevDoc),
-		);
+		let admitted: AdmittedMutationBatch;
+		try {
+			admitted = admitMutationBatch(mutations);
+		} catch (error) {
+			if (!(error instanceof MutationWireCanonicalityError)) throw error;
+			return wireCanonicalityOutcome(prevDoc, error);
+		}
+		const verdict = await this.gateAdmittedBatch(prevDoc, admitted);
 		if (!verdict.ok) {
 			return { ok: false, error: describeCommitFindings(verdict.findings) };
 		}
@@ -339,25 +381,19 @@ export class CanonicalMutationWorkspace implements ToolWorkspace {
 			admitted = admitMutationStages(stages);
 		} catch (error) {
 			if (!(error instanceof MutationWireCanonicalityError)) throw error;
-			const rejected = mutationWireCanonicalityRejection(prevDoc, error);
-			if (rejected.ok) throw new Error("Canonicality rejection was accepted");
-			return {
-				ok: false,
-				error: describeCommitFindings(rejected.findings),
-			};
+			return wireCanonicalityOutcome(prevDoc, error);
 		}
-		const prepared = prepareMutationCandidate(prevDoc, admitted.batch);
-		const verdict = evaluatePreparedMutationCandidate(
-			prepared,
-			await lookupContextForCandidate(this.host, prevDoc, prepared.nextDoc),
-		);
+		const verdict = await this.gateAdmittedBatch(prevDoc, admitted.batch);
 		if (!verdict.ok) {
 			return { ok: false, error: describeCommitFindings(verdict.findings) };
 		}
 		if (admitted.batch.length === 0) {
 			return { ok: true, newDoc: prevDoc, mutations: admitted.batch };
 		}
-		const result = await this.host.recordMutationStages(prepared, admitted);
+		const result = await this.host.recordMutationStages(
+			verdict.prepared,
+			admitted,
+		);
 		this.adopt(result.committedDoc, result.seq ?? null);
 		return { ok: true, newDoc: result.committedDoc, mutations: admitted.batch };
 	}
