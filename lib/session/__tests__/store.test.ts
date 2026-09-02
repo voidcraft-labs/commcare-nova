@@ -18,13 +18,28 @@ import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import type { ProvisionedWorker } from "@/lib/deployment/workerProvisionPlan";
 import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+} from "@/lib/doc/lookupReferences";
 import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { ConnectConfig } from "@/lib/domain";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import { proseText } from "@/lib/domain/prose";
 import type { Event } from "@/lib/log/types";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import { toastStore } from "@/lib/ui/toastStore";
-import { createBuilderSessionStore } from "../store";
+import { type ConnectSwitchGate, createBuilderSessionStore } from "../store";
+
+/** The fixture docs carry no lookup reference, so an unavailable context is
+ *  the honest gate for them — what the hook binds when nothing is loaded. */
+const NO_LOOKUPS: ConnectSwitchGate = {
+	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+};
 
 describe("BuilderSession store", () => {
 	it("1. initial state: not previewing, both sidebars open, no stash", () => {
@@ -466,7 +481,9 @@ describe("BuilderSession new-field marker", () => {
  *
  * One module with two forms — enough to verify per-form stash keyed by uuid.
  */
-function createConnectTestStores() {
+function createConnectTestStores(
+	opts: { readonly formAFields?: Parameters<typeof f>[0][] } = {},
+) {
 	const docStore = createBlueprintDocStore();
 	docStore.getState().load(
 		buildDoc({
@@ -481,7 +498,9 @@ function createConnectTestStores() {
 							uuid: "form-1-uuid",
 							name: "Form A",
 							type: "survey",
-							fields: [f({ kind: "text", id: "question_a" })],
+							fields: (
+								opts.formAFields ?? [{ kind: "text", id: "question_a" }]
+							).map(f),
 						},
 						{
 							uuid: "form-2-uuid",
@@ -560,7 +579,9 @@ describe("BuilderSession connect stash", () => {
 		const { session, doc } = createConnectTestStores();
 		toastStore.clear();
 
-		const outcome = session.getState().switchConnectMode("learn");
+		const outcome = session
+			.getState()
+			.switchConnectMode("learn", undefined, NO_LOOKUPS);
 
 		expect(outcome.ok).toBe(false);
 		if (!outcome.ok) expect(outcome.messages.length).toBeGreaterThan(0);
@@ -576,9 +597,10 @@ describe("BuilderSession connect stash", () => {
 		const { session, doc } = createConnectTestStores();
 		toastStore.clear();
 
-		const outcome = session
-			.getState()
-			.switchConnectMode("learn", undefined, { announce: false });
+		const outcome = session.getState().switchConnectMode("learn", undefined, {
+			...NO_LOOKUPS,
+			announce: false,
+		});
 
 		expect(outcome.ok).toBe(false);
 		if (!outcome.ok) expect(outcome.messages.length).toBeGreaterThan(0);
@@ -586,12 +608,88 @@ describe("BuilderSession connect stash", () => {
 		expect(toastStore.toasts).toHaveLength(0);
 	});
 
+	/* The gate is absolute: a lookup reference it cannot check is a soundness
+	 * finding, whatever the batch touched. On a doc that carries a
+	 * lookup-backed select the switch must run under the Project's lookup
+	 * context the hook binds; an unavailable one refuses every switch. */
+	describe("on a doc that carries a lookup source", () => {
+		const TABLE = lookupTableIdSchema.parse(
+			"01912d68-783e-7000-8000-00000000a001",
+		);
+		const VALUE = lookupColumnIdSchema.parse(
+			"01912d68-783e-7000-8000-00000000c001",
+		);
+		const LABEL = lookupColumnIdSchema.parse(
+			"01912d68-783e-7000-8000-00000000c002",
+		);
+		const REVISION = parseLookupRevision("1");
+		const AVAILABLE: LookupValidationContext = {
+			kind: "available",
+			projectId: "project-1",
+			projectRevision: REVISION,
+			definitions: [
+				{
+					id: TABLE,
+					name: "Destinations",
+					tag: "destinations",
+					definitionRevision: REVISION,
+					columns: [
+						{ id: VALUE, wireName: "code", label: "Code", dataType: "text" },
+						{ id: LABEL, wireName: "name", label: "Name", dataType: "text" },
+					],
+				},
+			],
+		};
+		const lookupSelect = {
+			kind: "single_select" as const,
+			id: "destination",
+			label: proseText("Destination"),
+			optionsSource: {
+				kind: "lookup",
+				tableId: TABLE,
+				valueColumnId: VALUE,
+				labelColumnId: LABEL,
+			},
+		};
+
+		it("switches modes under the Project's lookup context", () => {
+			const { session, doc, formA, formB } = createConnectTestStores({
+				formAFields: [lookupSelect],
+			});
+
+			const outcome = session
+				.getState()
+				.switchConnectMode("learn", stagedLearnBlocks(formA, formB), {
+					lookupContext: AVAILABLE,
+				});
+
+			expect(outcome).toEqual({ ok: true });
+			expect(doc.getState().connectType).toBe("learn");
+		});
+
+		it("refuses the same switch when the lookup context is unavailable — fail closed", () => {
+			const { session, doc, formA, formB } = createConnectTestStores({
+				formAFields: [lookupSelect],
+			});
+
+			const outcome = session
+				.getState()
+				.switchConnectMode("learn", stagedLearnBlocks(formA, formB), {
+					lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+					announce: false,
+				});
+
+			expect(outcome.ok).toBe(false);
+			expect(doc.getState().connectType).toBeNull();
+		});
+	});
+
 	it("1. switchConnectMode('learn', staged) sets the type AND lands every form's block in one commit", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
 
 		const outcome = session
 			.getState()
-			.switchConnectMode("learn", stagedLearnBlocks(formA, formB));
+			.switchConnectMode("learn", stagedLearnBlocks(formA, formB), NO_LOOKUPS);
 
 		expect(outcome.ok).toBe(true);
 		expect(doc.getState().connectType).toBe("learn");
@@ -615,16 +713,20 @@ describe("BuilderSession connect stash", () => {
 		 * least one form participates. */
 		const { session, doc, formA, formB } = createConnectTestStores();
 
-		const outcome = session.getState().switchConnectMode("learn", {
-			[formA]: {
-				learn_module: {
-					id: "form_a",
-					name: "Form A",
-					description: "desc",
-					time_estimate: 5,
+		const outcome = session.getState().switchConnectMode(
+			"learn",
+			{
+				[formA]: {
+					learn_module: {
+						id: "form_a",
+						name: "Form A",
+						description: "desc",
+						time_estimate: 5,
+					},
 				},
 			},
-		});
+			NO_LOOKUPS,
+		);
 
 		expect(outcome.ok).toBe(true);
 		expect(doc.getState().connectType).toBe("learn");
@@ -638,11 +740,15 @@ describe("BuilderSession connect stash", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
 		session
 			.getState()
-			.switchConnectMode("learn", stagedLearnBlocks(formA, formB));
+			.switchConnectMode("learn", stagedLearnBlocks(formA, formB), NO_LOOKUPS);
 
 		const outcome = session
 			.getState()
-			.switchConnectMode("deliver", stagedDeliverBlocks(formA, formB));
+			.switchConnectMode(
+				"deliver",
+				stagedDeliverBlocks(formA, formB),
+				NO_LOOKUPS,
+			);
 
 		expect(outcome.ok).toBe(true);
 		expect(doc.getState().connectType).toBe("deliver");
@@ -660,17 +766,25 @@ describe("BuilderSession connect stash", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
 		session
 			.getState()
-			.switchConnectMode("learn", stagedLearnBlocks(formA, formB));
+			.switchConnectMode("learn", stagedLearnBlocks(formA, formB), NO_LOOKUPS);
 		session
 			.getState()
-			.switchConnectMode("deliver", stagedDeliverBlocks(formA, formB));
+			.switchConnectMode(
+				"deliver",
+				stagedDeliverBlocks(formA, formB),
+				NO_LOOKUPS,
+			);
 
 		/* The learn stash holds both forms' prior work. The manager seeds its
 		 * learn drafts from that stash and hands the whole set back to switch
 		 * mode — the store no longer restores on its own. */
 		const outcome = session
 			.getState()
-			.switchConnectMode("learn", session.getState().connectStash.learn);
+			.switchConnectMode(
+				"learn",
+				session.getState().connectStash.learn,
+				NO_LOOKUPS,
+			);
 
 		expect(outcome.ok).toBe(true);
 		expect(doc.getState().connectType).toBe("learn");
@@ -683,10 +797,12 @@ describe("BuilderSession connect stash", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
 		session
 			.getState()
-			.switchConnectMode("learn", stagedLearnBlocks(formA, formB));
+			.switchConnectMode("learn", stagedLearnBlocks(formA, formB), NO_LOOKUPS);
 
 		/* Disable connect entirely — always valid. */
-		const outcome = session.getState().switchConnectMode(null);
+		const outcome = session
+			.getState()
+			.switchConnectMode(null, undefined, NO_LOOKUPS);
 
 		expect(outcome.ok).toBe(true);
 		expect(doc.getState().connectType).toBeNull();
@@ -698,11 +814,15 @@ describe("BuilderSession connect stash", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
 		session
 			.getState()
-			.switchConnectMode("learn", stagedLearnBlocks(formA, formB));
+			.switchConnectMode("learn", stagedLearnBlocks(formA, formB), NO_LOOKUPS);
 		session
 			.getState()
-			.switchConnectMode("deliver", stagedDeliverBlocks(formA, formB));
-		session.getState().switchConnectMode(null);
+			.switchConnectMode(
+				"deliver",
+				stagedDeliverBlocks(formA, formB),
+				NO_LOOKUPS,
+			);
+		session.getState().switchConnectMode(null, undefined, NO_LOOKUPS);
 
 		/* lastConnectType is 'deliver' (set when switching away from it). */
 		expect(session.getState().lastConnectType).toBe("deliver");
@@ -711,7 +831,11 @@ describe("BuilderSession connect stash", () => {
 		 * still states the exact target mode and complete participants. */
 		const outcome = session
 			.getState()
-			.switchConnectMode("deliver", session.getState().connectStash.deliver);
+			.switchConnectMode(
+				"deliver",
+				session.getState().connectStash.deliver,
+				NO_LOOKUPS,
+			);
 		expect(outcome.ok).toBe(true);
 		expect(doc.getState().connectType).toBe("deliver");
 	});
@@ -720,11 +844,15 @@ describe("BuilderSession connect stash", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
 		session
 			.getState()
-			.switchConnectMode("learn", stagedLearnBlocks(formA, formB));
+			.switchConnectMode("learn", stagedLearnBlocks(formA, formB), NO_LOOKUPS);
 
 		session
 			.getState()
-			.switchConnectMode("deliver", stagedDeliverBlocks(formA, formB));
+			.switchConnectMode(
+				"deliver",
+				stagedDeliverBlocks(formA, formB),
+				NO_LOOKUPS,
+			);
 
 		/* `form.connect` holds only the active-mode config — the learn block
 		 * was replaced wholesale by the deliver one, and preserved in the
@@ -742,17 +870,21 @@ describe("BuilderSession connect stash", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
 		session
 			.getState()
-			.switchConnectMode("learn", stagedLearnBlocks(formA, formB));
+			.switchConnectMode("learn", stagedLearnBlocks(formA, formB), NO_LOOKUPS);
 
 		/* Disable connect entirely (clears every form.connect, stashing the
 		 * learn configs first), then re-enable the SAME mode by handing back
 		 * the stash — the manager's seed-then-apply round-trip. */
-		session.getState().switchConnectMode(null);
+		session.getState().switchConnectMode(null, undefined, NO_LOOKUPS);
 		expect(doc.getState().forms[formA]?.connect).toBeUndefined();
 
 		const outcome = session
 			.getState()
-			.switchConnectMode("learn", session.getState().connectStash.learn);
+			.switchConnectMode(
+				"learn",
+				session.getState().connectStash.learn,
+				NO_LOOKUPS,
+			);
 		expect(outcome.ok).toBe(true);
 		const restored = doc.getState().forms[formA]?.connect;
 		expect(learnModule(restored)?.name).toBe("Form A");
@@ -761,10 +893,14 @@ describe("BuilderSession connect stash", () => {
 	it("8. duplicate final ids reject atomically instead of being rewritten", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
 
-		const outcome = session.getState().switchConnectMode("deliver", {
-			[formA]: { deliver_unit: { id: "visit", name: "Visit A" } },
-			[formB]: { deliver_unit: { id: "visit", name: "Visit B" } },
-		});
+		const outcome = session.getState().switchConnectMode(
+			"deliver",
+			{
+				[formA]: { deliver_unit: { id: "visit", name: "Visit A" } },
+				[formB]: { deliver_unit: { id: "visit", name: "Visit B" } },
+			},
+			NO_LOOKUPS,
+		);
 
 		expect(outcome.ok).toBe(false);
 		expect(doc.getState().connectType).toBeNull();
@@ -774,28 +910,17 @@ describe("BuilderSession connect stash", () => {
 
 	it("8a. a stashed explicit id that was claimed while inactive is refused without rewriting the stash", () => {
 		const { session, doc, formA, formB } = createConnectTestStores();
-		session.getState().switchConnectMode("learn", {
-			[formA]: {
-				learn_module: {
-					id: "shared",
-					name: "Form A",
-					description: "Stashed exact content",
-					time_estimate: 5,
+		session.getState().switchConnectMode(
+			"learn",
+			{
+				[formA]: {
+					learn_module: {
+						id: "shared",
+						name: "Form A",
+						description: "Stashed exact content",
+						time_estimate: 5,
+					},
 				},
-			},
-			[formB]: {
-				learn_module: {
-					id: "form_b",
-					name: "Form B",
-					description: "Live content",
-					time_estimate: 5,
-				},
-			},
-		});
-		/* Drop A from the exact participant set so its block is stashed, then
-		 * let the remaining participant claim A's now-free explicit id. */
-		expect(
-			session.getState().switchConnectMode("learn", {
 				[formB]: {
 					learn_module: {
 						id: "form_b",
@@ -804,19 +929,42 @@ describe("BuilderSession connect stash", () => {
 						time_estimate: 5,
 					},
 				},
-			}),
-		).toEqual({ ok: true });
+			},
+			NO_LOOKUPS,
+		);
+		/* Drop A from the exact participant set so its block is stashed, then
+		 * let the remaining participant claim A's now-free explicit id. */
 		expect(
-			session.getState().switchConnectMode("learn", {
-				[formB]: {
-					learn_module: {
-						id: "shared",
-						name: "Form B",
-						description: "Claimed while A was inactive",
-						time_estimate: 5,
+			session.getState().switchConnectMode(
+				"learn",
+				{
+					[formB]: {
+						learn_module: {
+							id: "form_b",
+							name: "Form B",
+							description: "Live content",
+							time_estimate: 5,
+						},
 					},
 				},
-			}),
+				NO_LOOKUPS,
+			),
+		).toEqual({ ok: true });
+		expect(
+			session.getState().switchConnectMode(
+				"learn",
+				{
+					[formB]: {
+						learn_module: {
+							id: "shared",
+							name: "Form B",
+							description: "Claimed while A was inactive",
+							time_estimate: 5,
+						},
+					},
+				},
+				NO_LOOKUPS,
+			),
 		).toEqual({ ok: true });
 
 		const exactStash = session.getState().connectStash.learn[formA];
@@ -825,10 +973,14 @@ describe("BuilderSession connect stash", () => {
 		if (!exactStash || !liveB) {
 			throw new Error("Expected exact stashed and live Connect blocks.");
 		}
-		const outcome = session.getState().switchConnectMode("learn", {
-			[formA]: exactStash,
-			[formB]: liveB,
-		});
+		const outcome = session.getState().switchConnectMode(
+			"learn",
+			{
+				[formA]: exactStash,
+				[formB]: liveB,
+			},
+			NO_LOOKUPS,
+		);
 
 		expect(outcome.ok).toBe(false);
 		expect(doc.getState().forms[formA]?.connect).toBeUndefined();
@@ -857,7 +1009,9 @@ describe("BuilderSession connect stash", () => {
 		const session = createBuilderSessionStore();
 		session.getState()._setDocStore(docStore);
 
-		const outcome = session.getState().switchConnectMode("learn");
+		const outcome = session
+			.getState()
+			.switchConnectMode("learn", undefined, NO_LOOKUPS);
 
 		expect(docStore.getState().formOrder[genesis.moduleUuid]).toEqual([
 			genesis.formUuid,
@@ -867,7 +1021,9 @@ describe("BuilderSession connect stash", () => {
 		expect(outcome.messages).not.toHaveLength(0);
 		expect(docStore.getState().connectType).toBeNull();
 		/* The always-valid OFF target remains an exact no-op. */
-		expect(session.getState().switchConnectMode(null)).toEqual({ ok: true });
+		expect(
+			session.getState().switchConnectMode(null, undefined, NO_LOOKUPS),
+		).toEqual({ ok: true });
 		expect(docStore.getState().connectType).toBeNull();
 	});
 
@@ -877,38 +1033,46 @@ describe("BuilderSession connect stash", () => {
 		 * set stops participating; an existing id round-trips unchanged so
 		 * Connect's slug never churns. */
 		const { session, doc, formA, formB } = createConnectTestStores();
-		session.getState().switchConnectMode("learn", {
-			[formA]: {
-				learn_module: {
-					id: "form_a",
-					name: "Form A",
-					description: "d",
-					time_estimate: 5,
+		session.getState().switchConnectMode(
+			"learn",
+			{
+				[formA]: {
+					learn_module: {
+						id: "form_a",
+						name: "Form A",
+						description: "d",
+						time_estimate: 5,
+					},
+				},
+				[formB]: {
+					learn_module: {
+						id: "form_b",
+						name: "Form B",
+						description: "d",
+						time_estimate: 5,
+					},
 				},
 			},
-			[formB]: {
-				learn_module: {
-					id: "form_b",
-					name: "Form B",
-					description: "d",
-					time_estimate: 5,
-				},
-			},
-		});
+			NO_LOOKUPS,
+		);
 		const idA = learnModule(doc.getState().forms[formA]?.connect)?.id;
 		expect(idA).toBeTruthy();
 		if (idA === undefined) throw new Error("Expected finalized Connect id");
 
-		const outcome = session.getState().switchConnectMode("learn", {
-			[formA]: {
-				learn_module: {
-					id: idA,
-					name: "Renamed",
-					description: "d",
-					time_estimate: 9,
+		const outcome = session.getState().switchConnectMode(
+			"learn",
+			{
+				[formA]: {
+					learn_module: {
+						id: idA,
+						name: "Renamed",
+						description: "d",
+						time_estimate: 9,
+					},
 				},
 			},
-		});
+			NO_LOOKUPS,
+		);
 
 		expect(outcome.ok).toBe(true);
 		expect(doc.getState().connectType).toBe("learn");
@@ -931,23 +1095,31 @@ describe("BuilderSession connect stash", () => {
 
 	it("11. an apply that already matches the doc commits nothing (no undo entry)", () => {
 		const { session, doc, formA } = createConnectTestStores();
-		session.getState().switchConnectMode("learn", {
-			[formA]: {
-				learn_module: {
-					id: "form_a",
-					name: "Form A",
-					description: "d",
-					time_estimate: 5,
+		session.getState().switchConnectMode(
+			"learn",
+			{
+				[formA]: {
+					learn_module: {
+						id: "form_a",
+						name: "Form A",
+						description: "d",
+						time_estimate: 5,
+					},
 				},
 			},
-		});
+			NO_LOOKUPS,
+		);
 		const before = doc.getState().canUndo ? 1 : 0;
 
 		/* Re-apply the doc's current state verbatim — no field changed. */
 		const current = doc.getState().forms[formA]?.connect;
-		const outcome = session.getState().switchConnectMode("learn", {
-			[formA]: current as NonNullable<typeof current>,
-		});
+		const outcome = session.getState().switchConnectMode(
+			"learn",
+			{
+				[formA]: current as NonNullable<typeof current>,
+			},
+			NO_LOOKUPS,
+		);
 
 		expect(outcome.ok).toBe(true);
 		expect(doc.getState().canUndo ? 1 : 0).toBe(before);
@@ -958,14 +1130,18 @@ describe("BuilderSession connect stash", () => {
 		/* Use deliver, then turn off — lastConnectType remembers deliver. */
 		session
 			.getState()
-			.switchConnectMode("deliver", stagedDeliverBlocks(formA, formB));
-		session.getState().switchConnectMode(null);
+			.switchConnectMode(
+				"deliver",
+				stagedDeliverBlocks(formA, formB),
+				NO_LOOKUPS,
+			);
+		session.getState().switchConnectMode(null, undefined, NO_LOOKUPS);
 		expect(session.getState().lastConnectType).toBe("deliver");
 
 		/* Enabling learn FROM OFF moves the manager's UI default to learn. */
 		session
 			.getState()
-			.switchConnectMode("learn", stagedLearnBlocks(formA, formB));
+			.switchConnectMode("learn", stagedLearnBlocks(formA, formB), NO_LOOKUPS);
 		expect(doc.getState().connectType).toBe("learn");
 		expect(session.getState().lastConnectType).toBe("learn");
 	});

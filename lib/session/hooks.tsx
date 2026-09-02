@@ -9,7 +9,7 @@
  */
 "use client";
 
-import { useContext, useMemo } from "react";
+import { useCallback, useContext, useMemo } from "react";
 import { useStore } from "zustand";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import type {
@@ -18,6 +18,7 @@ import type {
 } from "@/lib/deployment/workerProvisionPlan";
 import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
 import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import { docHasData } from "@/lib/doc/predicates";
 import type { CommitOutcome, ConnectConfig, ConnectType } from "@/lib/domain";
 import type { MediaKind } from "@/lib/domain/multimedia";
@@ -194,13 +195,22 @@ export function useSetSidebarOpen(): (
 /** Composite action: switch the app-level connect mode — one gated batch
  *  (`setConnectType` + each participating form's block), stash lifecycle
  *  included. Returns the commit outcome so the caller's UI can react to
- *  a rejection. See `BuilderSessionState.switchConnectMode`. */
+ *  a rejection. Binds the builder's live Project lookup context into the
+ *  gate, the same context every other builder write runs under, so a doc
+ *  that carries a lookup-backed select can still switch modes. See
+ *  `BuilderSessionState.switchConnectMode`. */
 export function useSwitchConnectMode(): (
 	type: ConnectType | null,
 	stagedBlocks?: Record<string, ConnectConfig>,
 	opts?: { announce?: boolean },
 ) => CommitOutcome {
-	return useBuilderSession((s) => s.switchConnectMode);
+	const switchConnectMode = useBuilderSession((s) => s.switchConnectMode);
+	const { lookupContext } = useLookupCommitState();
+	return useCallback(
+		(type, stagedBlocks, opts) =>
+			switchConnectMode(type, stagedBlocks, { ...opts, lookupContext }),
+		[switchConnectMode, lookupContext],
+	);
 }
 
 /** The last Connect mode the app was in before Connect was toggled off —

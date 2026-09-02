@@ -61,7 +61,7 @@ Collapsing a permanent 400 into `network` would wedge the batch (it never acks, 
 
 ### The collaborative undo gate verdicts the SAME delta the reconciler PUTs
 
-`undoRedoGateVerdict(displayed, batch)` runs the commit verdict on the recorded step's own batch — the exact mutations `undo()` / `redo()` will apply, and therefore the exact mutations the PUT will carry, because an undo goes through the ordinary write path and queues like any other edit. After a peer's committed change, applying an old step's inverse can leave the complete candidate invalid, so the gate refuses with the reason rather than letting the PUT 409 into a conflict reload.
+`undoRedoGateVerdict(displayed, batch, lookupContext)` runs the commit verdict on the recorded step's own batch — the exact mutations `undo()` / `redo()` will apply, and therefore the exact mutations the PUT will carry, because an undo goes through the ordinary write path and queues like any other edit. After a peer's committed change, applying an old step's inverse can leave the complete candidate invalid, so the gate refuses with the reason rather than letting the PUT 409 into a conflict reload. The hook supplies the builder's live Project lookup context (`useLookupCommitState`): the gate is absolute, so on a doc that carries a lookup-backed select an unavailable context would refuse every step, including one that never touched the lookup.
 
 ## Observability (two-channel rule)
 

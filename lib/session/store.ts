@@ -38,7 +38,7 @@ import {
 } from "@/lib/deployment/workerProvisionPlan";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { planConnectTargetState } from "@/lib/doc/connectTargetState";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { LookupValidationContext } from "@/lib/doc/lookupReferences";
 import { notifyRejectedCommit } from "@/lib/doc/mutations/notify";
 import { docHasData } from "@/lib/doc/predicates";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
@@ -110,6 +110,16 @@ export interface EditScrollMemory {
  *   - Chrome (`sidebars`) — layout visibility + stash for mode transitions.
  *   - Connect stash — learn↔deliver toggle preservation.
  */
+/** What `switchConnectMode` gates its planned batch under. */
+export interface ConnectSwitchGate {
+	/** The Project's lookup-definition context the commit verdict runs
+	 * against — the builder's live one, from `useLookupCommitState`. */
+	readonly lookupContext: LookupValidationContext;
+	/** `false` when the caller presents the rejection itself (the manager's
+	 * footer); otherwise a rejection announces through the error toast. */
+	readonly announce?: boolean;
+}
+
 export interface BuilderSessionState {
 	// ── Generation lifecycle ─────────────────────────────────────────────
 
@@ -579,11 +589,17 @@ export interface BuilderSessionState {
 	 *  nothing. A pass commits as one undo entry. A rejection announces via
 	 *  the error toast unless the caller opts out with `announce: false`
 	 *  because it presents the outcome itself (the manager's footer) — one
-	 *  rejection, one presentation. */
+	 *  rejection, one presentation.
+	 *
+	 *  `gate.lookupContext` is the Project's lookup-definition context the
+	 *  verdict runs under; `useSwitchConnectMode` binds the builder's live one.
+	 *  The gate is absolute, so on a doc that carries a lookup-backed select
+	 *  an unavailable context refuses every switch, which is why the store
+	 *  cannot default it. */
 	switchConnectMode: (
 		type: ConnectType | null,
-		desiredBlocks?: Record<string, ConnectConfig>,
-		opts?: { announce?: boolean },
+		desiredBlocks: Record<string, ConnectConfig> | undefined,
+		gate: ConnectSwitchGate,
 	) => CommitOutcome;
 
 	/** Get a single form's stashed connect config (does not remove it). */
@@ -1002,8 +1018,8 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 
 				switchConnectMode(
 					type: ConnectType | null,
-					desiredBlocks?: Record<string, ConnectConfig>,
-					opts?: { announce?: boolean },
+					desiredBlocks: Record<string, ConnectConfig> | undefined,
+					gate: ConnectSwitchGate,
 				): CommitOutcome {
 					if (!docStoreRef) return { ok: false, messages: [] };
 					const s = get();
@@ -1036,7 +1052,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 								},
 					);
 					if (!plan.ok) {
-						if (opts?.announce !== false) {
+						if (gate.announce !== false) {
 							notifyRejectedCommit([...plan.messages]);
 						}
 						return { ok: false, messages: [...plan.messages] };
@@ -1102,14 +1118,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					const verdict = mutationCommitVerdict(
 						docState,
 						plan.mutations,
-						LOOKUP_CONTEXT_UNAVAILABLE,
+						gate.lookupContext,
 					);
 					if (!verdict.ok) {
 						// Concise builder copy for both the toast and the returned
 						// outcome (the manager footer reads it); the SA keeps the
 						// verbose `ValidationError.message`.
 						const lines = userFacingErrors(verdict.findings);
-						if (opts?.announce !== false) {
+						if (gate.announce !== false) {
 							notifyRejectedCommit(lines);
 						}
 						return { ok: false, messages: lines };
