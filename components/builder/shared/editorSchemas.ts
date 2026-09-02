@@ -314,9 +314,8 @@ type PredicateOfKind<K extends Predicate["kind"]> = [
  * ...>`): adding a kind without an entry breaks the build.
  *
  * `icon` carries imported `IconifyIcon` data (the object literal
- * shape exported by `@iconify-icons/tabler/*` and the project's
- * `tablerExtras` file). Mirrors the `FieldKindMetadata` shape in
- * `lib/domain/kinds.ts`.
+ * shape exported by `@iconify-icons/tabler/*`). Mirrors the
+ * `FieldKindMetadata` shape in `lib/domain/kinds.ts`.
  */
 export interface PredicateCardSchema<K extends Predicate["kind"]> {
 	readonly kind: K;

@@ -20,9 +20,9 @@
 "use client";
 
 import { Icon } from "@iconify/react/offline";
+import tablerCredits from "@iconify-icons/tabler/credits";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import { useState } from "react";
-import { tablerCredits } from "@/components/icons/tablerExtras";
 import {
 	AlertDialog,
 	AlertDialogAction,

@@ -1,6 +1,6 @@
 import { Icon } from "@iconify/react/offline";
+import tablerCredits from "@iconify-icons/tabler/credits";
 import type { ComponentPropsWithRef } from "react";
-import { tablerCredits } from "@/components/icons/tablerExtras";
 import { cn } from "@/lib/utils";
 
 interface CreditAmountProps extends ComponentPropsWithRef<"span"> {

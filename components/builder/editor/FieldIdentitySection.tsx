@@ -25,6 +25,7 @@ import tablerArrowDown from "@iconify-icons/tabler/arrow-down";
 import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 import tablerArrowsExchange from "@iconify-icons/tabler/arrows-exchange";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
+import tablerCopyPlus from "@iconify-icons/tabler/copy-plus";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryContext";
@@ -34,7 +35,6 @@ import {
 	REJECTION_SURFACE_CLS,
 	RejectionBody,
 } from "@/components/builder/RejectionNotice";
-import { tablerCopyPlus } from "@/components/icons/tablerExtras";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
