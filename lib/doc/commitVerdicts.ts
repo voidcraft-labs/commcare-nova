@@ -7,9 +7,10 @@
  * rule family (field ids) to the whole validator: apply the batch to a
  * candidate doc, run the absolute whole-candidate gate
  * (`lib/commcare/validator/gate.ts::evaluateCommit`), and return a typed verdict.
- * One verdict, every caller — the SA/MCP tool layer
- * (`lib/agent/tools/common.ts::guardedMutate`) and the builder's
- * dispatch hook (`useBlueprintMutations`) consume the same function, so
+ * One verdict, every caller — the SA/MCP tool workspace
+ * (`lib/agent/workspace/canonicalWorkspace.ts::gateAdmittedBatch`, behind
+ * `lib/agent/tools/common.ts::guardedMutate`) and the builder's
+ * dispatch hook (`useBlueprintMutations`) consume the same composition, so
  * "rejected here, accepted there" can't drift between surfaces.
  *
  * Semantics live in the validator gate — the gating-class filter is never
@@ -491,6 +492,24 @@ export function prepareMutationCandidate(
 }
 
 /**
+ * Whether preparation stopped at an admission issue — an identity collision,
+ * a stale sequence anchor, an invalid target, or an unplannable rename. Such a
+ * candidate's verdict is that admission finding alone: the evaluator returns
+ * it before consulting the validator or the lookup context, so a caller that
+ * would otherwise pay for a Project definition read can skip it.
+ */
+export function preparedCandidateHasAdmissionIssue(
+	prepared: PreparedMutationCandidate,
+): boolean {
+	return (
+		prepared.identityAdmissionIssue !== undefined ||
+		prepared.sequenceAdmissionIssue !== undefined ||
+		prepared.targetAdmissionIssue === true ||
+		prepared.renamePlanIssue !== undefined
+	);
+}
+
+/**
  * Evaluate a prepared candidate without applying its mutations again. With no
  * explicit scope this is the absolute gate; a supplied scope is a dependency
  * footprint already proven by the Builder classifier.
@@ -658,12 +677,7 @@ export function mutationCommitVerdictWithPrevalidation(
 		lookupContext,
 		admitted,
 	);
-	if (
-		prepared.identityAdmissionIssue !== undefined ||
-		prepared.sequenceAdmissionIssue !== undefined ||
-		prepared.targetAdmissionIssue === true ||
-		prepared.renamePlanIssue !== undefined
-	) {
+	if (preparedCandidateHasAdmissionIssue(prepared)) {
 		// This returns the exact admission finding before reaching evaluateCommit.
 		return evaluatePreparedMutationCandidate(prepared, lookupContext);
 	}

@@ -22,11 +22,21 @@
 
 import { describe, expect, it, vi } from "vitest";
 import {
+	echoLookupDefinitions,
+	LOOKUP_SELECT_DOC,
+	lookupSelectDoc,
+	lookupTableDefinition,
 	makeCanonicalGenesisDoc,
 	makeToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import { replaceFieldOptionsSourceMutation } from "@/lib/doc/lookupOptionsSourceMutations";
 import type { Mutation } from "@/lib/doc/types";
+import {
+	type LookupTableId,
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import type { ToolInvocationContext } from "../types";
 
 function renameBatch(name: string): Mutation[] {
@@ -258,5 +268,94 @@ describe("ToolInvocationContext — no persistence bypass", () => {
 				expect(keys).not.toContain("consumeParkedNote");
 			},
 		});
+	});
+});
+
+/* Lookup-context union: the gate resolves definitions for the tables of the
+ * snapshot AND the candidate. A swap from table A to table B is the case that
+ * tells the three apart — the union asks for [A, B]; a snapshot-only gate asks
+ * for [A] (and calls B unavailable); a candidate-only gate asks for [B]. */
+const TABLE_A = lookupTableIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000a001",
+);
+const TABLE_B = lookupTableIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000a002",
+);
+const VALUE_COLUMN = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c001",
+);
+const LABEL_COLUMN = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c002",
+);
+const CATALOG = [TABLE_A, TABLE_B].map((id) =>
+	lookupTableDefinition({
+		id,
+		name: `Table ${id}`,
+		tag: "table",
+		columns: [
+			{ id: VALUE_COLUMN, wireName: "code", label: "Code" },
+			{ id: LABEL_COLUMN, wireName: "name", label: "Name" },
+		],
+	}),
+);
+
+function lookupSource(tableId: LookupTableId) {
+	return {
+		kind: "lookup" as const,
+		tableId,
+		valueColumnId: VALUE_COLUMN,
+		labelColumnId: LABEL_COLUMN,
+	};
+}
+
+function swapToTableB(): Mutation {
+	return replaceFieldOptionsSourceMutation(
+		LOOKUP_SELECT_DOC.selectUuid,
+		"single_select",
+		lookupSource(TABLE_B),
+	);
+}
+
+function makeLookupHarness() {
+	const lookupDefinitions = echoLookupDefinitions(CATALOG);
+	const h = makeToolWorkspaceHarness(lookupSelectDoc(lookupSource(TABLE_A)), {
+		lookupDefinitions,
+	});
+	return { h, lookupDefinitions };
+}
+
+describe("CanonicalMutationWorkspace — lookup context", () => {
+	it("applyBatch resolves definitions for the union of the snapshot's and the candidate's tables", async () => {
+		const { h, lookupDefinitions } = makeLookupHarness();
+
+		const out = await h.workspace.invoke({
+			toolName: "swap-table",
+			execute: (ctx) => ctx.applyBatch({ mutations: [swapToTableB()] }),
+		});
+
+		expect(out).toMatchObject({ ok: true });
+		expect(lookupDefinitions).toHaveBeenCalledTimes(1);
+		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE_A, TABLE_B]);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		expect(h.currentDoc().fields[LOOKUP_SELECT_DOC.selectUuid]).toMatchObject({
+			optionsSource: { kind: "lookup", tableId: TABLE_B },
+		});
+	});
+
+	it("applyStages resolves the same union", async () => {
+		const { h, lookupDefinitions } = makeLookupHarness();
+
+		const out = await h.workspace.invoke({
+			toolName: "swap-table-staged",
+			execute: (ctx) =>
+				ctx.applyStages({
+					stages: [{ stage: "swap", mutations: [swapToTableB()] }],
+				}),
+		});
+
+		expect(out).toMatchObject({ ok: true });
+		expect(lookupDefinitions).toHaveBeenCalledTimes(1);
+		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE_A, TABLE_B]);
+		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
 	});
 });

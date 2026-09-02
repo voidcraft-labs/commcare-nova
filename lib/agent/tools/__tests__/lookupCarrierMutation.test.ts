@@ -9,30 +9,39 @@
  * message, and it is invisible to any test that only parses input schemas or
  * only executes read tools, which is what the suite had.
  *
- * These execute the real tool bodies against a doc carrying a lookup-backed
- * select, through a context whose `lookupDefinitions` answers.
+ * These execute the real tool bodies through a context whose
+ * `lookupDefinitions` answers: against a doc that already carries a
+ * lookup-backed select, and against a doc whose FIRST lookup reference the
+ * call itself introduces. The second half is the case the gate must resolve
+ * from the candidate, not the snapshot — a snapshot with no lookup carrier
+ * yields no definitions to ask for, and a select can never be bound to a
+ * Project data table at all.
  */
 
-import { describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import {
-	hydratePersistedBlueprint,
-	toPersistableDoc,
-} from "@/lib/doc/fieldParent";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import { describe, expect, it } from "vitest";
+import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
-import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
-import type { CanonicalMutationHost } from "../../workspace/canonicalHost";
+import {
+	echoLookupDefinitions,
+	LOOKUP_SELECT_DOC,
+	lookupSelectDoc,
+	lookupTableDefinition,
+	makeToolWorkspaceHarness,
+} from "../../__tests__/fixtures";
+import { addFieldsTool } from "../addFields";
+import { setFieldOptionsSourceTool } from "../setFieldOptionsSource";
 import { updateModuleTool } from "../updateModule";
 
-const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
-const FORM = asUuid("22222222-2222-4222-8222-222222222222");
-const SELECT = asUuid("33333333-3333-4333-8333-333333333333");
+const {
+	moduleUuid: MODULE,
+	formUuid: FORM,
+	selectUuid: SELECT,
+} = LOOKUP_SELECT_DOC;
 
 const TABLE = lookupTableIdSchema.parse("01912d68-783e-7000-8000-00000000a001");
 const VALUE = lookupColumnIdSchema.parse(
@@ -41,69 +50,86 @@ const VALUE = lookupColumnIdSchema.parse(
 const LABEL = lookupColumnIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000c002",
 );
+/* A second table, lexically after TABLE: the gate's target set is sorted, so
+ * a union of both reads exactly `[TABLE, TABLE_B]`. */
+const TABLE_B = lookupTableIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000a002",
+);
+const VALUE_B = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c011",
+);
+const LABEL_B = lookupColumnIdSchema.parse(
+	"01912d68-783e-7000-8000-00000000c012",
+);
+
+const CATALOG = [
+	lookupTableDefinition({
+		id: TABLE,
+		name: "Referral destinations",
+		tag: "referral_destinations",
+		columns: [
+			{ id: VALUE, wireName: "code", label: "Code" },
+			{ id: LABEL, wireName: "name", label: "Name" },
+		],
+	}),
+	lookupTableDefinition({
+		id: TABLE_B,
+		name: "Facilities",
+		tag: "facilities",
+		columns: [
+			{ id: VALUE_B, wireName: "code", label: "Code" },
+			{ id: LABEL_B, wireName: "name", label: "Name" },
+		],
+	}),
+];
+
+const LOOKUP_SOURCE = {
+	kind: "lookup" as const,
+	tableId: TABLE,
+	valueColumnId: VALUE,
+	labelColumnId: LABEL,
+};
+
+const SECOND_LOOKUP_SOURCE = {
+	kind: "lookup" as const,
+	tableId: TABLE_B,
+	valueColumnId: VALUE_B,
+	labelColumnId: LABEL_B,
+};
 
 /** A doc whose select draws its choices from a Project data table. */
 function docWithLookupCarrier(): BlueprintDoc {
-	const doc = buildDoc({
-		modules: [
+	return lookupSelectDoc(LOOKUP_SOURCE);
+}
+
+/** The same form with inline choices: a doc with no lookup reference
+ *  anywhere — the fresh-app shape a first table binding starts from. */
+function docWithInlineSelect(): BlueprintDoc {
+	return lookupSelectDoc({
+		kind: "inline",
+		options: [
 			{
-				uuid: MODULE,
-				id: "referrals",
-				name: "Referrals",
-				forms: [
-					{
-						uuid: FORM,
-						id: "intake",
-						name: "Intake",
-						type: "survey",
-						fields: [
-							f({
-								uuid: SELECT,
-								kind: "single_select",
-								id: "destination",
-								label: proseText("Destination"),
-								optionsSource: {
-									kind: "lookup",
-									tableId: TABLE,
-									valueColumnId: VALUE,
-									labelColumnId: LABEL,
-								},
-							}),
-						],
-					},
-				],
+				uuid: asUuid("44444444-4444-4444-8444-444444444444"),
+				value: "clinic",
+				label: proseText("Clinic"),
+			},
+			{
+				uuid: asUuid("55555555-5555-4555-8555-555555555555"),
+				value: "hospital",
+				label: proseText("Hospital"),
 			},
 		],
 	});
-	return hydratePersistedBlueprint(toPersistableDoc(doc));
 }
 
 function makeHarness(
 	doc: BlueprintDoc,
 	options: { readonly answering: boolean },
 ) {
-	const lookupDefinitions = vi.fn(async (tableIds: readonly Uuid[]) => ({
-		projectId: "project-1",
-		projectRevision: 1,
-		definitions: tableIds.map(() => ({
-			id: TABLE,
-			name: "Referral destinations",
-			tag: "referral_destinations",
-			revision: 1,
-			columns: [
-				{ id: VALUE, wireName: "code", label: "Code", dataType: "text" },
-				{ id: LABEL, wireName: "name", label: "Name", dataType: "text" },
-			],
-		})),
-	}));
+	const lookupDefinitions = echoLookupDefinitions(CATALOG);
 	const h = makeToolWorkspaceHarness(doc, {
 		appId: "app-1",
-		...(options.answering
-			? {
-					lookupDefinitions:
-						lookupDefinitions as unknown as CanonicalMutationHost["lookupDefinitions"],
-				}
-			: {}),
+		...(options.answering ? { lookupDefinitions } : {}),
 	});
 	return { h, lookupDefinitions };
 }
@@ -138,5 +164,97 @@ describe("mutating a document that carries a lookup source", () => {
 		 * whole batch is refused. The point of the test above is that this is
 		 * reached only when the definitions genuinely cannot be read. */
 		expect(out.result).toHaveProperty("error");
+	});
+});
+
+describe("introducing a lookup reference", () => {
+	it("binds a select's first table through set_field_options_source", async () => {
+		const { h, lookupDefinitions } = makeHarness(docWithInlineSelect(), {
+			answering: true,
+		});
+
+		const out = await h.runTool(setFieldOptionsSourceTool, {
+			moduleUuid: MODULE,
+			formUuid: FORM,
+			fieldUuid: SELECT,
+			source: LOOKUP_SOURCE,
+		});
+
+		expect(out.result).not.toHaveProperty("error");
+		expect(h.currentDoc().fields[SELECT]).toMatchObject({
+			optionsSource: LOOKUP_SOURCE,
+		});
+		// The snapshot holds no lookup carrier; the table to resolve comes from
+		// the candidate alone. A gate that reads only the snapshot asks for
+		// nothing and refuses the reference as uncheckable.
+		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE]);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+	});
+
+	it("binds a new select's first table through add_fields", async () => {
+		const { h, lookupDefinitions } = makeHarness(docWithInlineSelect(), {
+			answering: true,
+		});
+
+		const out = await h.runTool(addFieldsTool, {
+			moduleUuid: MODULE,
+			formUuid: FORM,
+			fields: [
+				{
+					kind: "single_select",
+					id: "facility",
+					parentUuid: null,
+					label: proseText("Facility"),
+					optionsSource: LOOKUP_SOURCE,
+				},
+			],
+		});
+
+		expect(out.result).not.toHaveProperty("error");
+		const added = Object.values(h.currentDoc().fields).find(
+			(field) => field.id === "facility",
+		);
+		expect(added).toMatchObject({ optionsSource: LOOKUP_SOURCE });
+		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE]);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+	});
+
+	it("binds a second table on a doc already bound to another", async () => {
+		const { h, lookupDefinitions } = makeHarness(docWithLookupCarrier(), {
+			answering: true,
+		});
+
+		const out = await h.runTool(addFieldsTool, {
+			moduleUuid: MODULE,
+			formUuid: FORM,
+			fields: [
+				{
+					kind: "single_select",
+					id: "facility",
+					label: proseText("Facility"),
+					optionsSource: SECOND_LOOKUP_SOURCE,
+				},
+			],
+		});
+
+		expect(out.result).not.toHaveProperty("error");
+		// The union of the snapshot's table and the candidate's — a gate that
+		// resolves only the snapshot's would report the second table missing.
+		expect(lookupDefinitions).toHaveBeenCalledWith([TABLE, TABLE_B]);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+	});
+
+	it("still refuses a first binding when definitions cannot be read", async () => {
+		const { h } = makeHarness(docWithInlineSelect(), { answering: false });
+
+		const out = await h.runTool(setFieldOptionsSourceTool, {
+			moduleUuid: MODULE,
+			formUuid: FORM,
+			fieldUuid: SELECT,
+			source: LOOKUP_SOURCE,
+		});
+
+		expect(out.result).toHaveProperty("error");
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 });
