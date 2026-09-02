@@ -18,6 +18,25 @@ updates:
       # node:24) — type defs shouldn't run ahead of the engine they describe.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
+      # @ai-sdk/workflow 2.x makes the Workflow 5 runtime (`workflow`, still a
+      # beta) a required peer, which npm auto-installs together with ~150
+      # transitive packages, two of them carrying install scripts that the
+      # strict allow-scripts policy denies. Nova uses only the package's
+      # client `WorkflowChatTransport` and serves its resume contract from
+      # Postgres with no workflow runtime (app/api/chat/[streamId]/stream);
+      # that class is byte-identical on the 1.x and 2.x lines, so the major
+      # buys nothing and costs an unused runtime. A 3.x still gets a PR, as
+      # the natural point to re-evaluate.
+      - dependency-name: "@ai-sdk/workflow"
+        versions: ["2.x"]
+      # The React profiling harness exact-pins an audited agent-react-devtools
+      # release together with the react-devtools-core peer it was reviewed and
+      # tested with; postinstall hash-checks the audited bytes and fails
+      # closed. Any bump is a deliberate re-audit, not a version-update PR.
+      # The procedure lives in
+      # .agents/skills/nova-react-profiling/references/dependency-audit.md.
+      - dependency-name: "agent-react-devtools"
+      - dependency-name: "react-devtools-core"
     groups:
       # Roll all routine minor/patch bumps into one weekly PR instead of ~20.
       # Major bumps are deliberately left out so each lands as its own PR you
