@@ -4,8 +4,9 @@
  * Selection cardinality belongs to a Blueprint module, not to one form. A
  * form-and-queue or form-host module therefore affects every selected-record
  * or close form in that module, whether or not it has an authored WorkList. A
- * queue-only parent's selection is also carried into every same-record child
- * module, so those child forms share the same cardinality contract.
+ * queue-only parent's selection is also carried into each same-record child
+ * module with a case-loading form, so those child forms share the same
+ * cardinality contract without configuring unrelated viewer-only children.
  */
 
 import type {
