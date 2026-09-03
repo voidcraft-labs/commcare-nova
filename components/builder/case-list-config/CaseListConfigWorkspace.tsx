@@ -105,6 +105,7 @@ import {
 	type OrdinaryCaseSearchConfig,
 	type SearchInputDef,
 	type TileCell,
+	uuidSchema,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -1468,24 +1469,27 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				return { key: `candidate:${index}`, message };
 			}
 			const { location, details } = finding;
-			const operationUuid = details?.operationUuid as Uuid | undefined;
-			const linkUuid = details?.linkUuid as Uuid | undefined;
+			const parsedOperationUuid = uuidSchema.safeParse(details?.operationUuid);
+			const operationUuid = parsedOperationUuid.success
+				? parsedOperationUuid.data
+				: undefined;
+			const parsedLinkUuid = uuidSchema.safeParse(details?.linkUuid);
+			const linkUuid = parsedLinkUuid.success ? parsedLinkUuid.data : undefined;
 			const surface = details?.surface;
+			const { moduleUuid: findingModuleUuid, formUuid: findingFormUuid } =
+				location;
 			const targetName =
 				location.fieldId ??
 				location.formName ??
 				location.moduleName ??
 				"this item";
 			let onOpen: (() => void) | undefined;
-			if (
-				location.moduleUuid !== undefined &&
-				location.formUuid !== undefined
-			) {
+			if (findingModuleUuid !== undefined && findingFormUuid !== undefined) {
 				if (operationUuid !== undefined) {
 					onOpen = () =>
 						navigate.openFormOperations(
-							location.moduleUuid as Uuid,
-							location.formUuid as Uuid,
+							findingModuleUuid,
+							findingFormUuid,
 							operationUuid,
 						);
 				} else if (
@@ -1496,8 +1500,8 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				) {
 					onOpen = () =>
 						navigate.openFormLinks(
-							location.moduleUuid as Uuid,
-							location.formUuid as Uuid,
+							findingModuleUuid,
+							findingFormUuid,
 							linkUuid,
 						);
 				} else if (
@@ -1505,20 +1509,17 @@ function useController(target: CaseListWorkspaceTarget | null) {
 					surface === "form_display_condition"
 				) {
 					onOpen = () =>
-						navigate.openFormCondition(
-							location.moduleUuid as Uuid,
-							location.formUuid as Uuid,
-						);
+						navigate.openFormCondition(findingModuleUuid, findingFormUuid);
 				} else {
 					onOpen = () =>
 						navigate.openForm(
-							location.moduleUuid as Uuid,
-							location.formUuid as Uuid,
+							findingModuleUuid,
+							findingFormUuid,
 							location.fieldUuid,
 						);
 				}
-			} else if (location.moduleUuid !== undefined) {
-				onOpen = () => navigate.openModule(location.moduleUuid as Uuid);
+			} else if (findingModuleUuid !== undefined) {
+				onOpen = () => navigate.openModule(findingModuleUuid);
 			}
 			return {
 				key: `${finding.code}:${index}`,
