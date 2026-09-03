@@ -59,9 +59,10 @@ export interface SubmissionCaseSeed {
  *
  *   - `registration` — insert the primary plus every child. Children take the
  *     primary's generated id as `parent_case_id` and never carry their own.
- *   - `followup` / `close` — update the bound case, insert each child
- *     with its pre-bound `parentCaseId`; `close` stamps the lifecycle
- *     transition LAST, after every property write.
+ *   - `followup` / `close` — apply one admitted patch to every bound case
+ *     in selection order, insert each child with its pre-bound
+ *     `parentCaseId`; `close` stamps the lifecycle transition LAST, after
+ *     every property write.
  *   - `none` — a submission with no ordinary case effect (a survey
  *     form, or a future operations-only submission).
  */

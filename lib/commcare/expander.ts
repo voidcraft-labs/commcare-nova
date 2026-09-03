@@ -58,7 +58,10 @@ import {
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/predicate";
 import { buildConnectSlugMap } from "./connectSlugs";
-import { buildCaseReferencesLoad } from "./formActions";
+import {
+	buildCaseReferencesLoad,
+	buildPrimaryCaseUpdateMap,
+} from "./formActions";
 import {
 	formLinkProjectionContext,
 	moduleCaseTypeForActions,
@@ -264,6 +267,17 @@ export function expandDoc(
 			);
 			const ownCaseDatumId = ownCaseDatum?.id;
 			const formActions = linkContext.formActions(formUuid);
+			const multipleCaseDatum =
+				ownCaseDatum?.maxSelectValue === undefined ? undefined : ownCaseDatum;
+			const multiSelectPrimaryUpdate =
+				multipleCaseDatum === undefined
+					? {}
+					: buildPrimaryCaseUpdateMap(
+							doc,
+							formUuid,
+							mod.caseType,
+							opts.attachmentTarget ?? null,
+						);
 
 			attachments[`${formUniqueId}.xml`] = buildXForm(doc, formUuid, {
 				xmlns,
@@ -275,16 +289,18 @@ export function expandDoc(
 					ownCaseDatum?.maxSelectValue === undefined && {
 						selectedCaseIdRef: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
 					}),
-				...(ownCaseDatumId !== undefined &&
-					ownCaseDatum?.maxSelectValue !== undefined && {
-						selectedCasesInstanceId: ownCaseDatumId,
-						...(form.type === "close" && {
-							multiSelectCloseCondition: formActions.close_case.condition,
-						}),
-						...(formActions.subcases.length > 0 && {
-							multiSelectSubcases: formActions.subcases,
-						}),
+				...(multipleCaseDatum !== undefined && {
+					selectedCasesInstanceId: multipleCaseDatum.id,
+					...(Object.keys(multiSelectPrimaryUpdate).length > 0 && {
+						multiSelectPrimaryUpdate,
 					}),
+					...(form.type === "close" && {
+						multiSelectCloseCondition: formActions.close_case.condition,
+					}),
+					...(formActions.subcases.length > 0 && {
+						multiSelectSubcases: formActions.subcases,
+					}),
+				}),
 				...(effectiveConnect && { connect: effectiveConnect }),
 				...(assets && { assets }),
 				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),

@@ -63,6 +63,7 @@ import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	caseSelectionCanFlowBetweenModules,
+	caseSelectionCardinality,
 	deriveCaseWriteInventory,
 	type FormLink,
 	type FormLinkTarget,
@@ -212,6 +213,9 @@ export function formLinkProjectionContext(
 					? undefined
 					: moduleCaseTypeForActions(doc, moduleUuid),
 				opts.attachmentTarget ?? null,
+				moduleUuid === undefined
+					? "single"
+					: caseSelectionCardinality(doc.modules[moduleUuid]),
 			);
 			cache.set(formUuid, built);
 			return built;

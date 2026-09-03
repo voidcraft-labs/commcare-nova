@@ -69,6 +69,7 @@ import {
 import type {
 	FormActionCondition,
 	OpenSubCaseAction,
+	UpdateCaseAction,
 } from "@/lib/commcare/types";
 import {
 	UPLOAD_APPEARANCE_BY_CAPTURE_KIND,
@@ -450,6 +451,8 @@ export interface BuildXFormOptions {
 	selectedCasesInstanceId?: string;
 	/** Ordinary close action lowered through the selected-case iteration. */
 	multiSelectCloseCondition?: FormActionCondition;
+	/** Ordinary primary writes lowered through the selected-case iteration. */
+	multiSelectPrimaryUpdate?: UpdateCaseAction["update"];
 	/** Ordinary child creates lowered through the selected-case iteration. */
 	multiSelectSubcases?: readonly OpenSubCaseAction[];
 	/**
@@ -759,6 +762,7 @@ export function buildXForm(
 		opts.selectedCaseIdRef,
 		opts.selectedCasesInstanceId,
 		opts.multiSelectCloseCondition,
+		opts.multiSelectPrimaryUpdate,
 		opts.multiSelectSubcases,
 	);
 	if (caseOperations !== null) {

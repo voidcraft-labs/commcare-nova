@@ -49,6 +49,7 @@ import { createStore, type StoreApi } from "zustand/vanilla";
 import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDocState } from "@/lib/doc/store";
 import {
+	caseSelectionCardinality,
 	type Field,
 	type Form,
 	fieldCaseWrite,
@@ -249,6 +250,8 @@ function buildEngineInput(
 ): FormEngineInput | undefined {
 	const form = state.forms[formUuid];
 	if (!form) return undefined;
+	const moduleUuid = findModuleForForm(state, formUuid);
+	const mod = moduleUuid === undefined ? undefined : state.modules[moduleUuid];
 	return {
 		form: form as Form,
 		formUuid,
@@ -264,6 +267,8 @@ function buildEngineInput(
 					),
 		fieldOrder: state.fieldOrder as unknown as Record<string, Uuid[]>,
 		caseTypes: materializableCaseTypes(state),
+		caseSelectionCardinality:
+			mod === undefined ? "single" : caseSelectionCardinality(mod),
 		userProperties: state.userProperties,
 	};
 }
@@ -2576,7 +2581,7 @@ export class EngineController {
 		this.unsubscribers.push(unsub);
 	}
 
-	/** Metadata subscription — form type or module case type changes. */
+	/** Metadata subscription — form type, module case type, or case cardinality changes. */
 	private setupMetadataSubscription(): void {
 		if (!this.docStore) return;
 		const store = this.docStore;
@@ -2589,16 +2594,41 @@ export class EngineController {
 					? findModuleForForm(s, formUuid)
 					: undefined;
 				const mod = moduleUuid ? s.modules[moduleUuid] : undefined;
-				return `${form?.type}|${mod?.caseType}`;
+				return {
+					formType: form?.type,
+					caseType: mod?.caseType,
+					caseSelectionCardinality:
+						mod === undefined ? "single" : caseSelectionCardinality(mod),
+				};
 			},
-			() => {
+			(current, previous) => {
 				const formUuid = this.activeFormUuid;
 				if (formUuid !== undefined) {
+					if (
+						current.caseSelectionCardinality !==
+						previous.caseSelectionCardinality
+					) {
+						/* Cardinality changes the answer world's initialization semantics.
+						 * Rebuilding clears an untouched one-case preload before Several
+						 * becomes visible, while preserving answers the worker actually
+						 * entered through the controller's touched-only snapshot. */
+						if (this.xpathRuntime !== undefined) {
+							this.rebuildActiveFormAsync(formUuid, this.activeCaseData).catch(
+								() => undefined,
+							);
+						} else {
+							this.contain("document-update", formUuid, undefined, () =>
+								this.rebuildActiveForm(formUuid, this.activeCaseData),
+							);
+						}
+						return;
+					}
 					this.contain("document-update", formUuid, undefined, () =>
 						this.onMetadataChanged(),
 					);
 				}
 			},
+			{ equalityFn: shallow },
 		);
 
 		this.unsubscribers.push(unsub);

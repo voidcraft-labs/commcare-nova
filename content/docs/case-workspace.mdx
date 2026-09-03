@@ -183,11 +183,14 @@ Use several-case selection only when a follow-up or close form can run over the
 complete set. That form can belong to the module itself. A case-list-only parent
 can also carry the set into a child that uses the same case type, also chooses
 Several cases, allows at least the parent's maximum, and has the form. The form
-submits once. Its explicit case changes run for every selected case, and a
-failure leaves every case unchanged. Nova refuses a form that tries to preload
-one case value into a shared answer or save one shared answer through the
-ordinary one-case wiring, because the selected cases may not start with the
-same value. Model those effects as explicit case changes instead.
+submits once. A question that saves to the selected case starts blank instead
+of borrowing a value from one case. Each nonblank answer is saved to every
+selected case, while leaving it blank preserves each case's existing value. A
+configured starting answer counts as an answer and is also saved to every
+selected case. An attachment answer is saved when the submitted form provides
+its stored file link. Preview does not invent that link, so trying the form
+there leaves an attachment destination unchanged. Explicit case changes run
+for every selected case too, and any failure leaves every case unchanged.
 
 When a child uses a related case type, Results combines the direct children of
 every selected parent before the worker makes the child's own selection.

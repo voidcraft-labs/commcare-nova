@@ -272,17 +272,19 @@ consumes it. A form-less case-list-only root may hand the complete set to its
 one-tier structural child only when `caseSelectionCanFlowBetweenModules`
 proves the same case type and cardinality plus a child maximum at least as
 large, and that child owns the consumer. The validator rejects every other
-terminal informational case list and any
-batch-consuming form whose ordinary field wiring preloads or writes the loaded
-primary case; one answer cannot stand for several existing values. Explicit
-session-targeted case operations instead carry the multiplicity: the selected
-case is the current operation iteration, authored repeats remain the outer
-axis, and the selected-case order is the inner axis. App-level effects still run
-once. Selected-case reads are operation-local and invalid in shared form logic
-or after-submit conditions. The same shared authored-shape proof governs
-direct links and structural menu inheritance; runtime selected count never
-weakens it. The document never stores a selected case id or selected set;
-those are running-session facts.
+terminal informational case list and any batch-consuming form that reads one
+selected case in shared form logic. An ordinary primary destination is
+different: it starts without a case preload, then applies its one shared
+nonblank answer to every selected case. A blank answer preserves every existing
+value; an authored default or calculation is a real shared answer and therefore
+applies to the complete set. Explicit session-targeted case operations also
+carry the multiplicity: the selected case is the current operation iteration,
+authored repeats remain the outer axis, and the selected-case order is the
+inner axis. App-level effects still run once. Selected-case reads are
+operation-local and invalid in shared form logic or after-submit conditions.
+The same shared authored-shape proof governs direct links and structural menu
+inheritance; runtime selected count never weakens it. The document never stores
+a selected case id or selected set; those are running-session facts.
 
 ## Organization shape
 
