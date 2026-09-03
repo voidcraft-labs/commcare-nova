@@ -43,6 +43,7 @@ export interface CaseSelectionReviewDialogProps {
 	readonly startingAnswers: readonly CaseSelectionStartingAnswer[];
 	readonly attachmentAnswers: readonly CaseSelectionAttachmentAnswer[];
 	readonly blockers: readonly CaseSelectionReviewBlocker[];
+	readonly refreshNotice?: string;
 	readonly finalFocus: () => HTMLElement | null;
 	readonly onCancel: () => void;
 	readonly onConfirm: () => void;
@@ -67,6 +68,7 @@ export function CaseSelectionReviewDialog({
 	startingAnswers,
 	attachmentAnswers,
 	blockers,
+	refreshNotice,
 	finalFocus,
 	onCancel,
 	onConfirm,
@@ -89,7 +91,7 @@ export function CaseSelectionReviewDialog({
 				: "Return to one case at a time?"
 			: "Change how many cases people can choose?";
 	const description = blocked
-		? "Nothing has changed. Fix one item below, then try this change again. Use Open when Nova can take you to the exact place."
+		? "Nothing has changed. Each item below explains what needs attention. When an item has a matching editor, you can open it here. Once these items are resolved, this setting will be available."
 		: several
 			? `People will choose ${selectionDescription(requested)} and complete the form once with one shared set of answers for every case they chose.`
 			: "People will choose one case. Its saved information will fill the form, and submitting the form will update only that case.";
@@ -128,6 +130,17 @@ export function CaseSelectionReviewDialog({
 				</AlertDialogHeader>
 
 				<AlertDialogBody>
+					<p
+						role="alert"
+						aria-atomic="true"
+						className={
+							refreshNotice === undefined
+								? "sr-only"
+								: "mb-3 rounded-xl border border-nova-amber/25 bg-nova-amber/[0.05] p-3 text-[13px] leading-5 text-nova-text-secondary"
+						}
+					>
+						{refreshNotice ?? ""}
+					</p>
 					{blocked ? (
 						<ul className="space-y-2">
 							{blockers.map((blocker) => (

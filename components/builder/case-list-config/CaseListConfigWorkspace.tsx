@@ -181,6 +181,9 @@ import {
 } from "./workspaceProjection";
 import type { WorkspaceSelection } from "./workspaceSelection";
 
+const CASE_SELECTION_REVIEW_REFRESHED =
+	"The workflow changed while this review was open. I refreshed the details below for another look before you confirm.";
+
 const SearchPanelInspectorBody = dynamic<SearchPanelInspectorBodyProps>(
 	() =>
 		import("./inspector/SearchPanelInspectorBody").then(
@@ -221,6 +224,7 @@ interface CaseSelectionReviewSession {
 	readonly startingAnswers: readonly CaseSelectionStartingAnswer[];
 	readonly attachmentAnswers: readonly CaseSelectionAttachmentAnswer[];
 	readonly blockers: readonly CaseSelectionReviewBlocker[];
+	readonly refreshNotice?: string;
 }
 
 function fieldsUnder(
@@ -1536,6 +1540,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			next: CaseListConfig["selection"],
 			captureOrigin: boolean,
 			origin?: HTMLElement,
+			refreshed: boolean = false,
 		) => {
 			if (moduleUuid === undefined) return;
 			if (captureOrigin) {
@@ -1574,6 +1579,9 @@ function useController(target: CaseListWorkspaceTarget | null) {
 					startingAnswers: [],
 					attachmentAnswers: [],
 					blockers: plan.blockers.map(plannerReviewBlocker),
+					...(refreshed && {
+						refreshNotice: CASE_SELECTION_REVIEW_REFRESHED,
+					}),
 				});
 				return;
 			}
@@ -1601,6 +1609,9 @@ function useController(target: CaseListWorkspaceTarget | null) {
 					blockers: reviewed.messages.map((message, index) =>
 						commitReviewBlocker(message, reviewed.findings?.[index], index),
 					),
+					...(refreshed && {
+						refreshNotice: CASE_SELECTION_REVIEW_REFRESHED,
+					}),
 				});
 				return;
 			}
@@ -1634,6 +1645,9 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				startingAnswers: consequences.startingAnswers,
 				attachmentAnswers: consequences.attachmentAnswers,
 				blockers: [],
+				...(refreshed && {
+					refreshNotice: CASE_SELECTION_REVIEW_REFRESHED,
+				}),
 			});
 		},
 		[
@@ -1656,7 +1670,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			confirmedModuleUuids: review.confirmedModuleUuids,
 		});
 		if (plan.kind !== "ready") {
-			prepareCaseSelectionReview(review.requested, false);
+			prepareCaseSelectionReview(review.requested, false, undefined, true);
 			return;
 		}
 		const sourceSelection =
@@ -1672,16 +1686,16 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			!deepEqual(consequences.startingAnswers, review.startingAnswers) ||
 			!deepEqual(consequences.attachmentAnswers, review.attachmentAnswers)
 		) {
-			prepareCaseSelectionReview(review.requested, false);
+			prepareCaseSelectionReview(review.requested, false, undefined, true);
 			return;
 		}
 		const checked = inline.reviewMany([...plan.mutations]);
 		if (!checked.ok) {
-			prepareCaseSelectionReview(review.requested, false);
+			prepareCaseSelectionReview(review.requested, false, undefined, true);
 			return;
 		}
 		if (!inline.commitMany([...plan.mutations]).ok) {
-			prepareCaseSelectionReview(review.requested, false);
+			prepareCaseSelectionReview(review.requested, false, undefined, true);
 			return;
 		}
 		setCaseSelectionReview(null);
@@ -2393,6 +2407,7 @@ export function CaseListWorkspaceCanvas() {
 					startingAnswers={caseSelectionReview.startingAnswers}
 					attachmentAnswers={caseSelectionReview.attachmentAnswers}
 					blockers={caseSelectionReview.blockers}
+					refreshNotice={caseSelectionReview.refreshNotice}
 					finalFocus={caseSelectionFinalFocus}
 					onCancel={cancelCaseSelectionReview}
 					onConfirm={confirmCaseSelection}

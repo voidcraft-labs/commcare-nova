@@ -798,6 +798,9 @@ describe("Search field removal", () => {
 		expect(
 			screen.getByText(/Phone number.*has a starting answer or calculation/),
 		).toBeDefined();
+		expect(screen.getByRole("alert").textContent).toContain(
+			"I refreshed the details below",
+		);
 		expect(
 			screen.getByRole("button", { name: "Use several cases" }),
 		).toBeDefined();

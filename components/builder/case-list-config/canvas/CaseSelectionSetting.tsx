@@ -41,11 +41,17 @@ export function CaseSelectionSetting({
 	const peerChanged = committedMaximum !== maximumBase;
 
 	useEffect(() => {
+		if (!multiple) {
+			setMaximumDraft(committedMaximum);
+			setMaximumBase(committedMaximum);
+			setMaximumProblem(null);
+			return;
+		}
 		if (committedMaximum === maximumBase || dirty) return;
 		setMaximumDraft(committedMaximum);
 		setMaximumBase(committedMaximum);
 		setMaximumProblem(null);
-	}, [committedMaximum, dirty, maximumBase]);
+	}, [committedMaximum, dirty, maximumBase, multiple]);
 
 	const commitMaximum = (origin: HTMLElement) => {
 		if (peerChanged) {

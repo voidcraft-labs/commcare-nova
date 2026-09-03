@@ -117,7 +117,7 @@ describe("CaseSelectionReviewDialog", () => {
 		).toBeDefined();
 		expect(
 			screen.getByText(
-				"Nothing has changed. Fix one item below, then try this change again. Use Open when Nova can take you to the exact place.",
+				"Nothing has changed. Each item below explains what needs attention. When an item has a matching editor, you can open it here. Once these items are resolved, this setting will be available.",
 			),
 		).toBeDefined();
 		expect(
@@ -127,6 +127,35 @@ describe("CaseSelectionReviewDialog", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Open Visit's link" }));
 		expect(onOpen).toHaveBeenCalledOnce();
 		expect(onConfirm).not.toHaveBeenCalled();
+	});
+
+	it("announces when concurrent edits refresh the review", async () => {
+		const baseProps = {
+			sourceModuleUuid: SOURCE_MODULE_UUID,
+			current: undefined,
+			requested: { kind: "multiple" as const, maximum: 12 },
+			transitions,
+			startingAnswers: [],
+			attachmentAnswers: [],
+			blockers: [],
+			finalFocus: () => null,
+			onCancel: vi.fn(),
+			onConfirm: vi.fn(),
+		};
+		const { rerender } = render(<CaseSelectionReviewDialog {...baseProps} />);
+		await settleBaseUiTransitions();
+		const alert = screen.getByRole("alert");
+		expect(alert.textContent).toBe("");
+
+		rerender(
+			<CaseSelectionReviewDialog
+				{...baseProps}
+				refreshNotice="The workflow changed while this review was open. I refreshed the details below for another look before you confirm."
+			/>,
+		);
+		expect(screen.getByRole("alert").textContent).toContain(
+			"I refreshed the details below",
+		);
 	});
 
 	it("explains the return to one case before confirming it", async () => {

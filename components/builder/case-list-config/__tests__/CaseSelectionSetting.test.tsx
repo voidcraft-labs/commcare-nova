@@ -165,4 +165,38 @@ describe("CaseSelectionSetting", () => {
 		fireEvent.keyDown(input, { key: "Escape" });
 		expect(input.value).toBe("18");
 	});
+
+	it("drops an invalid draft after returning to one case", () => {
+		const onChange = vi.fn();
+		const { rerender } = render(
+			<CaseSelectionSetting
+				value={{ kind: "multiple", maximum: 12 }}
+				canEdit
+				onChange={onChange}
+			/>,
+		);
+		const input = screen.getByLabelText(
+			"Most cases a worker can choose",
+		) as HTMLInputElement;
+		fireEvent.change(input, { target: { value: "101" } });
+		fireEvent.blur(input);
+		expect(screen.getByRole("alert")).toBeDefined();
+
+		rerender(
+			<CaseSelectionSetting value={undefined} canEdit onChange={onChange} />,
+		);
+		rerender(
+			<CaseSelectionSetting
+				value={{ kind: "multiple", maximum: 100 }}
+				canEdit
+				onChange={onChange}
+			/>,
+		);
+
+		const restored = screen.getByLabelText(
+			"Most cases a worker can choose",
+		) as HTMLInputElement;
+		expect(restored.value).toBe("100");
+		expect(restored.hasAttribute("aria-invalid")).toBe(false);
+	});
 });
