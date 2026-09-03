@@ -58,6 +58,34 @@ function addFormLinkSources(doc: BlueprintDoc, scope: MutableScope): void {
 	}
 }
 
+/** Selection changes alter four bounded validator dependencies: the edited
+ * module's own topology, its direct parent's child-consumer topology, every
+ * form the edited module owns, and every source form whose link may target the
+ * edited module. The document snapshot is valid before the edit, so any
+ * missing structural owner makes the footprint unprovable and falls back to
+ * the absolute gate. */
+function addCaseSelectionDependencies(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	scope: MutableScope,
+): boolean {
+	const module = doc.modules[moduleUuid];
+	if (module === undefined) return false;
+
+	scope.moduleUuids.add(moduleUuid);
+	if (module.parentModuleUuid !== undefined) {
+		if (doc.modules[module.parentModuleUuid] === undefined) return false;
+		scope.moduleUuids.add(module.parentModuleUuid);
+	}
+
+	for (const formUuid of doc.formOrder[moduleUuid] ?? []) {
+		if (doc.forms[formUuid] === undefined) return false;
+		scope.formUuids.add(formUuid);
+	}
+	addFormLinkSources(doc, scope);
+	return true;
+}
+
 function addFieldForm(
 	doc: BlueprintDoc,
 	fieldUuid: Uuid,
@@ -121,6 +149,16 @@ export function incrementalValidationScope(
 				scope.moduleUuids.add(mutation.moduleUuid);
 				break;
 			case "setCaseListMeta":
+				if (
+					Object.hasOwn(mutation.patch, "selection") &&
+					!addCaseSelectionDependencies(doc, mutation.uuid, scope)
+				) {
+					return undefined;
+				}
+				if (!Object.hasOwn(mutation.patch, "selection")) {
+					scope.moduleUuids.add(mutation.uuid);
+				}
+				break;
 			case "setModuleMedia":
 				scope.moduleUuids.add(mutation.uuid);
 				break;

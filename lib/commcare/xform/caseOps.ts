@@ -15,7 +15,10 @@ import { findOne } from "domutils";
 import { emitCasePropertyWirePath } from "@/lib/commcare/casePropertyWire";
 import { el } from "@/lib/commcare/elementBuilders";
 import { emitOnDeviceExpression } from "@/lib/commcare/expression/onDeviceEmitter";
-import { validateXFormPath } from "@/lib/commcare/identifierValidation";
+import {
+	validatePropertyName,
+	validateXFormPath,
+} from "@/lib/commcare/identifierValidation";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitter";
 import {
@@ -32,6 +35,7 @@ import type {
 import type {
 	FormActionCondition,
 	OpenSubCaseAction,
+	UpdateCaseAction,
 } from "@/lib/commcare/types";
 import { descendFormPathIntoField } from "@/lib/commcare/xform/formPath";
 import { xpathStringLiteral } from "@/lib/commcare/xpath/stringLiteral";
@@ -65,6 +69,7 @@ import { FormPath } from "./formPath";
 const CASE_TRANSACTION_XMLNS = "http://commcarehq.org/case/transaction/v2";
 const OPERATIONS_CONTAINER = "__nova_operations";
 const SELECTED_CASES_CONTAINER = "__nova_selected_cases";
+const SELECTED_CASES_UPDATE = "__nova_update_selected_cases";
 const SELECTED_CASES_CLOSE = "__nova_close_selected_cases";
 const SESSION_CASE_ID = "instance('commcaresession')/session/data/case_id";
 const META_TIME_END = "/data/meta/timeEnd";
@@ -158,6 +163,7 @@ export function buildCaseOperations(
 	selectedCaseIdRef: string = SESSION_CASE_ID,
 	selectedCasesInstanceId?: string,
 	ordinaryCloseCondition?: FormActionCondition,
+	ordinaryPrimaryUpdate: UpdateCaseAction["update"] = {},
 	ordinarySubcases: readonly OpenSubCaseAction[] = [],
 ): CaseOperationsEmission | null {
 	const form = doc.forms[formUuid];
@@ -165,6 +171,7 @@ export function buildCaseOperations(
 	if (
 		operations.length === 0 &&
 		ordinaryCloseCondition === undefined &&
+		Object.keys(ordinaryPrimaryUpdate).length === 0 &&
 		ordinarySubcases.length === 0
 	)
 		return null;
@@ -841,6 +848,150 @@ export function buildCaseOperations(
 			itemPath: location.parentPath,
 			idPath: location.selectedCaseIdPath,
 		});
+	}
+
+	// An ordinary Case destination on a several-case form is one shared answer
+	// applied to every selected case. HQ's scalar FormActions projection cannot
+	// express that cardinality, so the source XForm carries one derived
+	// SaveToCase wrapper after all authored operations and before ordinary child
+	// creation/close. No persisted operation is invented in BlueprintDoc.
+	if (
+		selectedCasesInstanceId !== undefined &&
+		Object.keys(ordinaryPrimaryUpdate).length > 0
+	) {
+		const authoredParentPath = FormPath.root();
+		const containerPath = authoredParentPath.child(SELECTED_CASES_CONTAINER);
+		const itemPath = containerPath.queryBoundIteration();
+		const idPath = itemPath.attr("id");
+		selectedScopes.set(authoredParentPath.toXPath(), {
+			authoredParentPath,
+			itemPath,
+			idPath,
+		});
+
+		const wrapperPath = itemPath
+			.child(OPERATIONS_CONTAINER)
+			.child(SELECTED_CASES_UPDATE);
+		const casePath = wrapperPath.child("case");
+		const updatePath = casePath.child("update");
+		const attachmentPath = casePath.child("attachment");
+		const groupKey = itemPath.toXPath();
+		const group = groups.get(groupKey) ?? {
+			parentPath: itemPath,
+			wrappers: [],
+		};
+
+		const writes = Object.entries(ordinaryPrimaryUpdate).map(
+			([formActionsProperty, mapping]) => {
+				const property = validatePropertyName(
+					formActionsProperty === "name" ? "case_name" : formActionsProperty,
+				);
+				const source = validateXFormPath(mapping.question_path);
+				const attachment = attachmentSourcePaths.has(source);
+				const fixedScalar =
+					property === "case_name" || property === "external_id";
+				const value = fixedScalar
+					? caseScalarTextValueCalculation(source)
+					: source;
+				const countGuard = attachment
+					? `count(${source}) = 1`
+					: `count(${source}) > 0`;
+				const present = `${countGuard} and string(${value}) != ''`;
+				return { property, source, attachment, fixedScalar, value, present };
+			},
+		);
+		const scalarWrites = writes.filter((write) => !write.attachment);
+		const attachmentWrites = writes.filter((write) => write.attachment);
+
+		group.wrappers.push(
+			el(
+				SELECTED_CASES_UPDATE,
+				{
+					"vellum:role": "SaveToCase",
+					...(moduleCaseType !== undefined && {
+						"vellum:case_type": moduleCaseType,
+					}),
+				},
+				[
+					el(
+						"case",
+						{
+							case_id: "",
+							date_modified: "",
+							user_id: "",
+							xmlns: CASE_TRANSACTION_XMLNS,
+						},
+						[
+							el(
+								"update",
+								{},
+								scalarWrites.map((write) => el(write.property, {})),
+							),
+							...(attachmentWrites.length === 0
+								? []
+								: [
+										el(
+											"attachment",
+											{},
+											attachmentWrites.map((write) =>
+												el(write.property, { src: "", from: "local" }),
+											),
+										),
+									]),
+						],
+					),
+				],
+			),
+		);
+		groups.set(groupKey, group);
+
+		const wrapperRelevance = writes
+			.map((write) => `(${write.present})`)
+			.join(" or ");
+		binds.push(
+			el("bind", {
+				nodeset: wrapperPath.toXPath(),
+				relevant: wrapperRelevance,
+			}),
+			el("bind", {
+				nodeset: casePath.attr("case_id").toXPath(),
+				calculate: originalContextPath(casePath.attr("case_id"), idPath),
+			}),
+			el("bind", {
+				nodeset: casePath.attr("date_modified").toXPath(),
+				calculate: META_TIME_END,
+				type: "xsd:dateTime",
+			}),
+			el("bind", {
+				nodeset: casePath.attr("user_id").toXPath(),
+				calculate: META_USER_ID,
+			}),
+		);
+		for (const write of scalarWrites) {
+			binds.push(
+				el("bind", {
+					nodeset: updatePath.child(write.property).toXPath(),
+					calculate: write.value,
+					relevant: write.present,
+					...(write.fixedScalar && {
+						constraint: caseScalarTextValueGuard(".", "allow"),
+					}),
+				}),
+			);
+		}
+		for (const write of attachmentWrites) {
+			const propertyPath = attachmentPath.child(write.property);
+			binds.push(
+				el("bind", {
+					nodeset: propertyPath.toXPath(),
+					relevant: write.present,
+				}),
+				el("bind", {
+					nodeset: propertyPath.attr("src").toXPath(),
+					calculate: write.source,
+				}),
+			);
+		}
 	}
 
 	// Ordinary child-case actions depend on the loaded parent, so they join the

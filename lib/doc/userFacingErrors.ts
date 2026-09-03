@@ -688,8 +688,6 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"This case operation refers to several created cases as though there were one. Run it over the same repeat.",
 	CASE_OPERATION_SESSION_UNAVAILABLE: () =>
 		"This form doesn't open with one selected case, so a case operation can't use the current case. Choose another target.",
-	MULTI_SELECT_PRIMARY_CASE_WRITE: (e) =>
-		`${q(fieldName(e))} in ${q(formName(e))} saves its answer straight to one case, but this form handles several cases together. Clear its Case destination, then add a Case change whose “Which case” is “The case this form opened.”`,
 	MULTI_SELECT_SHARED_CASE_EXPRESSION: (e) =>
 		`A setting in ${q(formName(e))} reads one selected case, but this form handles several cases together. Remove that case reference, or use it inside a Case change whose “Which case” is “The case this form opened.”`,
 	MULTI_SELECT_APP_OPERATION_CASE_READ: (e) =>

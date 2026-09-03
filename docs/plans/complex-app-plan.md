@@ -2294,13 +2294,19 @@ silently: Continue pauses until the worker removes enough cases.
 
 Multiple selection is a form-execution contract, not only a case-list display
 flag. Follow-up and close forms consume the selected set. Ordinary primary-case
-preloads and field writers are singular and therefore cannot appear in those
-forms; explicit session-targeted operations run once for each selected case,
-while app-level effects run once. An authored repeat remains the outer
-iteration and the selected-case order is the inner iteration. The complete
-submission, including ordinary lifecycle effects, advanced operations, and its
-receipt, commits once or rolls back once. A multiple-selection module therefore
-needs a follow-up or close consumer rather than ending at an informational list.
+answers begin without borrowing a value from any selected case. Every nonblank
+ordinary answer writes to every selected case, while a blank answer preserves
+each case's existing value; authored defaults and calculations count as
+answers. A capture answer follows that rule when the submission carries its
+stored attachment URL, while Preview never invents one. Explicit
+session-targeted operations run once for each selected case, while app-level
+effects run once. Within each selected case, authored operations run first,
+then ordinary answers, child creation, and close. An authored repeat remains
+the outer iteration and the selected-case order is the inner iteration. The
+complete submission, including ordinary lifecycle effects, advanced
+operations, and its receipt, commits once or rolls back once. A
+multiple-selection module therefore needs a follow-up or close consumer rather
+than ending at an informational list.
 
 Results rows and tiles both support multiple selection. A grouped tile remains
 one selectable group whose selection is its first case; its other body rows are

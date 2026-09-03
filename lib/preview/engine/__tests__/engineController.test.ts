@@ -119,6 +119,62 @@ describe("EngineController", () => {
 			expect(ctrl.entryStore.getState().caseDatabaseWait).toBeUndefined();
 		});
 
+		it("initializes a one-item Several-cases form without a representative preload", () => {
+			const doc = makeDoc(
+				{
+					[Q1_UUID]: {
+						uuid: Q1_UUID,
+						id: "case_name",
+						kind: "text",
+						label: proseText("Name"),
+						caseWrite: { caseType: "patient", property: "case_name" },
+						default_value: xp("'Shared starting name'"),
+					},
+				},
+				{ [FORM_UUID]: [Q1_UUID] },
+			);
+			doc.caseTypes = [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "case_name",
+							label: proseText("Name"),
+							data_type: "text",
+						},
+					],
+				},
+			];
+			doc.modules[MODULE_UUID] = {
+				uuid: MODULE_UUID,
+				id: "module-1",
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: {
+					columns: [],
+					listColumnOrder: [],
+					detailColumnOrder: [],
+					searchInputs: [],
+					selection: { kind: "multiple", maximum: 1 },
+				},
+			};
+			doc.forms[FORM_UUID] = {
+				...doc.forms[FORM_UUID],
+				type: "followup",
+			};
+
+			const ctrl = new EngineController();
+			ctrl.setDocStore(createLoadedStore(doc));
+			ctrl.activateForm(
+				FORM_UUID,
+				new Map([["patient", new Map([["case_name", "Alice"]])]]),
+			);
+
+			expect(ctrl.store.getState()[Q1_UUID]?.value).toBe(
+				"Shared starting name",
+			);
+		});
+
 		it("contains an impossible runtime activation fault and can open a valid form afterward", () => {
 			const invalidStore = createLoadedStore(
 				makeDoc(

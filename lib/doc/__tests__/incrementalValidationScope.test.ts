@@ -10,6 +10,34 @@ import { asUuid, type Mutation } from "@/lib/doc/types";
 import type { CaseOperation, Form } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 
+const PARENT_MODULE = asUuid("00000000-0000-4000-8000-000000000101");
+const CHILD_MODULE = asUuid("00000000-0000-4000-8000-000000000102");
+const CHILD_FORM = asUuid("00000000-0000-4000-8000-000000000103");
+const LINK_MODULE = asUuid("00000000-0000-4000-8000-000000000104");
+const LINK_FORM = asUuid("00000000-0000-4000-8000-000000000105");
+const SECOND_MODULE = asUuid("00000000-0000-4000-8000-000000000106");
+const SECOND_FORM = asUuid("00000000-0000-4000-8000-000000000107");
+
+const MULTIPLE_FIVE = { kind: "multiple" as const, maximum: 5 };
+
+function expectCommitParity(
+	doc: ReturnType<typeof buildDoc>,
+	mutations: Mutation[],
+) {
+	const absolute = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	const incremental = mutationCommitVerdictWithPrevalidation(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(incremental).toEqual(absolute);
+	return absolute;
+}
+
 function fixture() {
 	const doc = buildDoc({
 		appName: "Incremental validation",
@@ -199,6 +227,103 @@ describe("incrementalValidationScope", () => {
 		});
 	});
 
+	it("uses the bounded dependency closure for selection edits and unions it across the batch", () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					uuid: PARENT_MODULE,
+					name: "Choose patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						selection: MULTIPLE_FIVE,
+					},
+					forms: [],
+				},
+				{
+					uuid: CHILD_MODULE,
+					name: "Review patients",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						selection: MULTIPLE_FIVE,
+					},
+					forms: [
+						{
+							uuid: CHILD_FORM,
+							name: "Review",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+				{
+					uuid: LINK_MODULE,
+					name: "Linked workflow",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						selection: MULTIPLE_FIVE,
+					},
+					forms: [
+						{
+							uuid: LINK_FORM,
+							name: "Continue",
+							type: "followup",
+							fields: [f({ kind: "text", id: "decision" })],
+							formLinks: [
+								{
+									target: {
+										type: "form",
+										moduleUuid: CHILD_MODULE,
+										formUuid: CHILD_FORM,
+									},
+								},
+							],
+						},
+					],
+				},
+				{
+					uuid: SECOND_MODULE,
+					name: "Second workflow",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: SECOND_FORM,
+							name: "Second review",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		doc.modules[CHILD_MODULE].parentModuleUuid = PARENT_MODULE;
+
+		expect(
+			incrementalValidationScope(doc, [
+				{
+					kind: "setCaseListMeta",
+					uuid: CHILD_MODULE,
+					patch: { selection: { kind: "multiple", maximum: 4 } },
+				},
+				{
+					kind: "setCaseListMeta",
+					uuid: SECOND_MODULE,
+					patch: { selection: MULTIPLE_FIVE },
+				},
+			]),
+		).toEqual({
+			moduleUuids: new Set([CHILD_MODULE, PARENT_MODULE, SECOND_MODULE]),
+			formUuids: new Set([CHILD_FORM, LINK_FORM, SECOND_FORM]),
+		});
+	});
+
 	it("uses app-only scope for presentation scalars", () => {
 		const { doc } = fixture();
 		expect(
@@ -308,6 +433,178 @@ describe("incrementalValidationScope", () => {
 					absolute.findings.map((finding) => finding.code),
 				);
 			}
+		}
+	});
+
+	it("matches the absolute gate when changing between one and several cases", () => {
+		for (const startsMultiple of [false, true]) {
+			const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+			if (startsMultiple) config.selection = MULTIPLE_FIVE;
+			const doc = buildDoc({
+				caseTypes: [
+					{
+						name: "patient",
+						properties: [{ name: "note", label: "Note" }],
+					},
+				],
+				modules: [
+					{
+						name: "Patients",
+						caseType: "patient",
+						caseListConfig: config,
+						forms: [
+							{
+								name: "Review",
+								type: "followup",
+								fields: [
+									f({
+										kind: "text",
+										id: "note",
+										caseWrite: {
+											caseType: "patient",
+											property: "note",
+										},
+									}),
+								],
+							},
+						],
+					},
+				],
+			});
+			const moduleUuid = doc.moduleOrder[0];
+			const mutation: Mutation = {
+				kind: "setCaseListMeta",
+				uuid: moduleUuid,
+				patch: { selection: startsMultiple ? null : MULTIPLE_FIVE },
+			};
+
+			expect(expectCommitParity(doc, [mutation]).ok).toBe(true);
+		}
+	});
+
+	it("matches the absolute gate when a destination maximum becomes too small", () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					uuid: LINK_MODULE,
+					name: "Source",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						selection: { kind: "multiple", maximum: 10 },
+					},
+					forms: [
+						{
+							uuid: LINK_FORM,
+							name: "Source form",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+							formLinks: [
+								{
+									target: {
+										type: "form",
+										moduleUuid: CHILD_MODULE,
+										formUuid: CHILD_FORM,
+									},
+								},
+							],
+						},
+					],
+				},
+				{
+					uuid: CHILD_MODULE,
+					name: "Target",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						selection: { kind: "multiple", maximum: 10 },
+					},
+					forms: [
+						{
+							uuid: CHILD_FORM,
+							name: "Target form",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		const verdict = expectCommitParity(doc, [
+			{
+				kind: "setCaseListMeta",
+				uuid: CHILD_MODULE,
+				patch: { selection: MULTIPLE_FIVE },
+			},
+		]);
+
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.findings).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "FORM_LINK_SELECTION_CARDINALITY",
+						location: expect.objectContaining({ formUuid: LINK_FORM }),
+					}),
+				]),
+			);
+		}
+	});
+
+	it("matches the absolute gate when a child no longer accepts its parent's complete selection", () => {
+		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					uuid: PARENT_MODULE,
+					name: "Choose patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						selection: MULTIPLE_FIVE,
+					},
+					forms: [],
+				},
+				{
+					uuid: CHILD_MODULE,
+					name: "Review patients",
+					caseType: "patient",
+					caseListConfig: {
+						...caseListConfig([{ field: "case_name", header: "Name" }]),
+						selection: MULTIPLE_FIVE,
+					},
+					forms: [
+						{
+							uuid: CHILD_FORM,
+							name: "Review",
+							type: "followup",
+							fields: [f({ kind: "text", id: "note" })],
+						},
+					],
+				},
+			],
+		});
+		doc.modules[CHILD_MODULE].parentModuleUuid = PARENT_MODULE;
+		const verdict = expectCommitParity(doc, [
+			{
+				kind: "setCaseListMeta",
+				uuid: CHILD_MODULE,
+				patch: { selection: { kind: "multiple", maximum: 4 } },
+			},
+		]);
+
+		expect(verdict.ok).toBe(false);
+		if (!verdict.ok) {
+			expect(verdict.findings).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						code: "MULTI_SELECT_NO_BATCH_CONSUMER",
+						location: expect.objectContaining({ moduleUuid: PARENT_MODULE }),
+					}),
+				]),
+			);
 		}
 	});
 

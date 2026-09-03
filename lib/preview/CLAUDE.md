@@ -132,7 +132,7 @@ The Lezer grammar emits TWO distinct `Child` node types (one from the root-step 
 
 ## Form engine lifecycle rules
 
-- **Default values apply one-time on init, AFTER case-data preload** — so the preloaded case data sets the initial state and defaults only fill unset fields.
+- **Default values apply one-time on init, AFTER one-case case-data preload.** One-case data sets the initial state and defaults only fill unset fields. An authored several-case follow-up or close form never chooses one selected row to preload, even when its runtime selection contains one id. Its defaults therefore fill the initially blank shared answers.
 - **Required validation is deferred to submit.** Showing "required" on blur is bad UX because the user may have clicked in and navigated away. The red asterisk communicates requiredness until submission.
 - **A temporal answer's SHAPE is checked, and it rides with authored validation, not with required.** A clock is typed, so it is the one answer a person can half-finish into something that is not a value of its type at all — `"abc"` is a legal string, `"2:3"` is not a time. `temporalShapeError` asks `lib/domain`'s `isStorageTemporalValue` and, on a miss, replaces the field's message with one naming what was entered. Riding with authored validation puts it on blur (the moment the answer stopped being half-typed) and again for every field at submit, so a half-typed clock can neither slip past nor be judged by an XPath rule that has nothing useful to say about it. An empty answer is not ill-shaped — that is `required`'s question. Without this the value reaches the case store and returns as a schema rejection naming a property instead of a question.
 - **`reset()` is a full reinitialization** — rebuild instance, re-preload, reapply defaults, re-cascade. Returns to the exact initial state.
@@ -177,9 +177,13 @@ envelope maps to `cases.case_name` and `cases.external_id`. Both use the shared
 Java `String.trim` boundary (only U+0000 through U+0020) and the 255 UTF-16-unit
 limit. An active blank `case_name` is invalid; an active blank `external_id` is
 a real `""` write that clears the value. A missing or irrelevant writer is no
-intent and preserves the existing scalar. When an ordinary field writer and a
-case operation both target `external_id`, the ordinary form action runs last
-and wins, matching the emitted CommCare transaction.
+intent and preserves the existing scalar. The primary destination in an
+authored several-case form has one additional safeguard: a normalized blank
+`case_name` or `external_id` is also no intent, because one shared blank must
+not erase that scalar across every selected case. Child creation keeps the
+ordinary scalar rules. When an ordinary field writer and a case operation both
+target `external_id`, the ordinary form action runs last and wins, matching the
+emitted CommCare transaction.
 
 Form completion produces only 2 of the 3 spec-defined JSONB
 states (absent / null / present-and-empty) — the
@@ -640,9 +644,11 @@ expand over selected ids in selection order; an authored repeat is the outer
 axis and selected cases are the inner axis. Every target is reauthorized and
 type-checked server-side, and the ordinary lifecycle effects, expanded
 operation program, storage writes, and submission receipt commit in one
-transaction. A failed target or effect rolls the complete batch back. The
-domain gate has already excluded singular primary-case preload/write wiring,
-so the form engine never invents a representative case value.
+transaction. A failed target or effect rolls the complete batch back. Ordinary
+primary destinations start without a case preload and apply each nonblank
+shared answer to every selected case; blank answers preserve every existing
+value. The authored cardinality controls that behavior even when exactly one
+case is selected, so the form engine never invents a representative case value.
 
 The submission Server Action is also an open-tab deployment boundary. A
 pre-deploy FormScreen may still send its one followup/close target as `caseId`:
@@ -738,7 +744,7 @@ Four things the rest of the preview has to know:
 
 The nav stack carries only `caseId`. Case data is looked up by id at the point of use, not stored in navigation state. Swapping the data source (dummy → real API) only requires changing the lookup functions.
 
-**Per-case-type refs resolve at every reachable depth, positionally.** The engine's case data is a per-case-type map (`CaseDataByType`, case-type name → property map) built by `caseRowsToFormPreloads` with the WIRE's semantic: each reachable type's namespace binds to the row at that type's blueprint depth — `expandCaseToWire` emits a blueprint-fixed `index/parent × depth` casedb walk with no case-type filter, so when the live parent chain doesn't mirror the blueprint's `parent_type` chain, preview and device read the SAME row at the hop count (and a depth past the chain's end reads blank on both). The rows come from `readCaseData`, which walks the bound case's `parent_case_id` chain server-side through the `parent` index edges, exactly `ancestorDepth` hops (the form's `reachableCaseTypes(...).length - 1`, client-supplied, server-clamped at 64 — any deeper `parent_type` chain is pathological authoring); the chain is ENRICHMENT — a dangling parent or a mid-walk failure degrades to the rows already fetched, never fails the load. The hashtag resolver (`formEngine.ts::createEvalContext`) looks an explicit `#<case_type>/<prop>` namespace up by type name and throws on raw `#case/...`; `caseRefAcceptMap` decides at authoring time which namespaces a form may reference. Both case-loading form types preload (`followup` AND `close`) — from the OWN type's entry only, since ancestor namespaces are read-only reference data, and only while the engine's supplied-under type still matches the module's (a mid-preview module retype withholds preload rather than seed field values from an ancestor's row — `ownCaseData`). Each per-row map (`caseRowToFormPreload`) carries the JSONB document PLUS the reserved scalar columns under their canonical Nova names (`date_opened`, `last_modified`, `case_id`, …), mirroring what the device's casedb exposes.
+**Per-case-type refs resolve at every reachable depth, positionally.** The engine's case data is a per-case-type map (`CaseDataByType`, case-type name → property map) built by `caseRowsToFormPreloads` with the WIRE's semantic: each reachable type's namespace binds to the row at that type's blueprint depth — `expandCaseToWire` emits a blueprint-fixed `index/parent × depth` casedb walk with no case-type filter, so when the live parent chain doesn't mirror the blueprint's `parent_type` chain, preview and device read the SAME row at the hop count (and a depth past the chain's end reads blank on both). The rows come from `readCaseData`, which walks the bound case's `parent_case_id` chain server-side through the `parent` index edges, exactly `ancestorDepth` hops (the form's `reachableCaseTypes(...).length - 1`, client-supplied, server-clamped at 64 — any deeper `parent_type` chain is pathological authoring); the chain is ENRICHMENT — a dangling parent or a mid-walk failure degrades to the rows already fetched, never fails the load. The hashtag resolver (`formEngine.ts::createEvalContext`) looks an explicit `#<case_type>/<prop>` namespace up by type name and throws on raw `#case/...`; `caseRefAcceptMap` decides at authoring time which namespaces a form may reference. Both case-loading form types preload (`followup` AND `close`) only in the module's one-case mode — from the OWN type's entry only, since ancestor namespaces are read-only reference data, and only while the engine's supplied-under type still matches the module's (a mid-preview module retype withholds preload rather than seed field values from an ancestor's row — `ownCaseData`). Several-case mode supplies no primary case-data map at all; the complete device casedb snapshot remains available for admitted operations and after-submit evaluation. Each per-row map (`caseRowToFormPreload`) carries the JSONB document PLUS the reserved scalar columns under their canonical Nova names (`date_opened`, `last_modified`, `case_id`, …), mirroring what the device's casedb exposes.
 
 Case-list sorting belongs to the Results composition. Equal authored sort priorities tie-break by Results position (`listColumnOrder`), never by Details; this is shared with the short-detail wire emitter. The confirmation screen independently renders `detailColumnOrder`, so rearranging Details has no effect on row query order. Both are read through `orderedColumns(config, surface)`.
 

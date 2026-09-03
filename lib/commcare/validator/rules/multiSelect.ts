@@ -1,11 +1,11 @@
 /**
  * Absolute multi-select soundness rules.
  *
- * A multi-select entry supplies an ordered collection of case ids. Only
- * submission effects explicitly scoped to the loaded session case are
- * evaluated once per member of that collection. Everything else in the form
- * remains singular. These rules keep a scalar selected-case read or write from
- * silently choosing one member of the collection.
+ * A multi-select entry supplies an ordered collection of case ids. Ordinary
+ * primary-case destinations and submission effects explicitly scoped to the
+ * loaded session case are evaluated once per member of that collection.
+ * Everything else in the form remains singular. These rules keep a shared
+ * selected-case read from silently choosing one member of the collection.
  */
 
 import { possibleFinalSessionCaseTypes } from "@/lib/doc/caseOperationOrder";
@@ -271,7 +271,8 @@ function formSlotHasPredicateRoot(slot: string): boolean {
 }
 
 /**
- * Reject singular form surfaces and unsafe operation shapes on one batch form.
+ * Reject shared case-reading surfaces and unsafe operation shapes on one batch
+ * form.
  */
 export function multiSelectFormSemantics(
 	doc: BlueprintDoc,
@@ -284,23 +285,6 @@ export function multiSelectFormSemantics(
 
 	const errors: ValidationError[] = [];
 	const loc = formLocation(ctx);
-	const primary = inventory.buckets.find((bucket) => bucket.kind === "primary");
-	for (const writer of primary?.writers ?? []) {
-		errors.push(
-			validationError(
-				"MULTI_SELECT_PRIMARY_CASE_WRITE",
-				"field",
-				`Field "${writer.fieldId}" in "${form.name}" saves to the selected ${writer.caseType} case, but this form runs over several selected cases. One shared answer cannot be preloaded from or saved to the complete selection. Remove this case-data binding or use an explicit session-targeted case operation.`,
-				{
-					...loc,
-					fieldUuid: writer.fieldUuid,
-					fieldId: writer.fieldId,
-				},
-				{ caseType: writer.caseType, property: writer.property },
-			),
-		);
-	}
-
 	const operations = form.caseOperations ?? [];
 	let enteredSelectedCaseScope = false;
 	for (const operation of operations) {

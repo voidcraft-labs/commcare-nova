@@ -136,6 +136,18 @@ export interface SubmissionEnvelopeHost {
 		trx: Transaction<Database>,
 		args: { appId: string; caseId: string; patch: CaseUpdate },
 	): Promise<void>;
+	/** Apply one already-projected ordinary patch to an ordered selected set.
+	 * The host reuses the envelope's schema lock and preserves the single-row
+	 * merge / shed / validation semantics without a per-case query waterfall. */
+	updateCases(
+		trx: Transaction<Database>,
+		args: {
+			appId: string;
+			caseIds: readonly string[];
+			caseType: string;
+			patch: CaseUpdate;
+		},
+	): Promise<void>;
 	/** The canonical lifecycle close (idempotent, repairs status). */
 	closeCase(
 		trx: Transaction<Database>,
@@ -708,16 +720,6 @@ function validatedSelectedCaseIds(
 		});
 	}
 	if (ordinary.selection.kind === "multiple") {
-		if (
-			Object.keys(ordinary.patch.properties).length > 0 ||
-			ordinary.patch.caseName !== undefined ||
-			ordinary.patch.externalId !== undefined
-		) {
-			rejectSelection({
-				kind: "selection",
-				reason: "ordinary-primary-write-not-supported",
-			});
-		}
 		for (const entry of args.operations?.operations ?? []) {
 			if (
 				entry.operation.action === "create" &&
@@ -1977,6 +1979,42 @@ function requireCaseName(
 	return seed.caseName;
 }
 
+/**
+ * A several-case form cannot use a shared blank answer as a request to erase
+ * values from every selected case. Keep the ordinary one-case clear semantics,
+ * but turn the form shapes that represent blank (`""`, an empty select list,
+ * or a fixed scalar that normalizes to blank) into absent patch members before
+ * any case row is touched. Numeric zero and false-like nonblank values remain
+ * ordinary writes.
+ */
+function omitBlankSharedAnswers(
+	patch: Extract<
+		ApplySubmissionArgs["ordinary"],
+		{ kind: "followup" | "close" }
+	>["patch"],
+): typeof patch {
+	const scalarIsBlank = (value: string | undefined): boolean => {
+		if (value === undefined) return false;
+		const prepared = prepareCaseScalarTextValue(value, "allow");
+		return prepared.ok && prepared.value === "";
+	};
+	const properties = Object.fromEntries(
+		Object.entries(patch.properties).filter(
+			([, value]) =>
+				value !== "" && !(Array.isArray(value) && value.length === 0),
+		),
+	);
+	return {
+		...(patch.caseName === undefined || scalarIsBlank(patch.caseName)
+			? {}
+			: { caseName: patch.caseName }),
+		...(patch.externalId === undefined || scalarIsBlank(patch.externalId)
+			? {}
+			: { externalId: patch.externalId }),
+		properties,
+	};
+}
+
 async function applyOrdinaryAction(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
@@ -2026,30 +2064,43 @@ async function applyOrdinaryAction(
 		}
 		case "followup":
 		case "close": {
+			const admittedPatch =
+				ordinary.selection.kind === "multiple"
+					? omitBlankSharedAnswers(ordinary.patch)
+					: ordinary.patch;
 			const hasPropertyWrites =
-				Object.keys(ordinary.patch.properties).length > 0;
-			const hasCaseNameWrite = ordinary.patch.caseName !== undefined;
-			const hasExternalIdWrite = ordinary.patch.externalId !== undefined;
+				Object.keys(admittedPatch.properties).length > 0;
+			const hasCaseNameWrite = admittedPatch.caseName !== undefined;
+			const hasExternalIdWrite = admittedPatch.externalId !== undefined;
 			if (hasPropertyWrites || hasCaseNameWrite || hasExternalIdWrite) {
-				if (ordinary.caseIds.length !== 1) {
-					rejectSelection({
-						kind: "selection",
-						reason: "ordinary-primary-write-not-supported",
+				const patch: CaseUpdate = {
+					...(hasPropertyWrites
+						? { properties: admittedPatch.properties }
+						: {}),
+					...(hasCaseNameWrite ? { case_name: admittedPatch.caseName } : {}),
+					...(hasExternalIdWrite
+						? { external_id: admittedPatch.externalId }
+						: {}),
+				};
+				if (ordinary.selection.kind === "single") {
+					await host.updateCase(trx, {
+						appId,
+						caseId: ordinary.caseIds[0] as string,
+						patch,
+					});
+				} else {
+					// A several-case form collects one shared answer set. Apply that
+					// admitted patch to every selected case in selection order, after
+					// advanced operations and before ordinary children / close. An
+					// absent patch member remains a no-op; the submission supplier owns
+					// projecting blank or irrelevant answers to absence.
+					await host.updateCases(trx, {
+						appId,
+						caseIds: ordinary.caseIds,
+						caseType: ordinary.caseType,
+						patch,
 					});
 				}
-				await host.updateCase(trx, {
-					appId,
-					caseId: ordinary.caseIds[0] as string,
-					patch: {
-						...(hasPropertyWrites
-							? { properties: ordinary.patch.properties }
-							: {}),
-						...(hasCaseNameWrite ? { case_name: ordinary.patch.caseName } : {}),
-						...(hasExternalIdWrite
-							? { external_id: ordinary.patch.externalId }
-							: {}),
-					},
-				});
 			}
 			const createdChildren: CreatedChildCaseReceipt[] = [];
 			for (const [authoredChildIndex, child] of ordinary.children.entries()) {

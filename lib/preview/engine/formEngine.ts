@@ -42,6 +42,7 @@ import type {
 	BlueprintDoc,
 	CaseProperty,
 	CasePropertyDataType,
+	CaseSelectionCardinality,
 	CaseType,
 	CaseWriteBucket,
 	Field,
@@ -265,6 +266,12 @@ export interface FormEngineInput {
 	/** Complete case-type catalog used to admit own/direct-child writes. */
 	caseTypes: readonly CaseType[];
 	/**
+	 * Cardinality authored on the owning module's case list. The default keeps
+	 * direct engine consumers and historical fixtures on Nova's ordinary
+	 * one-case behavior.
+	 */
+	caseSelectionCardinality?: CaseSelectionCardinality;
+	/**
 	 * The worker-property catalog.
 	 *
 	 * The whole entry rather than the print surface's `{ slug }` minimum,
@@ -448,6 +455,8 @@ export class FormEngine {
 	 *  retype the mismatch is detectable and preload can't seed fields
 	 *  from an ancestor's row as if it were the bound case. */
 	private caseDataOwnType: string | undefined;
+	/** Several-case forms never choose one selected row as their preload source. */
+	private caseSelectionCardinality: CaseSelectionCardinality;
 	private formType: FormType;
 	private formRootAttributes: XFormDataRootRuntimeAttributes;
 	/** One Project lookup fixture snapshot captured for the engine's
@@ -493,6 +502,7 @@ export class FormEngine {
 		this.previewIdentity = previewIdentity ?? null;
 		this.moduleCaseType = moduleCaseType;
 		this.caseDataOwnType = moduleCaseType;
+		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
 		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
 		this.caseData = caseData ?? new Map();
@@ -515,10 +525,7 @@ export class FormEngine {
 		this.instance.initFromFields(this.tree);
 		this.dag = new TriggerDag();
 
-		if (
-			CASE_LOADING_FORM_TYPES.has(input.form.type) &&
-			this.caseData.size > 0
-		) {
+		if (this.shouldPreloadPrimaryCase()) {
 			this.preloadCaseData(this.tree);
 		}
 		if (this.asyncRuntime) return;
@@ -1998,17 +2005,24 @@ export class FormEngine {
 					writer.property === "case_name" ||
 					writer.property === "external_id"
 				) {
-					// An absent or irrelevant scalar writer means no write. An ACTIVE
-					// empty external-id answer is different: it explicitly clears the
-					// scalar to `""`.
+					// An absent or irrelevant scalar writer means no write. In a
+					// several-case form, a blank PRIMARY answer also means no write:
+					// one shared blank must not erase a value across every selected
+					// case. One-case external-id keeps its explicit-clear behavior.
 					if (raw === undefined || !effectivelyVisible.has(fieldPath)) continue;
-					const blank = writer.property === "external_id" ? "allow" : "reject";
+					const omitBlankPrimary =
+						isPrimary && this.caseSelectionCardinality === "multiple";
+					const blank =
+						omitBlankPrimary || writer.property === "external_id"
+							? "allow"
+							: "reject";
 					const prepared = prepareCaseScalarTextValue(raw, blank);
 					if (!prepared.ok) {
 						throw new Error(
 							`Case field "${f.id}" cannot write ${writer.property}: the value is ${prepared.reason === "blank" ? "blank after CommCare-compatible boundary control characters are removed" : "longer than 255 UTF-16 code units"}.`,
 						);
 					}
+					if (omitBlankPrimary && prepared.value === "") continue;
 					if (isPrimary) {
 						if (writer.property === "case_name") {
 							primaryCaseName = prepared.value;
@@ -2612,12 +2626,13 @@ export class FormEngine {
 		this.printDoc = printableDocOf(input);
 		this.caseWriteDoc = caseWriteDocOf(input);
 		this.formType = input.form.type;
+		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.caseData = caseData;
 		this.moduleCaseType = moduleCaseType;
 
-		/* Re-preload case data for followup forms. Track which paths changed. */
+		/* Re-preload case data for one-case followup forms. Track which paths changed. */
 		const changedPaths: string[] = [];
-		if (CASE_LOADING_FORM_TYPES.has(input.form.type) && caseData.size > 0) {
+		if (this.shouldPreloadPrimaryCase()) {
 			this.preloadCaseDataTracked(this.tree, changedPaths);
 		}
 
@@ -2683,6 +2698,7 @@ export class FormEngine {
 
 		this.moduleCaseType = moduleCaseType;
 		this.caseDataOwnType = moduleCaseType;
+		this.caseSelectionCardinality = input.caseSelectionCardinality ?? "single";
 		this.formType = input.form.type;
 		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
 		this.caseData = caseData ?? new Map();
@@ -2693,10 +2709,7 @@ export class FormEngine {
 		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
 
-		if (
-			CASE_LOADING_FORM_TYPES.has(input.form.type) &&
-			this.caseData.size > 0
-		) {
+		if (this.shouldPreloadPrimaryCase()) {
 			this.preloadCaseData(this.tree);
 		}
 		this.initializeBoundRepeats(this.tree);
@@ -2745,7 +2758,7 @@ export class FormEngine {
 		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
 
-		if (isCaseLoadingFormType(this.formType) && this.caseData.size > 0) {
+		if (this.shouldPreloadPrimaryCase()) {
 			this.preloadCaseData(this.tree);
 		}
 		this.initializeBoundRepeats(this.tree);
@@ -3412,6 +3425,19 @@ export class FormEngine {
 	}
 
 	// ── Private: state initialization ────────────────────────────────
+
+	/**
+	 * Whether the active form may seed its ordinary destinations from one
+	 * bound case. Authored several-case cardinality stays decisive even when
+	 * the runtime selection happens to contain one id.
+	 */
+	private shouldPreloadPrimaryCase(): boolean {
+		return (
+			isCaseLoadingFormType(this.formType) &&
+			this.caseSelectionCardinality === "single" &&
+			this.caseData.size > 0
+		);
+	}
 
 	/** The loaded case's own property map — the entry under the module's
 	 *  case type. Preload reads ONLY this map: ancestor namespaces are

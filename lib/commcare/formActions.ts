@@ -14,7 +14,11 @@
  * (`hqLoadReference`), which feeds HQ's app summary / case property usage.
  */
 
-import type { FormActions, OpenSubCaseAction } from "@/lib/commcare";
+import type {
+	FormActions,
+	OpenSubCaseAction,
+	UpdateCaseAction,
+} from "@/lib/commcare";
 import {
 	alwaysCondition,
 	emptyFormActions,
@@ -28,6 +32,8 @@ import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
+	type CaseSelectionCardinality,
+	caseSelectionCardinality,
 	deriveCaseWriteInventory,
 	type Field,
 	isCaptureField,
@@ -87,6 +93,104 @@ function requireFieldPath(
 }
 
 /**
+ * The node one ordinary case update reads, or `null` when this binding has no
+ * honest wire spelling against the current target.
+ *
+ * An ordinary field's answer IS the case value, so the question path is the
+ * field's own node. A capture's is not: the answer is a file name, and the
+ * property carries an address built from it, which lives on the sibling node
+ * `captureUrlNodePath` names. Routing the update at the capture node instead
+ * would make HQ emit an `<attachment>` block rather than an `<update>` child.
+ *
+ * With no deployment target there is no origin and no project space to build
+ * an address from, so a URL-mode write is dropped rather than emitted against
+ * a guess. Attachment mode deliberately names the upload question because the
+ * submitted file, rather than an address, is the case value.
+ */
+function caseUpdateQuestionPath(
+	binding: DerivedCasePropertyBinding,
+	field: Field,
+	attachmentTarget: AttachmentUrlTarget | null,
+): string | null {
+	if (!isCaptureField(field)) return binding.path.toXPath();
+	if (field.caseWrite?.mode === "attachment") {
+		return binding.path.toXPath();
+	}
+	if (attachmentTarget === null) return null;
+	return captureUrlNodePath(binding.path).toXPath();
+}
+
+function requireBindingField(
+	doc: BlueprintDoc,
+	binding: DerivedCasePropertyBinding,
+): Field {
+	const field = doc.fields[binding.fieldUuid];
+	if (field === undefined) {
+		throw new Error(
+			`Case binding targets missing field '${binding.fieldUuid}'.`,
+		);
+	}
+	return field;
+}
+
+/** Domain `case_name` projects one-way to HQ FormActions' private `name`. */
+function projectPrimaryUpdateMap(
+	doc: BlueprintDoc,
+	bindings: readonly DerivedCasePropertyBinding[] | undefined,
+	attachmentTarget: AttachmentUrlTarget | null,
+): UpdateCaseAction["update"] {
+	const updateMap: UpdateCaseAction["update"] = {};
+	if (!bindings) return updateMap;
+	for (const binding of bindings) {
+		const field = requireBindingField(doc, binding);
+		const questionPath = caseUpdateQuestionPath(
+			binding,
+			field,
+			attachmentTarget,
+		);
+		if (questionPath === null) continue;
+		const property =
+			binding.property === "case_name" ? "name" : binding.property;
+		updateMap[property] = {
+			question_path: questionPath,
+			update_mode: "always",
+		};
+	}
+	return updateMap;
+}
+
+/**
+ * Project the ordinary primary-case writers independently from HQ's action
+ * bag. A several-case form cannot expose one scalar `update_case` action, but
+ * its XForm still lowers these same identity-backed writers through the
+ * selected-case iteration.
+ */
+export function buildPrimaryCaseUpdateMap(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	moduleCaseType: string | undefined,
+	attachmentTarget: AttachmentUrlTarget | null = null,
+): UpdateCaseAction["update"] {
+	const form = doc.forms[formUuid];
+	if (
+		form === undefined ||
+		!CASE_LOADING_FORM_TYPES.has(form.type) ||
+		!moduleCaseType
+	) {
+		return {};
+	}
+	const inventory = deriveCaseWriteInventory(
+		doc,
+		formUuid,
+		{ caseType: moduleCaseType },
+		form.type,
+	);
+	const projectedInventory = assertAndProjectCaseWriteInventory(inventory);
+	const { caseProperties } = deriveCaseConfig(doc, projectedInventory);
+	return projectPrimaryUpdateMap(doc, caseProperties, attachmentTarget);
+}
+
+/**
  * Build HQ's `FormActions` object for `formUuid`.
  *
  * Maps the derived case config (`case_properties`, `case_preload`,
@@ -102,9 +206,12 @@ export function buildFormActions(
 	formUuid: Uuid,
 	moduleCaseType: string | undefined,
 	attachmentTarget: AttachmentUrlTarget | null = null,
+	caseSelection?: CaseSelectionCardinality,
 ): FormActions {
 	const base = emptyFormActions();
 	const form = doc.forms[formUuid];
+	const effectiveCaseSelection =
+		caseSelection ?? caseSelectionForForm(doc, formUuid);
 	const inventory = deriveCaseWriteInventory(
 		doc,
 		formUuid,
@@ -143,76 +250,6 @@ export function buildFormActions(
 	const { caseNames, caseProperties, casePreload, childCases } =
 		deriveCaseConfig(doc, projectedInventory);
 
-	/**
-	 * The node one case update actually reads, or `null` when this binding
-	 * has no honest wire spelling against the current target.
-	 *
-	 * An ordinary field's answer IS the case value, so the question path is
-	 * the field's own node. A capture's is not: the answer is a file name,
-	 * and the property carries an address built from it, which lives on the
-	 * sibling node `captureUrlNodePath` names. Routing the update at the
-	 * capture node instead would not merely write the wrong value — HQ reads
-	 * the question path structurally and would emit an `<attachment>` block
-	 * rather than an `<update>` child
-	 * (`app_manager/xform.py::CaseBlock.is_attachment`).
-	 *
-	 * With no deployment target there is no origin and no project space to
-	 * build an address from, so the write is dropped rather than emitted
-	 * against a guess. `expandDoc`'s caller reports that at export time.
-	 *
-	 * `attachment` mode wants exactly the routing URL mode avoids, so it
-	 * names the capture question and lets HQ's structural rule do the
-	 * rest. It needs no deployment target: the file travels with the
-	 * submission instead of being addressed after it.
-	 */
-	const caseUpdateQuestionPath = (
-		binding: DerivedCasePropertyBinding,
-		field: Field,
-	): string | null => {
-		if (!isCaptureField(field)) return binding.path.toXPath();
-		if (field.caseWrite?.mode === "attachment") {
-			return binding.path.toXPath();
-		}
-		if (attachmentTarget === null) return null;
-		return captureUrlNodePath(binding.path).toXPath();
-	};
-
-	const requireBindingField = (binding: DerivedCasePropertyBinding): Field => {
-		const field = doc.fields[binding.fieldUuid];
-		if (field === undefined) {
-			throw new Error(
-				`Case binding targets missing field '${binding.fieldUuid}'.`,
-			);
-		}
-		return field;
-	};
-
-	// Domain `case_name` projects one-way to HQ FormActions' private `name`
-	// key; HQ's XFormCaseBlock then emits `<update><case_name>`. Shared
-	// admission has already rejected every reserved writer, and every capture
-	// writer aimed at a standard scalar slot.
-	const buildUpdateMap = (
-		bindings?: readonly DerivedCasePropertyBinding[],
-	): Record<string, { question_path: string; update_mode: string }> => {
-		const updateMap: Record<
-			string,
-			{ question_path: string; update_mode: string }
-		> = {};
-		if (!bindings) return updateMap;
-		for (const binding of bindings) {
-			const field = requireBindingField(binding);
-			const questionPath = caseUpdateQuestionPath(binding, field);
-			if (questionPath === null) continue;
-			const property =
-				binding.property === "case_name" ? "name" : binding.property;
-			updateMap[property] = {
-				question_path: questionPath,
-				update_mode: "always",
-			};
-		}
-		return updateMap;
-	};
-
 	if (form.type === "registration") {
 		// Open case + name update. The admission assertion above proves exactly
 		// one name writer; this second boundary assertion refuses to synthesize
@@ -235,8 +272,10 @@ export function buildFormActions(
 		}
 		base.open_case.external_id = externalIds[0]?.path.toXPath() ?? null;
 
-		const updateMap = buildUpdateMap(
+		const updateMap = projectPrimaryUpdateMap(
+			doc,
 			caseProperties?.filter((binding) => binding.property !== "external_id"),
+			attachmentTarget,
 		);
 		if (Object.keys(updateMap).length > 0) {
 			base.update_case.condition = alwaysCondition();
@@ -245,14 +284,25 @@ export function buildFormActions(
 	}
 
 	if (CASE_LOADING_FORM_TYPES.has(form.type)) {
-		const updateMap = buildUpdateMap(caseProperties);
-		if (Object.keys(updateMap).length > 0) {
+		const updateMap = projectPrimaryUpdateMap(
+			doc,
+			caseProperties,
+			attachmentTarget,
+		);
+		if (
+			effectiveCaseSelection === "single" &&
+			Object.keys(updateMap).length > 0
+		) {
 			base.update_case.condition = alwaysCondition();
 			base.update_case.update = updateMap;
 		}
 
 		// Preload case data from the exact admitted primary-update writers.
-		if (casePreload && casePreload.length > 0) {
+		if (
+			effectiveCaseSelection === "single" &&
+			casePreload &&
+			casePreload.length > 0
+		) {
 			const preloadMap: Record<string, string> = {};
 			for (const binding of casePreload) {
 				preloadMap[binding.path.toXPath()] =
@@ -307,8 +357,12 @@ export function buildFormActions(
 				{ question_path: string; update_mode: string }
 			> = {};
 			for (const binding of child.caseProperties) {
-				const field = requireBindingField(binding);
-				const questionPath = caseUpdateQuestionPath(binding, field);
+				const field = requireBindingField(doc, binding);
+				const questionPath = caseUpdateQuestionPath(
+					binding,
+					field,
+					attachmentTarget,
+				);
 				if (questionPath === null) continue;
 				childProps[binding.property] = {
 					question_path: questionPath,
@@ -341,6 +395,18 @@ export function buildFormActions(
 	}
 
 	return base;
+}
+
+function caseSelectionForForm(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+): CaseSelectionCardinality {
+	for (const moduleUuid of doc.moduleOrder) {
+		if (!(doc.formOrder[moduleUuid] ?? []).includes(formUuid)) continue;
+		const module = doc.modules[moduleUuid];
+		return module === undefined ? "single" : caseSelectionCardinality(module);
+	}
+	return "single";
 }
 
 /**

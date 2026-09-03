@@ -40,6 +40,7 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	type CaseType,
 	caseSelectionCanFlowBetweenModules,
+	caseSelectionCardinality,
 	defaultPostSubmit,
 	type FormLink,
 	type FormType,
@@ -228,7 +229,6 @@ function describeSubmissionRejection(
 				case "case-type-mismatch":
 					return "Nothing was saved: one of the selected cases no longer belongs to this case list. Return to Results and choose the cases again.";
 				case "program-selection-mismatch":
-				case "ordinary-primary-write-not-supported":
 				case "authored-key-create-not-supported":
 				case "session-link-not-supported":
 					return "Nothing was saved: this form has a case action that cannot run over several selected cases. Ask an app editor to review the form's case actions.";
@@ -479,9 +479,10 @@ function automaticLinkedCaseCollection(args: {
 
 /**
  * Form screen. Activates the EngineController by URL-derived form
- * UUID. Case-data preload routes through `useCaseData`;
- * `caseRowsToFormPreloads` flattens the bound case + its ancestor
- * chain into the per-case-type map the form engine consumes.
+ * UUID. A one-case entry routes its preload through `useCaseData`, then
+ * `caseRowsToFormPreloads` flattens the bound case and its ancestor chain into
+ * the per-case-type map the form engine consumes. A several-case entry passes
+ * no primary case-data map and keeps the complete casedb snapshot separate.
  */
 /** The focusable control inside an invalid question, or the question itself. */
 const INVALID_CONTROL_SELECTOR =
@@ -537,6 +538,11 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const mod = useModuleEntity(moduleUuid);
 	const form = useFormEntity(formUuid);
+	const severalCaseForm =
+		form !== undefined &&
+		CASE_LOADING_FORM_TYPES.has(form.type) &&
+		mod !== undefined &&
+		caseSelectionCardinality(mod) === "multiple";
 	const menuCaseContext = useMemo(
 		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
 		[menuCaseSelections, menuSource, moduleUuid],
@@ -610,8 +616,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		() => effectiveCases?.map((choice) => choice.caseId),
 		[effectiveCases],
 	);
+	/* Authored cardinality, not observed selection size, decides whether one
+	 * row may become the primary preload. A Several-cases form with one chosen
+	 * row is still one shared batch form, never a temporarily singular form. */
 	const effectiveCaseId =
-		effectiveCaseIds?.length === 1 ? effectiveCaseIds[0] : undefined;
+		!severalCaseForm && effectiveCaseIds?.length === 1
+			? effectiveCaseIds[0]
+			: undefined;
 	const carriedTargetMatches =
 		previewCaseTarget?.formUuid === formUuid &&
 		previewCaseChoiceIdsEqual(previewCaseTarget.cases, effectiveCases);
@@ -696,12 +707,16 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * window. */
 	const settledCase = caseDataState.kind === "row" ? caseDataState : undefined;
 
-	/** Preload from the loaded case + its ancestors; the bare auto-selected
+	/** Preload from the loaded case + its ancestors in one-case mode; the bare auto-selected
 	 *  row bridges the load window (own-type data only, ancestors follow
 	 *  when the load settles: that one re-supply recreates the engine,
 	 *  the same shape as the nav path's load settling). Every other arm
 	 *  leaves the form rendering against defaults. */
 	const caseData = useMemo(() => {
+		/* Undefined is the honest absence of a scalar preload and, unlike a new
+		 * empty map value, does not ask useFormEngine to start a second rebuild
+		 * beside the controller's cardinality-change rebuild. */
+		if (severalCaseForm) return undefined;
 		if (carriedCaseData !== undefined) return carriedCaseData;
 		if (settledCase)
 			return caseRowsToFormPreloads(
@@ -711,7 +726,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			);
 		if (autoRow) return caseRowsToFormPreloads(autoRow, [], reachableChain);
 		return undefined;
-	}, [carriedCaseData, settledCase, autoRow, reachableChain]);
+	}, [severalCaseForm, carriedCaseData, settledCase, autoRow, reachableChain]);
 
 	const editable = isReady;
 
@@ -973,7 +988,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		CASE_LOADING_FORM_TYPES.has(form.type);
 	const caseBindingReady =
 		!needsBoundCase ||
-		((effectiveCaseIds?.length ?? 0) > 1 && !caseBindingReplaced) ||
+		(severalCaseForm &&
+			(effectiveCaseIds?.length ?? 0) > 0 &&
+			!caseBindingReplaced) ||
 		carriedCaseData !== undefined ||
 		(effectiveCaseId !== undefined &&
 			!caseBindingReplaced &&
@@ -2087,6 +2104,7 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	if (
 		mode === "preview" &&
 		CASE_LOADING_FORM_TYPES.has(form.type) &&
+		!severalCaseForm &&
 		explicitCases?.length === 1 &&
 		effectiveCaseId !== undefined &&
 		carriedCaseData === undefined

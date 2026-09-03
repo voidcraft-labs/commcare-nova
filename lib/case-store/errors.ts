@@ -356,7 +356,6 @@ export type SubmissionRejection =
 				| "not-found-or-out-of-scope"
 				| "case-type-mismatch"
 				| "program-selection-mismatch"
-				| "ordinary-primary-write-not-supported"
 				| "authored-key-create-not-supported"
 				| "session-link-not-supported";
 			readonly caseId?: string;

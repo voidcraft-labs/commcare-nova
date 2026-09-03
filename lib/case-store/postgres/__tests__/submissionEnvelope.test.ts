@@ -7,13 +7,13 @@
 //
 // The ordinary-action arms (registration/followup/close shapes,
 // rollback, id ordering) are pinned by the store contract harness and
-// the preview binding suite; this file owns what only the operation
-// program exercises: in-transaction expression evaluation against the
-// pre-submission snapshot, identity allocation (including the pinned
-// TS↔XPath authored-id vector), server-side target reauthorization,
-// the resolved rolling-type proof, text-facet preparation, the
-// wirePortable retype subset, identifier-keyed link CRUD with authored
-// relationships, and whole-envelope rollback across ordinary +
+// the preview binding suite. This file owns selected-case shared-patch
+// execution and what only the operation program exercises: in-transaction
+// expression evaluation against the pre-submission snapshot, identity
+// allocation (including the pinned TS↔XPath authored-id vector), server-side
+// target reauthorization, the resolved rolling-type proof, text-facet
+// preparation, the wirePortable retype subset, identifier-keyed link CRUD
+// with authored relationships, and whole-envelope rollback across ordinary +
 // operation effects.
 
 import { type Kysely, sql } from "kysely";
@@ -101,6 +101,7 @@ const MEDS_FIELD = testUuid("33333333-3333-4333-8333-333333333333");
 
 const SESSION_CASE_ID = "00000000-0000-7000-8000-00000000aaaa";
 const SECOND_SESSION_CASE_ID = "00000000-0000-7000-8000-00000000bbbb";
+const THIRD_SESSION_CASE_ID = "00000000-0000-7000-8000-00000000cccc";
 
 const PATIENT: CaseType = {
 	name: "patient",
@@ -699,6 +700,252 @@ describe("whole-envelope atomicity", () => {
 });
 
 describe("ordered selected-case batches", () => {
+	it("applies one ordinary patch to every selected case after advanced operations", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
+		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
+		await seedPatient(store, THIRD_SESSION_CASE_ID, "Carol", {
+			notes: "carol",
+		});
+		const caseIds = [
+			THIRD_SESSION_CASE_ID,
+			SESSION_CASE_ID,
+			SECOND_SESSION_CASE_ID,
+		];
+		const submissionReceipt: SubmissionReceiptClaim = {
+			entryKey: "shared-primary-patch",
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
+			requestDigest: "shared-primary-patch-request",
+		};
+		const args = {
+			appId: APP_ID,
+			submissionReceipt,
+			ordinary: {
+				kind: "followup" as const,
+				caseIds,
+				selection: { kind: "multiple" as const, maximum: 3 },
+				caseType: "patient",
+				patch: {
+					caseName: "Shared name",
+					externalId: "shared-external-id",
+					properties: { notes: "from-form", age: 33 },
+				},
+				children: [],
+			},
+			operations: {
+				...rootProgram([
+					envOp(
+						operation({
+							action: "update",
+							caseType: "patient",
+							target: { kind: "session" },
+							rename: term(literal("Advanced name")),
+							writes: [
+								{ property: "notes", value: term(literal("advanced")) },
+								{
+									property: "external_id",
+									value: term(literal("advanced-external-id")),
+								},
+							],
+						}),
+					),
+				]),
+				sessionCaseIds: caseIds,
+			},
+		};
+
+		const result = await submit(store, args);
+		expect(await submit(store, args)).toEqual(result);
+		expect(result.primaryCaseIds).toEqual(caseIds);
+		expect(
+			result.operations.map(({ selection, caseId }) => ({ selection, caseId })),
+		).toEqual(caseIds.map((caseId, selection) => ({ selection, caseId })));
+		for (const caseId of caseIds) {
+			const row = await patientRow(store, caseId);
+			expect(row?.case_name).toBe("Shared name");
+			expect(row?.external_id).toBe("shared-external-id");
+			expect(row?.properties).toMatchObject({ notes: "from-form", age: 33 });
+			expect(row?.properties).not.toHaveProperty("case_name");
+			expect(row?.properties).not.toHaveProperty("external_id");
+		}
+		const receiptCount = await sql<{ count: string }>`
+			SELECT count(*)::text AS count
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID} AND entry_key = ${submissionReceipt.entryKey}
+		`.execute(dbHandle.db);
+		expect(receiptCount.rows[0]?.count).toBe("1");
+	});
+
+	it("keeps every selected case unchanged when the admitted patch is empty", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
+		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
+		await store.update({
+			appId: APP_ID,
+			caseId: SESSION_CASE_ID,
+			patch: { external_id: "alice-external" },
+		});
+		await store.update({
+			appId: APP_ID,
+			caseId: SECOND_SESSION_CASE_ID,
+			patch: { external_id: "bob-external" },
+		});
+		const before = new Map(
+			(
+				await store.query({
+					appId: APP_ID,
+					caseType: "patient",
+					caseIds: [SESSION_CASE_ID, SECOND_SESSION_CASE_ID],
+				})
+			).map((row) => [row.case_id, row]),
+		);
+
+		await submit(store, {
+			appId: APP_ID,
+			ordinary: {
+				kind: "followup",
+				caseIds: [SECOND_SESSION_CASE_ID, SESSION_CASE_ID],
+				selection: { kind: "multiple", maximum: 2 },
+				caseType: "patient",
+				patch: {
+					caseName: " \t\n",
+					externalId: "\u0000 \r",
+					properties: { notes: "", meds: [] },
+				},
+				children: [],
+			},
+		});
+
+		for (const caseId of [SESSION_CASE_ID, SECOND_SESSION_CASE_ID]) {
+			const prior = before.get(caseId);
+			const row = await patientRow(store, caseId);
+			expect(row?.case_name).toBe(prior?.case_name);
+			expect(row?.external_id).toBe(prior?.external_id);
+			expect(row?.properties).toEqual(prior?.properties);
+			expect(row?.modified_on).toEqual(prior?.modified_on);
+		}
+	});
+
+	it("rolls every selected-case patch back when a later child write fails", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
+		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
+		const submissionReceipt: SubmissionReceiptClaim = {
+			entryKey: "shared-primary-patch-rollback",
+			formUuid: FORM_UUID,
+			expectedAppMutationSeq: 0,
+			blueprintDigest: "0".repeat(64),
+			requestDigest: "shared-primary-patch-rollback-request",
+		};
+
+		await expect(
+			submit(store, {
+				appId: APP_ID,
+				submissionReceipt,
+				ordinary: {
+					kind: "followup",
+					caseIds: [SECOND_SESSION_CASE_ID, SESSION_CASE_ID],
+					selection: { kind: "multiple", maximum: 2 },
+					caseType: "patient",
+					patch: {
+						caseName: "Must roll back",
+						externalId: "must-roll-back",
+						properties: { notes: "must roll back" },
+					},
+					children: [
+						{
+							caseType: "visit",
+							caseName: "Invalid child",
+							properties: { unknown_property: "boom" },
+						},
+					],
+				},
+			}),
+		).rejects.toThrow(CasePropertiesValidationError);
+
+		expect(await patientRow(store, SESSION_CASE_ID)).toMatchObject({
+			case_name: "Alice",
+			external_id: null,
+			properties: { notes: "alice" },
+		});
+		expect(await patientRow(store, SECOND_SESSION_CASE_ID)).toMatchObject({
+			case_name: "Bob",
+			external_id: null,
+			properties: { notes: "bob" },
+		});
+		expect(
+			await store.query({ appId: APP_ID, caseType: "visit" }),
+		).toHaveLength(0);
+		const receiptCount = await sql<{ count: string }>`
+			SELECT count(*)::text AS count
+			FROM form_submission_intents
+			WHERE app_id = ${APP_ID} AND entry_key = ${submissionReceipt.entryKey}
+		`.execute(dbHandle.db);
+		expect(receiptCount.rows[0]?.count).toBe("0");
+	});
+
+	it("rejects a retype of any selected case before the shared patch lands", async () => {
+		const store = makeStore();
+		await seedSchemas(store);
+		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
+		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
+		const caseIds = [SESSION_CASE_ID, SECOND_SESSION_CASE_ID];
+
+		const err = await rejection(
+			submit(store, {
+				appId: APP_ID,
+				ordinary: {
+					kind: "followup",
+					caseIds,
+					selection: { kind: "multiple", maximum: 2 },
+					caseType: "patient",
+					patch: { properties: { notes: "must not land" } },
+					children: [],
+				},
+				operations: {
+					...rootProgram([
+						envOp(
+							operation({
+								action: "update",
+								caseType: "patient",
+								target: {
+									kind: "expression",
+									expr: term(literal(SECOND_SESSION_CASE_ID)),
+								},
+								retype: "patient_v2",
+							}),
+							{
+								expressionSnapshotTypes: {
+									target: "patient",
+									links: new Map(),
+								},
+							},
+						),
+					]),
+					sessionCaseIds: caseIds,
+				},
+			}),
+		);
+
+		expect(err.rejection).toMatchObject({
+			kind: "sequence",
+			reason: "rolling-case-type-mismatch",
+		});
+		for (const [caseId, notes] of [
+			[SESSION_CASE_ID, "alice"],
+			[SECOND_SESSION_CASE_ID, "bob"],
+		] as const) {
+			const row = await patientRow(store, caseId);
+			expect(row?.case_type).toBe("patient");
+			expect(row?.properties).toMatchObject({ notes });
+		}
+	});
+
 	it("runs form-level creates once per repeat before selected-case operations", async () => {
 		const store = makeStore();
 		await seedSchemas(store);

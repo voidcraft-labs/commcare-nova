@@ -701,6 +701,43 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/age").value).toBe("30");
 		});
 
+		it.each(["followup", "close"] as const)(
+			"does not preload a representative case into an authored several-case %s form",
+			(formType) => {
+				const input: FormEngineInput = {
+					...dTree(
+						[
+							{
+								id: "case_name",
+								kind: "text",
+								caseWrite: {
+									caseType: "patient",
+									property: "case_name",
+								},
+								default_value: xp("'Shared starting value'"),
+							},
+						],
+						formType,
+					),
+					caseSelectionCardinality: "multiple",
+				};
+				const engine = new FormEngine(
+					input,
+					"patient",
+					caseDataFor("patient", [["case_name", "Alice"]]),
+				);
+
+				expect(engine.getState("/data/case_name").value).toBe(
+					"Shared starting value",
+				);
+
+				engine.reset();
+				expect(engine.getState("/data/case_name").value).toBe(
+					"Shared starting value",
+				);
+			},
+		);
+
 		it("preloads a temporal value exactly as the case store holds it", () => {
 			// The instance mirrors storage rather than the device's own
 			// instance spelling, so that a field's preloaded value and the
@@ -2551,6 +2588,60 @@ describe("FormEngine", () => {
 							properties: { visit_date: "2026-05-02" },
 						},
 					],
+				});
+			});
+
+			it("omits blank shared values while preserving zero and false-like answers", () => {
+				const input: FormEngineInput = {
+					...boundInput(
+						[
+							{
+								id: "case_name",
+								kind: "text",
+								caseWrite: { caseType: "patient", property: "case_name" },
+							},
+							{
+								id: "external_id",
+								kind: "text",
+								caseWrite: { caseType: "patient", property: "external_id" },
+							},
+							{
+								id: "notes",
+								kind: "text",
+								caseWrite: { caseType: "patient", property: "notes" },
+							},
+							{
+								id: "age",
+								kind: "int",
+								caseWrite: { caseType: "patient", property: "age" },
+							},
+							{
+								id: "extra",
+								kind: "int",
+								caseWrite: { caseType: "patient", property: "extra" },
+							},
+						],
+						"followup",
+					),
+					caseSelectionCardinality: "multiple",
+				};
+				const engine = new FormEngine(input, "patient");
+
+				engine.setValue("/data/case_name", " \t");
+				engine.setValue("/data/external_id", "\u0000 ");
+				engine.setValue("/data/notes", "false");
+				engine.setValue("/data/age", "0");
+
+				const mutation = engine.computeSubmissionMutation({
+					// Observed size one must not switch an authored several-case form
+					// back to the singular blank/clear behavior.
+					caseIds: ["case-id-123"],
+					entryKey: ENTRY_KEY,
+				});
+				expect(mutation.kind).toBe("followup");
+				if (mutation.kind !== "followup") return;
+				expect(mutation.patch).toEqual({
+					properties: { notes: "false", age: 0 },
 				});
 			});
 

@@ -528,10 +528,15 @@ multiple selection is enabled and no emitted `detail-persistent` branch has to
 guess a representative case.
 
 Batch form semantics are Nova-owned but the emitted XForm remains ordinary
-CommCare case wire. The primary preload/update action is absent on a
-batch-consuming form. Explicit session-targeted operations lower once per
-selected value, with authored-repeat order outside selected-case order; every
-per-case wrapper reads the current value from the selected-entities instance.
+CommCare case wire. HQ's scalar primary preload/update action is absent on a
+batch-consuming form. Nova instead lowers each ordinary primary destination as
+one derived SaveToCase wrapper inside the selected-case iteration, after
+authored operations and before ordinary children and close. Each nonblank
+shared answer therefore applies to every selected value; a blank answer omits
+its property, and an all-blank wrapper is irrelevant. Explicit session-targeted
+operations lower once per selected value, with authored-repeat order outside
+selected-case order; every per-case wrapper reads the current value from the
+selected-entities instance.
 An automatic direct-form carry is admitted only when every possible final type
 of those selected session cases still matches the destination form. Conditional
 retypes retain both branches; an inherited unconditional restoration closes the
@@ -539,8 +544,9 @@ transitioned branch because it runs everywhere that transition did. A runtime
 expression target also contributes a possible selected-case branch unless the
 shared case-operation identity proof can show it is distinct; repeated use of
 the same expression keeps that alias decision correlated across transitions.
-The operation wrapper, implicit close, child creation, and their correlated
-`id-of` values are asserted as exact XForm partials in Nova, because HQ's own
+The authored-operation wrapper, derived primary update, implicit close, child
+creation, and their correlated `id-of` values are asserted as exact XForm
+partials in Nova, because HQ's own
 `tests/data/form_preparation_v2/multi_no_actions.xml` proves only that HQ drops
 ordinary primary actions for a multi-select form. Local `.ccz` and HQ JSON must
 produce the same operation order and transaction meaning.

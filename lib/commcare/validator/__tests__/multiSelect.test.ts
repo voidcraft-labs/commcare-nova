@@ -303,7 +303,7 @@ describe("multi-select absolute validation", () => {
 		expect(codes(doc)).toContain("MULTI_SELECT_NO_BATCH_CONSUMER");
 	});
 
-	it("rejects singular primary writes and shared selected-case expressions", () => {
+	it("allows primary writes while rejecting shared selected-case expressions", () => {
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -336,12 +336,9 @@ describe("multi-select absolute validation", () => {
 				},
 			],
 		});
-		expect(codes(doc)).toEqual(
-			expect.arrayContaining([
-				"MULTI_SELECT_PRIMARY_CASE_WRITE",
-				"MULTI_SELECT_SHARED_CASE_EXPRESSION",
-			]),
-		);
+		expect(
+			codes(doc).filter((code) => code.startsWith("MULTI_SELECT")),
+		).toEqual(["MULTI_SELECT_SHARED_CASE_EXPRESSION"]);
 	});
 
 	it("rejects authored-key creates, session links, and scope-order reversals", () => {

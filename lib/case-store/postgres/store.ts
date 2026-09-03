@@ -1818,10 +1818,14 @@ export class PostgresCaseStore implements CaseStore {
 			});
 			if (replay !== undefined) return replay;
 			await this.lockRelationshipWrites(trx, args.appId);
-			await this.lockValidators(trx, args.appId, submissionCaseTypes(args));
+			const validators = await this.lockValidators(
+				trx,
+				args.appId,
+				submissionCaseTypes(args),
+			);
 			const effects = await executeSubmissionEnvelope(
 				trx,
-				this.submissionEnvelopeHost(),
+				this.submissionEnvelopeHost(validators),
 				args,
 			);
 			const affectedCaseIds = [
@@ -1858,7 +1862,9 @@ export class PostgresCaseStore implements CaseStore {
 
 	/** The narrow store internals the envelope executor borrows — see
 	 * `SubmissionEnvelopeHost`. */
-	private submissionEnvelopeHost(): SubmissionEnvelopeHost {
+	private submissionEnvelopeHost(
+		validators: ReadonlyMap<string, ValidatorCacheEntry>,
+	): SubmissionEnvelopeHost {
 		return {
 			projectId: this.requireProjectId(),
 			// The WORKER, not the member: a submission's `acting-user` and its
@@ -1894,8 +1900,105 @@ export class PostgresCaseStore implements CaseStore {
 						: { parentRelationship: a.seed.parentRelationship }),
 				}),
 			updateCase: (trx, a) => this.updateInTransaction(trx, a),
+			updateCases: (trx, a) => {
+				const validator = validators.get(a.caseType);
+				if (validator === undefined) {
+					throw new Error(
+						compilerBugMessage({
+							where: "case-store.PostgresCaseStore.submissionEnvelopeHost",
+							invariant: `ordinary selected-case patch names unlocked case type \`${a.caseType}\``,
+							detail:
+								"The submission's sorted schema-lock set includes every followup and close module type before the executor starts. A missing validator means submissionCaseTypes and the ordinary envelope contract diverged.",
+						}),
+					);
+				}
+				return this.updateSharedPatchInTransaction(trx, a, validator);
+			},
 			closeCase: (trx, a) => this.closeCaseInTransaction(trx, a),
 		};
+	}
+
+	/**
+	 * Submission-only batch twin of `updateInTransaction` for one shared
+	 * ordinary patch. Selection authority and rolling type safety have already
+	 * been proved by the envelope; this seam reuses its held schema validator,
+	 * locks every selected row in one query, performs the same declared-key
+	 * shedding + merge + AJV validation in caller order, and writes the prepared
+	 * documents in one statement. The generic `update` path stays single-row.
+	 */
+	private async updateSharedPatchInTransaction(
+		trx: Transaction<Database>,
+		args: {
+			appId: string;
+			caseIds: readonly string[];
+			caseType: string;
+			patch: CaseUpdate;
+		},
+		validator: ValidatorCacheEntry,
+	): Promise<void> {
+		const rows = await trx
+			.selectFrom("cases as c")
+			.select(["c.case_id", "c.case_type", "c.properties"])
+			.where("c.app_id", "=", args.appId)
+			.where("c.case_id", "in", args.caseIds)
+			.where("c.project_id", "=", this.requireProjectId())
+			.forUpdate()
+			.execute();
+		const byId = new Map(rows.map((row) => [row.case_id, row]));
+		const propertyPatch =
+			args.patch.properties === undefined
+				? undefined
+				: parseJsonbInput(args.patch.properties);
+		const prepared = args.caseIds.map((caseId) => {
+			const row = byId.get(caseId);
+			if (row === undefined || row.case_type !== args.caseType) {
+				// The envelope's tenant-bound selection load and rolling type proof
+				// precede every effect under the app relationship lock. Match the
+				// generic update path's non-disclosing failure if that invariant is
+				// ever violated by a future effect kind.
+				throw new CaseNotFoundError(caseId);
+			}
+			if (propertyPatch === undefined) {
+				return { caseId, properties: row.properties };
+			}
+			const inherited: Record<string, unknown> = {};
+			for (const [key, value] of Object.entries(row.properties)) {
+				if (validator.declared.has(key)) inherited[key] = value;
+			}
+			const mergedProperties = { ...inherited, ...propertyPatch };
+			this.assertValidProperties(validator, {
+				appId: args.appId,
+				caseType: args.caseType,
+				properties: mergedProperties,
+			});
+			return { caseId, properties: mergedProperties };
+		});
+		const assignments = [
+			sql`properties = selected_patch.properties`,
+			sql`modified_on = now()`,
+		];
+		if (args.patch.case_name !== undefined) {
+			assignments.push(
+				sql`case_name = ${normalizedCaseScalar("case_name", args.patch.case_name, "reject")}`,
+			);
+		}
+		if (args.patch.external_id !== undefined) {
+			assignments.push(
+				sql`external_id = ${normalizedCaseScalar("external_id", args.patch.external_id, "allow")}`,
+			);
+		}
+		const values = prepared.map(
+			(row) =>
+				sql`(${row.caseId}::text, ${JSON.stringify(row.properties)}::jsonb)`,
+		);
+		await sql`
+			update cases as c
+			set ${sql.join(assignments, sql`, `)}
+			from (values ${sql.join(values, sql`, `)}) as selected_patch(case_id, properties)
+			where c.app_id = ${args.appId}
+				and c.project_id = ${this.requireProjectId()}
+				and c.case_id = selected_patch.case_id
+		`.execute(trx);
 	}
 
 	/**

@@ -350,6 +350,8 @@ function renderFormScreen(opts: {
 	caseId?: string;
 	cases?: readonly { readonly caseId: string; readonly caseName?: string }[];
 	multipleSelection?: boolean;
+	multipleSelectionMaximum?: number;
+	followupPrimaryWrite?: boolean;
 	selectedUuid?: Uuid;
 	menuCaseRelationship?: "same-type" | "different-type";
 	nestedAfterSubmit?: "automatic" | "manual";
@@ -427,7 +429,10 @@ function renderFormScreen(opts: {
 							detailColumnOrder: [CASE_NAME_COLUMN_UUID],
 							searchInputs: [],
 							...(opts.multipleSelection === true && {
-								selection: { kind: "multiple" as const, maximum: 10 },
+								selection: {
+									kind: "multiple" as const,
+									maximum: opts.multipleSelectionMaximum ?? 10,
+								},
 							}),
 						},
 					},
@@ -702,6 +707,15 @@ function renderFormScreen(opts: {
 						id: "followup_note",
 						kind: "text",
 						label: proseText("Followup note"),
+						...(opts.followupPrimaryWrite === true
+							? {
+									caseWrite: {
+										caseType: CASE_TYPE,
+										property: "notes",
+									},
+									default_value: xp("'Shared starting note'"),
+								}
+							: {}),
 					},
 					[CLOSE_FIELD_UUID]: {
 						uuid: CLOSE_FIELD_UUID,
@@ -1209,6 +1223,104 @@ describe("FormScreen — followup submit", () => {
 		await waitFor(() => {
 			expect(onBackMock).toHaveBeenCalledTimes(1);
 		});
+	});
+
+	it("keeps a one-item Several-cases entry shared and starts from the authored value", async () => {
+		/* This load would expose the selected row as a representative preload if
+		 * FormScreen narrowed from observed size instead of authored cardinality. */
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: {
+				...formCaseRow(FOLLOWUP_CASE_ID),
+				case_name: "Existing case",
+				properties: { notes: "One case's existing note" },
+			},
+			ancestors: [],
+		});
+		vi.mocked(submitFormAction).mockResolvedValue({
+			kind: "followup",
+			caseIds: [FOLLOWUP_CASE_ID],
+			createdChildren: [],
+		});
+
+		renderFormScreen({
+			formUuid: FOLLOWUP_FORM_UUID,
+			cases: [{ caseId: FOLLOWUP_CASE_ID, caseName: "Existing case" }],
+			multipleSelection: true,
+			multipleSelectionMaximum: 1,
+			followupPrimaryWrite: true,
+		});
+
+		const note = await screen.findByRole("textbox", {
+			name: /Question 1.*Followup note/i,
+		});
+		expect((note as HTMLInputElement).value).toBe("Shared starting note");
+		expect(vi.mocked(loadCaseDataAction)).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: /^submit$/i }));
+
+		await waitFor(() => {
+			expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1);
+		});
+		const [mutation] = vi.mocked(submitFormAction).mock.calls[0];
+		expect(mutation.kind).toBe("followup");
+		if (mutation.kind === "followup") {
+			expect(mutation.caseIds).toEqual([FOLLOWUP_CASE_ID]);
+			expect(mutation.patch).toEqual({
+				properties: { notes: "Shared starting note" },
+			});
+		}
+	});
+
+	it("keeps an entered answer when an open one-case form becomes Several", async () => {
+		vi.mocked(loadCaseDataAction).mockResolvedValue({
+			kind: "row",
+			row: {
+				...formCaseRow(FOLLOWUP_CASE_ID),
+				case_name: "Existing case",
+				properties: { notes: "Existing note" },
+			},
+			ancestors: [],
+		});
+
+		renderFormScreen({
+			formUuid: FOLLOWUP_FORM_UUID,
+			cases: [{ caseId: FOLLOWUP_CASE_ID, caseName: "Existing case" }],
+			followupPrimaryWrite: true,
+		});
+
+		const note = await screen.findByRole("textbox", {
+			name: /Question 1.*Followup note/i,
+		});
+		await waitFor(() =>
+			expect(vi.mocked(loadCaseDataAction)).toHaveBeenCalledTimes(1),
+		);
+		fireEvent.change(note, { target: { value: "Draft shared note" } });
+		await waitFor(() =>
+			expect((note as HTMLInputElement).value).toBe("Draft shared note"),
+		);
+		const entryKey = capturedController?.entryKey;
+		expect(entryKey).toBeDefined();
+		if (capturedDocApi === undefined || entryKey === undefined) {
+			throw new Error("Expected the mounted form and document handles.");
+		}
+		const docApi = capturedDocApi;
+
+		act(() => {
+			docApi.getState().applyMany([
+				{
+					kind: "setCaseListMeta",
+					uuid: MODULE_UUID,
+					patch: { selection: { kind: "multiple", maximum: 10 } },
+				},
+			]);
+		});
+		await act(async () => {
+			await capturedController?.awaitSettled(entryKey);
+		});
+
+		expect(capturedController?.entryKey).toBe(entryKey);
+		expect((note as HTMLInputElement).value).toBe("Draft shared note");
 	});
 });
 
