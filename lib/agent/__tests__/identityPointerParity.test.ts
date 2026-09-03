@@ -137,6 +137,16 @@ describe("shared-tool authored identity registry", () => {
 				),
 			).toMatchObject({ family: "module" });
 		}
+		expect(
+			AUTHORABLE_IDENTITY_POINTER_REGISTRY.find(
+				(pointer) =>
+					pointer.tool === "configure_case_selection" &&
+					pointer.logicalPointer === "/confirmedModuleUuids/*",
+			),
+		).toMatchObject({
+			property: "confirmedModuleUuids",
+			family: "module",
+		});
 	});
 
 	it("pins the complete malformed/case/version/variant/nil/max matrix in the domain schemas", () => {

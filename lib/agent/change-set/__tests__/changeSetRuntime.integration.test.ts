@@ -45,6 +45,7 @@ import {
 	loadChangeSet,
 	loadChangeSetSteps,
 	loadHandleBindings,
+	lookupStageRequest,
 	stageChangeSetRequest,
 } from "../store";
 import type { ChangeSetLineage } from "../types";
@@ -953,6 +954,69 @@ describe("private staging isolation", () => {
 		});
 		expect(replay.replayed).toBe(true);
 		expect(replay.receipt).toEqual(noop.receipt);
+	});
+
+	it("replays a typed case-selection pause with its exact confirmation contract", async () => {
+		const app = await createTestApp();
+		const { changeSet, workspace } = await openWorkspace(app.appId);
+		const linkedModuleUuid = asUuid(crypto.randomUUID());
+		const input = {
+			moduleUuid: app.starter.moduleUuid,
+			selection: { kind: "multiple", maximum: 8 },
+		};
+		const needsChanges = {
+			kind: "mutate" as const,
+			mutations: [],
+			result: {
+				outcome: "needs_changes" as const,
+				needs: "confirmation" as const,
+				message:
+					"Changing case selection also changes one linked module. No changes were applied.",
+				selection: { kind: "multiple" as const, maximum: 8 },
+				requiredConfirmedModuleUuids: [linkedModuleUuid],
+				confirmationToken: "a".repeat(64),
+				coordinatedChanges: [
+					{
+						moduleUuid: linkedModuleUuid,
+						moduleName: "Linked visits",
+						selection: { kind: "multiple" as const, maximum: 8 },
+						clearedPersistentTile: false,
+						reasons: [],
+					},
+				],
+				clearedPersistentTile: false,
+				blockers: [],
+				summary: { location: "Patients" },
+			},
+		};
+
+		const first = await workspace.invoke({
+			toolName: "configureCaseSelection",
+			requestId: "selection-needs-confirmation",
+			input,
+			execute: async () => needsChanges,
+		});
+		expect(first).toEqual(needsChanges);
+		const stored = await lookupStageRequest(
+			changeSet.id,
+			"selection-needs-confirmation",
+		);
+		expect(stored?.receipt).toMatchObject({
+			disposition: "noop",
+			replayResult: needsChanges,
+		});
+
+		const reopened = await ChangeSetMutationWorkspace.open(host, changeSet.id);
+		const replayExecute = vi.fn(async () => needsChanges);
+		const replay = await reopened.invoke({
+			toolName: "configureCaseSelection",
+			requestId: "selection-needs-confirmation",
+			input,
+			execute: replayExecute,
+		});
+
+		expect(replay).toEqual(needsChanges);
+		expect(replayExecute).not.toHaveBeenCalled();
 	});
 
 	it("rejects an organization-deriving write that carried no revision fence (READ_SET_UNRECORDED)", async () => {

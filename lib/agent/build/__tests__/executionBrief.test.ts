@@ -7,6 +7,7 @@ import {
 } from "@/lib/agent/build/executionBrief";
 import { buildExecutorTools } from "@/lib/agent/build/executorLoop";
 import {
+	addPatientReviewWorkflow,
 	cloneContract,
 	did,
 	fixtureValue,
@@ -125,7 +126,7 @@ describe("deriveSliceExecutionBrief", () => {
 		expect(registration.toolProfile.mutationTools).toContain(
 			"configureCaseList",
 		);
-		expect(registration.toolProfile.mutationTools).toContain(
+		expect(registration.toolProfile.mutationTools).not.toContain(
 			"configureCaseSelection",
 		);
 		expect(registration.toolProfile.mutationTools).not.toContain(
@@ -142,6 +143,12 @@ describe("deriveSliceExecutionBrief", () => {
 					blueprintCaseType: "patient",
 				},
 				formCompositionIds: [ids.formVisit],
+				selectionRealization: {
+					action: "default-one",
+					workflowIds: [ids.taskVisit],
+					cases: "one",
+					selection: null,
+				},
 			}),
 		]);
 		expect(visit.formRealizations).toEqual([
@@ -172,9 +179,12 @@ describe("deriveSliceExecutionBrief", () => {
 		]);
 		expect(visit.toolProfile.mutationTools).toContain("setMenuMedia");
 		expect(visit.toolProfile.blueprintAreas).not.toContain("case-list");
+		expect(visit.toolProfile.mutationTools).not.toContain(
+			"configureCaseSelection",
+		);
 		expect(visit.toolProfile.mutationTools).not.toContain("configureConnect");
 		const rendered = renderBriefMessage(visit);
-		expect(rendered).toContain("Module create or reuse instructions");
+		expect(rendered).toContain("Module and selection realization instructions");
 		expect(rendered).toContain("Exact form realization instructions");
 		expect(rendered).toContain("Visit notes");
 		expect(rendered).toContain("Exact record lowering");
@@ -190,6 +200,229 @@ describe("deriveSliceExecutionBrief", () => {
 				}),
 			]),
 		);
+	});
+
+	it("assigns several-case selection to the workflow that creates its consuming form", () => {
+		const contract = cloneContract(makeContract());
+		const module = fixtureValue(
+			contract.moduleCompositions[0],
+			"patient module",
+		);
+		module.selection = {
+			workflowIds: [ids.taskVisit],
+			cases: "several",
+			maximum: 12,
+		};
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const registrationSlice = fixtureValue(
+			plan.slices[0],
+			"registration slice",
+		);
+		const visitSlice = fixtureValue(plan.slices[1], "visit slice");
+		const registration = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: registrationSlice.id,
+		});
+		const visit = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: visitSlice.id,
+		});
+
+		expect(registration.moduleRealizations[0]).not.toHaveProperty(
+			"selectionRealization",
+		);
+		expect(visit.moduleRealizations[0]?.selectionRealization).toEqual({
+			action: "configure-after-forms",
+			workflowIds: [ids.taskVisit],
+			cases: "several",
+			maximum: 12,
+			selection: { kind: "multiple", maximum: 12 },
+		});
+		expect(visit.toolProfile.blueprintAreas).not.toContain("case-list");
+		expect(visit.toolProfile.mutationTools).toContain("configureCaseSelection");
+		expect(visit.loweringConstraints).toContainEqual(
+			expect.objectContaining({
+				code: "SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET",
+			}),
+		);
+	});
+
+	it("lowers one module selection only after every affected workflow form", () => {
+		const contract = cloneContract(makeContract());
+		addPatientReviewWorkflow(contract);
+		fixtureValue(contract.moduleCompositions[0], "patient module").selection = {
+			workflowIds: [ids.taskVisit, ids.taskReview],
+			cases: "several",
+			maximum: 12,
+		};
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const visitSlice = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === ids.taskVisit),
+			"visit slice",
+		);
+		const reviewSlice = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === ids.taskReview),
+			"review slice",
+		);
+		const visit = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: visitSlice.id,
+		});
+		const review = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: reviewSlice.id,
+		});
+
+		expect(visit.moduleRealizations[0]).not.toHaveProperty(
+			"selectionRealization",
+		);
+		expect(visit.loweringConstraints).toContainEqual(
+			expect.objectContaining({
+				code: "SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET",
+			}),
+		);
+		expect(review.moduleRealizations[0]?.selectionRealization).toEqual({
+			action: "configure-after-forms",
+			workflowIds: [ids.taskVisit, ids.taskReview],
+			cases: "several",
+			maximum: 12,
+			selection: { kind: "multiple", maximum: 12 },
+		});
+		expect(review.toolProfile.mutationTools).toContain(
+			"configureCaseSelection",
+		);
+		expect(review.loweringConstraints).toContainEqual(
+			expect.objectContaining({
+				code: "SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET",
+			}),
+		);
+	});
+
+	it("carries listless form-host selection in the atomic module creation with its consuming form", () => {
+		const contract = cloneContract(makeContract());
+		const visit = fixtureValue(
+			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
+			"visit workflow",
+		);
+		visit.prerequisiteWorkflowIds = [];
+		visit.prerequisites = [];
+		contract.workflows = [visit];
+		contract.charter.includedWorkflowIds = [ids.taskVisit];
+		contract.charter.initialWorkflowId = ids.taskVisit;
+		contract.navigation[0] = {
+			...fixtureValue(contract.navigation[0], "main navigation"),
+			workflowIds: [ids.taskVisit],
+			listIds: [],
+		};
+		contract.moduleCompositions[0] = {
+			...fixtureValue(contract.moduleCompositions[0], "patient module"),
+			role: "form-host",
+			listIds: [],
+			selection: {
+				workflowIds: [ids.taskVisit],
+				cases: "several",
+				maximum: 8,
+			},
+			workflowIds: [ids.taskVisit],
+		};
+		contract.lists = [];
+		contract.access = [];
+		contract.formCompositions = contract.formCompositions.filter(
+			(form) => form.workflowId === ids.taskVisit,
+		);
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const slice = fixtureValue(plan.slices[0], "visit slice");
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: slice.id,
+		});
+
+		expect(brief.moduleRealizations[0]?.selectionRealization).toEqual({
+			action: "create-with-module",
+			workflowIds: [ids.taskVisit],
+			cases: "several",
+			maximum: 8,
+			selection: { kind: "multiple", maximum: 8 },
+		});
+		expect(brief.toolProfile.mutationTools).not.toContain(
+			"configureCaseSelection",
+		);
+	});
+
+	it("configures a queue-only parent after creating its several-case child consumer", () => {
+		const contract = cloneContract(makeNestedMenuContract());
+		const visit = fixtureValue(
+			contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
+			"visit workflow",
+		);
+		visit.prerequisiteWorkflowIds = [];
+		visit.prerequisites = [];
+		contract.workflows = [visit];
+		contract.charter.includedWorkflowIds = [ids.taskVisit];
+		contract.charter.initialWorkflowId = ids.taskVisit;
+		contract.formCompositions = contract.formCompositions.filter(
+			(form) => form.workflowId === ids.taskVisit,
+		);
+		contract.navigation[0] = {
+			...fixtureValue(contract.navigation[0], "main navigation"),
+			workflowIds: [ids.taskVisit],
+		};
+		const parent = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.modulePatients,
+			),
+			"patient module",
+		);
+		parent.role = "queue-only";
+		parent.workflowIds = [ids.taskVisit];
+		parent.selection = {
+			workflowIds: [ids.taskVisit],
+			cases: "several",
+			maximum: 6,
+		};
+		const child = fixtureValue(
+			contract.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"visit module",
+		);
+		delete child.selection;
+		const plan = deriveBuildPlan({ contract, revision: REVISION });
+		const slice = fixtureValue(plan.slices[0], "visit slice");
+		const brief = deriveSliceExecutionBrief({
+			contract,
+			revision: REVISION,
+			plan,
+			sliceId: slice.id,
+		});
+
+		expect(brief.moduleRealizations).toEqual([
+			expect.objectContaining({
+				compositionId: ids.modulePatients,
+				selectionRealization: expect.objectContaining({
+					action: "configure-after-forms",
+					selection: { kind: "multiple", maximum: 6 },
+				}),
+			}),
+			expect.objectContaining({
+				compositionId: ids.moduleVisits,
+				selectionRealization: expect.objectContaining({
+					action: "create-with-module",
+					selection: { kind: "multiple", maximum: 6 },
+				}),
+			}),
+		]);
+		expect(brief.toolProfile.mutationTools).toContain("configureCaseSelection");
 	});
 
 	it("carries parent and sibling closure into a child menu brief", () => {

@@ -98,14 +98,22 @@ Pure functions that read or produce a `BlueprintDoc` (or a subtree of one) live 
 - `fieldPath.ts` — path ↔ UUID projection (`resolveFieldByPath`, `getFieldPath`) for friendly XPath parsing/printing. The document, mutations, and SA/MCP tool addresses use UUIDs.
 - `scaffolds.ts` — atomic born-valid `Mutation[]` builders for the builder's in-tree "add module / add form" affordances (`caseListModuleMutations` / `surveyModuleMutations` / `formScaffoldMutations`). Module scaffolds accept a destination `parentModuleUuid` plus sibling `after` anchor and land the whole born-valid module subtree at that exact one-tier position; omission means root append. The UI twin of the SA's `createModule` / `createForm`: each lands the entity TOGETHER with the minimal contents the validator requires, so the whole batch passes the commit gate as one candidate. A case-list module is born as a VIEWER — a `caseListOnly` module with a `Name` column and its case type declared in the catalog, NO form (a name-only registration form is valid wire, so there's no reason to force one); a new case type is declared via `declareCaseTypeMutations` (the granular `declareCaseType` kind, idempotent), since a formless viewer has no `case_name` field to auto-register it. `scaffolds.ts` also owns the case-type DECLARATION CHOKEPOINT (`declareCaseTypeForField`): the reducer does not auto-create an absent type on a field write (which would clobber a concurrent declaration), so every `caseWrite`-setting surface — the SA add/edit assembly, the MCP field handlers, `useBlueprintMutations` add/edit, `caseListModuleMutations`, and `formScaffoldMutations` — prepends a `declareCaseType` for a field writing to an undeclared type, and the gate rejects a leftover writer via `CASE_WRITE_UNKNOWN_TYPE`. A per-surface test (`__tests__/multiplayerMerge.test.ts`) exercises each field-birth chokepoint against an absent-type doc so a new surface that skips the declare fails CI. A survey module is born WITH one survey form (a single text question) — NOT bare: a module with no forms and no case list is a hard, build-blocking error in CommCare (`NO_FORMS_OR_CASE_LIST`, regardless of case type), so the only valid formless shape is a `caseListOnly` viewer. `formScaffoldMutations` lands a form with its default first field (`registration` → an explicit `{ caseType, property: "case_name" }` writer; otherwise one text question). Dispatched through `useBlueprintMutations`' `createCaseListModule` / `createSurveyModule` / `createForm`.
 - `caseSelectionMutations.ts` — the one planner for **Case selection** on all
-  three editors. `undefined` means the canonical one-case document and emits an
-  explicit `selection: null` clear through `setCaseListMeta`; a multiple shape
-  carries its complete `{kind, maximum}` value. Enabling it also removes only
+  three editors. `planCaseSelectionChange` is the one-module leaf: `undefined`
+  means the canonical one-case document and emits an explicit `selection: null`
+  clear through `setCaseListMeta`; a multiple shape carries its complete
+  `{kind, maximum}` value. Enabling it also removes only
   `tile.persistOnForms` in the SAME mutation because that presentation needs one
   scalar case, while preserving the Results tile, grouping, placements, and
-  every peer-authored facet. Every other incompatibility is left to the whole
-  candidate gate, so the planner never embeds a partial validator or commits a
-  repair prefix.
+  every peer-authored facet. `planCaseSelectionTransition` follows the
+  transitive, bidirectional same-case/no-custom-datum form-link component and
+  any required case-list-only parent/child consumer. It proposes every actual
+  linked-module setting first, requires their exact identities back as
+  confirmation, and only then returns one atomic mutation batch. A link or
+  topology that selection alone cannot repair returns its UUID-owned blocker
+  and no mutations. The ordinary commit verdict still judges the exact
+  candidate with `incrementalValidationScope`; the planner coordinates known
+  selection dependencies but never replaces the validator or commits a repair
+  prefix.
 
 `scaffolds.ts` also owns `emptyBlueprintDoc` — the ONE canonical spelling of
 the empty document both app genesis and the change-set base loader reduce

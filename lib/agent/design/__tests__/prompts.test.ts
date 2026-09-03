@@ -152,6 +152,22 @@ describe("renderSourcePackage containment", () => {
 		);
 	});
 
+	it("teaches exact module-wide selection coverage and shared-answer semantics", () => {
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"Selection belongs to the module whether or not it has a custom list",
+		);
+		expect(DESIGN_AGENT_SYSTEM).toContain("has no custom WorkList");
+		expect(DESIGN_AGENT_SYSTEM).toContain(
+			"list all of their workflowIds, not one representative workflow",
+		);
+		expect(DESIGN_REVIEWER_SYSTEM).toContain(
+			"one shared answer set is honest for every selected-record and close form affected by the module setting",
+		);
+		expect(DESIGN_REVIEWER_SYSTEM).toContain(
+			"every case-loading module carries selection.workflowIds as the exact set of those workflows",
+		);
+	});
+
 	it("keeps creativity distinct from invented policy gates", () => {
 		expect(DESIGN_AGENT_SYSTEM).toContain(
 			"Do not invent consent, eligibility, approval, signature, or authorization gates",
@@ -284,11 +300,14 @@ describe("renderSourcePackage containment", () => {
 		);
 	});
 
-	it("teaches native selected-record editing without forcing sparse replacement", () => {
+	it("teaches the distinct one-case and several-case update interactions", () => {
 		const constraints = renderPlatformConstraintsSection();
 		for (const text of [DESIGN_AGENT_SYSTEM, DESIGN_REVIEWER_SYSTEM]) {
 			expect(text).toContain("current value");
 			expect(text).toContain("clearing");
+			expect(text).toContain("one-case");
+			expect(text).toContain("several-case");
+			expect(text).toContain("shared answer");
 		}
 		expect(constraints).toContain("current saved value");
 		expect(constraints).toContain("clearing");
@@ -298,6 +317,10 @@ describe("renderSourcePackage containment", () => {
 		expect(DESIGN_AGENT_SYSTEM).toContain("separate sparse replacement input");
 		expect(constraints).toContain(
 			"blank replacement input that conditionally skips its write",
+		);
+		expect(constraints).toContain("Primary case-update inputs start blank");
+		expect(constraints).toContain(
+			"each nonblank answer is saved to every selected case",
 		);
 	});
 

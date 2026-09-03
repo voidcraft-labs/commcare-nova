@@ -383,6 +383,28 @@ describe("case-list-config tool schemas — 8-optional ceiling contract", () => 
 				}).success,
 			).toBe(false);
 		}
+		expect(
+			configureCaseSelectionTool.inputSchema.safeParse({
+				moduleUuid: MODULE_UUID,
+				selection: { kind: "multiple", maximum: 10 },
+				confirmedModuleUuids: ["22222222-2222-4222-8222-222222222222"],
+				confirmationToken: "a".repeat(64),
+			}).success,
+		).toBe(true);
+		expect(
+			configureCaseSelectionTool.inputSchema.safeParse({
+				moduleUuid: MODULE_UUID,
+				selection: { kind: "multiple", maximum: 10 },
+				confirmedModuleUuids: ["22222222-2222-4222-8222-222222222222"],
+			}).success,
+		).toBe(false);
+		expect(
+			configureCaseSelectionTool.inputSchema.safeParse({
+				moduleUuid: MODULE_UUID,
+				selection: { kind: "multiple", maximum: 10 },
+				confirmedModuleUuids: [],
+			}).success,
+		).toBe(false);
 	});
 
 	it("setCaseListTile: both clears are expressible", () => {

@@ -321,10 +321,22 @@ The `caseListConfig` shape carries `columns`, `filter?`, `searchInputs`,
 - **One wholesale tool for `filter`.** A filter is one Predicate, so a wholesale `setCaseListFilter` (with a `null`-clears convention) fits.
 - **One selection-intent tool.** `configureCaseSelection` stores only the
   bounded multiple arm (`{kind: "multiple", maximum: 1..100}`); `null` clears
-  back to the canonical one-case flow. Its shared planner also removes only
+  back to the canonical one-case flow. Its shared transition planner follows
+  compatible direct-form links in both directions and any required
+  case-list-only parent/child consumer. If another module must change, the
+  first call returns mutation-free `needs_changes` with the exact module UUIDs
+  and an effect-bound `confirmationToken`; only a retry carrying that exact set
+  as `confirmedModuleUuids` plus the unchanged token returns the one atomic
+  batch. If the reviewed effects changed, the retry remains mutation-free and
+  requires a fresh review rather than accepting stale approval. A
+  selection-only repair that cannot preserve a direct link returns
+  mutation-free UUID-located blockers instead. The planner also removes only
   `tile.persistOnForms` when multiple selection is enabled, preserving the
-  Results tile and grouping. Every other incompatibility is an ordinary gate
-  finding, so Builder, SA, and MCP receive the same refusal.
+  Results tile and grouping. The ordinary candidate gate remains final, so
+  Builder, SA, and MCP receive the same refusal. `createModule.selection` is
+  the born-valid path only when that same call creates a follow-up or close
+  consumer; a later accepted workflow creates its consumer first and then uses
+  `configureCaseSelection`.
 - **One tool for a form's pages** (`setFormSections`) — a section is a page, and the gate judges the partition as a whole (`FORM_SECTIONS_INCOMPLETE` refuses every half-way shape), so a model issuing `addFields` + N `moveField` calls could never reach a sectioned form one call at a time. The tool takes the DESIRED partition (every page with its top-level questions in order; kept sections by `sectionUuid`, new ones unnamed, omitted ones removed once their questions move; an empty list un-pages) and `lib/doc/formSectionMutations.ts` plans the minimal batch; every refusal is the planner's sentence. `addFields` (registry-automatic `section` arm; sections with predeclared `fieldUuid`, children by `parentUuid`) and `moveField` run `fieldPlacementVerdict` first so a refused landing reads in Nova's voice. The prompt's "### Sections (pages)" paragraph is the model's whole briefing.
 - **One tool for the tile layout AND every placement** (`setCaseListTile`) — the two are inseparable because the GATE judges them together: while `tile` is present every Results-visible column needs a cell (`CASE_LIST_TILE_COLUMN_NOT_PLACED`) and no two cells may overlap (`CASE_LIST_TILE_CELLS_OVERLAP`), so a switch-only tool can't reach a valid state on an unplaced list and a per-cell tool can't swap two fields (either half alone overlaps). Both clears are explicit: `tile: null` turns the layout off and KEEPS every placement (an author who tries a tile and switches back does not lose the layout they drew), a placement's `cell: null` unplaces one field, and an omitted slot changes nothing. The five presentation slots (alignment ×2, text size, border, shading) live INSIDE the cell object and nowhere else — CommCare's `<style>` has no spelling without a complete `<grid>` child, so presentation on an unplaced field is a state with no wire form. There is deliberately NO preset/template vocabulary at this boundary: Nova emits only HQ's `custom` tile, so a preset could only be an input shorthand expanding to the same per-field cells, and nothing may persist a template name. The `tile` cell stays on `columnInputSchema` (a column joining an already-tiled list must be born placed or the add is rejected) and is dropped from `columnUpdateInputSchema` (the `updateColumn` reducer preserves the current cell unconditionally, so a cell supplied on a replace would be read and silently discarded).
 - **Read tools surface uuids.** `getModule`'s `case_list_config` returns every column and search input with its `uuid`, canonical UUID-backed AST leaves, and lookup carriers intact. `searchBlueprint`'s `case_list_column` and `search_input` matches surface the entry's `uuid` plus the owning module's `containerUuid`. `summarizeBlueprint`'s module summary (the per-turn app-state message) lists each case-list entry's uuid alongside its kind + label so the SA inherits the identities after a fresh-session edit-mode resume.

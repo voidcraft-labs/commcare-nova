@@ -18,6 +18,7 @@ import {
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 import type { CommittedSliceReceipt } from "@/lib/agent/change-set/types";
 import {
+	cloneContract,
 	fixtureValue,
 	ids,
 	makeBuildPlan,
@@ -31,11 +32,13 @@ import type { WorkspaceSnapshot } from "@/lib/agent/workspace/types";
 import { emptyBlueprintDoc } from "@/lib/doc/scaffolds";
 import {
 	type BlueprintDoc,
+	emptyCaseListConfig,
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 	proseText,
 } from "@/lib/domain";
 import { acceptedInputRequirementIssues } from "../acceptedInputParity";
+import { acceptedSelectionRealizationIssues } from "../acceptedSelectionParity";
 import { budgetForSlice, type SliceExecutionBudget } from "../budgets";
 import {
 	deriveSliceExecutionBrief,
@@ -60,6 +63,29 @@ function brief(): SliceExecutionBrief {
 		revision: { id: ids.revisionId, digest: "b".repeat(64) },
 		plan,
 		sliceId: fixtureValue(plan.slices[0], "first slice").id,
+	});
+}
+
+function severalVisitBrief(): SliceExecutionBrief {
+	const contract = cloneContract(makeContract());
+	fixtureValue(contract.moduleCompositions[0], "patient module").selection = {
+		workflowIds: [ids.taskVisit],
+		cases: "several",
+		maximum: 12,
+	};
+	const plan = deriveBuildPlan({
+		contract,
+		revision: { id: ids.revisionId, digest: "b".repeat(64) },
+	});
+	const slice = fixtureValue(
+		plan.slices.find((entry) => entry.workflowId === ids.taskVisit),
+		"visit workflow slice",
+	);
+	return deriveSliceExecutionBrief({
+		contract,
+		revision: { id: ids.revisionId, digest: "b".repeat(64) },
+		plan,
+		sliceId: slice.id,
 	});
 }
 
@@ -219,6 +245,62 @@ function fakeWorkspace(options?: {
 	return workspace;
 }
 
+function severalSelectionWorkspace(
+	sliceBrief: SliceExecutionBrief,
+	maximum?: number,
+	stage?: (args: DispatchCall) => Promise<unknown>,
+): FakeWorkspace {
+	const realization = fixtureValue(
+		sliceBrief.moduleRealizations.find(
+			(entry) => entry.selectionRealization?.cases === "several",
+		),
+		"several-case module realization",
+	);
+	const composition = fixtureValue(
+		sliceBrief.moduleCompositions.find(
+			(entry) => entry.id === realization.compositionId,
+		),
+		"several-case module composition",
+	);
+	const caseType = fixtureValue(
+		realization.hostRecord?.blueprintCaseType,
+		"several-case module type",
+	);
+	const doc = buildDoc({
+		appName: sliceBrief.charter.appName,
+		caseTypes: [{ name: caseType, properties: [] }],
+		modules: [
+			{
+				name: composition.name,
+				caseType,
+				caseListConfig: {
+					columns: [],
+					searchInputs: [],
+					...(maximum === undefined
+						? {}
+						: { selection: { kind: "multiple" as const, maximum } }),
+				},
+				forms: [{ name: "Record visit", type: "followup", fields: [] }],
+			},
+		],
+	});
+	const moduleUuid = fixtureValue(doc.moduleOrder[0], "several-case module");
+	const workspace = fakeWorkspace({
+		doc,
+		...(stage === undefined ? {} : { stage }),
+	});
+	workspace.currentExecutionCheckpoint = () => ({
+		handles: [
+			{
+				handle: realization.blueprintModuleHandle,
+				uuid: moduleUuid,
+				entityKind: "module",
+			},
+		],
+	});
+	return workspace;
+}
+
 interface ScriptedResponse {
 	readonly calls?: readonly {
 		readonly toolCallId: string;
@@ -344,6 +426,7 @@ function toolResultMessage(
 function run(args: {
 	readonly workspace: ExecutorWorkspace;
 	readonly step: ExecutorStepFn;
+	readonly brief?: SliceExecutionBrief;
 	readonly context?: ExecutorConversationContext;
 	readonly contextScopeKey?: string;
 	readonly commit?: () => Promise<SliceCommitResult>;
@@ -357,7 +440,7 @@ function run(args: {
 }) {
 	return runSliceExecutor({
 		workspace: args.workspace,
-		brief: brief(),
+		brief: args.brief ?? brief(),
 		budget: args.budget ?? budget(),
 		step: args.step,
 		...(args.context !== undefined && { context: args.context }),
@@ -546,6 +629,77 @@ describe("native executor surface", () => {
 		expect(
 			toolResultValues(context.messages).map((item) => item.toolCallId),
 		).toEqual(["rename", "read", "finish"]);
+	});
+
+	it("halts dependent calls when case-selection coordination applied nothing", async () => {
+		const sliceBrief = severalVisitBrief();
+		const realization = fixtureValue(
+			sliceBrief.moduleRealizations.find(
+				(entry) => entry.selectionRealization?.cases === "several",
+			),
+			"several-case module realization",
+		);
+		const workspace = severalSelectionWorkspace(sliceBrief, 12, async (call) =>
+			call.toolName === "configureCaseSelection"
+				? {
+						replayed: false,
+						result: {
+							kind: "mutate",
+							mutations: [],
+							result: {
+								outcome: "needs_changes",
+								needs: "confirmation",
+								requiredConfirmedModuleUuids: [],
+								coordinatedChanges: [],
+								blockers: [],
+							},
+						},
+					}
+				: undefined,
+		);
+		const scripted = scriptedStep([
+			{
+				calls: [
+					{
+						toolCallId: "selection",
+						toolName: "configureCaseSelection",
+						input: {
+							moduleUuid: { handle: realization.blueprintModuleHandle },
+							selection: { kind: "multiple", maximum: 12 },
+						},
+					},
+					{ toolCallId: "premature-finish", toolName: "finishWorkflow" },
+				],
+			},
+			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
+		]);
+		const context: ExecutorConversationContext = { messages: [] };
+		const outcomes: ExecutorToolOutcomeEvent[] = [];
+		const result = await run({
+			brief: sliceBrief,
+			workspace,
+			step: scripted.step,
+			context,
+			onToolOutcome: (event) => {
+				outcomes.push(event);
+			},
+		});
+
+		expect(result.kind).toBe("committed");
+		expect(outcomes.map(({ outcome, code }) => [outcome, code])).toEqual([
+			["non-applied", "CASE_SELECTION_NEEDS_CHANGES"],
+			["skipped", "DEPENDENT_CALL_SKIPPED"],
+			["committed", "WORKFLOW_COMMITTED"],
+		]);
+		expect(
+			toolResultValues(context.messages).find(
+				(entry) => entry.toolCallId === "selection",
+			)?.value,
+		).toMatchObject({
+			status: "not-applied",
+			code: "CASE_SELECTION_NEEDS_CHANGES",
+			outcome: "needs_changes",
+		});
 	});
 
 	it("retains an accepted prefix and skips the dependent suffix after failure", async () => {
@@ -1136,6 +1290,107 @@ describe("failure and finalization policy", () => {
 	});
 });
 
+describe("accepted selection realization parity", () => {
+	it("finds several-case selection invented on an unmarked created module", () => {
+		const sliceBrief = brief();
+		const fixture = acceptedWorkspaceFixture();
+		const moduleUuid = fixtureValue(
+			fixture.doc.moduleOrder[0],
+			"created module",
+		);
+		const module = fixtureValue(
+			fixture.doc.modules[moduleUuid],
+			"created module body",
+		);
+		const doc: BlueprintDoc = {
+			...fixture.doc,
+			modules: {
+				...fixture.doc.modules,
+				[moduleUuid]: {
+					...module,
+					caseListConfig: {
+						...emptyCaseListConfig(),
+						selection: { kind: "multiple", maximum: 9 },
+					},
+				},
+			},
+		};
+
+		expect(
+			acceptedSelectionRealizationIssues(doc, sliceBrief, fixture.handles),
+		).toMatchObject([
+			{
+				code: "ACCEPTED_CASE_SELECTION_MISMATCH",
+				location: { kind: "module", moduleUuid },
+				details: {
+					action: "unmarked-create",
+					acceptedSelection: null,
+					realizedSelection: { kind: "multiple", maximum: 9 },
+				},
+			},
+		]);
+	});
+
+	it("refuses finalization until the realized module has the accepted selection", async () => {
+		const sliceBrief = severalVisitBrief();
+		const workspace = severalSelectionWorkspace(sliceBrief);
+		const scripted = scriptedStep([
+			{ calls: [{ toolCallId: "finish", toolName: "finishWorkflow" }] },
+		]);
+		const context: ExecutorConversationContext = { messages: [] };
+		const commit = vi.fn(async () => ({
+			kind: "committed" as const,
+			receipt: receipt(),
+		}));
+		const outcomes: ExecutorToolOutcomeEvent[] = [];
+
+		const result = await run({
+			brief: sliceBrief,
+			workspace,
+			step: scripted.step,
+			context,
+			commit,
+			budget: budget({ maxModelSteps: 1 }),
+			onToolOutcome: (event) => {
+				outcomes.push(event);
+			},
+		});
+
+		expect(result).toMatchObject({
+			kind: "budget-exhausted",
+			axis: "model-steps",
+		});
+		expect(commit).not.toHaveBeenCalled();
+		expect(workspace.inspectCalls).toBe(1);
+		expect(outcomes).toContainEqual(
+			expect.objectContaining({
+				toolName: "finishWorkflow",
+				outcome: "validator-repair",
+				code: "WORKFLOW_NEEDS_CORRECTION",
+			}),
+		);
+		expect(
+			toolResultValues(context.messages).find(
+				(entry) => entry.toolCallId === "finish",
+			)?.value,
+		).toMatchObject({
+			status: "needs-correction",
+			diagnostics: {
+				canCommit: false,
+				findings: [
+					{
+						code: "ACCEPTED_CASE_SELECTION_MISMATCH",
+						details: {
+							acceptedSelection: { kind: "multiple", maximum: 12 },
+							realizedSelection: null,
+						},
+					},
+				],
+			},
+		});
+	});
+});
+
 describe("accepted input requirement parity", () => {
 	function visitBrief(requiredWhen?: string): SliceExecutionBrief {
 		const base = makeContract();
@@ -1262,6 +1517,124 @@ describe("accepted input requirement parity", () => {
 });
 
 describe("accepted composition admission", () => {
+	it("admits case-selection configuration only for the exact brief realization", () => {
+		const sliceBrief = severalVisitBrief();
+		const realization = fixtureValue(
+			sliceBrief.moduleRealizations.find(
+				(entry) =>
+					entry.selectionRealization?.action === "configure-after-forms",
+			),
+			"configured selection realization",
+		);
+		const workspace = severalSelectionWorkspace(sliceBrief);
+		const exactInput = {
+			moduleUuid: { handle: realization.blueprintModuleHandle },
+			selection: { kind: "multiple", maximum: 12 },
+		};
+
+		expect(
+			compositionAdmissionIssue(
+				"configureCaseSelection",
+				exactInput,
+				sliceBrief,
+				workspace,
+			),
+		).toBeNull();
+		expect(
+			compositionAdmissionIssue(
+				"configureCaseSelection",
+				{
+					...exactInput,
+					selection: { kind: "multiple", maximum: 10 },
+				},
+				sliceBrief,
+				workspace,
+			),
+		).toContain("exact accepted selectionRealization");
+		expect(
+			compositionAdmissionIssue(
+				"configureCaseSelection",
+				{ ...exactInput, moduleUuid: ids.moduleVisits },
+				sliceBrief,
+				workspace,
+			),
+		).toContain("exact module");
+		expect(
+			compositionAdmissionIssue(
+				"configureCaseSelection",
+				{ ...exactInput, confirmedModuleUuids: [ids.moduleVisits] },
+				sliceBrief,
+				workspace,
+			),
+		).toContain("Every confirmed case-selection transition");
+	});
+
+	it("admits createModule selection only for an exact create-with-module realization", () => {
+		const base = brief();
+		const realization = fixtureValue(
+			base.moduleRealizations.find((entry) => entry.action === "create"),
+			"created module realization",
+		);
+		const composition = fixtureValue(
+			base.moduleCompositions.find(
+				(entry) => entry.id === realization.compositionId,
+			),
+			"created module composition",
+		);
+		const input = {
+			moduleUuid: { handle: realization.blueprintModuleHandle },
+			name: composition.name,
+			case_type: realization.hostRecord?.blueprintCaseType ?? null,
+		};
+		const workspace = fakeWorkspace({ doc: emptyBlueprintDoc("creation") });
+
+		expect(
+			compositionAdmissionIssue(
+				"createModule",
+				{ ...input, selection: { kind: "multiple", maximum: 12 } },
+				base,
+				workspace,
+			),
+		).toContain("has no create-with-module selectionRealization");
+		expect(
+			compositionAdmissionIssue("createModule", input, base, workspace),
+		).toBeNull();
+
+		const createWithSelection: SliceExecutionBrief = {
+			...base,
+			moduleRealizations: base.moduleRealizations.map((entry) =>
+				entry.compositionId === realization.compositionId
+					? {
+							...entry,
+							selectionRealization: {
+								action: "create-with-module",
+								workflowIds: [base.workflow.id],
+								cases: "several",
+								maximum: 12,
+								selection: { kind: "multiple", maximum: 12 },
+							},
+						}
+					: entry,
+			),
+		};
+		expect(
+			compositionAdmissionIssue(
+				"createModule",
+				{ ...input, selection: { kind: "multiple", maximum: 10 } },
+				createWithSelection,
+				workspace,
+			),
+		).toContain("exact accepted create-with-module");
+		expect(
+			compositionAdmissionIssue(
+				"createModule",
+				{ ...input, selection: { kind: "multiple", maximum: 12 } },
+				createWithSelection,
+				workspace,
+			),
+		).toBeNull();
+	});
+
 	it("allows a child viewer to bootstrap top-level until its parent exists", () => {
 		const contract = makeNestedMenuContract();
 		const childComposition = fixtureValue(

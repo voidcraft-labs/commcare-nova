@@ -41,6 +41,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"CASE_WRITE_TARGETS_MODULE_LINEAGE",
 	"CASE_PROPERTY_CLEAR_UNAVAILABLE",
 	"CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES",
+	"SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET",
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
@@ -163,6 +164,12 @@ export const PLATFORM_CONSTRAINTS: Record<
 		statement:
 			"In a selected-record or close form, a visible input that writes directly to the selected record opens with that property's current saved value. Leaving it untouched preserves the value; clearing it is an edit. A blank replacement input that conditionally skips its write is a separate interaction and should be designed only when the workflow genuinely needs sparse replacement.",
 		sourceAnchor: "lib/preview/engine/formEngine.ts::preloadCaseData",
+	},
+	SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET: {
+		code: "SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET",
+		statement:
+			"A several-case follow-up or close form uses one shared answer set for the complete ordered selection. Primary case-update inputs start blank instead of choosing one case's current value; each nonblank answer is saved to every selected case, while a blank answer preserves each case's existing value. The form cannot collect a different answer for each selected case.",
+		sourceAnchor: "lib/preview/engine/formEngine.ts::FormEngine",
 	},
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: {
 		code: "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",

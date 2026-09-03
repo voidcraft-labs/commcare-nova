@@ -286,6 +286,80 @@ export type DesignArtifactWorkspaceOperation = z.infer<
 	typeof designArtifactWorkspaceOperationSchema
 >;
 
+const LEGACY_LIST_SELECTION_WORKFLOW_ID = Symbol(
+	"legacy-list-selection-workflow-id",
+);
+
+/** Storage-only admission for workspace steps written before selection moved
+ * from WorkList to ModuleComposition. The marker stays non-enumerable and
+ * model-invisible until replay has the complete module/form placement needed
+ * to derive current module-wide coverage. Current authoring continues to use
+ * `designArtifactWorkspaceOperationSchema` directly and cannot emit it. */
+export function normalizeStoredDesignArtifactWorkspaceOperation(
+	stored: unknown,
+): DesignArtifactWorkspaceOperation {
+	if (stored === null || typeof stored !== "object" || Array.isArray(stored))
+		return designArtifactWorkspaceOperationSchema.parse(stored);
+	const value = stored as Record<string, unknown>;
+	const legacyMarkers = new Map<
+		string,
+		{ readonly workflowId: unknown; readonly listId: unknown }
+	>();
+	const normalizedCollections = Array.isArray(value.collections)
+		? value.collections.map((collection, collectionIndex) => {
+				if (
+					collection === null ||
+					typeof collection !== "object" ||
+					Array.isArray(collection)
+				)
+					return collection;
+				const update = collection as Record<string, unknown>;
+				if (update.collection !== "lists" || !Array.isArray(update.upserts))
+					return collection;
+				return {
+					...update,
+					upserts: update.upserts.map((upsert, upsertIndex) => {
+						if (
+							upsert === null ||
+							typeof upsert !== "object" ||
+							Array.isArray(upsert)
+						)
+							return upsert;
+						const list = upsert as Record<string, unknown>;
+						if (!Object.hasOwn(list, "selectionWorkflowId")) return upsert;
+						const parsedWorkflowId = designIdSchema.safeParse(
+							list.selectionWorkflowId,
+						);
+						if (!parsedWorkflowId.success) return upsert;
+						legacyMarkers.set(`${collectionIndex}:${upsertIndex}`, {
+							workflowId: parsedWorkflowId.data,
+							listId: list.id,
+						});
+						const { selectionWorkflowId: _selectionWorkflowId, ...current } =
+							list;
+						return current;
+					}),
+				};
+			})
+		: value.collections;
+	const parsed = designArtifactWorkspaceOperationSchema.parse({
+		...value,
+		collections: normalizedCollections,
+	});
+	parsed.collections.forEach((collection, collectionIndex) => {
+		if (collection.collection !== "lists") return;
+		collection.upserts.forEach((list, upsertIndex) => {
+			const marker = legacyMarkers.get(`${collectionIndex}:${upsertIndex}`);
+			if (marker === undefined || marker.listId !== list.id) return;
+			Object.defineProperty(list, LEGACY_LIST_SELECTION_WORKFLOW_ID, {
+				value: marker.workflowId,
+				configurable: true,
+			});
+		});
+	});
+	return parsed;
+}
+
 export const inspectDesignInputSchema = z
 	.object({
 		selection: z.discriminatedUnion("kind", [
@@ -345,7 +419,34 @@ function applyIdentityMutation(
 	for (const item of prior) {
 		const id = identityFor(mutation.collection, item);
 		if (removals.has(id)) continue;
-		next.push(upserts.get(id) ?? item);
+		const replacement = upserts.get(id);
+		if (
+			mutation.collection === "lists" &&
+			replacement !== undefined &&
+			item !== null &&
+			typeof item === "object" &&
+			!Array.isArray(item) &&
+			Object.hasOwn(item, LEGACY_LIST_SELECTION_WORKFLOW_ID) &&
+			replacement !== null &&
+			typeof replacement === "object" &&
+			!Array.isArray(replacement) &&
+			!Object.hasOwn(replacement, LEGACY_LIST_SELECTION_WORKFLOW_ID)
+		) {
+			const replacementWithLegacyMarker = { ...replacement };
+			Object.defineProperty(
+				replacementWithLegacyMarker,
+				LEGACY_LIST_SELECTION_WORKFLOW_ID,
+				{
+					value: (item as Record<symbol, unknown>)[
+						LEGACY_LIST_SELECTION_WORKFLOW_ID
+					],
+					configurable: true,
+				},
+			);
+			next.push(replacementWithLegacyMarker);
+		} else {
+			next.push(replacement ?? item);
+		}
 		upserts.delete(id);
 	}
 	for (const item of mutation.upserts) {
@@ -387,6 +488,140 @@ export function initialDesignWorkspaceCandidate(
 		: { ...baseContract };
 }
 
+function normalizeReplayedLegacySelection(
+	candidate: Record<string, unknown>,
+): void {
+	/* Detach marker-bearing lists from the operation objects before consuming a
+	 * marker. A later replay of the same loaded ledger must still be able to
+	 * perform the migration against a more complete candidate. */
+	const lists = Array.isArray(candidate.lists)
+		? candidate.lists.map((list) => {
+				if (
+					list === null ||
+					typeof list !== "object" ||
+					Array.isArray(list) ||
+					!Object.hasOwn(list, LEGACY_LIST_SELECTION_WORKFLOW_ID)
+				)
+					return list;
+				const detached = { ...list };
+				Object.defineProperty(detached, LEGACY_LIST_SELECTION_WORKFLOW_ID, {
+					value: (list as Record<symbol, unknown>)[
+						LEGACY_LIST_SELECTION_WORKFLOW_ID
+					],
+					configurable: true,
+				});
+				return detached;
+			})
+		: [];
+	candidate.lists = lists;
+	const legacyLists = lists.flatMap((list) => {
+		if (list === null || typeof list !== "object" || Array.isArray(list))
+			return [];
+		const record = list as Record<string, unknown> & {
+			[LEGACY_LIST_SELECTION_WORKFLOW_ID]?: unknown;
+		};
+		const workflowId = record[LEGACY_LIST_SELECTION_WORKFLOW_ID];
+		return workflowId === undefined
+			? []
+			: [{ list: record, listId: record.id, workflowId }];
+	});
+	if (legacyLists.length === 0) return;
+	const workflows = Array.isArray(candidate.workflows)
+		? candidate.workflows
+		: [];
+	const workflowIds = new Set(
+		workflows.flatMap((workflow) =>
+			workflow !== null &&
+			typeof workflow === "object" &&
+			!Array.isArray(workflow)
+				? [(workflow as Record<string, unknown>).id]
+				: [],
+		),
+	);
+	const modules = Array.isArray(candidate.moduleCompositions)
+		? candidate.moduleCompositions
+		: [];
+	const forms = Array.isArray(candidate.formCompositions)
+		? candidate.formCompositions
+		: [];
+	const consumedLegacyLists = new Set<(typeof legacyLists)[number]["list"]>();
+	for (const legacy of legacyLists) {
+		if (!workflowIds.has(legacy.workflowId)) {
+			/* Preserve the former graph's workflow-existence rejection for corrupt
+			 * stored bytes. This string key is exposed only on the invalid candidate
+			 * so current strict parsing refuses it. */
+			legacy.list.selectionWorkflowId = legacy.workflowId;
+			consumedLegacyLists.add(legacy.list);
+		}
+	}
+	for (const module of modules) {
+		if (module === null || typeof module !== "object" || Array.isArray(module))
+			continue;
+		const moduleRecord = module as Record<string, unknown>;
+		const moduleListIds = Array.isArray(moduleRecord.listIds)
+			? moduleRecord.listIds
+			: [];
+		const matchingLegacyLists = legacyLists.filter(
+			(legacy) =>
+				workflowIds.has(legacy.workflowId) &&
+				moduleListIds.includes(legacy.listId),
+		);
+		if (matchingLegacyLists.length === 0) continue;
+		if (moduleRecord.selection !== undefined) {
+			for (const legacy of matchingLegacyLists)
+				consumedLegacyLists.add(legacy.list);
+			continue;
+		}
+		const consumerModuleIds = new Set<unknown>([moduleRecord.id]);
+		if (moduleRecord.role === "queue-only") {
+			for (const child of modules) {
+				if (child === null || typeof child !== "object" || Array.isArray(child))
+					continue;
+				const childRecord = child as Record<string, unknown>;
+				if (
+					childRecord.parentModuleCompositionId === moduleRecord.id &&
+					childRecord.hostRecordId === moduleRecord.hostRecordId
+				) {
+					consumerModuleIds.add(childRecord.id);
+				}
+			}
+		}
+		const consumerWorkflowIds = new Set(
+			forms.flatMap((form) => {
+				if (form === null || typeof form !== "object" || Array.isArray(form))
+					return [];
+				const formRecord = form as Record<string, unknown>;
+				return consumerModuleIds.has(formRecord.moduleCompositionId) &&
+					(formRecord.mode === "selected-record" || formRecord.mode === "close")
+					? [formRecord.workflowId]
+					: [];
+			}),
+		);
+		const exactWorkflowIds = workflows.flatMap((workflow) => {
+			if (
+				workflow === null ||
+				typeof workflow !== "object" ||
+				Array.isArray(workflow)
+			)
+				return [];
+			const workflowId = (workflow as Record<string, unknown>).id;
+			return consumerWorkflowIds.has(workflowId) ? [workflowId] : [];
+		});
+		if (exactWorkflowIds.length > 0) {
+			moduleRecord.selection = {
+				workflowIds: exactWorkflowIds,
+				cases: "one",
+			};
+			for (const legacy of matchingLegacyLists)
+				consumedLegacyLists.add(legacy.list);
+		}
+	}
+	for (const legacy of legacyLists) {
+		if (!consumedLegacyLists.has(legacy.list)) continue;
+		delete legacy.list[LEGACY_LIST_SELECTION_WORKFLOW_ID];
+	}
+}
+
 export function replayDesignWorkspace(args: {
 	kind: DesignArtifactKind;
 	baseContract?: Record<string, unknown>;
@@ -407,6 +642,7 @@ export function replayDesignWorkspace(args: {
 		if (operation.kind === "revision" && operation.dispositions !== undefined)
 			applyIdentityMutation(candidate, operation.dispositions as never);
 	}
+	normalizeReplayedLegacySelection(candidate);
 	return candidate;
 }
 

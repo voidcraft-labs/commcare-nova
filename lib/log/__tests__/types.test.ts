@@ -281,6 +281,26 @@ describe("eventSchema", () => {
 		expect(() => eventSchema.parse(event)).toThrow();
 	});
 
+	it("accepts a payload-free non-applied executor outcome", () => {
+		expect(() =>
+			eventSchema.parse({
+				kind: "conversation",
+				runId: "r",
+				ts: 0,
+				seq: 0,
+				source: "chat",
+				payload: {
+					type: "executor-tool-outcome",
+					modelStep: 1,
+					toolName: "configureCaseSelection",
+					workspaceRevision: 1,
+					outcome: "non-applied",
+					code: "CASE_SELECTION_NEEDS_CHANGES",
+				},
+			}),
+		).not.toThrow();
+	});
+
 	it("refuses raw design payloads in outcome annotations", () => {
 		const event = {
 			kind: "conversation" as const,

@@ -172,25 +172,37 @@ should apply the same work to more than one case. Set **Most cases a worker can
 choose** to the largest safe batch for that workflow, from 1 to 100. Keeping
 **One case** gives the usual Results → Details → form journey.
 
+Nova shows the complete effect before changing the setting. If a form opens a
+linked workflow directly, that workflow's Case selection may need to change in
+the same save so the complete selection can continue. Nova names every linked
+module and its new limit first. It also names any Results tile that will stop
+staying above forms, plus any starting value or calculation that can save an
+answer without someone entering it. If a form condition, case action, shared
+case read, or after-submit link needs an author's decision instead, nothing
+changes and the review opens the exact form item to repair.
+
 When **Several cases** is on, Results uses a checkbox for each row or tile and
 keeps Details as a separate action. The selection bar shows the total and lets
-the worker review the complete set before choosing **Continue**. The choices stay in their
-original order while the worker searches, changes pages, opens Details, or goes
-Back. A changed maximum never removes a choice silently. Continue waits and
-states how many cases need to be removed.
+the worker review the complete set before choosing **Continue**. The choices
+stay in their original order while the worker searches, changes pages, opens
+Details, or goes Back. A changed maximum never removes a choice silently.
+Continue waits and states how many cases need to be removed.
 
 Use several-case selection only when a follow-up or close form can run over the
 complete set. That form can belong to the module itself. A case-list-only parent
 can also carry the set into a child that uses the same case type, also chooses
 Several cases, allows at least the parent's maximum, and has the form. The form
 submits once. A question that saves to the selected case starts blank instead
-of borrowing a value from one case. Each nonblank answer is saved to every
-selected case, while leaving it blank preserves each case's existing value. A
-configured starting answer counts as an answer and is also saved to every
-selected case. An attachment answer is saved when the submitted form provides
-its stored file link. Preview does not invent that link, so trying the form
-there leaves an attachment destination unchanged. Explicit case changes run
-for every selected case too, and any failure leaves every case unchanged.
+of borrowing a value from one case. Each answer someone enters is saved to
+every selected case, while leaving it blank preserves each case's existing
+value. A configured starting value or calculation is also saved to every
+selected case when it produces an answer. An attachment answer is saved when the submitted form provides
+a file. A destination configured to keep the file stores that attachment on
+every selected case; a destination configured to keep a link stores the
+published file link instead. Preview does not create either, so trying the form
+there leaves every selected case's attachment destination unchanged. Explicit
+case changes run for every selected case too, and any failure leaves every case
+unchanged.
 
 When a child uses a related case type, Results combines the direct children of
 every selected parent before the worker makes the child's own selection.

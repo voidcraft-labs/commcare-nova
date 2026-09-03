@@ -147,8 +147,17 @@ valid direct Builder or MCP edit.
   same-slice construction keeps
   the parent first and requires that owner to carry the parent's own form or
   case-list surface. A list placed in that module, and properties used only by
-  that list, travel with the workflow that materializes the module; list
-  selection remains usage context rather than a second construction owner.
+  that list, travel with the workflow that materializes the module. Selection
+  is owned by the module composition, including a form-host module that uses
+  only its default Results screen; it never needs a synthetic WorkList. Its
+  explicit one/several setting names every selected-record/close workflow
+  affected by that module, including same-record child consumers beneath a
+  queue-only parent. Planning makes the latest affected workflow depend on
+  the others and lowers one deterministic selection realization for each
+  affected module only after all relevant forms exist. That final workflow may
+  receive `configureCaseSelection` without receiving the rest of the case-list
+  tool family; an earlier module creation never enables several-case selection
+  while a later affected form is still absent.
   Each form composition, section, and item is owned by its workflow so exact
   plan coverage includes the worker-facing information architecture.
 - `executionBrief.ts` renders the bounded semantic brief consumed by a slice
@@ -157,7 +166,8 @@ valid direct Builder or MCP edit.
   each construction group, relevant constraints, and the exact slice tool
   profile. It also lowers relevant composition deterministically into exact
   module create/reuse, host, parent/preceding-sibling placement, and role
-  instructions. Each module composition lowers from its DesignId to one exact
+  instructions, plus the exact default/create/configure action for semantic
+  module selection. Each module composition lowers from its DesignId to one exact
   `blueprintModuleHandle` in the existing private change-set handle vocabulary,
   so equal display names and record hosts never become identity. Form
   instructions carry type, name, icon,
@@ -254,10 +264,16 @@ server-governed semantic phases:
 The author makes architectural and worker-facing composition decisions in the
 same durable pass. Form composition is one information hierarchy: native
 interaction and clear labels carry familiar work, while supporting copy adds
-distinct information once at the scope where it applies. Selected-record and
-close inputs that write directly to the selected record edit their preloaded
-current values in place; sparse blank replacement is a distinct interaction,
-not explanatory copy layered onto the native one. The stateless reviewer reads
+distinct information once at the scope where it applies. One-case
+selected-record and close inputs that write directly to the selected record edit
+their preloaded current values in place; sparse blank replacement is a distinct
+interaction, not explanatory copy layered onto the native one. Several-case
+forms instead start those inputs blank and apply each nonblank shared answer to
+the complete selection, while blank preserves each case's existing value. A
+module selection is the exact module-wide consumer set, not one representative
+workflow and not a WorkList feature; the author and reviewer must judge the
+one/several interaction for every selected-record and close form it affects.
+The stateless reviewer reads
 the whole form for repeated information and runtime-copy mismatches, then
 checks module minimality/reuse, parent-versus-child form hosts, queue-only
 roles, actor-specific duplication, meaningful phases, context changes, error

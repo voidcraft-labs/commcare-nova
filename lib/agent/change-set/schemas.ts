@@ -128,6 +128,42 @@ export const changeSetDiagnosticsSummarySchema = z
 		canCommit: z.boolean(),
 	})
 	.strict();
+
+/** Exact JSON tool envelope for a mutation-free result that controls whether
+ * execution may continue. Most successful no-ops need only their compact
+ * receipt, but a typed `needs_changes` result must survive process replacement
+ * with its confirmation or repair details intact. */
+export const nonAppliedMutationReplayResultSchema = z
+	.json()
+	.superRefine((value, ctx) => {
+		if (value === null || Array.isArray(value) || typeof value !== "object") {
+			ctx.addIssue({
+				code: "custom",
+				message: "A non-applied replay result must be a tool-result object.",
+			});
+			return;
+		}
+		const envelope = value as Record<string, unknown>;
+		const result = envelope.result;
+		if (
+			envelope.kind !== "mutate" ||
+			!Array.isArray(envelope.mutations) ||
+			envelope.mutations.length !== 0 ||
+			result === null ||
+			Array.isArray(result) ||
+			typeof result !== "object" ||
+			(result as Record<string, unknown>).outcome !== "needs_changes"
+		) {
+			ctx.addIssue({
+				code: "custom",
+				message:
+					"A non-applied replay result must be a zero-mutation needs_changes envelope.",
+			});
+		}
+	});
+export type NonAppliedMutationReplayResult = z.infer<
+	typeof nonAppliedMutationReplayResultSchema
+>;
 export type ChangeSetDiagnosticsSummary = z.infer<
 	typeof changeSetDiagnosticsSummarySchema
 >;
@@ -151,8 +187,9 @@ const stageErrorCodeSchema = z.enum([
  * The closed durable receipt one staging request records in its append-only
  * ledger — beside the step when staged, or beside the unchanged workspace
  * when accepted as a final no-op or rejected. An idempotent retry replays it
- * verbatim. Only safe structured facts: no prose payloads, no raw mutations
- * (the step row holds those), no secrets.
+ * verbatim. Only safe structured facts: no raw mutations (the step row holds
+ * those) and no secrets. A no-op may retain one exact typed tool result when
+ * its typed contents control whether execution may continue.
  */
 export const stageRequestReceiptSchema = z
 	.object({
@@ -168,6 +205,9 @@ export const stageRequestReceiptSchema = z
 		/** Canonical digest of the appended admitted batch — staged only. */
 		mutationDigest: sha256HexSchema.optional(),
 		diagnostics: changeSetDiagnosticsSummarySchema.optional(),
+		/** Exact typed non-applied result when a generic no-op receipt would lose
+		 * execution-control data. No-op dispositions only. */
+		replayResult: nonAppliedMutationReplayResultSchema.optional(),
 		error: z
 			.object({
 				code: stageErrorCodeSchema,
@@ -200,6 +240,13 @@ export const stageRequestReceiptSchema = z
 					message: "A staged receipt cannot carry a rejection.",
 				});
 			}
+			if (receipt.replayResult !== undefined) {
+				ctx.addIssue({
+					code: "custom",
+					path: ["replayResult"],
+					message: "A staged receipt cannot carry a non-applied replay result.",
+				});
+			}
 		} else if (receipt.disposition === "noop") {
 			if (
 				receipt.ordinal !== undefined ||
@@ -222,7 +269,8 @@ export const stageRequestReceiptSchema = z
 			}
 			if (
 				receipt.ordinal !== undefined ||
-				receipt.mutationDigest !== undefined
+				receipt.mutationDigest !== undefined ||
+				receipt.replayResult !== undefined
 			) {
 				ctx.addIssue({
 					code: "custom",

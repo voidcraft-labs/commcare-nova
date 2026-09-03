@@ -64,6 +64,10 @@ import {
 	realizedModuleUuid,
 } from "./acceptedModulePlacement";
 import {
+	type AcceptedSelectionRealizationIssue,
+	acceptedSelectionRealizationIssues,
+} from "./acceptedSelectionParity";
+import {
 	BLOCKER_RESOLUTION_ALLOWANCE,
 	type SliceAttemptBudgetClaimResult,
 	type SliceAttemptBudgetCounter,
@@ -207,6 +211,7 @@ export type SliceBlockerResolver = (args: {
 
 export type ExecutorToolOutcomeKind =
 	| "accepted"
+	| "non-applied"
 	| "skipped"
 	| "wire-invalid"
 	| "operation-rejected"
@@ -510,6 +515,7 @@ function pendingExecutorStep(
 				const status = (result as { status?: unknown }).status;
 				return (
 					status === "failed" ||
+					status === "not-applied" ||
 					status === "needs-correction" ||
 					status === "skipped" ||
 					status === "committed" ||
@@ -617,6 +623,18 @@ function resultHasError(result: unknown): boolean {
 		result !== null &&
 		typeof result === "object" &&
 		typeof (result as { error?: unknown }).error === "string"
+	);
+}
+
+function caseSelectionNeedsChanges(
+	toolName: string,
+	result: unknown,
+): result is Record<string, unknown> {
+	return (
+		toolName === "configureCaseSelection" &&
+		result !== null &&
+		typeof result === "object" &&
+		(result as { outcome?: unknown }).outcome === "needs_changes"
 	);
 }
 
@@ -1762,7 +1780,21 @@ export async function runSliceExecutor(
 										dispatched.result,
 										workspace,
 									);
-									if (resultHasError(projected)) {
+									if (caseSelectionNeedsChanges(call.toolName, projected)) {
+										clearFailureSequence();
+										await emitOutcome(
+											call,
+											index,
+											"non-applied",
+											"CASE_SELECTION_NEEDS_CHANGES",
+										);
+										await appendToolResult(call, {
+											...projected,
+											status: "not-applied",
+											code: "CASE_SELECTION_NEEDS_CHANGES",
+										});
+										dispatch = { kind: "halt-response" };
+									} else if (resultHasError(projected)) {
 										const code = toolFailureCode(dispatched.receipt, projected);
 										const error = (projected as { error: string }).error;
 										const failure = await observeNativeCallFailure({
@@ -1890,7 +1922,16 @@ export async function runSliceExecutor(
 							brief,
 							executionHandles,
 						);
-						const acceptedIssues = [...requirementIssues, ...placementIssues];
+						const selectionIssues = acceptedSelectionRealizationIssues(
+							workspace.currentSnapshot().doc,
+							brief,
+							executionHandles,
+						);
+						const acceptedIssues = [
+							...requirementIssues,
+							...placementIssues,
+							...selectionIssues,
+						];
 						if (stale.length > 0) {
 							await emitOutcome(
 								call,
@@ -2242,6 +2283,17 @@ function rawCheckpointHandle(value: unknown): string | null {
 		: null;
 }
 
+function inputSelectionMatches(
+	value: unknown,
+	expected: { readonly kind: "multiple"; readonly maximum: number } | null,
+): boolean {
+	if (expected === null) return value == null;
+	const selection = rawObject(value);
+	return (
+		selection?.kind === "multiple" && selection.maximum === expected.maximum
+	);
+}
+
 /** Critical architecture admission derived from the accepted composition.
  * This is intentionally narrower than a second Blueprint validity gate: it
  * prevents invented module homes and wrong form host/mode choices while the
@@ -2282,6 +2334,56 @@ export function compositionAdmissionIssue(
 		}
 		return null;
 	}
+	if (toolName === "configureCaseSelection") {
+		const requestedModuleUuid = resolveCheckpointIdentity(
+			object.moduleUuid,
+			workspace,
+		);
+		const realization = brief.moduleRealizations.find(
+			(entry) =>
+				entry.selectionRealization?.action === "configure-after-forms" &&
+				realizedModuleUuid(
+					snapshot,
+					brief,
+					entry.compositionId,
+					executionHandles,
+				) === requestedModuleUuid,
+		);
+		if (realization?.selectionRealization === undefined) {
+			return "configureCaseSelection may target only the exact module whose selectionRealization is configure-after-forms in this execution brief.";
+		}
+		const expectedSelection = realization.selectionRealization.selection;
+		if (!inputSelectionMatches(object.selection, expectedSelection)) {
+			return `configureCaseSelection must use the exact accepted selectionRealization for module composition ${realization.compositionId}: ${JSON.stringify(expectedSelection)}.`;
+		}
+		const confirmed = Array.isArray(object.confirmedModuleUuids)
+			? object.confirmedModuleUuids
+			: [];
+		for (const confirmedIdentity of confirmed) {
+			const confirmedModuleUuid = resolveCheckpointIdentity(
+				confirmedIdentity,
+				workspace,
+			);
+			const acceptedLinkedTransition = brief.moduleRealizations.some(
+				(entry) =>
+					entry.selectionRealization !== undefined &&
+					inputSelectionMatches(
+						entry.selectionRealization.selection,
+						expectedSelection,
+					) &&
+					realizedModuleUuid(
+						snapshot,
+						brief,
+						entry.compositionId,
+						executionHandles,
+					) === confirmedModuleUuid,
+			);
+			if (!acceptedLinkedTransition) {
+				return "Every confirmed case-selection transition must resolve to a module realization with the same exact accepted selection in this execution brief.";
+			}
+		}
+		return null;
+	}
 	const createModule = toolName === "createModule";
 	if (createModule) {
 		const caseType =
@@ -2301,6 +2403,15 @@ export function compositionAdmissionIssue(
 		);
 		if (realization === undefined) {
 			return "This slice may create only the exact accepted module composition, using its blueprintModuleHandle as moduleUuid together with its accepted display name and record host. Reuse an earlier composed module when the brief says reuse; do not create a parallel record home.";
+		}
+		const creationSelection =
+			realization.selectionRealization?.action === "create-with-module"
+				? realization.selectionRealization.selection
+				: null;
+		if (!inputSelectionMatches(object.selection, creationSelection)) {
+			return creationSelection === null
+				? "This accepted module creation has no create-with-module selectionRealization. Omit selection or pass null instead of inventing several-case behavior."
+				: `createModule must use the exact accepted create-with-module selectionRealization for module composition ${realization.compositionId}: ${JSON.stringify(creationSelection)}.`;
 		}
 		const expectedParentUuid =
 			realization.parentModuleCompositionId === null
@@ -2506,6 +2617,7 @@ function projectDiagnostics(
 	acceptedRequirementIssues: readonly (
 		| AcceptedInputRequirementIssue
 		| AcceptedModulePlacementIssue
+		| AcceptedSelectionRealizationIssue
 	)[] = [],
 ): unknown {
 	const MAX_REPORTED_FINDINGS = 20;

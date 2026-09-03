@@ -376,7 +376,14 @@ Two more wire oracles follow the XForm oracle's shape — a faithful mirror of t
 
 - **capture URL node**: a capture field's `caseWrite` carries `mode`, and `"url"` emits a SIBLING node (`xform/captureUrlNode.ts`) holding `if(<capture> = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/', /data/meta/instanceID, '/', <capture>))`. The case update names THAT node, never the capture. This indirection is not stylistic: `xform.py::CaseBlock.add_case_updates` routes an update into an `<attachment>` block whenever its question path is an `<upload ref>` in the body (`::is_attachment`), consulting no toggle, and a stock domain then drops the block silently (`update_strategy.py::_apply_attachments_action` returns immediately without `MM_CASE_PROPERTIES`). The origin + project space arrive as an already-resolved `AttachmentUrlTarget` from the caller (`lib/deployment/attachmentTarget.ts`), because the emission boundary is one-way; with none, the node, the bind, and the case update are all withheld rather than written against a guess, and the caller says so through `lib/publish/exportAdvisories.ts`.
 
-The case-attachment shape (`update_attachment_case.xml` — a captured media field persisted to `<case><attachment>`) is NOT emitted: `mode` admits only `"url"`, so the state is unrepresentable. Supporting it is a separate feature (the deprecated `MM_CASE_PROPERTIES` toggle + emit on both pipelines + CCZ media bundling), distinct from the display-media work.
+- **capture attachment block**: `caseWrite.mode === "attachment"` names the
+  original upload node in FormActions, so both HQ regeneration and local CCZ
+  emission create the same `<case><attachment>` transaction pinned to
+  `update_attachment_case.xml`. This is the legacy case-file behavior, not a
+  scalar property write: a project space without its corresponding capability
+  silently drops the block, so `projectSpaceCompatibility.ts` derives and
+  checks that semantic requirement before direct publish. Nova never exposes
+  the downstream flag slug as an authoring setting.
 
 ### Authored case-operation emission
 

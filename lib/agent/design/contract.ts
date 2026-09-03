@@ -595,6 +595,37 @@ const formIconDecisionSchema = z.discriminatedUnion("kind", [
 		.strict(),
 ]);
 
+/** Case-selection cardinality belongs to the module Results screen, including
+ * modules whose default Results screen is not described by a WorkList. */
+export const moduleSelectionSchema = z.discriminatedUnion("cases", [
+	z
+		.object({
+			workflowIds: z
+				.array(designIdSchema)
+				.min(1)
+				.max(32)
+				.describe(
+					"Every workflow with a selected-record or close form affected by this module's one-case setting, listed once. Include same-record child consumers when this is a queue-only parent.",
+				),
+			cases: z.literal("one"),
+		})
+		.strict(),
+	z
+		.object({
+			workflowIds: z
+				.array(designIdSchema)
+				.min(1)
+				.max(32)
+				.describe(
+					"Every workflow whose selected-record or close form will receive the same shared answers for the complete selection, listed once. Include same-record child consumers when this is a queue-only parent.",
+				),
+			cases: z.literal("several"),
+			maximum: z.number().int().min(1).max(100),
+		})
+		.strict(),
+]);
+export type ModuleSelection = z.infer<typeof moduleSelectionSchema>;
+
 /** One deliberate home-screen/menu container. These are product-composition
  * decisions, not Blueprint modules: every reference stays in Design IDs and
  * the deterministic compiler later chooses construction ownership. */
@@ -605,6 +636,7 @@ export const moduleCompositionSchema = z
 		purpose: z.string().min(1).max(1_000),
 		parentModuleCompositionId: designIdSchema.optional(),
 		role: z.enum(["form-host", "queue-only", "form-and-queue"]),
+		selection: moduleSelectionSchema.optional(),
 		workflowIds: z.array(designIdSchema).min(1).max(32),
 		hostRecordId: designIdSchema.optional(),
 		actorIds: z.array(designIdSchema).min(1).max(32),
@@ -949,7 +981,6 @@ export const workListSchema = z
 		scanPropertyIds: z.array(designIdSchema),
 		detailPropertyIds: z.array(designIdSchema),
 		searchPropertyIds: z.array(designIdSchema),
-		selectionWorkflowId: designIdSchema.optional(),
 		emptyStateMeaning: z.string().min(1),
 	})
 	.strict();
@@ -1083,24 +1114,160 @@ export type AppDesignContract = z.infer<typeof appDesignContractBaseSchema>;
 export const appDesignContractSchema =
 	appDesignContractBaseSchema.superRefine(validateDesignGraph);
 
-/** The sole persisted-payload normalization seam. Stored contracts can
- * predate additive collections, but every caller receives the one complete
- * current domain model. Digest verification happens against the sealed bytes
- * before this function is called. */
+/** Remove the former WorkList-only selection carrier after its workflow has
+ * been projected onto the owning module by the whole-contract normalizer. */
+function normalizeStoredWorkList(stored: unknown): unknown {
+	if (stored === null || typeof stored !== "object" || Array.isArray(stored))
+		return stored;
+	const value = stored as Record<string, unknown>;
+	if (!Object.hasOwn(value, "selectionWorkflowId")) return stored;
+	const { selectionWorkflowId: _selectionWorkflowId, ...current } = value;
+	return current;
+}
+
+/** The sole persisted-contract normalization seam. Stored contracts can
+ * predate additive collections or the module-owned selection shape, but every
+ * caller receives the one complete current domain model. Digest verification
+ * happens against the sealed bytes before this function is called. */
 export function normalizeStoredAppDesignContract(
 	stored: unknown,
 ): AppDesignContract {
 	if (stored === null || typeof stored !== "object" || Array.isArray(stored))
 		return appDesignContractSchema.parse(stored);
 	const value = stored as Record<string, unknown>;
-	return appDesignContractSchema.parse({
+	const storedLists = Array.isArray(value.lists) ? value.lists : [];
+	const legacySelections = storedLists.flatMap((list) => {
+		if (list === null || typeof list !== "object" || Array.isArray(list))
+			return [];
+		const candidate = list as Record<string, unknown>;
+		return Object.hasOwn(candidate, "selectionWorkflowId") &&
+			candidate.selection === undefined &&
+			typeof candidate.id === "string"
+			? [
+					{
+						listId: candidate.id,
+						workflowId: candidate.selectionWorkflowId,
+					},
+				]
+			: [];
+	});
+	const storedModules = Array.isArray(value.moduleCompositions)
+		? value.moduleCompositions
+		: [];
+	const storedForms = Array.isArray(value.formCompositions)
+		? value.formCompositions
+		: [];
+	const storedWorkflows = Array.isArray(value.workflows) ? value.workflows : [];
+	const storedWorkflowIds = new Set(
+		storedWorkflows.flatMap((workflow) =>
+			workflow !== null &&
+			typeof workflow === "object" &&
+			!Array.isArray(workflow)
+				? [(workflow as Record<string, unknown>).id]
+				: [],
+		),
+	);
+	const invalidLegacyListIds = new Set(
+		legacySelections
+			.filter((selection) => !storedWorkflowIds.has(selection.workflowId))
+			.map((selection) => selection.listId),
+	);
+	const storedSelectionWorkflowIds = (
+		candidate: Record<string, unknown>,
+	): unknown[] => {
+		const consumerModuleIds = new Set<unknown>([candidate.id]);
+		if (candidate.role === "queue-only") {
+			for (const child of storedModules) {
+				if (child === null || typeof child !== "object" || Array.isArray(child))
+					continue;
+				const childCandidate = child as Record<string, unknown>;
+				if (
+					childCandidate.parentModuleCompositionId === candidate.id &&
+					childCandidate.hostRecordId === candidate.hostRecordId
+				) {
+					consumerModuleIds.add(childCandidate.id);
+				}
+			}
+		}
+		const consumerWorkflowIds = new Set(
+			storedForms.flatMap((form) => {
+				if (form === null || typeof form !== "object" || Array.isArray(form))
+					return [];
+				const formCandidate = form as Record<string, unknown>;
+				return consumerModuleIds.has(formCandidate.moduleCompositionId) &&
+					(formCandidate.mode === "selected-record" ||
+						formCandidate.mode === "close")
+					? [formCandidate.workflowId]
+					: [];
+			}),
+		);
+		return storedWorkflows.flatMap((workflow) => {
+			if (
+				workflow === null ||
+				typeof workflow !== "object" ||
+				Array.isArray(workflow)
+			)
+				return [];
+			const workflowId = (workflow as Record<string, unknown>).id;
+			return consumerWorkflowIds.has(workflowId) ? [workflowId] : [];
+		});
+	};
+	const normalizedModules = storedModules.map((module) => {
+		if (module === null || typeof module !== "object" || Array.isArray(module))
+			return module;
+		const candidate = module as Record<string, unknown>;
+		if (candidate.selection !== undefined) return module;
+		const workflowIds = storedSelectionWorkflowIds(candidate);
+		/* A legacy module with no case-loading consumer had no observable
+		 * selection cardinality. Keep the current carrier absent. */
+		if (workflowIds.length === 0) return module;
+		const inheritsQueueParent = storedModules.some((parent) => {
+			if (
+				parent === null ||
+				typeof parent !== "object" ||
+				Array.isArray(parent)
+			)
+				return false;
+			const parentCandidate = parent as Record<string, unknown>;
+			return (
+				parentCandidate.id === candidate.parentModuleCompositionId &&
+				parentCandidate.role === "queue-only" &&
+				parentCandidate.hostRecordId === candidate.hostRecordId &&
+				storedSelectionWorkflowIds(parentCandidate).length > 0
+			);
+		});
+		if (inheritsQueueParent) return module;
+		return {
+			...candidate,
+			selection: {
+				workflowIds,
+				cases: "one",
+			},
+		};
+	});
+	const normalized = {
 		...value,
 		moduleCompositions:
-			value.moduleCompositions === undefined ? [] : value.moduleCompositions,
+			value.moduleCompositions === undefined ? [] : normalizedModules,
 		formCompositions:
 			value.formCompositions === undefined ? [] : value.formCompositions,
 		lookupTables: value.lookupTables === undefined ? [] : value.lookupTables,
-	});
+		lists: Array.isArray(value.lists)
+			? value.lists.map((list) => {
+					if (
+						list !== null &&
+						typeof list === "object" &&
+						!Array.isArray(list) &&
+						invalidLegacyListIds.has(
+							(list as Record<string, unknown>).id as string,
+						)
+					)
+						return list;
+					return normalizeStoredWorkList(list);
+				})
+			: value.lists,
+	};
+	return appDesignContractSchema.parse(normalized);
 }
 
 export interface DesignConstructionIssue {

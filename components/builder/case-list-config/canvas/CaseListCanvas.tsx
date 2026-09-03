@@ -90,7 +90,10 @@ export interface CaseListCanvasProps {
 	readonly onApplyTilePreset: (preset: TilePresetId) => void;
 	readonly onTilePersistOnFormsChange: (persist: boolean) => void;
 	readonly onTileGroupingChange: (next: CaseTileGrouping | undefined) => void;
-	readonly onCaseSelectionChange: (next: CaseSelection | undefined) => void;
+	readonly onCaseSelectionChange: (
+		next: CaseSelection | undefined,
+		origin?: HTMLElement,
+	) => void;
 }
 
 export function CaseListCanvas({

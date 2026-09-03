@@ -391,6 +391,9 @@ export function multiSelectFormSemantics(
 				continue;
 			}
 			const operationIndex = entry.indices[0];
+			const formLink = slot.slot.startsWith("form_link_")
+				? form.formLinks?.[operationIndex ?? -1]
+				: undefined;
 			if (slot.slot.startsWith("case_operation_")) {
 				const operation =
 					operationIndex === undefined ? undefined : operations[operationIndex];
@@ -418,7 +421,10 @@ export function multiSelectFormSemantics(
 					"form",
 					`"${form.name}" reads the selected case in its ${slot.slot.replaceAll("_", " ")}, but the form runs once over a set of selected cases. Remove that selected-case reference or move the logic into a session-targeted case operation.`,
 					loc,
-					{ surface: slot.slot },
+					{
+						surface: slot.slot,
+						...(formLink !== undefined && { linkUuid: formLink.uuid }),
+					},
 				),
 			);
 		}

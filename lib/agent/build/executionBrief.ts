@@ -37,6 +37,11 @@ import {
 	type PlatformConstraint,
 	type PlatformConstraintCode,
 } from "@/lib/agent/design/platformConstraints";
+import {
+	isCaseLoadingFormComposition,
+	moduleSelectionIntent,
+	selectionRealizationWorkflowId,
+} from "@/lib/agent/design/selectionCoverage";
 import { slugifyId } from "@/lib/domain/idSlug";
 import { languageDescriptor } from "@/lib/domain/languageRegistry/names";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
@@ -127,6 +132,27 @@ export interface SliceExecutionBrief {
 			readonly header: string;
 			readonly visibleInList: true;
 		};
+		/** Deterministic lowering of the semantic module selection owned by this
+		 * workflow. `create-with-module` is valid only when the same atomic module
+		 * creation includes its batch-consuming form; a reused module configures
+		 * selection only after that form exists. */
+		readonly selectionRealization?:
+			| {
+					readonly action: "default-one";
+					readonly workflowIds: readonly DesignId[];
+					readonly cases: "one";
+					readonly selection: null;
+			  }
+			| {
+					readonly action: "create-with-module" | "configure-after-forms";
+					readonly workflowIds: readonly DesignId[];
+					readonly cases: "several";
+					readonly maximum: number;
+					readonly selection: {
+						readonly kind: "multiple";
+						readonly maximum: number;
+					};
+			  };
 		readonly role: ModuleComposition["role"];
 		readonly icon: ModuleComposition["icon"];
 		readonly formCompositionIds: readonly DesignId[];
@@ -327,6 +353,7 @@ const CONSTRAINT_AREAS: Readonly<
 	CASE_WRITE_TARGETS_MODULE_LINEAGE: ["forms", "case-operations"],
 	CASE_PROPERTY_CLEAR_UNAVAILABLE: ["forms", "case-operations"],
 	CASE_BOUND_UPDATE_INPUTS_EDIT_CURRENT_VALUES: ["forms"],
+	SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET: [],
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
 	GAP_SESSION_ENDPOINTS_DEEP_LINKS: ["navigation"],
@@ -458,7 +485,6 @@ export function deriveSliceExecutionBrief(args: {
 	const lists = args.contract.lists.filter(
 		(list) =>
 			elements.has(list.id) ||
-			list.selectionWorkflowId === workflow.id ||
 			workflow.readback.some((readback) => readback.recordId === list.recordId),
 	);
 	for (const list of lists) {
@@ -510,6 +536,9 @@ export function deriveSliceExecutionBrief(args: {
 	const formCompositions = args.contract.formCompositions.filter(
 		(composition) => composition.workflowId === workflow.id,
 	);
+	const orderedPlanWorkflowIds = args.plan.slices.map(
+		(planSlice) => planSlice.workflowId,
+	);
 	const relevantModuleCompositionIds = new Set<string>([
 		...formCompositions.map(
 			(composition) => composition.moduleCompositionId as string,
@@ -520,6 +549,18 @@ export function deriveSliceExecutionBrief(args: {
 			),
 		),
 	]);
+	for (const composition of args.contract.moduleCompositions) {
+		const selectionIntent = moduleSelectionIntent(args.contract, composition);
+		if (
+			selectionIntent !== undefined &&
+			selectionRealizationWorkflowId(
+				selectionIntent.workflowIds,
+				orderedPlanWorkflowIds,
+			) === workflow.id
+		) {
+			relevantModuleCompositionIds.add(composition.id);
+		}
+	}
 	/* A child cannot be realized from its row alone: construction needs its
 	 * parent and preceding sibling as exact create/reuse anchors. Close that
 	 * one-tier placement context before filtering the immutable contract order. */
@@ -591,6 +632,50 @@ export function deriveSliceExecutionBrief(args: {
 		const action = ownedModuleCompositionIds.has(composition.id)
 			? ("create" as const)
 			: ("reuse" as const);
+		const selectionIntent = moduleSelectionIntent(args.contract, composition);
+		const realizationWorkflowId =
+			selectionIntent === undefined
+				? undefined
+				: selectionRealizationWorkflowId(
+						selectionIntent.workflowIds,
+						orderedPlanWorkflowIds,
+					);
+		const directlyHostedCaseLoadingForms =
+			args.contract.formCompositions.filter(
+				(form) =>
+					form.moduleCompositionId === composition.id &&
+					isCaseLoadingFormComposition(form),
+			);
+		const selectionRealization =
+			selectionIntent === undefined || realizationWorkflowId !== workflow.id
+				? undefined
+				: selectionIntent.cases === "one"
+					? {
+							action: "default-one" as const,
+							workflowIds: selectionIntent.workflowIds,
+							cases: "one" as const,
+							selection: null,
+						}
+					: {
+							action:
+								action === "create" &&
+								selectionIntent.workflowIds.every(
+									(workflowId) => workflowId === workflow.id,
+								) &&
+								directlyHostedCaseLoadingForms.length > 0 &&
+								directlyHostedCaseLoadingForms.every(
+									(form) => form.workflowId === workflow.id,
+								)
+									? ("create-with-module" as const)
+									: ("configure-after-forms" as const),
+							workflowIds: selectionIntent.workflowIds,
+							cases: "several" as const,
+							maximum: selectionIntent.maximum,
+							selection: {
+								kind: "multiple" as const,
+								maximum: selectionIntent.maximum,
+							},
+						};
 		const siblings = args.contract.moduleCompositions.filter(
 			(entry) =>
 				entry.parentModuleCompositionId ===
@@ -624,6 +709,7 @@ export function deriveSliceExecutionBrief(args: {
 						},
 					}
 				: {}),
+			...(selectionRealization === undefined ? {} : { selectionRealization }),
 			role: composition.role,
 			icon: composition.icon,
 			formCompositionIds: formCompositions
@@ -656,11 +742,24 @@ export function deriveSliceExecutionBrief(args: {
 			.map((entry) => entry.workflowId),
 	);
 	const catalog = buildCapabilityCatalog();
-	const toolProfile = deriveExecutorToolProfile(executableSlice);
+	const toolProfile = deriveExecutorToolProfile(executableSlice, {
+		configureCaseSelection: moduleRealizations.some(
+			(realization) =>
+				realization.selectionRealization?.action === "configure-after-forms",
+		),
+	});
 	const areaSet = new Set(toolProfile.blueprintAreas);
 	const relevantConstraints = Object.values(PLATFORM_CONSTRAINTS).filter(
 		(constraint) =>
 			CONSTRAINT_AREAS[constraint.code].some((area) => areaSet.has(area)) ||
+			(constraint.code === "SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET" &&
+				args.contract.moduleCompositions.some((composition) => {
+					const intent = moduleSelectionIntent(args.contract, composition);
+					return (
+						intent?.cases === "several" &&
+						intent.workflowIds.includes(workflow.id)
+					);
+				})) ||
 			(constraint.code === "HQ_BUILD_RELEASE_NOT_API_DRIVEN" &&
 				args.contract.externalRequirements.some(
 					(requirement) =>
@@ -849,7 +948,7 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 		jsonSection("Module composition", brief.moduleCompositions),
 		jsonSection("Form composition", brief.formCompositions),
 		jsonSection(
-			"Module create or reuse instructions",
+			"Module and selection realization instructions",
 			brief.moduleRealizations,
 		),
 		jsonSection("Exact form realization instructions", brief.formRealizations),

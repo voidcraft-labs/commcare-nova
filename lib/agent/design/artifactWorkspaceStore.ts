@@ -18,6 +18,7 @@ import {
 	designArtifactWorkspaceOperationSchema,
 	designWorkspaceCandidateSummary,
 	initialDesignWorkspaceCandidate,
+	normalizeStoredDesignArtifactWorkspaceOperation,
 	replayDesignWorkspace,
 } from "@/lib/agent/design/artifactWorkspaceOperations";
 import { designIdentityCollisions } from "@/lib/agent/design/graph";
@@ -394,7 +395,7 @@ async function readWorkspaceOperations(
 				"The design workspace operation ledger is not contiguous.",
 			);
 		}
-		return designArtifactWorkspaceOperationSchema.parse(
+		return normalizeStoredDesignArtifactWorkspaceOperation(
 			parsePersistedJsonText(
 				row.operation_text,
 				`design_artifact_workspace_steps.operation for ${workspaceId} revision ${String(row.revision)}`,

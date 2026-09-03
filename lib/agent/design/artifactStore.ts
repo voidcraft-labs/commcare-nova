@@ -483,12 +483,19 @@ export async function insertDesignRevision(args: {
 					"An accepted revision must descend directly from the draft that received its clean review.",
 				);
 			}
+			/* The review remains bound to the parent's exact raw artifact digest.
+			 * Contract normalization may give those sealed historical bytes a current
+			 * semantic spelling, so compare that normalized meaning with the accepted
+			 * child while retaining the parent's raw contract digest in its own row. */
+			const reviewedContractDigest = canonicalJsonDigest(
+				revisionRecordFromRow(parent).envelope.payload,
+			);
 			if (
-				contractDigest !== parent.contract_digest ||
+				contractDigest !== reviewedContractDigest ||
 				parsed.sourcePackageDigest !== parent.source_package_digest
 			) {
 				throw new DesignArtifactStoreError(
-					"An accepted revision must preserve the exact contract and source package its parent review evaluated.",
+					"An accepted revision must preserve the contract semantics and exact source package its parent review evaluated.",
 				);
 			}
 		}
@@ -709,6 +716,7 @@ function revisionRecordFromRow(row: RevisionRow): DesignRevisionRecord {
 	 * The normalized payload is the only domain shape consumers receive, but it
 	 * must never be mistaken for the stored envelope's digest input. */
 	verifyArtifactEnvelope(storedEnvelope);
+	const storedContractDigest = canonicalJsonDigest(storedEnvelope.payload);
 	const envelope: DesignArtifactEnvelope<AppDesignContract> = {
 		...storedEnvelope,
 		payload: normalizeStoredAppDesignContract(storedEnvelope.payload),
@@ -716,10 +724,11 @@ function revisionRecordFromRow(row: RevisionRow): DesignRevisionRecord {
 	if (
 		envelope.artifactDigest !== row.artifact_digest ||
 		envelope.artifactId !== row.id ||
-		envelope.designSessionId !== row.design_session_id
+		envelope.designSessionId !== row.design_session_id ||
+		storedContractDigest !== row.contract_digest
 	) {
 		throw new DesignArtifactStoreError(
-			`The stored revision ${row.id} disagrees with its own envelope about identity or digest — corruption, not drift to repair.`,
+			`The stored revision ${row.id} disagrees with its own envelope about identity or raw digest — corruption, not drift to repair.`,
 		);
 	}
 	const lifecycle = row.lifecycle;

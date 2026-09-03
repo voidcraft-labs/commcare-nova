@@ -3,6 +3,10 @@
 import type { z } from "zod";
 import type { AppDesignContract } from "@/lib/agent/design/contract";
 import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
+import {
+	sameIdentitySet,
+	selectionConsumerWorkflowIds,
+} from "@/lib/agent/design/selectionCoverage";
 import { coerceLookupCell } from "@/lib/lookup/coercion";
 
 type Path = Array<string | number>;
@@ -937,13 +941,6 @@ export function validateDesignGraph(
 					);
 			});
 		}
-		if (list.selectionWorkflowId !== undefined)
-			expect(
-				workflows,
-				list.selectionWorkflowId,
-				["lists", listIndex, "selectionWorkflowId"],
-				"workflow",
-			);
 	});
 	contract.access.forEach((policy, policyIndex) => {
 		expect(actors, policy.actorId, ["access", policyIndex, "actorId"], "actor");
@@ -1268,6 +1265,98 @@ export function validateDesignGraph(
 				);
 			}
 		});
+		const parentSelection =
+			composition.parentModuleCompositionId === undefined
+				? undefined
+				: contract.moduleCompositions.find(
+						(parent) =>
+							parent.id === composition.parentModuleCompositionId &&
+							parent.role === "queue-only" &&
+							parent.hostRecordId === composition.hostRecordId,
+					)?.selection;
+		const expectedSelectionWorkflowIds = selectionConsumerWorkflowIds(
+			contract,
+			composition,
+		);
+		const selectionPath: Path = [
+			"moduleCompositions",
+			compositionIndex,
+			"selection",
+		];
+		if (
+			expectedSelectionWorkflowIds.length > 0 &&
+			composition.selection === undefined &&
+			parentSelection === undefined
+		) {
+			issue(
+				ctx,
+				selectionPath,
+				"A module with selected-record or close forms must declare one module-wide selection setting and name every affected workflow. A same-record child may inherit that setting from its queue-only parent.",
+			);
+		}
+		if (composition.selection !== undefined) {
+			const selection = composition.selection;
+			if (
+				new Set(selection.workflowIds).size !== selection.workflowIds.length
+			) {
+				issue(
+					ctx,
+					[...selectionPath, "workflowIds"],
+					"A module selection must name each affected workflow exactly once.",
+				);
+			}
+			selection.workflowIds.forEach((workflowId, workflowIndex) => {
+				expect(
+					workflows,
+					workflowId,
+					[...selectionPath, "workflowIds", workflowIndex],
+					"workflow",
+				);
+				const selectionWorkflow = contract.workflows.find(
+					(workflow) => workflow.id === workflowId,
+				);
+				if (
+					selectionWorkflow !== undefined &&
+					selectionWorkflow.contextRecordId !== composition.hostRecordId
+				) {
+					issue(
+						ctx,
+						[...selectionPath, "workflowIds", workflowIndex],
+						"Every module selection workflow must use the module's record as its selected context.",
+					);
+				}
+			});
+			if (expectedSelectionWorkflowIds.length === 0) {
+				issue(
+					ctx,
+					selectionPath,
+					"A module selection needs at least one selected-record or close form in this module, or in a same-record child beneath a queue-only module.",
+				);
+			}
+			if (
+				!sameIdentitySet(selection.workflowIds, expectedSelectionWorkflowIds)
+			) {
+				issue(
+					ctx,
+					[...selectionPath, "workflowIds"],
+					"Module selection workflowIds must exactly name every selected-record and close workflow affected by this module-wide setting, with no unrelated workflow.",
+				);
+			}
+		}
+		if (
+			parentSelection !== undefined &&
+			composition.selection !== undefined &&
+			(parentSelection.cases !== composition.selection.cases ||
+				(parentSelection.cases === "several" &&
+					composition.selection.cases === "several" &&
+					composition.selection.maximum < parentSelection.maximum))
+		) {
+			issue(
+				ctx,
+				selectionPath,
+				"A same-record child beneath a queue-only module must use the parent's one/several setting, and its several-case maximum must accept the complete parent selection.",
+			);
+		}
 		if (composition.role === "queue-only" && composition.listIds.length === 0) {
 			issue(
 				ctx,

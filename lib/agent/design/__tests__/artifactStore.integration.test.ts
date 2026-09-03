@@ -39,7 +39,9 @@ import {
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
+	addPatientReviewWorkflow,
 	did,
+	fixtureValue,
 	ids,
 	makeBuildPlan,
 	makeContract,
@@ -363,6 +365,108 @@ describe("contract revisions", () => {
 		expect(read?.artifactDigest).toBe(draft.artifactDigest);
 	});
 
+	it("accepts normalized semantics from a legacy raw-digest draft without rewriting its lineage", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, runId: RUN_ID });
+		const currentContract = makeContract();
+		addPatientReviewWorkflow(currentContract);
+		const currentModule = fixtureValue(
+			currentContract.moduleCompositions[0],
+			"patient module composition",
+		);
+		currentModule.selection = {
+			workflowIds: [ids.taskVisit, ids.taskReview],
+			cases: "one",
+		};
+		const legacyPayload = structuredClone(currentContract) as unknown as Record<
+			string,
+			unknown
+		>;
+		const legacyModule = fixtureValue(
+			(legacyPayload.moduleCompositions as Array<Record<string, unknown>>)[0],
+			"patient module composition",
+		);
+		const legacyList = fixtureValue(
+			(legacyPayload.lists as Array<Record<string, unknown>>)[0],
+			"patient list",
+		);
+		delete legacyModule.selection;
+		delete legacyList.selection;
+		legacyList.selectionWorkflowId = ids.taskVisit;
+
+		const { artifactDigest: _currentDigest, ...draftFields } = draftEnvelope(
+			pkg,
+			currentContract,
+		);
+		const legacyEnvelope = sealArtifactEnvelope({
+			...draftFields,
+			payload: legacyPayload,
+		});
+		const rawContractDigest = canonicalJsonDigest(legacyPayload);
+		await h
+			.db()
+			.insertInto("design_revisions")
+			.values({
+				id: legacyEnvelope.artifactId,
+				design_session_id: sessionId,
+				revision: 1,
+				parent_revision_id: null,
+				lifecycle: "draft",
+				artifact_digest: legacyEnvelope.artifactDigest,
+				contract_digest: rawContractDigest,
+				source_package_digest: pkg.packageDigest,
+				producer_model: legacyEnvelope.producer.modelId,
+				prompt_version: legacyEnvelope.promptVersion,
+				created_by_run_id: RUN_ID,
+				envelope: JSON.stringify(legacyEnvelope),
+			})
+			.execute();
+
+		const draft = await readDesignRevision(legacyEnvelope.artifactId);
+		if (draft === null) throw new Error("legacy draft was not readable");
+		expect(draft.contractDigest).toBe(rawContractDigest);
+		expect(draft.envelope.payload.moduleCompositions[0]?.selection).toEqual({
+			workflowIds: [ids.taskVisit, ids.taskReview],
+			cases: "one",
+		});
+		expect(draft.envelope.payload.lists[0]).not.toHaveProperty(
+			"selectionWorkflowId",
+		);
+		const normalizedContractDigest = canonicalJsonDigest(
+			draft.envelope.payload,
+		);
+		expect(normalizedContractDigest).not.toBe(rawContractDigest);
+
+		const review = await insertDesignReview({
+			envelope: reviewEnvelope(draft, emptyReview()),
+			designRevisionId: draft.id,
+			runId: RUN_ID,
+		});
+		const accepted = await insertDesignRevision({
+			envelope: acceptedEnvelope(
+				draft,
+				review.artifactDigest,
+				draft.envelope.payload,
+			),
+			lifecycle: "accepted",
+			runId: RUN_ID,
+			dispositions: [],
+		});
+
+		expect(accepted.parentRevisionId).toBe(draft.id);
+		expect(accepted.envelope.inputArtifactDigests).toContain(
+			legacyEnvelope.artifactDigest,
+		);
+		expect(accepted.contractDigest).toBe(normalizedContractDigest);
+		expect(
+			(await readDesignRevision(accepted.id))?.envelope.payload
+				.moduleCompositions[0]?.selection,
+		).toEqual({
+			workflowIds: [ids.taskVisit, ids.taskReview],
+			cases: "one",
+		});
+	});
+
 	it("refuses a revision without its persisted source package", async () => {
 		const pkg = makePackage();
 		await expect(
@@ -391,6 +495,24 @@ describe("contract revisions", () => {
 		await expect(readDesignRevision(draft.id)).rejects.toThrow(
 			/does not match its recorded digest/,
 		);
+	});
+
+	it("refuses a revision whose relational raw contract digest drifted", async () => {
+		const pkg = makePackage();
+		await insertDesignSourcePackage({ pkg, runId: RUN_ID });
+		const draft = await insertDesignRevision({
+			envelope: draftEnvelope(pkg),
+			lifecycle: "draft",
+			runId: RUN_ID,
+		});
+		await h
+			.db()
+			.updateTable("design_revisions")
+			.set({ contract_digest: "d".repeat(64) })
+			.where("id", "=", draft.id)
+			.execute();
+
+		await expect(readDesignRevision(draft.id)).rejects.toThrow(/raw digest/);
 	});
 
 	it("fails closed on an unknown envelope dialect", async () => {
@@ -452,7 +574,7 @@ describe("contract revisions", () => {
 				lifecycle: "accepted",
 				runId: RUN_ID,
 			}),
-		).rejects.toThrow(/exact contract and source package/);
+		).rejects.toThrow(/contract semantics and exact source package/);
 
 		const { packageDigest: _oldDigest, ...sourceBase } = makePackage();
 		const changedSourceUnsealed = {
@@ -480,7 +602,7 @@ describe("contract revisions", () => {
 				lifecycle: "accepted",
 				runId: RUN_ID,
 			}),
-		).rejects.toThrow(/exact contract and source package/);
+		).rejects.toThrow(/contract semantics and exact source package/);
 	});
 
 	it("persists dispositions on a revised draft and accepts only after its clean review", async () => {

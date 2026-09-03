@@ -744,11 +744,20 @@ control is **Case selection**, its choices are **One case** and **Several
 cases**, and the conditional integer is **Most cases a worker can choose**.
 Those words describe the worker's task; `multi_select`, datum kinds, virtual
 instances, and downstream caps never render. Enabling Several cases plans the
-complete valid document change. It clears **Keep tile visible in forms** in the
-same gated batch because that banner requires one scalar case, and states that
-exact consequence before commit. Other form or topology blockers remain
-visible refusals with a route to the owning form; the builder never lands a
-temporarily invalid selection mode.
+complete valid document change. The saved segment remains selected until a
+review confirms the new mode; the maximum is a local text draft that requests a
+change only on blur or Enter and restores the committed value on Escape or a
+cancelled review. The review names every linked module whose selection must
+change, follows those direct-form dependencies transitively in both directions,
+and clears **Keep tile visible in forms** in the same gated batch because that
+banner requires one scalar case. It states every tile consequence before
+commit. A starting answer or calculation is called out because it will update
+every selected case even when the worker leaves it alone. Other form or
+topology blockers remain mutation-free refusals with a route to the owning
+field, condition, case action, or link; the Builder never lands a temporarily
+invalid selection mode. Review uses the same exact incremental commit verdict
+as the final fresh-document commit, never a full-app refresh or a second
+validation policy.
 
 When **Several cases** is on, Results uses a checkbox as the selection action
 and a separate Details action. A sticky review tray says **{n} cases selected** and

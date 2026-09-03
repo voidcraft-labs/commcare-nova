@@ -60,6 +60,7 @@ import {
 import {
 	type AuthoredCasePropertyName,
 	authoredCasePropertyNameSchema,
+	CASE_LOADING_FORM_TYPES,
 	type CaptureCaseWrite,
 	type CaptureCaseWriteMode,
 	type CaseProperty,
@@ -201,6 +202,7 @@ export function CaseWriteEditor<F extends Field>(
 	const newNameId = useId();
 	const newTypeId = useId();
 	const modeId = useId();
+	const severalCaseHelpId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const newNameRef = useRef<HTMLInputElement>(null);
 	const [open, setOpen] = useState(false);
@@ -246,6 +248,26 @@ export function CaseWriteEditor<F extends Field>(
 		current !== undefined && "mode" in current
 			? (current as CaptureCaseWrite).mode
 			: "url";
+	const writesEverySelectedCase =
+		context !== null &&
+		CASE_LOADING_FORM_TYPES.has(context.form.type) &&
+		context.module.caseListConfig?.selection?.kind === "multiple" &&
+		current !== undefined &&
+		current.caseType === context.module.caseType;
+	const hasStartingAnswer =
+		("default_value" in field && field.default_value !== undefined) ||
+		("calculate" in field && field.calculate !== undefined);
+	const severalCaseHelp = !writesEverySelectedCase
+		? undefined
+		: savesAttachment
+			? currentMode === "url"
+				? "This attachment starts blank. When someone submits a file, its stored link updates this information on every selected case. Preview leaves each case's current value because it does not create that stored link."
+				: "This attachment starts blank. When someone submits a file, it updates this information on every selected case. Preview leaves each case's current attachment because it does not create case attachments."
+			: hasStartingAnswer
+				? "This question has a starting value or calculation. When it produces an answer, that answer updates this information on every selected case, even if no one changes it."
+				: "This question starts blank. Any answer someone enters updates this information on every selected case. Leaving it blank keeps each case's current value.";
+	const severalCaseHelpIsWarning =
+		severalCaseHelp !== undefined && (savesAttachment || hasStartingAnswer);
 	const destinationFor = useCallback(
 		(
 			caseType: string,
@@ -550,6 +572,9 @@ export function CaseWriteEditor<F extends Field>(
 						<Button type="button" variant="field" className="w-full min-w-0" />
 					}
 					aria-label={`${label}: ${displayLabel}, ${displayDetail}`}
+					aria-describedby={
+						severalCaseHelp === undefined ? undefined : severalCaseHelpId
+					}
 				>
 					<span className="flex min-w-0 flex-1 items-start gap-2">
 						<Icon
@@ -675,6 +700,19 @@ export function CaseWriteEditor<F extends Field>(
 				</ComboboxContent>
 			</Combobox>
 
+			{severalCaseHelp !== undefined && (
+				<p
+					id={severalCaseHelpId}
+					className={
+						severalCaseHelpIsWarning
+							? "rounded-xl border border-nova-amber/25 bg-nova-amber/[0.05] p-2.5 text-[13px] leading-5 text-nova-text-secondary"
+							: "text-[13px] leading-5 text-nova-text-muted"
+					}
+				>
+					{severalCaseHelp}
+				</p>
+			)}
+
 			{context !== null && writableTypes.length === 0 && (
 				<p className="text-[13px] leading-5 text-nova-text-muted">
 					No case type is available here yet.
@@ -713,7 +751,9 @@ export function CaseWriteEditor<F extends Field>(
 					</Select>
 					<p className="text-[13px] leading-5 text-nova-text-muted">
 						{currentMode === "url"
-							? "Nova fills this link in once the app reaches a CommCare project space, so it stays empty in the preview and in a download made before then."
+							? writesEverySelectedCase
+								? "Nova fills this link in once the app reaches a CommCare project space. A download made before that cannot fill it."
+								: "Nova fills this link in once the app reaches a CommCare project space, so it stays empty in the preview and in a download made before then."
 							: "CommCare stores the file on the case. The project space needs the Multimedia Case Properties setting, which Dimagi is retiring, and nothing in the app can show a case attachment, so a link is the better choice unless you already rely on this."}
 					</p>
 				</div>

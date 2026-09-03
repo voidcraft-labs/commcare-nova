@@ -144,8 +144,26 @@ export type AddCommitOutcome =
 
 export interface StructuredCommitFinding {
 	readonly code: string;
+	readonly scope: "app" | "module" | "form" | "field";
+	readonly location: {
+		readonly moduleUuid?: Uuid;
+		readonly moduleName?: string;
+		readonly formUuid?: Uuid;
+		readonly formName?: string;
+		readonly fieldUuid?: Uuid;
+		readonly fieldId?: string;
+		readonly field?: string;
+	};
 	readonly details?: Readonly<Record<string, string>>;
 }
+
+export type StructuredCommitOutcome =
+	| { readonly ok: true }
+	| {
+			readonly ok: false;
+			readonly messages: string[];
+			readonly findings?: readonly StructuredCommitFinding[];
+	  };
 
 /** Automation editor outcome. Gate failures retain their structured findings
  * so the complete-rule surface can associate app-wide validation with the
@@ -607,6 +625,13 @@ export interface BlueprintMutations {
 	 * search row). Unlike `applyMany`, this does not expose reducer metadata.
 	 */
 	commitMany: (mutations: Mutation[]) => CommitOutcome;
+	/**
+	 * Evaluate the exact batch the Builder is considering without committing
+	 * it. Review dialogs use this to explain the bounded candidate's findings
+	 * before offering a confirm action; the eventual commit evaluates again
+	 * against the freshest document.
+	 */
+	reviewMany: (mutations: Mutation[]) => StructuredCommitOutcome;
 }
 
 /**
@@ -726,6 +751,7 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 			 * un-persisted intent until the reconciler PUTs it. */
 			const guardedApply = (
 				mutations: Mutation[],
+				commitCandidate = true,
 			):
 				| { ok: true; results: MutationResult[] }
 				| {
@@ -778,7 +804,9 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 				// The candidate commits, and the batch that produced it is kept
 				// verbatim. Persistence replays exactly these commands rather than
 				// re-deriving them by diffing the committed document against a base.
-				store.getState().commitDoc(verdict.nextDoc, verdict.mutations);
+				if (commitCandidate) {
+					store.getState().commitDoc(verdict.nextDoc, verdict.mutations);
+				}
 				return { ok: true, results: verdict.results };
 			};
 
@@ -1838,6 +1866,11 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 
 				commitMany(mutations) {
 					return toOutcome(guardedApply(mutations));
+				},
+
+				reviewMany(mutations) {
+					const reviewed = guardedApply(mutations, false);
+					return reviewed.ok ? COMMITTED : reviewed;
 				},
 			};
 		};

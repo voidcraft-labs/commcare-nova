@@ -13,6 +13,7 @@ import {
 } from "@/lib/domain/lookupIds";
 import { lookupRevisionSchema } from "@/lib/lookup/schema";
 import {
+	addPatientReviewWorkflow,
 	cloneContract,
 	did,
 	fixtureValue,
@@ -58,6 +59,36 @@ describe("deterministic build planning", () => {
 		]);
 		expect(plan.slices[0]?.role).toBe("materialization-root");
 		expect(plan.slices[1]?.prerequisiteSliceIds).toEqual([plan.slices[0]?.id]);
+	});
+
+	it("schedules one module selection realization after every affected workflow", () => {
+		const contract = cloneContract(makeContract());
+		addPatientReviewWorkflow(contract);
+		fixtureValue(contract.moduleCompositions[0], "patient module").selection = {
+			workflowIds: [ids.taskVisit, ids.taskReview],
+			cases: "several",
+			maximum: 12,
+		};
+		const plan = deriveBuildPlan({
+			contract,
+			revision: { id: ids.revisionId, digest: "1".repeat(64) },
+			planId: ids.planId,
+		});
+		const registration = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === ids.taskRegister),
+			"registration slice",
+		);
+		const visit = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === ids.taskVisit),
+			"visit slice",
+		);
+		const review = fixtureValue(
+			plan.slices.find((slice) => slice.workflowId === ids.taskReview),
+			"review slice",
+		);
+
+		expect(review.prerequisiteSliceIds).toEqual([registration.id, visit.id]);
+		expect(buildPlanSchemaFor(contract).safeParse(plan).success).toBe(true);
 	});
 
 	it("adds the parent owner as the child module owner's prerequisite", () => {

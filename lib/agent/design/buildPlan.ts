@@ -23,6 +23,7 @@ import {
 } from "@/lib/agent/design/lookupMaterializationTypes";
 import { deterministicDesignId } from "@/lib/agent/design/loop/claimSeeding";
 import { parentFormChildWriterWorkflowIds } from "@/lib/agent/design/nestedMenuConstruction";
+import { selectionRealizationWorkflowId } from "@/lib/agent/design/selectionCoverage";
 
 const sha256HexSchema = z.string().regex(/^[a-f0-9]{64}$/);
 
@@ -274,18 +275,15 @@ function deriveOwnerByElement(
 	const listOwnerById = new Map(
 		contract.lists.map((list) => {
 			const containingModuleOwners = moduleOwnersByListId.get(list.id) ?? [];
-			const semanticUsers =
-				list.selectionWorkflowId !== undefined
-					? [list.selectionWorkflowId]
-					: contract.workflows
-							.filter(
-								(workflow) =>
-									workflow.contextRecordId === list.recordId ||
-									workflow.recordEffects.some(
-										(effect) => effect.recordId === list.recordId,
-									),
-							)
-							.map((workflow) => workflow.id);
+			const semanticUsers = contract.workflows
+				.filter(
+					(workflow) =>
+						workflow.contextRecordId === list.recordId ||
+						workflow.recordEffects.some(
+							(effect) => effect.recordId === list.recordId,
+						),
+				)
+				.map((workflow) => workflow.id);
 			return [
 				list.id,
 				earliest(
@@ -510,6 +508,24 @@ function requiredPrerequisiteWorkflowIds(
 			)
 			.pop();
 		addPlacementOwner(composition.id, precedingSibling?.id);
+	}
+	/* Module selection is realized only after every affected case-loading form
+	 * exists. Choose the latest covered workflow in the same deterministic order
+	 * used for slices, then make every other covered workflow its prerequisite.
+	 * This adds no cycle: a prerequisite always precedes its dependent in that
+	 * topological order. */
+	for (const composition of contract.moduleCompositions) {
+		if (composition.selection === undefined) continue;
+		const realizationWorkflowId = selectionRealizationWorkflowId(
+			composition.selection.workflowIds,
+			orderedWorkflowIds,
+		);
+		if (realizationWorkflowId === undefined) continue;
+		for (const workflowId of composition.selection.workflowIds) {
+			if (workflowId !== realizationWorkflowId) {
+				required.get(realizationWorkflowId)?.add(workflowId);
+			}
+		}
 	}
 	return new Map(
 		[...required].map(([workflowId, ids]) => [
@@ -757,7 +773,7 @@ export function buildPlanSchemaFor(contract: AppDesignContract) {
 					code: "custom",
 					path: ["slices", sliceIndex, "prerequisiteSliceIds"],
 					message:
-						"Slice prerequisites must exactly include accepted workflow dependencies, every distinct parent or preceding-sibling module construction owner, the first form owner for a different-record parent menu, and every child viewer required before a parent-menu form creates that child record.",
+						"Slice prerequisites must exactly include accepted workflow dependencies, module placement dependencies, child viewers required before their first writer, and every affected workflow that must exist before one module-wide selection realization.",
 				});
 			}
 			if (!workflowIds.has(slice.workflowId))
