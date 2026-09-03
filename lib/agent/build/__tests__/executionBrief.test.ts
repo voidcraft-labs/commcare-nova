@@ -397,6 +397,29 @@ describe("deriveSliceExecutionBrief", () => {
 			"visit module",
 		);
 		delete child.selection;
+		const viewerListId = did(904);
+		const viewerId = did(905);
+		contract.lists.push({
+			...fixtureValue(contract.lists[0], "patient list"),
+			id: viewerListId,
+			name: "Patient directory",
+		});
+		contract.moduleCompositions.push({
+			id: viewerId,
+			name: "Patient directory",
+			purpose: "Offer another patient viewer without a case-loading form.",
+			parentModuleCompositionId: parent.id,
+			role: "queue-only",
+			workflowIds: [ids.taskVisit],
+			hostRecordId: parent.hostRecordId,
+			actorIds: [...parent.actorIds],
+			navigationIds: [],
+			listIds: [viewerListId],
+			orderRationale: "Keep the follow-up action before the secondary viewer.",
+			icon: { kind: "builtin", slug: "default" },
+			roleSeparationRationale:
+				"This viewer has no form that consumes the parent selection.",
+		});
 		const plan = deriveBuildPlan({ contract, revision: REVISION });
 		const slice = fixtureValue(plan.slices[0], "visit slice");
 		const brief = deriveSliceExecutionBrief({
@@ -421,7 +444,18 @@ describe("deriveSliceExecutionBrief", () => {
 					selection: { kind: "multiple", maximum: 6 },
 				}),
 			}),
+			expect.objectContaining({
+				compositionId: viewerId,
+			}),
 		]);
+		expect(
+			fixtureValue(
+				brief.moduleRealizations.find(
+					(realization) => realization.compositionId === viewerId,
+				),
+				"non-consuming viewer realization",
+			),
+		).not.toHaveProperty("selectionRealization");
 		expect(brief.toolProfile.mutationTools).toContain("configureCaseSelection");
 	});
 

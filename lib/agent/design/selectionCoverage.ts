@@ -85,9 +85,11 @@ export type ModuleSelectionIntent =
 
 /**
  * The one effective selection setting for a module. A same-record child of a
- * queue-only parent inherits the parent's selection; if it also declares its
- * own Results-screen setting, graph admission has already proved the direct
- * and inherited settings compatible.
+ * queue-only parent inherits the parent's selection only when one of its own
+ * case-loading forms consumes that selection. A viewer- or registration-only
+ * child has no Results cardinality to configure. If a consuming child also
+ * declares its own setting, graph admission has already proved the direct and
+ * inherited settings compatible.
  */
 export function moduleSelectionIntent(
 	contract: AppDesignContract,
@@ -105,6 +107,17 @@ export function moduleSelectionIntent(
 		parent.selection !== undefined
 			? parent.selection
 			: undefined;
+	if (
+		composition.selection === undefined &&
+		inheritedSelection !== undefined &&
+		!contract.formCompositions.some(
+			(form) =>
+				form.moduleCompositionId === composition.id &&
+				isCaseLoadingFormComposition(form),
+		)
+	) {
+		return undefined;
+	}
 	const primary = composition.selection ?? inheritedSelection;
 	if (primary === undefined) return undefined;
 	const workflowSet = new Set(
