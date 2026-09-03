@@ -68,8 +68,17 @@ import {
 	caseSearchConfigPatchMutations,
 	clearCaseSearchConfigSettingsMutations,
 } from "@/lib/doc/caseSearchConfigPatchMutations";
-import { planCaseSelectionChange } from "@/lib/doc/caseSelectionMutations";
-import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import {
+	type CaseSelectionTransition,
+	type CaseSelectionTransitionBlocker,
+	planCaseSelectionTransition,
+} from "@/lib/doc/caseSelectionMutations";
+import { deepEqual } from "@/lib/doc/deepEqual";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
+import {
+	type StructuredCommitFinding,
+	useBlueprintMutations,
+} from "@/lib/doc/hooks/useBlueprintMutations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
@@ -77,21 +86,26 @@ import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
-import type { Mutation, Uuid } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
 import {
 	type CaseListConfig,
 	type CaseProperty,
 	type CaseSearchConfig,
+	type CaseSelection,
 	type CaseTileGrouping,
 	type Column,
 	caseSearchConfigAfterFinalInputRemoval,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	emptyCaseListConfig,
+	type Field,
+	humanizeId,
+	isCaptureField,
 	isOwnerOnlyCaseSearchConfig,
 	type OrdinaryCaseSearchConfig,
 	type SearchInputDef,
 	type TileCell,
+	uuidSchema,
 } from "@/lib/domain";
 import {
 	effectiveFilterForEmission,
@@ -109,6 +123,12 @@ import {
 	type CaseListWorkspaceTarget,
 	useCaseListWorkspace,
 } from "./CaseListWorkspaceProvider";
+import {
+	type CaseSelectionAttachmentAnswer,
+	type CaseSelectionReviewBlocker,
+	CaseSelectionReviewDialog,
+	type CaseSelectionStartingAnswer,
+} from "./CaseSelectionReviewDialog";
 import { ColumnEditor } from "./ColumnEditor";
 import {
 	CaseListCanvas,
@@ -162,6 +182,9 @@ import {
 } from "./workspaceProjection";
 import type { WorkspaceSelection } from "./workspaceSelection";
 
+const CASE_SELECTION_REVIEW_REFRESHED =
+	"The workflow changed while this review was open. I refreshed the details below for another look before you confirm.";
+
 const SearchPanelInspectorBody = dynamic<SearchPanelInspectorBodyProps>(
 	() =>
 		import("./inspector/SearchPanelInspectorBody").then(
@@ -192,6 +215,94 @@ type SearchInputRemovalReviewSession =
 			readonly token: number;
 			readonly dependency: SearchInputRemovalDependency;
 	  };
+
+interface CaseSelectionReviewSession {
+	readonly sourceModuleUuid: Uuid;
+	readonly current: CaseSelection | undefined;
+	readonly requested: CaseSelection | undefined;
+	readonly confirmedModuleUuids: readonly Uuid[];
+	readonly transitions: readonly CaseSelectionTransition[];
+	readonly startingAnswers: readonly CaseSelectionStartingAnswer[];
+	readonly attachmentAnswers: readonly CaseSelectionAttachmentAnswer[];
+	readonly blockers: readonly CaseSelectionReviewBlocker[];
+	readonly refreshNotice?: string;
+}
+
+function fieldsUnder(
+	doc: BlueprintDoc,
+	parentUuid: Uuid,
+	visited = new Set<Uuid>(),
+): Field[] {
+	const fields: Field[] = [];
+	for (const fieldUuid of doc.fieldOrder[parentUuid] ?? []) {
+		if (visited.has(fieldUuid)) continue;
+		visited.add(fieldUuid);
+		const field = doc.fields[fieldUuid];
+		if (field === undefined) continue;
+		fields.push(field);
+		fields.push(...fieldsUnder(doc, fieldUuid, visited));
+	}
+	return fields;
+}
+
+function consequencesForSelection(
+	doc: BlueprintDoc,
+	transitions: readonly CaseSelectionTransition[],
+	projectProse: ReturnType<typeof useProseProjection>,
+): {
+	readonly startingAnswers: readonly CaseSelectionStartingAnswer[];
+	readonly attachmentAnswers: readonly CaseSelectionAttachmentAnswer[];
+} {
+	const answers: CaseSelectionStartingAnswer[] = [];
+	const attachmentAnswers: CaseSelectionAttachmentAnswer[] = [];
+	for (const transition of transitions) {
+		if (transition.selection?.kind !== "multiple") continue;
+		const module = doc.modules[transition.moduleUuid];
+		if (module?.caseType === undefined) continue;
+		for (const formUuid of doc.formOrder[module.uuid] ?? []) {
+			const form = doc.forms[formUuid];
+			if (
+				form === undefined ||
+				(form.type !== "followup" && form.type !== "close")
+			) {
+				continue;
+			}
+			for (const field of fieldsUnder(doc, form.uuid)) {
+				if (
+					!("caseWrite" in field) ||
+					field.caseWrite?.caseType !== module.caseType
+				) {
+					continue;
+				}
+				const projectedLabel =
+					"label" in field && field.label !== undefined
+						? projectProse(field.label).trim()
+						: "";
+				const fieldName = projectedLabel || humanizeId(field.id) || "Question";
+				if (isCaptureField(field)) {
+					attachmentAnswers.push({
+						key: `${form.uuid}:${field.uuid}`,
+						fieldName,
+						formName: form.name,
+						mode: field.caseWrite.mode,
+					});
+				}
+				if (
+					(!("default_value" in field) || field.default_value === undefined) &&
+					(!("calculate" in field) || field.calculate === undefined)
+				) {
+					continue;
+				}
+				answers.push({
+					key: `${form.uuid}:${field.uuid}`,
+					fieldName,
+					formName: form.name,
+				});
+			}
+		}
+	}
+	return { startingAnswers: answers, attachmentAnswers };
+}
 
 const INSPECTOR_RETURN_FOCUS_ATTRIBUTE = "data-inspector-return-focus";
 
@@ -389,6 +500,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	const userProperties = useUserProperties();
 	const projectProse = useProseProjection();
 	const navigate = useNavigate();
+	const docApi = useBlueprintDocApi();
 	const { moveColumnOnSurface, moveSearchInputToIndex, commitMany, inline } =
 		useBlueprintMutations();
 	/* This controller lives ABOVE the preview boundary, so entering preview does
@@ -421,6 +533,10 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	);
 	const [inputRemovalReview, setInputRemovalReview] =
 		useState<SearchInputRemovalReviewSession | null>(null);
+	const [caseSelectionReview, setCaseSelectionReview] =
+		useState<CaseSelectionReviewSession | null>(null);
+	const caseSelectionOriginRef = useRef<HTMLElement | null>(null);
+	const navigatingCaseSelectionReviewRef = useRef(false);
 	const inputRemovalReviewTokenRef = useRef(0);
 	const searchConditionFocusTokenRef = useRef(0);
 	const [
@@ -446,6 +562,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		prevModuleRef.current = moduleUuid;
 		if (sel !== null) setSel(null);
 		if (inputRemovalReview !== null) setInputRemovalReview(null);
+		if (caseSelectionReview !== null) setCaseSelectionReview(null);
 		if (searchButtonConditionFocusRequest !== undefined) {
 			setSearchButtonConditionFocusRequest(undefined);
 		}
@@ -453,6 +570,8 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		pendingCanvasFocusRef.current = null;
 		pendingSearchFocusRef.current = null;
 		pendingInspectorFocusRef.current = null;
+		caseSelectionOriginRef.current = null;
+		navigatingCaseSelectionReviewRef.current = false;
 		searchOverviewScrollRef.current = null;
 		pendingSearchOverviewScrollRef.current = null;
 		if (searchConditionReturnFrameRef.current !== null) {
@@ -1284,19 +1403,323 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		[commitMany, config.columns, config.tile, moduleUuid, config],
 	);
 
-	const setCaseSelection = useCallback(
-		(next: CaseListConfig["selection"]) => {
-			if (mod === undefined) return;
-			const plan = planCaseSelectionChange(mod, next);
-			if (!plan.ok) return;
-			if (commitMany([...plan.mutations]).ok && plan.clearsPersistentTile) {
-				setWorkspaceAnnouncement(
-					"Forms can now work with several cases. The Results tile no longer stays above forms because that view shows one case at a time.",
-				);
+	const closeSelectionReviewForNavigation = useCallback(() => {
+		navigatingCaseSelectionReviewRef.current = true;
+		setCaseSelectionReview(null);
+	}, []);
+
+	const plannerReviewBlocker = useCallback(
+		(blocker: CaseSelectionTransitionBlocker): CaseSelectionReviewBlocker => {
+			if (blocker.kind === "form-link") {
+				const target =
+					blocker.targetFormName ??
+					blocker.targetModuleName ??
+					"its destination";
+				const message =
+					blocker.reason === "authored-datums"
+						? `“${blocker.sourceFormName}” customizes the case information sent straight to “${target}”. A several-case selection cannot use that one-case handoff. Open the link and send people to the destination's Results screen instead.`
+						: blocker.reason === "different-case-type"
+							? `“${blocker.sourceFormName}” opens “${target}” with a different kind of case. That direct handoff can carry one case, not a several-case selection. Open the link and send people to the destination's Results screen instead.`
+							: `“${blocker.sourceFormName}” cannot carry this selection straight to “${target}”. Open its after-submit link and choose a destination that starts with Results.`;
+				return {
+					key: `form-link:${blocker.linkUuid}`,
+					message,
+					actionLabel: `Open ${blocker.sourceFormName}'s link`,
+					onOpen: () => {
+						closeSelectionReviewForNavigation();
+						navigate.openFormLinks(
+							blocker.sourceModuleUuid,
+							blocker.sourceFormUuid,
+							blocker.linkUuid,
+						);
+					},
+				};
 			}
+			if (blocker.kind === "module") {
+				return {
+					key: `module:${blocker.moduleUuid}`,
+					message: `“${blocker.moduleName}” has no Results list that can share this case selection. Add or restore its case list, then try again.`,
+					actionLabel: `Open ${blocker.moduleName}`,
+					onOpen: () => {
+						closeSelectionReviewForNavigation();
+						navigate.openModule(blocker.moduleUuid);
+					},
+				};
+			}
+			return {
+				key: `structural:${blocker.parentModuleUuid}`,
+				message: `“${blocker.parentModuleName}” needs a follow-up or close form that can use every selected case. Add that form in a compatible child workflow, then try again.`,
+				actionLabel: `Open ${blocker.parentModuleName}`,
+				onOpen: () => {
+					closeSelectionReviewForNavigation();
+					navigate.openModule(blocker.parentModuleUuid);
+				},
+			};
 		},
-		[commitMany, mod],
+		[closeSelectionReviewForNavigation, navigate],
 	);
+
+	const commitReviewBlocker = useCallback(
+		(
+			message: string,
+			finding: StructuredCommitFinding | undefined,
+			index: number,
+		): CaseSelectionReviewBlocker => {
+			if (finding === undefined) {
+				return { key: `candidate:${index}`, message };
+			}
+			const { location, details } = finding;
+			const parsedOperationUuid = uuidSchema.safeParse(details?.operationUuid);
+			const operationUuid = parsedOperationUuid.success
+				? parsedOperationUuid.data
+				: undefined;
+			const parsedLinkUuid = uuidSchema.safeParse(details?.linkUuid);
+			const linkUuid = parsedLinkUuid.success ? parsedLinkUuid.data : undefined;
+			const surface = details?.surface;
+			const { moduleUuid: findingModuleUuid, formUuid: findingFormUuid } =
+				location;
+			const targetName =
+				location.fieldId ??
+				location.formName ??
+				location.moduleName ??
+				"this item";
+			let onOpen: (() => void) | undefined;
+			if (findingModuleUuid !== undefined && findingFormUuid !== undefined) {
+				if (operationUuid !== undefined) {
+					onOpen = () =>
+						navigate.openFormOperations(
+							findingModuleUuid,
+							findingFormUuid,
+							operationUuid,
+						);
+				} else if (
+					linkUuid !== undefined ||
+					finding.code.startsWith("FORM_LINK_") ||
+					surface === "form_link_condition" ||
+					surface === "form_link_datum_xpath"
+				) {
+					onOpen = () =>
+						navigate.openFormLinks(
+							findingModuleUuid,
+							findingFormUuid,
+							linkUuid,
+						);
+				} else if (
+					finding.code.includes("FORM_DISPLAY_CONDITION") ||
+					surface === "form_display_condition"
+				) {
+					onOpen = () =>
+						navigate.openFormCondition(findingModuleUuid, findingFormUuid);
+				} else {
+					onOpen = () =>
+						navigate.openForm(
+							findingModuleUuid,
+							findingFormUuid,
+							location.fieldUuid,
+						);
+				}
+			} else if (findingModuleUuid !== undefined) {
+				onOpen = () => navigate.openModule(findingModuleUuid);
+			}
+			return {
+				key: `${finding.code}:${index}`,
+				message,
+				...(onOpen !== undefined && {
+					actionLabel: `Open ${targetName}`,
+					onOpen: () => {
+						closeSelectionReviewForNavigation();
+						onOpen();
+					},
+				}),
+			};
+		},
+		[closeSelectionReviewForNavigation, navigate],
+	);
+
+	const prepareCaseSelectionReview = useCallback(
+		(
+			next: CaseListConfig["selection"],
+			captureOrigin: boolean,
+			origin?: HTMLElement,
+			refreshed: boolean = false,
+		) => {
+			if (moduleUuid === undefined) return;
+			if (captureOrigin) {
+				caseSelectionOriginRef.current =
+					origin ??
+					(document.activeElement instanceof HTMLElement
+						? document.activeElement
+						: null);
+			}
+			const doc = docApi.getState();
+			const source = doc.modules[moduleUuid];
+			if (source?.caseListConfig === undefined) return;
+			const current = source.caseListConfig.selection;
+			let confirmedModuleUuids: readonly Uuid[] = [];
+			let plan = planCaseSelectionTransition(doc, {
+				sourceModuleUuid: moduleUuid,
+				selection: next,
+			});
+			if (plan.kind === "needs-coordination") {
+				confirmedModuleUuids = plan.transitions.map(
+					(transition) => transition.moduleUuid,
+				);
+				plan = planCaseSelectionTransition(doc, {
+					sourceModuleUuid: moduleUuid,
+					selection: next,
+					confirmedModuleUuids,
+				});
+			}
+			if (plan.kind === "blocked") {
+				setCaseSelectionReview({
+					sourceModuleUuid: moduleUuid,
+					current,
+					requested: next,
+					confirmedModuleUuids,
+					transitions: [],
+					startingAnswers: [],
+					attachmentAnswers: [],
+					blockers: plan.blockers.map(plannerReviewBlocker),
+					...(refreshed && {
+						refreshNotice: CASE_SELECTION_REVIEW_REFRESHED,
+					}),
+				});
+				return;
+			}
+			if (plan.kind !== "ready") {
+				setWorkspaceAnnouncement(
+					"This Case selection changed elsewhere. Review the latest workflow and try again.",
+				);
+				setCaseSelectionReview(null);
+				return;
+			}
+			if (plan.mutations.length === 0) {
+				setCaseSelectionReview(null);
+				return;
+			}
+			const reviewed = inline.reviewMany([...plan.mutations]);
+			if (!reviewed.ok) {
+				setCaseSelectionReview({
+					sourceModuleUuid: moduleUuid,
+					current,
+					requested: next,
+					confirmedModuleUuids,
+					transitions: plan.transitions,
+					startingAnswers: [],
+					attachmentAnswers: [],
+					blockers: reviewed.messages.map((message, index) =>
+						commitReviewBlocker(message, reviewed.findings?.[index], index),
+					),
+					...(refreshed && {
+						refreshNotice: CASE_SELECTION_REVIEW_REFRESHED,
+					}),
+				});
+				return;
+			}
+
+			const changesMode = (current === undefined) !== (next === undefined);
+			const coordinatesAnotherModule = plan.transitions.some(
+				(transition) => transition.moduleUuid !== moduleUuid,
+			);
+			if (!changesMode && !coordinatesAnotherModule) {
+				if (inline.commitMany([...plan.mutations]).ok) {
+					setWorkspaceAnnouncement(
+						next === undefined
+							? "People choose one case at a time."
+							: `People can now choose up to ${next.maximum} ${next.maximum === 1 ? "case" : "cases"} and complete the form once for all of them.`,
+					);
+				}
+				return;
+			}
+
+			const consequences = consequencesForSelection(
+				doc,
+				plan.transitions,
+				projectProse,
+			);
+			setCaseSelectionReview({
+				sourceModuleUuid: moduleUuid,
+				current,
+				requested: next,
+				confirmedModuleUuids,
+				transitions: plan.transitions,
+				startingAnswers: consequences.startingAnswers,
+				attachmentAnswers: consequences.attachmentAnswers,
+				blockers: [],
+				...(refreshed && {
+					refreshNotice: CASE_SELECTION_REVIEW_REFRESHED,
+				}),
+			});
+		},
+		[
+			commitReviewBlocker,
+			docApi,
+			inline,
+			moduleUuid,
+			plannerReviewBlocker,
+			projectProse,
+		],
+	);
+
+	const confirmCaseSelection = useCallback(() => {
+		const review = caseSelectionReview;
+		if (review === null || review.blockers.length > 0) return;
+		const doc = docApi.getState();
+		const plan = planCaseSelectionTransition(doc, {
+			sourceModuleUuid: review.sourceModuleUuid,
+			selection: review.requested,
+			confirmedModuleUuids: review.confirmedModuleUuids,
+		});
+		if (plan.kind !== "ready") {
+			prepareCaseSelectionReview(review.requested, false, undefined, true);
+			return;
+		}
+		const sourceSelection =
+			doc.modules[review.sourceModuleUuid]?.caseListConfig?.selection;
+		const consequences = consequencesForSelection(
+			doc,
+			plan.transitions,
+			projectProse,
+		);
+		if (
+			!deepEqual(sourceSelection, review.current) ||
+			!deepEqual(plan.transitions, review.transitions) ||
+			!deepEqual(consequences.startingAnswers, review.startingAnswers) ||
+			!deepEqual(consequences.attachmentAnswers, review.attachmentAnswers)
+		) {
+			prepareCaseSelectionReview(review.requested, false, undefined, true);
+			return;
+		}
+		const checked = inline.reviewMany([...plan.mutations]);
+		if (!checked.ok) {
+			prepareCaseSelectionReview(review.requested, false, undefined, true);
+			return;
+		}
+		if (!inline.commitMany([...plan.mutations]).ok) {
+			prepareCaseSelectionReview(review.requested, false, undefined, true);
+			return;
+		}
+		setCaseSelectionReview(null);
+		setWorkspaceAnnouncement(
+			review.requested === undefined
+				? "People now choose one case at a time."
+				: `People can now choose up to ${review.requested.maximum} ${review.requested.maximum === 1 ? "case" : "cases"} and complete the form once for all of them.`,
+		);
+	}, [
+		caseSelectionReview,
+		docApi,
+		inline,
+		prepareCaseSelectionReview,
+		projectProse,
+	]);
+
+	const caseSelectionFinalFocus = useCallback(() => {
+		if (navigatingCaseSelectionReviewRef.current) {
+			navigatingCaseSelectionReviewRef.current = false;
+			return null;
+		}
+		return caseSelectionOriginRef.current;
+	}, []);
 
 	const placeTileCell = useCallback(
 		(uuid: Column["uuid"], cell: TileCell) => {
@@ -1573,7 +1996,14 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		tileIssues,
 		tileDisabledReason,
 		setArrangement,
-		setCaseSelection,
+		setCaseSelection: (
+			next: CaseListConfig["selection"],
+			origin?: HTMLElement,
+		) => prepareCaseSelectionReview(next, true, origin),
+		caseSelectionReview,
+		cancelCaseSelectionReview: () => setCaseSelectionReview(null),
+		confirmCaseSelection,
+		caseSelectionFinalFocus,
 		placeTileCell,
 		putColumnOnTile,
 		applyTilePreset,
@@ -1798,6 +2228,10 @@ export function CaseListWorkspaceCanvas() {
 		tileDisabledReason,
 		setArrangement,
 		setCaseSelection,
+		caseSelectionReview,
+		cancelCaseSelectionReview,
+		confirmCaseSelection,
+		caseSelectionFinalFocus,
 		placeTileCell,
 		putColumnOnTile,
 		applyTilePreset,
@@ -1965,6 +2399,21 @@ export function CaseListWorkspaceCanvas() {
 					</div>
 				</Activity>
 			</div>
+			{caseSelectionReview !== null && (
+				<CaseSelectionReviewDialog
+					sourceModuleUuid={caseSelectionReview.sourceModuleUuid}
+					current={caseSelectionReview.current}
+					requested={caseSelectionReview.requested}
+					transitions={caseSelectionReview.transitions}
+					startingAnswers={caseSelectionReview.startingAnswers}
+					attachmentAnswers={caseSelectionReview.attachmentAnswers}
+					blockers={caseSelectionReview.blockers}
+					refreshNotice={caseSelectionReview.refreshNotice}
+					finalFocus={caseSelectionFinalFocus}
+					onCancel={cancelCaseSelectionReview}
+					onConfirm={confirmCaseSelection}
+				/>
+			)}
 		</div>
 	);
 }

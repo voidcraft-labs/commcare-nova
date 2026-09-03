@@ -126,6 +126,25 @@ describe("buildSolutionsArchitectPrompt", () => {
 		expect(sp).toContain("does not author linked/shadow form reuse");
 	});
 
+	it("teaches effect-bound case-selection confirmation and distinct preload behavior", () => {
+		for (const prompt of [
+			buildSolutionsArchitectPrompt(),
+			buildMcpAgentBuildPrompt(),
+		]) {
+			expect(prompt).toContain(
+				"`confirmedModuleUuids` exactly equal to `requiredConfirmedModuleUuids`",
+			);
+			expect(prompt).toContain("returned `confirmationToken` unchanged");
+			expect(prompt).toContain(
+				"Never reuse either confirmation value from an older result",
+			);
+			expect(prompt).toContain("when its module opens one case at a time");
+			expect(prompt).toContain(
+				"Do not apply the one-case preload rule or add a hidden blank-preserving workaround",
+			);
+		}
+	});
+
 	it("requires explicit consent and a fresh read before Project data writes", () => {
 		for (const prompt of [
 			buildSolutionsArchitectPrompt(),

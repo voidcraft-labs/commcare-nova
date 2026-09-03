@@ -2297,8 +2297,9 @@ flag. Follow-up and close forms consume the selected set. Ordinary primary-case
 answers begin without borrowing a value from any selected case. Every nonblank
 ordinary answer writes to every selected case, while a blank answer preserves
 each case's existing value; authored defaults and calculations count as
-answers. A capture answer follows that rule when the submission carries its
-stored attachment URL, while Preview never invents one. Explicit
+answers. A capture answer follows that rule when the submission carries a file;
+each selected case stores either that attachment or its published URL according
+to the authored destination mode, while Preview creates neither. Explicit
 session-targeted operations run once for each selected case, while app-level
 effects run once. Within each selected case, authored operations run first,
 then ordinary answers, child creation, and close. An authored repeat remains
@@ -2307,6 +2308,33 @@ complete submission, including ordinary lifecycle effects, advanced
 operations, and its receipt, commits once or rolls back once. A
 multiple-selection module therefore needs a follow-up or close consumer rather
 than ending at an informational list.
+
+Changing Case selection is one reviewed semantic transition. A pure document
+planner follows the complete compatible form-link chain in both directions and
+includes any case-list-only parent/child handoff needed by the workflow. The
+Builder names every module limit and persistent-tile change before one atomic
+commit; a condition, case action, shared case read, or non-repairable direct
+link leaves the document unchanged and opens at its owning form item. The
+commit preflight validates only the exact affected module/form/link slice, not
+the whole app, and confirmation replans against the newest document so a peer
+edit cannot turn an accepted review into a stale batch. The Solutions Architect
+and MCP tool expose the same result as `applied`, `unchanged`, or a mutation-free
+`needs_changes` response carrying either the exact linked module identities to
+confirm or the exact blockers to repair.
+
+The accepted design contract describes selection as module behavior, including
+for a form-host module that uses only its default Results screen and has no
+authored work list. Each module setting names the exact selected-record and
+close workflows it affects, whether workers choose one or several cases, and
+the several-case maximum. A queue-only parent's setting also names and governs
+its same-record child consumers. The build compiler makes the final affected
+workflow depend on the others and places one deterministic realization only
+after every relevant form exists; it never enables several-case selection early
+on a registration-only module. A new module may therefore be born with its
+several-case setting and consumer in one call, while a later workflow configures
+an existing module after its final consumer. Stored design contracts normalize
+the earlier one-workflow list hint into exact one-case module coverage at the
+persistence boundary.
 
 Results rows and tiles both support multiple selection. A grouped tile remains
 one selectable group whose selection is its first case; its other body rows are

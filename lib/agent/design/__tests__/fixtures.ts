@@ -55,6 +55,7 @@ export const ids = {
 	factVisitSummary: did(33),
 	taskRegister: did(70),
 	taskVisit: did(71),
+	taskReview: did(72),
 	rmPatients: did(90),
 	accessSupervisor: did(100),
 	navMain: did(110),
@@ -69,6 +70,9 @@ export const ids = {
 	itemRegisterGuidance: did(177),
 	sectionVisit: did(178),
 	itemVisitSummary: did(179),
+	formReview: did(181),
+	sectionReview: did(182),
+	itemReviewSummary: did(183),
 	decision: did(120),
 	assumption: did(130),
 	question: did(140),
@@ -305,7 +309,6 @@ export function makeContract(): AppDesignContract {
 				scanPropertyIds: [ids.factName, ids.factRisk],
 				detailPropertyIds: [ids.factAge],
 				searchPropertyIds: [ids.factName],
-				selectionWorkflowId: ids.taskVisit,
 				emptyStateMeaning: "No patients are available yet.",
 			},
 		],
@@ -336,6 +339,10 @@ export function makeContract(): AppDesignContract {
 				purpose:
 					"Give workers one patient-centered home for registration, selection, and follow-up.",
 				role: "form-and-queue",
+				selection: {
+					workflowIds: [ids.taskVisit],
+					cases: "one",
+				},
 				workflowIds: [ids.taskRegister, ids.taskVisit],
 				hostRecordId: ids.recPatient,
 				actorIds: [ids.actorChw, ids.actorSupervisor],
@@ -529,6 +536,63 @@ export function cloneContract(contract: AppDesignContract): AppDesignContract {
 	return structuredClone(contract);
 }
 
+/** Add a second patient-context form workflow to exercise module-wide
+ * selection coverage. Callers choose the final selection workflowIds after
+ * adding it. */
+export function addPatientReviewWorkflow(contract: AppDesignContract): void {
+	const visitWorkflow = fixtureValue(
+		contract.workflows.find((workflow) => workflow.id === ids.taskVisit),
+		"visit workflow",
+	);
+	contract.workflows.push({
+		...structuredClone(visitWorkflow),
+		id: ids.taskReview,
+		name: "Review patient",
+		goal: "Review the selected patient's latest information.",
+		prerequisiteWorkflowIds: [ids.taskRegister],
+		prerequisites: ["The patient is registered"],
+	});
+	contract.charter.includedWorkflowIds.push(ids.taskReview);
+	fixtureValue(contract.navigation[0], "main navigation").workflowIds.push(
+		ids.taskReview,
+	);
+	fixtureValue(
+		contract.moduleCompositions[0],
+		"patient module composition",
+	).workflowIds.push(ids.taskReview);
+	const visitForm = fixtureValue(
+		contract.formCompositions.find((form) => form.id === ids.formVisit),
+		"visit form composition",
+	);
+	const visitLayout = visitForm.layout;
+	if (visitLayout.kind !== "sectioned") {
+		throw new Error("Expected sectioned visit form fixture.");
+	}
+	const reviewForm = structuredClone(visitForm);
+	const reviewLayout = reviewForm.layout;
+	if (reviewLayout.kind !== "sectioned") {
+		throw new Error("Expected cloned sectioned review form fixture.");
+	}
+	reviewForm.id = ids.formReview;
+	reviewForm.workflowId = ids.taskReview;
+	reviewForm.name = "Review patient";
+	reviewForm.purpose = "Review the selected patient's latest information.";
+	reviewLayout.sections[0] = {
+		...fixtureValue(reviewLayout.sections[0], "review section"),
+		id: ids.sectionReview,
+		items: [
+			{
+				...fixtureValue(
+					fixtureValue(reviewLayout.sections[0], "review section").items[0],
+					"review item",
+				),
+				id: ids.itemReviewSummary,
+			},
+		],
+	};
+	contract.formCompositions.push(reviewForm);
+}
+
 /** One-tier menu fixture: the registration/list home is built first and a
  * later workflow owns a child menu containing its follow-up form. */
 export function makeNestedMenuContract(): AppDesignContract {
@@ -543,6 +607,10 @@ export function makeNestedMenuContract(): AppDesignContract {
 		purpose: "Keep follow-up actions together inside the patient menu.",
 		parentModuleCompositionId: parent.id,
 		role: "form-host",
+		selection: {
+			workflowIds: [ids.taskVisit],
+			cases: "one",
+		},
 		workflowIds: [ids.taskVisit],
 		hostRecordId: ids.recPatient,
 		actorIds: [ids.actorChw],
@@ -560,6 +628,10 @@ export function makeNestedMenuContract(): AppDesignContract {
 		"visit form composition",
 	);
 	visitForm.moduleCompositionId = ids.moduleVisits;
+	/* This parent is still form-and-queue, so its selection does not propagate
+	 * into the child menu. The child owns its own one-case Results setting. Tests
+	 * that make the parent queue-only move that setting to the parent. */
+	delete parent.selection;
 	return appDesignContractSchema.parse(contract);
 }
 

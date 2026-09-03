@@ -14,7 +14,8 @@ import {
 import { produce } from "immer";
 import { type ReactElement, type ReactNode, StrictMode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { settleBaseUiTransitions } from "@/__tests__/helpers/baseUiInteractions";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { applyMutations as replayMutations } from "@/lib/doc/mutations";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
@@ -82,11 +83,13 @@ interface MutableWorkspaceModule {
 
 const testState = vi.hoisted(() => ({
 	module: undefined as unknown,
+	doc: undefined as unknown,
 	caseTypes: [] as unknown[],
 	brokenColumnUuids: [] as string[],
 }));
 const mutationApi = vi.hoisted(() => ({
 	commitMany: vi.fn(),
+	inlineReviewMany: vi.fn(),
 	inlineCommitMany: vi.fn(),
 	updateModule: vi.fn(),
 	inlineUpdateModule: vi.fn(),
@@ -95,6 +98,11 @@ const navigationApi = vi.hoisted(() => ({
 	openSearchConfig: vi.fn(),
 	openCaseList: vi.fn(),
 	openDetailConfig: vi.fn(),
+	openForm: vi.fn(),
+	openFormCondition: vi.fn(),
+	openFormLinks: vi.fn(),
+	openFormOperations: vi.fn(),
+	openModule: vi.fn(),
 }));
 /* The workspace controller reads its module + tab from the URL; the harness
  * below feeds them here so the mocked `useLocation` reports the right screen. */
@@ -105,6 +113,10 @@ const harness = vi.hoisted(() => ({
 
 vi.mock("@/lib/doc/hooks/useEntity", () => ({
 	useModule: () => testState.module,
+}));
+vi.mock("@/lib/doc/hooks/useBlueprintDoc", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/doc/hooks/useBlueprintDoc")>()),
+	useBlueprintDocApi: () => ({ getState: () => testState.doc }),
 }));
 vi.mock("@/lib/doc/hooks/useCaseTypes", () => ({
 	useEffectiveCaseTypes: () => testState.caseTypes,
@@ -129,6 +141,7 @@ vi.mock("@/lib/doc/hooks/useBlueprintMutations", () => ({
 		commitMany: mutationApi.commitMany,
 		inline: {
 			updateModule: mutationApi.inlineUpdateModule,
+			reviewMany: mutationApi.inlineReviewMany,
 			commitMany: mutationApi.inlineCommitMany,
 		},
 	}),
@@ -254,8 +267,12 @@ vi.mock("../canvas/CaseListCanvas", () => ({
 		dependencyReview,
 		onReturnToSearchField,
 		onExcludedOwnerIdsChange,
+		onCaseSelectionChange,
 	}: {
-		readonly config: { readonly columns: readonly Column[] };
+		readonly config: {
+			readonly columns: readonly Column[];
+			readonly selection?: CaseListConfig["selection"];
+		};
 		readonly onSelect: (next: {
 			readonly type: "column";
 			readonly uuid: string;
@@ -270,6 +287,10 @@ vi.mock("../canvas/CaseListCanvas", () => ({
 		};
 		readonly onReturnToSearchField?: () => void;
 		readonly onExcludedOwnerIdsChange: (next: ValueExpression) => void;
+		readonly onCaseSelectionChange: (
+			next: CaseListConfig["selection"],
+			origin?: HTMLElement,
+		) => void;
 	}) => (
 		<div
 			data-test-effective-search={caseSearchEnabled ? "enabled" : "disabled"}
@@ -327,6 +348,20 @@ vi.mock("../canvas/CaseListCanvas", () => ({
 			<button type="button" data-case-add="list">
 				Add information
 			</button>
+			<button
+				type="button"
+				onClick={(event) =>
+					onCaseSelectionChange(
+						{ kind: "multiple", maximum: 100 },
+						event.currentTarget,
+					)
+				}
+			>
+				Choose several cases
+			</button>
+			<span data-testid="current-case-selection">
+				{config.selection?.kind === "multiple" ? "Several cases" : "One case"}
+			</span>
 		</div>
 	),
 }));
@@ -532,6 +567,41 @@ function workspaceDoc(args: {
 	});
 }
 
+function followupWorkspaceDoc(): BlueprintDoc {
+	return buildDoc({
+		appName: "Several-case authoring",
+		caseTypes: CASE_TYPES,
+		modules: [
+			{
+				uuid: MODULE_UUID,
+				name: "Clients",
+				caseType: "client",
+				caseListConfig: resolveCaseListConfig({
+					columns: [NAME_COLUMN],
+					searchInputs: [],
+				}),
+				forms: [
+					{
+						name: "Update client",
+						type: "followup",
+						fields: [
+							f({
+								kind: "text",
+								id: "phone",
+								label: proseText("Phone number"),
+								caseWrite: {
+									caseType: "client",
+									property: "external_id",
+								},
+							}),
+						],
+					},
+				],
+			},
+		],
+	});
+}
+
 function capturedBatch(spy: typeof mutationApi.commitMany): Mutation[] {
 	const call = spy.mock.calls.at(-1);
 	if (call === undefined)
@@ -554,6 +624,14 @@ function applyMutations(batch: readonly Mutation[]): { readonly ok: true } {
 	const module = testState.module as MutableWorkspaceModule;
 	for (const mutation of batch) {
 		switch (mutation.kind) {
+			case "setCaseListMeta":
+				if (mutation.uuid !== module.uuid) break;
+				if (mutation.patch.selection === null) {
+					delete module.caseListConfig.selection;
+				} else if (mutation.patch.selection !== undefined) {
+					module.caseListConfig.selection = mutation.patch.selection;
+				}
+				break;
 			case "removeSearchInput":
 				module.caseListConfig.searchInputs =
 					module.caseListConfig.searchInputs.filter(
@@ -621,15 +699,154 @@ describe("Search field removal", () => {
 		testState.caseTypes = CASE_TYPES;
 		testState.brokenColumnUuids = [];
 		mutationApi.commitMany.mockReset();
+		mutationApi.inlineReviewMany.mockReset();
 		mutationApi.inlineCommitMany.mockReset();
 		mutationApi.updateModule.mockReset();
 		mutationApi.inlineUpdateModule.mockReset();
 		navigationApi.openSearchConfig.mockReset();
 		navigationApi.openCaseList.mockReset();
 		navigationApi.openDetailConfig.mockReset();
+		navigationApi.openForm.mockReset();
+		navigationApi.openFormCondition.mockReset();
+		navigationApi.openFormLinks.mockReset();
+		navigationApi.openFormOperations.mockReset();
+		navigationApi.openModule.mockReset();
 		mutationApi.commitMany.mockImplementation(applyMutations);
+		mutationApi.inlineReviewMany.mockReturnValue({ ok: true });
 		mutationApi.inlineCommitMany.mockImplementation(applyMutations);
 		mutationApi.inlineUpdateModule.mockReturnValue({ ok: true });
+	});
+
+	it("reviews, cancels, and atomically confirms a persistent change from one case to several", async () => {
+		const doc = followupWorkspaceDoc();
+		testState.doc = doc;
+		testState.module = doc.modules[MODULE_UUID];
+		render(<CaseListConfigWorkspace moduleUuid={MODULE_UUID} tab="list" />);
+
+		const origin = screen.getByRole("button", {
+			name: "Choose several cases",
+		});
+		fireEvent.click(origin);
+		await settleBaseUiTransitions();
+
+		expect(
+			screen.getByRole("heading", {
+				name: "Apply one form to several cases?",
+			}),
+		).toBeDefined();
+		expect(mutationApi.inlineReviewMany).toHaveBeenCalledOnce();
+		expect(mutationApi.inlineCommitMany).not.toHaveBeenCalled();
+
+		fireEvent.click(screen.getByRole("button", { name: "Keep one case" }));
+		await settleBaseUiTransitions();
+		expect(mutationApi.inlineCommitMany).not.toHaveBeenCalled();
+		expect(document.activeElement).toBe(origin);
+		expect(screen.getByTestId("current-case-selection").textContent).toBe(
+			"One case",
+		);
+
+		fireEvent.click(origin);
+		await settleBaseUiTransitions();
+
+		fireEvent.click(screen.getByRole("button", { name: "Use several cases" }));
+		await settleBaseUiTransitions();
+		// Initial review, reopened review after cancel, and the fresh check at
+		// confirmation all use the same incremental mutation verdict.
+		expect(mutationApi.inlineReviewMany).toHaveBeenCalledTimes(3);
+		expect(mutationApi.inlineCommitMany).toHaveBeenCalledOnce();
+		expect(capturedBatch(mutationApi.inlineCommitMany)).toEqual([
+			expect.objectContaining({
+				kind: "setCaseListMeta",
+				uuid: MODULE_UUID,
+				patch: { selection: { kind: "multiple", maximum: 100 } },
+			}),
+		]);
+		expect(screen.getByTestId("current-case-selection").textContent).toBe(
+			"Several cases",
+		);
+	});
+
+	it("reopens review without committing when consequences change before confirmation", async () => {
+		const doc = followupWorkspaceDoc();
+		testState.doc = doc;
+		testState.module = doc.modules[MODULE_UUID];
+		render(<CaseListConfigWorkspace moduleUuid={MODULE_UUID} tab="list" />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose several cases" }),
+		);
+		await settleBaseUiTransitions();
+
+		const changed = produce(doc, (draft) => {
+			const phone = Object.values(draft.fields).find(
+				(field) => field.id === "phone",
+			);
+			if (phone === undefined) {
+				throw new Error("Expected the phone question");
+			}
+			Object.assign(phone, {
+				default_value: xp("'Shared starting answer'"),
+			});
+		});
+		testState.doc = changed;
+		testState.module = changed.modules[MODULE_UUID];
+
+		fireEvent.click(screen.getByRole("button", { name: "Use several cases" }));
+		await settleBaseUiTransitions();
+
+		expect(mutationApi.inlineCommitMany).not.toHaveBeenCalled();
+		expect(
+			screen.getByText(/Phone number.*has a starting answer or calculation/),
+		).toBeDefined();
+		expect(screen.getByRole("alert").textContent).toContain(
+			"I refreshed the details below",
+		);
+		expect(
+			screen.getByRole("button", { name: "Use several cases" }),
+		).toBeDefined();
+	});
+
+	it("opens a blocked form condition at the exact editor that needs repair", async () => {
+		const doc = followupWorkspaceDoc();
+		const formUuid = doc.formOrder[MODULE_UUID]?.[0];
+		if (formUuid === undefined) throw new Error("Expected the follow-up form");
+		testState.doc = doc;
+		testState.module = doc.modules[MODULE_UUID];
+		mutationApi.inlineReviewMany.mockReturnValueOnce({
+			ok: false,
+			messages: [
+				"The form condition reads one selected case, which is ambiguous when several cases are selected.",
+			],
+			findings: [
+				{
+					code: "MULTI_SELECT_SHARED_CASE_EXPRESSION",
+					scope: "form",
+					severity: "soundness",
+					message: "The form condition reads one selected case.",
+					location: {
+						moduleUuid: MODULE_UUID,
+						moduleName: "Clients",
+						formUuid,
+						formName: "Update client",
+					},
+					details: { surface: "form_display_condition" },
+				},
+			],
+		});
+		render(<CaseListConfigWorkspace moduleUuid={MODULE_UUID} tab="list" />);
+
+		fireEvent.click(
+			screen.getByRole("button", { name: "Choose several cases" }),
+		);
+		await settleBaseUiTransitions();
+		fireEvent.click(screen.getByRole("button", { name: "Open Update client" }));
+		await settleBaseUiTransitions();
+
+		expect(navigationApi.openFormCondition).toHaveBeenCalledWith(
+			MODULE_UUID,
+			formUuid,
+		);
+		expect(mutationApi.inlineCommitMany).not.toHaveBeenCalled();
 	});
 
 	it("authors and opens an intentional zero-input Search action", async () => {

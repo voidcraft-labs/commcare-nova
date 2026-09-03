@@ -19,6 +19,7 @@ import {
 } from "@/lib/domain/lookupIds";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 import {
+	addPatientReviewWorkflow,
 	cloneContract,
 	did,
 	fixtureValue,
@@ -677,6 +678,11 @@ describe("lean Design Contract graph", () => {
 			"module composition",
 		);
 		moduleComposition.workflowIds.push(parallel.id, convergent.id);
+		const selection = fixtureValue(
+			moduleComposition.selection,
+			"module selection",
+		);
+		selection.workflowIds.push(parallel.id, convergent.id);
 		const visitComposition = fixtureValue(
 			diamond.formCompositions[1],
 			"visit form composition",
@@ -1099,6 +1105,110 @@ describe("lean Design Contract graph", () => {
 		const list = cloneContract(makeContract());
 		list.lists[0]?.scanPropertyIds.push(ids.factVisitSummary);
 		expect(messages(list)).toContain("only properties of its record");
+	});
+
+	it("requires exact module-wide workflow coverage without requiring a WorkList", () => {
+		const valid = cloneContract(makeContract());
+		const module = valid.moduleCompositions[0];
+		const selection = module?.selection;
+		if (module === undefined || selection === undefined)
+			throw new Error("fixture selection missing");
+		module.selection = {
+			workflowIds: selection.workflowIds,
+			cases: "several",
+			maximum: 12,
+		};
+		expect(appDesignContractSchema.safeParse(valid).success).toBe(true);
+
+		const wrongContext = cloneContract(makeContract());
+		if (wrongContext.moduleCompositions[0]?.selection === undefined)
+			throw new Error("fixture selection missing");
+		wrongContext.moduleCompositions[0].selection = {
+			workflowIds: [ids.taskRegister],
+			cases: "several",
+			maximum: 12,
+		};
+		expect(messages(wrongContext)).toContain(
+			"use the module's record as its selected context",
+		);
+		expect(messages(wrongContext)).toContain(
+			"must exactly name every selected-record and close workflow",
+		);
+
+		const incomplete = cloneContract(makeContract());
+		addPatientReviewWorkflow(incomplete);
+		expect(messages(incomplete)).toContain(
+			"must exactly name every selected-record and close workflow",
+		);
+		fixtureValue(incomplete.moduleCompositions[0], "patient module").selection =
+			{
+				workflowIds: [ids.taskVisit, ids.taskReview],
+				cases: "one",
+			};
+		expect(appDesignContractSchema.safeParse(incomplete).success).toBe(true);
+
+		const duplicate = cloneContract(makeContract());
+		fixtureValue(duplicate.moduleCompositions[0], "patient module").selection =
+			{
+				workflowIds: [ids.taskVisit, ids.taskVisit],
+				cases: "one",
+			};
+		expect(messages(duplicate)).toContain(
+			"name each affected workflow exactly once",
+		);
+
+		const missing = cloneContract(makeContract());
+		if (missing.moduleCompositions[0] === undefined)
+			throw new Error("fixture module composition missing");
+		delete missing.moduleCompositions[0].selection;
+		expect(messages(missing)).toContain("module-wide selection setting");
+
+		const listless = cloneContract(makeContract());
+		const listlessModule = fixtureValue(
+			listless.moduleCompositions[0],
+			"patient module",
+		);
+		listlessModule.role = "form-host";
+		listlessModule.listIds = [];
+		listless.lists = [];
+		listless.access = [];
+		fixtureValue(listless.navigation[0], "patient navigation").listIds = [];
+		expect(appDesignContractSchema.safeParse(listless).success).toBe(true);
+
+		const nested = cloneContract(makeNestedMenuContract());
+		const parent = fixtureValue(
+			nested.moduleCompositions.find(
+				(composition) => composition.id === ids.modulePatients,
+			),
+			"patient module",
+		);
+		const child = fixtureValue(
+			nested.moduleCompositions.find(
+				(composition) => composition.id === ids.moduleVisits,
+			),
+			"visit module",
+		);
+		parent.role = "queue-only";
+		parent.workflowIds = [ids.taskRegister];
+		child.workflowIds = [ids.taskRegister, ids.taskVisit];
+		for (const form of nested.formCompositions) {
+			form.moduleCompositionId = child.id;
+		}
+		delete child.selection;
+		parent.selection = {
+			workflowIds: [ids.taskVisit],
+			cases: "several",
+			maximum: 12,
+		};
+		expect(appDesignContractSchema.safeParse(nested).success).toBe(true);
+
+		child.selection = {
+			workflowIds: [ids.taskVisit],
+			cases: "one",
+		};
+		expect(messages(nested)).toContain(
+			"same-record child beneath a queue-only module",
+		);
 	});
 
 	it("requires real choice values", () => {

@@ -66,7 +66,6 @@ const MUTATIONS_BY_AREA = {
 		"createModule",
 		"updateModule",
 		"configureCaseList",
-		"configureCaseSelection",
 		"addCaseListColumns",
 		"addSearchInputs",
 		"removeCaseListColumn",
@@ -122,6 +121,7 @@ function uniqueInRegistryOrder(names: ReadonlySet<string>): string[] {
 
 export function deriveExecutorToolProfile(
 	slice: Pick<BuildSlice, "constructionGroups">,
+	options: { readonly configureCaseSelection?: boolean } = {},
 ): ExecutorToolProfile {
 	const areas = new Set<BlueprintArea>();
 	for (const group of slice.constructionGroups) {
@@ -144,6 +144,17 @@ export function deriveExecutorToolProfile(
 				);
 			mutations.add(name);
 		}
+	}
+	/* A list stays owned by the workflow that materializes its module, but its
+	 * selected later workflow may be the first slice able to create the required
+	 * follow-up/close form. Authorize only this one exact refinement there rather
+	 * than granting the later slice the entire case-list mutation family. */
+	if (options.configureCaseSelection === true) {
+		if (!CHANGE_SET_TOOL_REGISTRY.has("configureCaseSelection"))
+			throw new Error(
+				"Executor tool profile references unknown tool configureCaseSelection.",
+			);
+		mutations.add("configureCaseSelection");
 	}
 	const readTools = uniqueInRegistryOrder(reads);
 	const mutationTools = uniqueInRegistryOrder(mutations);

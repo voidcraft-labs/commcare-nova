@@ -91,7 +91,12 @@ import {
 } from "./readSets";
 import { changeSetToolEntry } from "./registry";
 import { rehydrateChangeSet } from "./runtime";
-import type { ExternalReadDependency, StageRequestReceipt } from "./schemas";
+import {
+	type ExternalReadDependency,
+	type NonAppliedMutationReplayResult,
+	nonAppliedMutationReplayResultSchema,
+	type StageRequestReceipt,
+} from "./schemas";
 import {
 	loadChangeSet,
 	lookupStageRequest,
@@ -469,14 +474,17 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				entry?.policy.effect === "mutate-blueprint" &&
 				isSuccessfulMutationNoop(result)
 			) {
+				const replayResult = nonAppliedReplayResult(args.toolName, result);
 				/* A successful mutation no-op is still the durable answer to this native
 				 * call. Record it so process replacement replays the exact call identity
-				 * instead of re-running tool logic. */
+				 * instead of re-running tool logic. A typed non-applied result additionally
+				 * retains the control data the executor must see after recovery. */
 				invocationState.receipt = await this.persistMutationNoop({
 					toolName: args.toolName,
 					requestId,
 					inputDigest,
 					expectedRevision,
+					...(replayResult === undefined ? {} : { replayResult }),
 					...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
 				});
 			}
@@ -681,6 +689,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 			return { error: receipt.error?.message ?? "This request was rejected." };
 		}
 		if (receipt.disposition === "noop") {
+			if (receipt.replayResult !== undefined) return receipt.replayResult;
 			return {
 				kind: "mutate",
 				mutations: [],
@@ -740,6 +749,7 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 		readonly inputDigest: string;
 		readonly expectedRevision: number;
 		readonly deadlineAt?: number;
+		readonly replayResult?: NonAppliedMutationReplayResult;
 	}): Promise<StageRequestReceipt> {
 		const { receipt } = await stageChangeSetRequest({
 			changeSetId: this.changeSet.id,
@@ -753,7 +763,12 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				chatRunHolder: this.host.chatRunHolder,
 			}),
 			...(args.deadlineAt !== undefined && { deadlineAt: args.deadlineAt }),
-			outcome: { kind: "noop" },
+			outcome: {
+				kind: "noop",
+				...(args.replayResult === undefined
+					? {}
+					: { replayResult: args.replayResult }),
+			},
 		});
 		return receipt;
 	}
@@ -1106,4 +1121,24 @@ function isSuccessfulMutationNoop(value: unknown): boolean {
 		typeof candidate.result === "object" &&
 		typeof (candidate.result as { error?: unknown }).error === "string"
 	);
+}
+
+/** `configureCaseSelection` uses a zero-mutation result as a typed pause, not
+ * as success. Persist that complete JSON envelope so recovery makes the same
+ * control-flow decision and retains the exact confirmation or repair facts. */
+function nonAppliedReplayResult(
+	toolName: string,
+	value: unknown,
+): NonAppliedMutationReplayResult | undefined {
+	if (toolName !== "configureCaseSelection") return undefined;
+	if (value === null || typeof value !== "object") return undefined;
+	const result = (value as { result?: unknown }).result;
+	if (
+		result === null ||
+		typeof result !== "object" ||
+		(result as { outcome?: unknown }).outcome !== "needs_changes"
+	) {
+		return undefined;
+	}
+	return nonAppliedMutationReplayResultSchema.parse(value);
 }

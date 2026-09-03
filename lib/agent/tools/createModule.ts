@@ -23,7 +23,9 @@
  *
  * Follow-up case-list refinement (sort, filter, search inputs) still
  * goes through the case-list-config tools once the module exists; this
- * tool's `case_list_columns` exists so the module can BE BORN complete.
+ * tool's `case_list_columns` and optional several-case `selection` exist so
+ * the module can BE BORN complete. Selection is accepted only with a case
+ * type and a follow-up or close form that consumes it in this same call.
  * Optional `parentModuleUuid` creates the module in an existing top-level
  * menu. Nova supports one child-menu tier, and the document gate proves
  * parentage, preorder, and content validity atomically.
@@ -49,6 +51,9 @@
 import { z } from "zod";
 import {
 	asUuid,
+	CASE_LOADING_FORM_TYPES,
+	type CaseSelection,
+	caseSelectionSchema,
 	childModuleUuids,
 	FORM_TYPES,
 	findAuthoredBlueprintIdentity,
@@ -173,6 +178,12 @@ export const createModuleInputSchema = z
 			.describe(
 				"True for case-list-only modules with no forms. Use for child case types that need to be viewable but have no follow-up workflow. null otherwise.",
 			),
+		selection: caseSelectionSchema
+			.nullable()
+			.optional()
+			.describe(
+				'How workers choose cases from Results when this module is created. Pass `{ kind: "multiple", maximum: N }` only when the module has a case type and at least one follow-up or close form. N is an integer from 1 through 100. Omit or pass null for one case at a time.',
+			),
 	})
 	.strict()
 	.superRefine((input, ctx) => {
@@ -195,6 +206,25 @@ export const createModuleInputSchema = z
 					"A case-list-only module must name the case_type whose records it shows.",
 			});
 		}
+		if (input.selection != null && input.case_type == null) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["case_type"],
+				message:
+					"Several-case selection requires the case_type whose records workers choose.",
+			});
+		}
+		if (
+			input.selection != null &&
+			!input.forms?.some((form) => CASE_LOADING_FORM_TYPES.has(form.type))
+		) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["forms"],
+				message:
+					"Several-case selection requires at least one follow-up or close form in this module. Add that form in this call, or omit selection until the workflow exists.",
+			});
+		}
 	});
 
 export type CreateModuleInput = z.infer<typeof createModuleInputSchema>;
@@ -212,12 +242,13 @@ export type CreateModuleResult =
 				fields: CreatedFieldIdentity[];
 			}>;
 			columns: Array<{ uuid: string }>;
+			selection: CaseSelection | null;
 	  })
 	| { error: string };
 
 export const createModuleTool = {
 	description:
-		"Add a new top-level or one-tier child module together with its forms (each with fields) and case-list columns in one call. Omit parentModuleUuid for top-level, or name an existing top-level parent. A case-managing module lands complete or not at all.",
+		"Add a new top-level or one-tier child module together with its forms, case-list columns, and optional several-case selection in one call. Omit parentModuleUuid for top-level, or name an existing top-level parent. Several-case selection requires a case type and at least one follow-up or close form. A case-managing module lands complete or not at all.",
 	inputSchema: createModuleInputSchema,
 	async execute(
 		input: CreateModuleInput,
@@ -233,6 +264,7 @@ export const createModuleTool = {
 			forms,
 			case_list_columns,
 			case_list_only,
+			selection,
 		} = input;
 		try {
 			/* The module's case type references the catalog by name — the
@@ -288,6 +320,7 @@ export const createModuleTool = {
 							listColumnOrder: columns.map((column) => column.uuid),
 							detailColumnOrder: columns.map((column) => column.uuid),
 							searchInputs: [],
+							...(selection != null && { selection }),
 						},
 					}),
 				}),
@@ -460,6 +493,7 @@ export const createModuleTool = {
 					moduleOrder: [...newDoc.moduleOrder],
 					forms: createdForms,
 					columns: columns.map((column) => ({ uuid: column.uuid })),
+					selection: selection ?? null,
 					summary: { subject: name } satisfies ToolCallSummary,
 				},
 			};

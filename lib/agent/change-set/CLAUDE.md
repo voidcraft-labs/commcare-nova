@@ -148,7 +148,11 @@ gate, and integrity services every other write uses.
    (`ChangeSetRequestIdCollisionError`), and rejection receipts replay too. A
    successful call that proves itself a no-op records an accepted no-op receipt
    without advancing the private revision, so process recovery does not lose
-   that tool boundary.
+   that tool boundary. `configureCaseSelection`'s mutation-free typed
+   `needs_changes` result additionally persists its exact JSON tool envelope on
+   that receipt, so confirmation, repair, and refresh details drive the same
+   executor decision after process replacement instead of becoming generic
+   no-op success.
 3. Admission failures (wire canonicality, identity collision, invalid
    anchor, missing target, rename-plan issues, reducer throws, policy
    fences, unbound handles) reject BEFORE a step appends; validator

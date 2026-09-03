@@ -52,6 +52,7 @@ function designedLookupContract(): AppDesignContract {
 
 async function seedAcceptedRevision(
 	contract: AppDesignContract = designedLookupContract(),
+	storedPayload: unknown = contract,
 ): Promise<{
 	designSessionId: string;
 	designRevisionId: string;
@@ -82,7 +83,7 @@ async function seedAcceptedRevision(
 			finishReason: "stop",
 		},
 		createdAt: new Date().toISOString(),
-		payload: contract,
+		payload: storedPayload,
 	});
 	const acceptedEnvelope = sealArtifactEnvelope({
 		artifactType: "design-contract" as const,
@@ -100,7 +101,7 @@ async function seedAcceptedRevision(
 			finishReason: "stop",
 		},
 		createdAt: new Date().toISOString(),
-		payload: contract,
+		payload: storedPayload,
 	});
 	await h
 		.db()
@@ -143,7 +144,7 @@ async function seedAcceptedRevision(
 			parent_revision_id: null,
 			lifecycle: "draft",
 			artifact_digest: draftEnvelope.artifactDigest,
-			contract_digest: canonicalJsonDigest(contract),
+			contract_digest: canonicalJsonDigest(storedPayload),
 			source_package_digest: packageDigest,
 			producer_model: "design-test",
 			prompt_version: "design-test-v2",
@@ -161,7 +162,7 @@ async function seedAcceptedRevision(
 			parent_revision_id: draftEnvelope.artifactId,
 			lifecycle: "accepted",
 			artifact_digest: acceptedEnvelope.artifactDigest,
-			contract_digest: canonicalJsonDigest(contract),
+			contract_digest: canonicalJsonDigest(storedPayload),
 			source_package_digest: packageDigest,
 			producer_model: "design-test",
 			prompt_version: "design-test-v2",
@@ -243,6 +244,29 @@ async function seedSuccessorAcceptedRevision(
 }
 
 describe("accepted design lookup materialization", () => {
+	it("normalizes a digest-verified historical list selection before materializing", async () => {
+		const contract = designedLookupContract();
+		const stored = structuredClone(contract) as unknown as Record<
+			string,
+			unknown
+		>;
+		const list = (stored.lists as Array<Record<string, unknown>>)[0];
+		if (list === undefined) throw new Error("Expected a list fixture.");
+		const module = (
+			stored.moduleCompositions as Array<Record<string, unknown>>
+		)[0];
+		if (module === undefined) throw new Error("Expected a module fixture.");
+		const selection = module.selection as { readonly workflowIds: string[] };
+		delete module.selection;
+		list.selectionWorkflowId = selection.workflowIds[0];
+
+		const lineage = await seedAcceptedRevision(contract, stored);
+		const receipt = await materialize(lineage, contract);
+
+		expect(receipt).not.toBeNull();
+		expect((await getAllLookupDefinitions(scope)).definitions).toHaveLength(1);
+	});
+
 	it("refuses Project-data evidence outside the accepted source package", async () => {
 		const contract = designedLookupContract();
 		const table = contract.lookupTables[0];

@@ -3,9 +3,11 @@ import { describe, expect, it } from "vitest";
 import type { ToolCallSummary } from "@/lib/agent/tools/shared/toolCallSummary";
 import {
 	isEditToolPart,
+	runStatus,
 	toolAction,
 	toolDetail,
 	toolLocation,
+	toolStatus,
 } from "../toolSummary";
 
 /** A completed tool part carrying a mutating-success output. */
@@ -141,6 +143,67 @@ describe("configureConnect transcript row", () => {
 		} as ToolUIPart;
 		expect(toolAction(refused)).toBe("Configuring CommCare Connect");
 		expect(toolDetail(refused)).toBe("A non-null mode requires participants.");
+	});
+});
+
+describe("configureCaseSelection transcript row", () => {
+	it("uses friendly case-selection language while the change is pending or applied", () => {
+		expect(toolAction(pendingPart("configureCaseSelection"))).toBe(
+			"Updating case selection",
+		);
+		expect(
+			toolAction(
+				donePart("configureCaseSelection", { location: "Patient review" }),
+			),
+		).toBe("Updated case selection");
+	});
+
+	it("renders a mutation-free needs_changes outcome as failed with its explanation", () => {
+		const message =
+			'Changing case selection for module "Patients" also changes module "Patient review". No changes were applied.';
+		const part = {
+			type: "tool-configureCaseSelection",
+			toolCallId: "call_1",
+			state: "output-available",
+			input: {},
+			output: {
+				outcome: "needs_changes",
+				needs: "confirmation",
+				message,
+				requiredConfirmedModuleUuids: ["22222222-2222-4222-8222-222222222222"],
+				confirmationToken: "a".repeat(64),
+				coordinatedChanges: [],
+				blockers: [],
+				summary: { location: "Patients" },
+			},
+		} as ToolUIPart;
+
+		expect(toolStatus(part)).toBe("failed");
+		expect(runStatus([part])).toBe("failed");
+		expect(toolAction(part)).toBe("Case selection needs review");
+		expect(toolLocation(part)).toBe("Patients");
+		expect(toolDetail(part)).toBe(message);
+	});
+
+	it("renders the typed unchanged outcome as an honest no-op", () => {
+		const part = {
+			type: "tool-configureCaseSelection",
+			toolCallId: "call_1",
+			state: "output-available",
+			input: {},
+			output: {
+				outcome: "unchanged",
+				message: 'Module "Patients" already uses that case selection.',
+				selection: { kind: "multiple", maximum: 5 },
+				transitions: [],
+				summary: { location: "Patients" },
+			},
+		} as ToolUIPart;
+
+		expect(toolStatus(part)).toBe("done");
+		expect(toolAction(part)).toBe("Nothing to change");
+		expect(toolLocation(part)).toBe("Patients");
+		expect(toolDetail(part)).toBeNull();
 	});
 });
 

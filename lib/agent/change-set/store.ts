@@ -66,6 +66,7 @@ import {
 	type ChangeSetHandle,
 	changeSetHandleSchema,
 	type ExternalReadDependency,
+	type NonAppliedMutationReplayResult,
 	readSetSchema,
 	SHA256_HEX_PATTERN,
 	type StagedEntityKind,
@@ -966,6 +967,7 @@ export type StageRequestOutcome =
 	  }
 	| {
 			readonly kind: "noop";
+			readonly replayResult?: NonAppliedMutationReplayResult;
 	  }
 	| {
 			readonly kind: "reject";
@@ -1144,6 +1146,9 @@ async function stageInTransaction(
 			disposition: "noop",
 			workspaceRevision: changeSet.revision,
 			handles: {},
+			...(outcome.replayResult === undefined
+				? {}
+				: { replayResult: outcome.replayResult }),
 		} satisfies StageRequestReceipt);
 		await tx
 			.insertInto("design_change_set_requests")

@@ -50,6 +50,10 @@ const TOOL_ACTIONS: Record<string, ActionPhrases> = {
 		doing: "Configuring the case list",
 		done: "Configured the case list",
 	},
+	configureCaseSelection: {
+		doing: "Updating case selection",
+		done: "Updated case selection",
+	},
 	updateCaseListColumn: { doing: "Updating column", done: "Updated column" },
 	removeCaseListColumn: { doing: "Removing column", done: "Removed column" },
 	reorderCaseListColumns: {
@@ -365,14 +369,16 @@ export const isEditToolPart = (part: {
 	part.type !== "tool-planAppDesign" &&
 	!isPlanningEraSchemaPart(part);
 
-/** The mutating-tool success shape we read for presentation. All fields are
+/** The mutating-tool result shape we read for presentation. All fields are
  *  optional here because we narrow defensively off the part's `unknown`
- *  output — a failed call carries `{ error }` instead, a read tool carries its
- *  own payload, and an in-flight call carries nothing yet. */
+ *  output — a failed call may carry `{ error }` or a typed mutation-free
+ *  outcome, a read tool carries its own payload, and an in-flight call carries
+ *  nothing yet. */
 interface MutationOutput {
 	message?: string;
 	summary?: ToolCallSummary;
 	error?: string;
+	outcome?: string;
 }
 
 /** Narrow a part's output to the mutating-success shape, or null. */
@@ -409,14 +415,19 @@ export const completionErrors = (part: ToolUIPart): string[] | null => {
 	return null;
 };
 
-/** Per-call status, treating a refused completion outcome and an `{ error }`
- *  result as failures even though the call itself executed. */
+/** Per-call status, treating a refused completion outcome, an `{ error }`
+ *  result, and a typed `needs_changes` outcome as failures even though the call
+ *  itself executed. A case-selection coordination or repair response saves no
+ *  mutations, so its transcript row must never earn a green success state. */
 export const toolStatus = (part: ToolUIPart): ToolStatus => {
 	if (part.state === "input-streaming" || part.state === "input-available") {
 		return "pending";
 	}
 	if (part.state === "output-error" || completionErrors(part)) return "failed";
-	if (outputOf(part)?.error !== undefined) return "failed";
+	const output = outputOf(part);
+	if (output?.error !== undefined || output?.outcome === "needs_changes") {
+		return "failed";
+	}
 	return "done";
 };
 
@@ -430,15 +441,26 @@ export const toolAction = (part: ToolUIPart): string => {
 	const name = toolName(part);
 	const tense: keyof ActionPhrases =
 		toolStatus(part) === "done" ? "done" : "doing";
-	const summary = outputOf(part)?.summary;
+	const output = outputOf(part);
+	const summary = output?.summary;
 	// A consent round changed nothing on purpose — "Updated field" would
 	// lie about an edit that's waiting on the user's answer. What the
 	// call DID do (count the conversion's impact) carries the row.
 	if (summary?.awaitingConsent) {
 		return `Checked a conversion${summary.subject ? ` "${summary.subject}"` : ""}`;
 	}
-	// A verified no-op changed nothing on purpose: the verb must say so.
-	if (summary?.noop) return "Nothing to change";
+	// A verified no-op changed nothing on purpose: the verb must say so. The
+	// case-selection tool carries that fact in its typed outcome rather than the
+	// generic summary because MCP callers branch on the same result.
+	if (summary?.noop || output?.outcome === "unchanged") {
+		return "Nothing to change";
+	}
+	if (
+		name === "configureCaseSelection" &&
+		output?.outcome === "needs_changes"
+	) {
+		return "Case selection needs review";
+	}
 	if (name === "updateApp") return updateAppAction(summary, tense);
 	if (name === "configureConnect") {
 		return configureConnectAction(summary, tense);
@@ -498,6 +520,17 @@ export const toolDetail = (part: ToolUIPart): string | null => {
 	const out = part.output;
 	if (typeof out === "object" && out !== null && "error" in out) {
 		return String((out as { error: unknown }).error);
+	}
+	// `configureCaseSelection` uses a successful tool invocation to return a
+	// typed, mutation-free coordination/repair outcome. Its summary still owns
+	// the friendly module breadcrumb, but the message must remain visible so the
+	// row explains why no change landed and what Nova will do next.
+	const mutationOutput = outputOf(part);
+	if (
+		mutationOutput?.outcome === "needs_changes" &&
+		typeof mutationOutput.message === "string"
+	) {
+		return mutationOutput.message;
 	}
 	// A structured summary already drives the action + breadcrumb — no prose
 	// needed. Only fall back to the prose `message` (or a bare-string result)

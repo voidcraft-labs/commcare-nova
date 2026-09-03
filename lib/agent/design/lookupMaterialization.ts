@@ -1,13 +1,13 @@
 import "server-only";
 
 import { sql, type Transaction } from "kysely";
+import { z } from "zod";
 import type { DesignArtifactWriteAuthority } from "@/lib/agent/design/artifactStore";
 import {
 	type AppDesignContract,
-	appDesignContractBaseSchema,
-	appDesignContractSchema,
 	type ChangedLookupColumnRef,
 	type ChangedLookupRowRef,
+	normalizeStoredAppDesignContract,
 } from "@/lib/agent/design/contract";
 import {
 	designArtifactEnvelopeSchema,
@@ -68,7 +68,7 @@ export class DesignLookupMaterializationError extends Error {
 
 const acceptedContractEnvelopeSchema = designArtifactEnvelopeSchema(
 	"design-contract",
-	appDesignContractSchema,
+	z.unknown(),
 );
 
 function compareAscii(left: string, right: string): number {
@@ -629,13 +629,14 @@ export async function ensureAcceptedLookupMaterialization(args: {
 		const persistedContractDigest = canonicalJsonDigest(
 			acceptedEnvelope.payload,
 		);
+		const contract = normalizeStoredAppDesignContract(acceptedEnvelope.payload);
 		if (
 			acceptedEnvelope.artifactId !== args.designRevisionId ||
 			acceptedEnvelope.designSessionId !== args.designSessionId ||
 			acceptedEnvelope.artifactDigest !== args.designRevisionDigest ||
 			acceptedEnvelope.sourcePackageDigest !== accepted.source_package_digest ||
 			persistedContractDigest !== accepted.contract_digest ||
-			canonicalJsonDigest(args.contract) !== persistedContractDigest
+			canonicalJsonDigest(args.contract) !== canonicalJsonDigest(contract)
 		) {
 			throw new DesignLookupMaterializationError(
 				"Project data can materialize only from the exact persisted accepted Design Contract.",
@@ -643,9 +644,6 @@ export async function ensureAcceptedLookupMaterialization(args: {
 		}
 		/* Execute the persisted, digest-verified contract rather than trusting the
 		 * caller's equivalent projection beyond the equality proof above. */
-		const contract = appDesignContractBaseSchema.parse(
-			acceptedEnvelope.payload,
-		);
 		if (!materializationRequired(contract)) {
 			await releaseSupersededLookupProtectionsInTransaction(
 				tx,

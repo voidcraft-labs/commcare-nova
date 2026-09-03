@@ -16,7 +16,7 @@ describe("reviewed-build presentation", () => {
 	});
 
 	it("versions the native-call executor dialect and requests coherent creation calls", () => {
-		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v18");
+		expect(EXECUTOR_PROMPT_VERSION).toBe("build-executor-v19");
 		expect(EXECUTOR_SYSTEM).toContain("Prefer one `createModule` call");
 		expect(EXECUTOR_SYSTEM).toContain("exact `requiredInitialResultsColumn`");
 		expect(EXECUTOR_SYSTEM).toContain("Nova supports one submenu tier");
@@ -66,11 +66,25 @@ describe("reviewed-build presentation", () => {
 		expect(EXECUTOR_SYSTEM).toContain(
 			"opens with its current property value and edits it in place",
 		);
+		expect(EXECUTOR_SYSTEM).toContain("exact `selectionRealization`");
+		expect(EXECUTOR_SYSTEM).toContain("`create-with-module`");
+		expect(EXECUTOR_SYSTEM).toContain("`configure-after-forms`");
+		expect(EXECUTOR_SYSTEM).toContain("primary update inputs start blank");
+		expect(EXECUTOR_SYSTEM).toContain(
+			'`outcome: "needs_changes"` also applied nothing',
+		);
+		expect(EXECUTOR_SYSTEM).toContain(
+			"`confirmedModuleUuids` exactly equal to that result's `requiredConfirmedModuleUuids`",
+		);
+		expect(EXECUTOR_SYSTEM).toContain("`confirmationToken` unchanged");
+		expect(EXECUTOR_SYSTEM).toContain(
+			"A `refresh` outcome requires a new unconfirmed call",
+		);
 		expect(EXECUTOR_SYSTEM).toContain(
 			"those contextual behaviors never inherit from the record",
 		);
 		expect(EXECUTOR_SYSTEM).toContain("Use `configureCaseList`");
-		expect(EXECUTOR_SYSTEM).toContain("call `configureCaseSelection`");
+		expect(EXECUTOR_SYSTEM).toContain("calls `configureCaseSelection`");
 		expect(EXECUTOR_SYSTEM).toContain(
 			"its four search-display fields live at the root",
 		);

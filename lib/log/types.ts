@@ -184,6 +184,7 @@ export const conversationPayloadSchema = z.discriminatedUnion("type", [
 		workspaceRevision: z.number().int().nonnegative(),
 		outcome: z.enum([
 			"accepted",
+			"non-applied",
 			"skipped",
 			"wire-invalid",
 			"operation-rejected",

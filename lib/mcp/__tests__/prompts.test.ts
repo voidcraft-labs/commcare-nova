@@ -121,6 +121,17 @@ describe("renderAgentPrompt", () => {
 		expect(sp).not.toContain("Editing Mode");
 	});
 
+	it("teaches MCP agents the effect-bound case-selection retry", () => {
+		const sp = renderAgentPrompt(true);
+		expect(sp).toContain(
+			"`confirmedModuleUuids` exactly equal to `requiredConfirmedModuleUuids`",
+		);
+		expect(sp).toContain("returned `confirmationToken` unchanged");
+		expect(sp).toContain(
+			"Never reuse either confirmation value from an older result",
+		);
+	});
+
 	it("edit mode with a populated doc emits EDIT_PREAMBLE framing + an inlined blueprint summary", () => {
 		/* Edit-mode parity with `/api/chat`: when a populated doc is
 		 * threaded through, the rendered prompt must carry

@@ -1008,11 +1008,9 @@ describe("compileCcz", () => {
  *   - `multiple_subcase_repeat.xml` — Nova's repeat-context subcase
  *     emission is broken today (the wrapper element splices at the
  *     wrong nesting depth). Surfaced via a divergence pin below.
- *   - `update_parent_case.xml` / `update_attachment_case.xml` /
- *     `update_preload_case.xml` — corresponding emitter behavior
- *     (parent-case updates / case attachments / case-preload
- *     setvalues) is not implemented in Nova. Documented in the
- *     "Known divergences" section.
+ *   - `update_parent_case.xml` — parent-case updates are not modeled in
+ *     Nova. Case attachments and case-preload setvalues now have their own
+ *     positive parity suites.
  */
 
 /** Parsed shape of one XForm's binds, setvalues, and case elements. */
@@ -2042,26 +2040,10 @@ describe.skipIf(!HAS_CCHQ_FIXTURES)("CCHQ fixture parity", () => {
 	 *   </parents>`). Nova does not model parent-case updates from a
 	 *   followup form; the entire `<parents>` subtree is absent.
 	 *
-	 * - `update_attachment_case.xml` — case-update form with a media
-	 *   field whose value writes through to a case attachment
-	 *   (`<bind nodeset="/data/case/attachment/<prop>" relevant="count(
-	 *   <qPath>) = 1"/>` + `<bind nodeset=".../@src" calculate="<qPath>"/>`).
-	 *   Nova does not emit case attachments today — the `mediaCaseProperty`
-	 *   validator rejects media-kind fields with `caseWrite`, so this
-	 *   shape is unreachable in a valid doc. Supporting it is a separate
-	 *   feature (lift the rejection + emit on both pipelines + CCZ media
-	 *   bundling), NOT a lockstep gap.
-	 *
-	 * (`update_preload_case.xml` was here — case-preload is now emitted; see
-	 * the positive parity test "update_preload_case.xml — case-preload
-	 * setvalues read from casedb" above.)
 	 */
 	it("documents unmodeled CCHQ features still under emission gap", () => {
 		// Sanity-check: the documentation references real CCHQ fixtures.
 		expect(readCchqFixture("update_parent_case.xml")).toContain("<parents>");
-		expect(readCchqFixture("update_attachment_case.xml")).toContain(
-			"<attachment>",
-		);
 	});
 });
 

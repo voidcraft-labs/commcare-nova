@@ -1695,6 +1695,53 @@ describe("useBlueprintMutations — commit gate", () => {
 		expect(toastStore.toasts).toHaveLength(0);
 	});
 
+	it("reviews the exact candidate without committing it", () => {
+		toastStore.clear();
+		const { result } = renderHook(() => useMutationsWithStore(), {
+			wrapper,
+		});
+		const formUuid = testUuid("form-reviewed-without-commit");
+
+		const state = result.current.store?.getState();
+		assert(state);
+		const outcome = result.current.mutations.inline.reviewMany([
+			{
+				kind: "addForm",
+				moduleUuid: state.moduleOrder[0],
+				form: {
+					uuid: formUuid,
+					id: "reviewed",
+					name: "Reviewed",
+					type: "survey",
+				},
+				after: null,
+			},
+		]);
+
+		assert(!outcome.ok);
+		expect(outcome.messages[0]).toContain("doesn't have any fields");
+		expect(outcome.findings?.[0]).toMatchObject({
+			code: "EMPTY_FORM",
+			scope: "form",
+			location: { formUuid },
+		});
+		expect(result.current.store?.getState().forms[formUuid]).toBeUndefined();
+		expect(toastStore.toasts).toHaveLength(0);
+	});
+
+	it("returns a passing review without changing the live document", () => {
+		const { result } = renderHook(() => useMutationsWithStore(), {
+			wrapper,
+		});
+
+		const outcome = result.current.mutations.inline.reviewMany([
+			{ kind: "setAppName", name: "Reviewed name" },
+		]);
+
+		expect(outcome).toEqual({ ok: true });
+		expect(result.current.store?.getState().appName).toBe("Test");
+	});
+
 	it("dispatches a clean edit unchanged (the gate is transparent on pass)", () => {
 		toastStore.clear();
 		const { result } = renderHook(() => useMutationsWithStore(), {

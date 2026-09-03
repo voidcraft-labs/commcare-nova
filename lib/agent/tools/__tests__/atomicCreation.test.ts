@@ -508,7 +508,114 @@ describe("createModule — atomic module + forms + case list", () => {
 				},
 			],
 			columns: [{ uuid: columnUuid }],
+			selection: null,
 		});
+	});
+
+	it("creates a several-case module atomically with its consuming form", async () => {
+		const harness = makeHarness(completeDoc());
+		const moduleUuid = testUuid("several-household-module");
+		const out = await harness.runTool(createModuleTool, {
+			moduleUuid,
+			name: "Household visits",
+			case_type: "household",
+			selection: { kind: "multiple", maximum: 12 },
+			forms: [
+				{
+					name: "Visit households",
+					type: "followup",
+					fields: [
+						{
+							kind: "text",
+							id: "visit_note",
+							label: proseText("Visit note"),
+							caseWrite: {
+								caseType: "household",
+								property: "head_of_household",
+							},
+						} as never,
+					],
+				},
+			],
+			case_list_columns: [
+				{
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				} as never,
+			],
+		});
+
+		if (!("moduleUuid" in out.result)) throw new Error("expected success");
+		expect(out.result.selection).toEqual({ kind: "multiple", maximum: 12 });
+		const addModule = out.mutations.find(
+			(m): m is Extract<typeof m, { kind: "addModule" }> =>
+				m.kind === "addModule",
+		);
+		expect(addModule?.module.caseListConfig?.selection).toEqual({
+			kind: "multiple",
+			maximum: 12,
+		});
+		expect(
+			harness.currentDoc().modules[moduleUuid]?.caseListConfig?.selection,
+		).toEqual({ kind: "multiple", maximum: 12 });
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
+	});
+
+	it("accepts several-case creation only with a case type and consuming form", () => {
+		const base = {
+			name: "Household visits",
+			selection: { kind: "multiple" as const, maximum: 12 },
+			case_list_columns: [
+				{ kind: "plain", field: "case_name", header: "Name" },
+			],
+		};
+		const withoutCaseType = createModuleInputSchema.safeParse({
+			...base,
+			forms: [
+				{
+					name: "Feedback",
+					type: "survey",
+					fields: [{ kind: "text", id: "note", label: proseText("Note") }],
+				},
+			],
+		});
+		const withoutConsumer = createModuleInputSchema.safeParse({
+			...base,
+			case_type: "household",
+			forms: [
+				{
+					name: "Register household",
+					type: "registration",
+					fields: [
+						{
+							kind: "text",
+							id: "case_name",
+							label: proseText("Household name"),
+							caseWrite: {
+								caseType: "household",
+								property: "case_name",
+							},
+						},
+					],
+				},
+			],
+		});
+
+		expect(withoutCaseType.success).toBe(false);
+		expect(withoutConsumer.success).toBe(false);
+		if (!withoutCaseType.success) {
+			expect(withoutCaseType.error.issues).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({ path: ["case_type"] }),
+				]),
+			);
+		}
+		if (!withoutConsumer.success) {
+			expect(withoutConsumer.error.issues).toEqual(
+				expect.arrayContaining([expect.objectContaining({ path: ["forms"] })]),
+			);
+		}
 	});
 
 	it("rejects a case-typed module with no forms (forms belong in this call)", async () => {

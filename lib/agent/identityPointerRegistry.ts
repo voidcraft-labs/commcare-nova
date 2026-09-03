@@ -132,7 +132,9 @@ function classifyIdentity(
 		return "location-property";
 	}
 
-	if (property === "moduleUuid") return "module";
+	if (property === "moduleUuid" || property === "confirmedModuleUuids") {
+		return "module";
+	}
 	if (
 		property === "parentModuleUuid" &&
 		(tool === "create_module" || tool === "move_module")
