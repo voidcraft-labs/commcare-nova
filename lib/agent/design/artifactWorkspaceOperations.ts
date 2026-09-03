@@ -390,6 +390,7 @@ export function normalizeStoredDesignArtifactWorkspaceOperation(
 				if (marker === undefined || marker.listId !== list.id) return;
 				Object.defineProperty(list, LEGACY_LIST_SELECTION_WORKFLOW_ID, {
 					value: marker.workflowId,
+					configurable: true,
 				});
 			});
 		}
@@ -527,6 +528,7 @@ function normalizeReplayedLegacySelection(
 				];
 				Object.defineProperty(detached, LEGACY_LIST_SELECTION_WORKFLOW_ID, {
 					value: workflowId,
+					configurable: true,
 				});
 				return detached;
 			})
