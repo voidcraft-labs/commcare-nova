@@ -163,7 +163,19 @@ export type TypeContext = {
 	 * and check set it.
 	 */
 	patternMatching?: true;
+	/**
+	 * The instance every `input(...)` read prints through on the wire:
+	 * CommCare names the worker's answers after the search that stores
+	 * them, so a module whose search stores into `results:inline` reads
+	 * `search-input:results:inline`. Chosen at the emission boundary and
+	 * ignored by type checking; absent means the standalone search's
+	 * `search-input:results`.
+	 */
+	searchInputInstanceId?: SearchInputInstanceId;
 };
+
+/** The wire name of a search's answer instance (see `TypeContext`). */
+export type SearchInputInstanceId = `search-input:${string}`;
 
 /**
  * Path locating where in the predicate AST a CheckError occurred.

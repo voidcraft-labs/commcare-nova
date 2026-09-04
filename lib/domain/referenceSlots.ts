@@ -1098,6 +1098,7 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].required.message": "display-text",
 	"caseListConfig.searchInputs[].validation.message": "display-text",
 	"caseSearchConfig.searchActionEnabled": "config",
+	"caseSearchConfig.searchFirst": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",
 	"caseSearchConfig.searchButtonLabel": "display-text",

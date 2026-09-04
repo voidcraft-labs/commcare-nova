@@ -78,6 +78,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: term(prop("patient", "external_id")),
+			searchFirst: null,
 		});
 
 		expect(result.mutations).toEqual([]);
@@ -94,6 +95,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: excluded,
+			searchFirst: null,
 		});
 
 		expect(result.kind).toBe("mutate");
@@ -116,6 +118,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+			searchFirst: null,
 		});
 		if ("error" in result.result) {
 			throw new Error(`unexpected error: ${result.result.error}`);
@@ -149,6 +152,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: null,
+			searchFirst: null,
 		});
 
 		const config = h.currentDoc().modules[MOD_A]?.caseSearchConfig;
@@ -187,6 +191,7 @@ describe("setCaseSearchAdvanced", () => {
 		await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: term({ kind: "literal", value: "owner-x" }),
+			searchFirst: null,
 		});
 
 		const config = h.currentDoc().modules[MOD_A]?.caseSearchConfig;
@@ -204,6 +209,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MISSING_MODULE,
 			excludedOwnerIds: null,
+			searchFirst: null,
 		});
 
 		expect(result.mutations).toEqual([]);
@@ -228,6 +234,7 @@ describe("setCaseSearchAdvanced", () => {
 		await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+			searchFirst: null,
 		});
 
 		const config = h.currentDoc().modules[MOD_A]?.caseSearchConfig;
@@ -257,6 +264,7 @@ describe("setCaseSearchAdvanced", () => {
 		await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+			searchFirst: null,
 		});
 		expect(
 			ownerOnly(h.currentDoc().modules[MOD_A]?.caseSearchConfig)
@@ -290,6 +298,7 @@ describe("setCaseSearchAdvanced", () => {
 		const result = await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: null,
+			searchFirst: null,
 		});
 		expect(h.currentDoc().modules[MOD_A]?.caseSearchConfig).toBeUndefined();
 		expect(result.mutations).toEqual([
@@ -306,6 +315,79 @@ describe("setCaseSearchAdvanced", () => {
 				caseSearchConfigOperation: "remove-if-no-authored-settings",
 			},
 		]);
+	});
+
+	it("turns Search first on and off, keeping the owner rule", async () => {
+		const h = makeCaseSearchFixture();
+		const on = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+			searchFirst: true,
+		});
+		if ("error" in on.result) {
+			throw new Error(`unexpected error: ${on.result.error}`);
+		}
+		expect(on.result.advancedSlotsSet).toEqual([
+			"excludedOwnerIds",
+			"searchFirst",
+		]);
+		const after = ordinary(h.currentDoc().modules[MOD_A]?.caseSearchConfig);
+		expect(after.searchFirst).toBe(true);
+		expect(after.excludedOwnerIds).toEqual(
+			term({ kind: "literal", value: "owner-a" }),
+		);
+
+		const off = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+			searchFirst: null,
+		});
+		if ("error" in off.result) {
+			throw new Error(`unexpected error: ${off.result.error}`);
+		}
+		expect(off.result.advancedSlotsSet).toEqual(["excludedOwnerIds"]);
+		expect(
+			ordinary(h.currentDoc().modules[MOD_A]?.caseSearchConfig).searchFirst,
+		).toBeUndefined();
+	});
+
+	it("refuses Search first on a module that only limits available cases", async () => {
+		const baseDoc = makeCaseSearchDoc();
+		const mod = baseDoc.modules[MOD_A];
+		if (mod?.caseListConfig === undefined) {
+			throw new Error("fixture must carry a case-list config");
+		}
+		const ownerOnlyDoc: BlueprintDoc = {
+			...baseDoc,
+			modules: {
+				[MOD_A]: {
+					...mod,
+					caseListConfig: {
+						...mod.caseListConfig,
+						searchInputs: [],
+					},
+					caseSearchConfig: {
+						searchActionEnabled: false,
+						excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+					},
+				},
+			},
+		};
+		const h = makeCaseSearchFixture(ownerOnlyDoc);
+		const result = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: term({ kind: "literal", value: "owner-a" }),
+			searchFirst: true,
+		});
+		if (!("error" in result.result)) {
+			throw new Error("expected a refusal");
+		}
+		expect(result.result.error).toContain("Add a search input first");
+		expect(result.mutations).toEqual([]);
+		expect(
+			ownerOnly(h.currentDoc().modules[MOD_A]?.caseSearchConfig)
+				.searchActionEnabled,
+		).toBe(false);
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {

@@ -30,6 +30,7 @@ import {
 	SEARCH_SELECTED_CASES_REF,
 } from "./claim";
 import { compileForPlatform } from "./compileForPlatform";
+import { searchScreenTranslationUnits } from "./inlineSearch";
 import { buildSearchSession } from "./searchSession";
 import type { PlatformContext, WireShape } from "./types";
 
@@ -194,25 +195,8 @@ export function buildRemoteRequest(args: {
 			mod.uuid,
 			"search-button",
 		),
-		[`case_search.${moduleId}.inputs`]: makeTranslationUnitId(
-			"module",
-			mod.uuid,
-			"search-title",
-		),
-		...(caseSearchConfig.searchScreenSubtitle !== undefined
-			? {
-					[`case_search.${moduleId}.description`]: makeTranslationUnitId(
-						"module",
-						mod.uuid,
-						"search-subtitle",
-					),
-				}
-			: {}),
+		...searchScreenTranslationUnits(mod, moduleIndex, caseSearchConfig),
 	};
-	for (const input of caseListConfig.searchInputs) {
-		translationUnits[`search_property.${moduleId}.${input.name}`] =
-			makeTranslationUnitId("search-input", input.uuid, "label");
-	}
 
 	return { element: remoteRequestEl, strings, translationUnits, wire };
 }

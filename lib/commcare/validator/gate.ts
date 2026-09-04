@@ -238,6 +238,10 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	CASE_SEARCH_EXCLUDED_OWNER_IDS_TYPE_ERROR: "soundness",
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: "soundness",
 	CASE_SEARCH_CONFIG_REQUIRES_CASE_TYPE: "soundness",
+	SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE: "soundness",
+	SEARCH_FIRST_NO_BUTTON_DISPLAY_CONDITION: "soundness",
+	SEARCH_FIRST_NO_PREVIOUS_WORKFLOW: "soundness",
+	SEARCH_FIRST_UNIQUE_INSTANCE: "soundness",
 	// ── Form-level ───────────────────────────────────────────────────
 	EMPTY_FORM: "completeness",
 	// A section is a page. A half-sectioned form, a section inside a field,
@@ -391,6 +395,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	SUITE_NON_PATH_XPATH: "oracle",
 	SUITE_QUERY_NO_URL: "oracle",
 	SUITE_QUERY_NO_STORAGE_INSTANCE: "oracle",
+	SUITE_STACK_QUERY_INVALID: "oracle",
 	SUITE_REMOTE_REQUEST_NO_POST: "oracle",
 	SUITE_POST_NO_URL: "oracle",
 	SUITE_PROMPT_NO_KEY: "oracle",

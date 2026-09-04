@@ -66,6 +66,7 @@
 import {
 	type BlueprintDoc,
 	type CaseType,
+	effectiveCaseSearchConfig,
 	type Module,
 	searchInputRuntimeValueType,
 	userPropertiesOf,
@@ -174,6 +175,11 @@ export function moduleTypeContext(
 		),
 		...(moduleCaseType !== undefined && { currentCaseType: moduleCaseType }),
 		...(lookupTables !== undefined && { lookupTables }),
+		// A search-first module's answers live under its inline results
+		// instance on both wire paths (`VirtualInstances.makeSearchInputInstanceID`).
+		...(effectiveCaseSearchConfig(mod)?.searchFirst === true && {
+			searchInputInstanceId: "search-input:results:inline" as const,
+		}),
 	};
 }
 

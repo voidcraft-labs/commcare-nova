@@ -327,6 +327,7 @@ function caseSearchConfigPatchSchemaFor(
 			searchButtonLabel: configSchema.shape.searchButtonLabel.nullable(),
 			searchButtonDisplayCondition:
 				configSchema.shape.searchButtonDisplayCondition.nullable(),
+			searchFirst: configSchema.shape.searchFirst.nullable(),
 		})
 		.partial()
 		.strict();

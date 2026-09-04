@@ -591,6 +591,14 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`The condition that controls whether ${q(modName(e))}'s Search button appears has an error. Fix it or clear the condition to always show the button.`,
 	CASE_SEARCH_BUTTON_DISPLAY_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
 		`The condition that controls whether ${q(modName(e))}'s Search button appears tries to read a case before one has been selected. Use fixed values or current-user information, or clear the condition to always show the button.`,
+	SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE: (e) =>
+		`${q(modName(e))} is set to open on Search, but its first screen isn't a case selection. Give it a case type and keep only forms that work on an existing case, or turn Search first off.`,
+	SEARCH_FIRST_NO_BUTTON_DISPLAY_CONDITION: (e) =>
+		`${q(modName(e))} opens on Search, so there's no Search button for its button condition to control. Clear the condition, or turn Search first off.`,
+	SEARCH_FIRST_NO_PREVIOUS_WORKFLOW: (e) =>
+		`${q(formName(e))} in ${q(modName(e))} goes back to the previous screen after submit, which CommCare can't do in a module that opens on Search. Send it to the module or to the app home instead.`,
+	SEARCH_FIRST_UNIQUE_INSTANCE: (e) =>
+		`${q(modName(e))} shares its search results with a module that opens on Search, and CommCare can't tell the two apart. Keep a search-first module without submenus, and don't select a parent case from one.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 

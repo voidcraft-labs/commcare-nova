@@ -93,6 +93,76 @@ export function buildClaimPost(multiple = false): Element {
 	);
 }
 
+/** The claim `<post>` of an inline (search-first) entry and the instances
+ *  its XPath reads. */
+export interface InlineClaimPost {
+	readonly element: Element;
+	readonly instances: readonly string[];
+}
+
+/**
+ * The claim `<post>` a search-first module's case-requiring entry carries
+ * (`EntriesHelper.add_post_to_entry`). Unlike the `<remote-request>` post,
+ * it reads the entry's OWN case datum (`case_id`, or the collection
+ * `selected_cases`), and under a selected parent it also offers every
+ * earlier selection, each excluded when the device already holds it, with
+ * the relevance loosened to `$case_id != ''`
+ * (`RemoteRequestFactory.build_case_id_query_data`).
+ */
+export function buildInlineClaimPost(args: {
+	/** The entry's own case datum id. */
+	readonly sessionVar: string;
+	/** Whether that datum is a multiple selection (`instance-datum`). */
+	readonly collection: boolean;
+	/**
+	 * Present when the module selects its cases under a parent
+	 * (`module_uses_inline_search_with_parent_relationship_parent_select`):
+	 * every other case datum of the entry, in entry order, excluding the
+	 * entry's new-case ids. HQ offers each for claiming too.
+	 */
+	readonly parentSelect?: { readonly otherSessionVars: readonly string[] };
+}): InlineClaimPost {
+	const { sessionVar, collection } = args;
+	const parentSelect = args.parentSelect !== undefined;
+	const others = args.parentSelect?.otherSessionVars ?? [];
+	const sessionRef = (id: string): string =>
+		`instance('commcaresession')/session/data/${id}`;
+	const claimed = (ref: string): string =>
+		`count(instance('casedb')/casedb/case[@case_id=${ref}])`;
+	const own = collection
+		? el("data", {
+				key: "case_id",
+				ref: ".",
+				nodeset: `instance('${sessionVar}')/results/value`,
+				exclude: CLAIM_MULTI_EXCLUDE,
+			})
+		: el("data", {
+				key: "case_id",
+				ref: sessionRef(sessionVar),
+				...(parentSelect && {
+					exclude: `${claimed(sessionRef(sessionVar))} != 0`,
+				}),
+			});
+	const extra = others.map((id) =>
+		el("data", {
+			key: "case_id",
+			ref: sessionRef(id),
+			exclude: `${claimed(sessionRef(id))} != 0`,
+		}),
+	);
+	const relevant =
+		collection || parentSelect
+			? CLAIM_MULTI_RELEVANT
+			: `${claimed(sessionRef(sessionVar))} = 0`;
+	return {
+		element: el("post", { url: CLAIM_URL_TEMPLATE, relevant }, [own, ...extra]),
+		instances: [
+			"casedb",
+			...(collection && others.length === 0 ? [] : ["commcaresession"]),
+		],
+	};
+}
+
 /**
  * String adapter — serializes `buildClaimPost`'s Element for callers
  * that assert against the rendered XML string (the `claim.test.ts`

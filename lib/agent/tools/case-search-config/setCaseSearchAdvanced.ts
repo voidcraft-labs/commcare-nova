@@ -105,6 +105,15 @@ export const setCaseSearchAdvancedTool = {
 				advancedPatch.excludedOwnerIds !== undefined &&
 				(addingFirstOwnerRule ||
 					(existing !== undefined && isOwnerOnlyCaseSearchConfig(existing)));
+			if (keepOwnerOnly && advancedPatch.searchFirst === true) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: {
+						error: `Module "${mod.name}" only limits which cases are available and has no Search action, so it cannot open on Search. Add a search input first, then turn Search first on.`,
+					},
+				};
+			}
 			const nextExcludedOwnerIds = advancedPatch.excludedOwnerIds;
 			const nextConfigCandidate: CaseSearchConfig = keepOwnerOnly
 				? {

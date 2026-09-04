@@ -194,6 +194,10 @@ export function emitCaseListFilter(
 								context.knownInputs.map((input) => [input.uuid, input.name]),
 							),
 						}),
+					...(termContext.searchInputInstanceId === undefined &&
+						context.searchInputInstanceId !== undefined && {
+							searchInputInstanceId: context.searchInputInstanceId,
+						}),
 				}
 			: termContext;
 	return emitPredicate(

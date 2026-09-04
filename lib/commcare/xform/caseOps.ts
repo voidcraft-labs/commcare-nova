@@ -28,9 +28,11 @@ import {
 } from "@/lib/commcare/predicate/instances";
 import { ROOT_ON_DEVICE_CASE_ANCHOR } from "@/lib/commcare/predicate/relationPresenceEmitter";
 import { quoteLiteral } from "@/lib/commcare/predicate/stringQuoting";
-import type {
-	OnDeviceExpressionBindings,
-	OnDeviceTermEmissionContext,
+import {
+	type InstanceRoot,
+	instanceRootPath,
+	type OnDeviceExpressionBindings,
+	type OnDeviceTermEmissionContext,
 } from "@/lib/commcare/predicate/termEmitter";
 import type {
 	FormActionCondition,
@@ -1608,11 +1610,11 @@ function formCasePropertyResolver(
 
 function emitAnchoredProperty(
 	property: PropertyRef,
-	root: "casedb" | "results",
+	root: InstanceRoot,
 	selectedCaseIdRef: string,
 ): string {
 	const leaf = emitCasePropertyWirePath(property.property);
-	const base = `instance('${root}')/${root}/case[@case_id=${selectedCaseIdRef}]`;
+	const base = `instance('${root}')/${instanceRootPath(root)}/case[@case_id=${selectedCaseIdRef}]`;
 	const via = property.via;
 	if (via === undefined || via.kind === "self") return `${base}/${leaf}`;
 	if (via.kind === "ancestor") {
@@ -1639,26 +1641,26 @@ function emitAnchoredProperty(
 function caseById(
 	id: string,
 	caseType: string | undefined,
-	root: "casedb" | "results",
+	root: InstanceRoot,
 ): string {
 	const type =
 		caseType === undefined
 			? ""
 			: ` and @case_type=${quoteLiteral(caseType, "case-list-filter")}`;
-	return `instance('${root}')/${root}/case[@case_id=${id}${type}]`;
+	return `instance('${root}')/${instanceRootPath(root)}/case[@case_id=${id}${type}]`;
 }
 
 function subcasesOf(
 	origin: string,
 	identifier: string,
 	caseType: string | undefined,
-	root: "casedb" | "results",
+	root: InstanceRoot,
 ): string {
 	const type =
 		caseType === undefined
 			? ""
 			: ` and @case_type=${quoteLiteral(caseType, "case-list-filter")}`;
-	return `instance('${root}')/${root}/case[index/${identifier}=${origin}/@case_id${type}]`;
+	return `instance('${root}')/${instanceRootPath(root)}/case[index/${identifier}=${origin}/@case_id${type}]`;
 }
 
 function accumulateExpressionInstances(

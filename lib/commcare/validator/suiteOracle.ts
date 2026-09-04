@@ -127,6 +127,7 @@ const RUNTIME_INSTANCE_IDS: ReadonlySet<string> = new Set([
 	"results",
 	"results:inline",
 	"search-input:results",
+	"search-input:results:inline",
 ]);
 
 /**
@@ -638,15 +639,17 @@ function checkEntries(
 		}
 	}
 
-	// C1-6 + post checks: a `<remote-request>` must contain a `<post>`.
+	// C1-6 + post checks: a `<remote-request>` must contain a `<post>`; an
+	// `<entry>` may carry one (a search-first module's claim), parsed by the
+	// same `EntryParser::parsePost`.
 	for (const rr of findAll(
-		(el) => el.name === "remote-request",
+		(el) => el.name === "remote-request" || el.name === "entry",
 		model.doc.children,
 	)) {
 		const posts = getChildren(rr).filter(
 			(c): c is Element => isTag(c) && c.name === "post",
 		);
-		if (posts.length === 0) {
+		if (posts.length === 0 && rr.name === "remote-request") {
 			errors.push(
 				validationError(
 					"SUITE_REMOTE_REQUEST_NO_POST",
@@ -687,9 +690,39 @@ function checkEntries(
 		}
 	}
 
-	// C1-3 / C1-4: every `<query>` requires url + storage-instance.
+	// A `<query>` inside a stack frame is a different element
+	// (`StackFrameStepParser::parseQuery`): it needs `id` and a `value`
+	// `java.net.URL` accepts, and carries `<data>` children only.
 	for (const query of findAll(
-		(el) => el.name === "query",
+		(el) => el.name === "query" && isStackFrameChild(el),
+		model.doc.children,
+	)) {
+		if (getAttributeValue(query, "id") === undefined) {
+			errors.push(
+				validationError(
+					"SUITE_STACK_QUERY_INVALID",
+					"app",
+					`The suite has a stack <query> with no id attribute. CommCare names the results instance the frame's query fills by that id. This is a bug in the suite generator.`,
+					loc,
+				),
+			);
+		}
+		const value = getAttributeValue(query, "value");
+		if (value === undefined || !URL.canParse(value)) {
+			errors.push(
+				validationError(
+					"SUITE_STACK_QUERY_INVALID",
+					"app",
+					`The suite has a stack <query> whose value "${value ?? ""}" is not a URL. CommCare parses the value as the endpoint the frame fetches the case from and rejects the suite otherwise. This is a bug in the suite generator.`,
+					loc,
+				),
+			);
+		}
+	}
+
+	// C1-3 / C1-4: every session `<query>` requires url + storage-instance.
+	for (const query of findAll(
+		(el) => el.name === "query" && !isStackFrameChild(el),
 		model.doc.children,
 	)) {
 		if (getAttributeValue(query, "url") === undefined) {
@@ -715,6 +748,16 @@ function checkEntries(
 	}
 
 	return errors;
+}
+
+/** Whether the element is a direct child of a stack frame (`<push>` / `<create>`). */
+function isStackFrameChild(el: Element): boolean {
+	const parent = el.parent;
+	return (
+		parent !== null &&
+		isTag(parent) &&
+		(parent.name === "push" || parent.name === "create")
+	);
 }
 
 /**

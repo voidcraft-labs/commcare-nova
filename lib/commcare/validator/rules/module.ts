@@ -35,6 +35,12 @@ import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
 import { caseSearchConfigRequiresCaseType } from "./case-search/caseSearchConfigRequiresCaseType";
 import { excludedOwnerIdsTypeCheck } from "./case-search/excludedOwnerIdsTypeCheck";
 import { searchButtonDisplayConditionTypeCheck } from "./case-search/searchButtonDisplayConditionTypeCheck";
+import {
+	searchFirstNoButtonDisplayCondition,
+	searchFirstNoPreviousWorkflow,
+	searchFirstRequiresCaseFirstModule,
+	searchFirstUniqueInstance,
+} from "./case-search/searchFirst";
 import { searchRelatedCalculationCompatibility } from "./case-search/searchRelatedCalculationCompatibility";
 import { moduleDisplayCondition } from "./displayConditions";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
@@ -281,4 +287,10 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	excludedOwnerIdsTypeCheck,
 	searchRelatedCalculationCompatibility,
 	caseSearchConfigRequiresCaseType,
+	// Search first lowers to CommCare's inline search; these are the
+	// shapes it cannot carry.
+	searchFirstRequiresCaseFirstModule,
+	searchFirstNoButtonDisplayCondition,
+	searchFirstNoPreviousWorkflow,
+	searchFirstUniqueInstance,
 ];

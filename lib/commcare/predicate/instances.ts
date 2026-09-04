@@ -42,8 +42,10 @@ import {
 	walkPredicateExpressionNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
+import type { SearchInputInstanceId } from "@/lib/domain/predicate/typeChecker";
 import { CASE_TYPE_REGEX } from "../constants";
 import { type LookupWireNaming, lookupFixtureSrc } from "../lookup/naming";
+import { STANDALONE_SEARCH_INPUT_INSTANCE_ID } from "./termEmitter";
 
 /**
  * Whether `instanceId` is one of Nova's collection-valued case selectors.
@@ -92,6 +94,8 @@ export function instanceSourceFor(
 			return "jr://instance/remote/results:inline";
 		case "search-input:results":
 			return "jr://instance/search-input/results";
+		case "search-input:results:inline":
+			return "jr://instance/search-input/results:inline";
 		case "locations":
 			return "jr://fixture/locations";
 		default: {
@@ -127,13 +131,20 @@ export function collectPredicateInstances(
 	predicate: Predicate,
 	lookup?: LookupWireNaming,
 	instanceScope: "xform" | "suite" = "suite",
+	searchInputInstanceId: SearchInputInstanceId = STANDALONE_SEARCH_INPUT_INSTANCE_ID,
 ): Set<string> {
 	const instances = new Set<string>();
 	walkPredicateExpressionNodes(predicate, (node) =>
 		addTableLookupInstance(node, instances, lookup, instanceScope),
 	);
 	walkTerms(predicate, (term) =>
-		addTermInstance(term, instances, lookup, instanceScope),
+		addTermInstance(
+			term,
+			instances,
+			lookup,
+			instanceScope,
+			searchInputInstanceId,
+		),
 	);
 	return instances;
 }
@@ -147,13 +158,20 @@ export function collectExpressionInstances(
 	expression: ValueExpression,
 	lookup?: LookupWireNaming,
 	instanceScope: "xform" | "suite" = "suite",
+	searchInputInstanceId: SearchInputInstanceId = STANDALONE_SEARCH_INPUT_INSTANCE_ID,
 ): Set<string> {
 	const instances = new Set<string>();
 	walkExpressionNodes(expression, (node) =>
 		addTableLookupInstance(node, instances, lookup, instanceScope),
 	);
 	walkExpressionTerms(expression, (term) =>
-		addTermInstance(term, instances, lookup, instanceScope),
+		addTermInstance(
+			term,
+			instances,
+			lookup,
+			instanceScope,
+			searchInputInstanceId,
+		),
 	);
 	return instances;
 }
@@ -187,13 +205,14 @@ function addTermInstance(
 	instances: Set<string>,
 	lookup: LookupWireNaming | undefined,
 	instanceScope: "xform" | "suite",
+	searchInputInstanceId: SearchInputInstanceId,
 ): void {
 	switch (term.kind) {
 		case "prop":
 			instances.add("casedb");
 			return;
 		case "input":
-			instances.add("search-input:results");
+			instances.add(searchInputInstanceId);
 			return;
 		case "session-user":
 		case "session-user-property":

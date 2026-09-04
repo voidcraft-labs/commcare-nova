@@ -188,8 +188,12 @@ Controls post-submit navigation. The stored and machine-authored vocabulary is
 exactly `app_home`, `module`, or `previous`. `lib/commcare/session.ts` projects
 those values one-way to the different workflow spellings required on the wire;
 wire vocabulary never enters the domain. Form-type defaults when absent:
-followup/close → `previous`, registration/survey → `app_home`. The SA only sets
-`post_submit` when overriding the default.
+registration/survey → `app_home`; followup/close → `previous`, except in a
+search-first module, where it is `module` (`lib/domain/forms.ts::defaultPostSubmit`
+takes the module fact; `lib/domain/postSubmit.ts::effectivePostSubmit` is the
+doc-level reader every consumer uses). HQ's build validator refuses `previous`
+on a case-requiring form of an inline-search module, so the default cannot be
+`previous` there. The SA only sets `post_submit` when overriding the default.
 
 ### Ordinary nested menus
 
@@ -714,6 +718,78 @@ drives both endpoints; `lib/deployment` owns what may be written over.
 
 `compileForPlatform.ts` is the pure decision tree from authored content + `PlatformContext` to a three-flag `WireShape`. Author intent is unambiguous on every input — Android always emits list-first / inline-results; web with an effective Search action, an effective filter, and zero search inputs emits skip-to-results; an explicit zero-input action without that filter remains manual; web fallback is list-first. The flags drive the orchestrator's `<query>` attributes + storage-instance choice + the case-list short-detail emitter's `<action auto_launch>` attribute. The HQ JSON projection supplies a match-all default property for the explicit zero-input/manual shape because CCHQ offers Search only when a property or default property exists; this is wire scaffolding, not an authored filter.
 
+### Search-first inline shape
+
+`caseSearchConfig.searchFirst: true` (`lib/domain/modules.ts::moduleOpensOnSearch`)
+lowers to HQ's inline search — `inline_search && auto_launch`
+(`app_manager/util.py::module_uses_inline_search`), with `default_search` when
+the module has no visible prompt — on both wire paths, whatever the platform.
+The shape is a different suite, not a flag on the remote-request one, and
+`compiler.ts` branches on `moduleIsSearchFirst` at every site:
+
+- **No `<remote-request>`, no `m{N}_search_*` details, no Search `<action>`**
+  on `m{N}_case_short` (`models/modules.py::get_details` skips the search
+  details; `EntriesHelper` never adds the action). The search screen's
+  translation units still emit (`inlineSearch.ts::searchScreenTranslationUnits`)
+  because the `<query>` carries the same `<title>`/`<prompt>` locale ids.
+- **Each case-requiring entry carries the search itself.** `<session>` is
+  `[parent datum] <query url storage-instance="results:inline" template="case"
+  [default_search="true"]>` then the own `<datum id="case_id"
+  nodeset="instance('results:inline')/results/case[@case_type='t'][@status='open']{filter}[not(commcare_is_related_case=true())]{parent}">`
+  (`EntriesHelper.get_query_datums` / `get_datum_meta_module`). The browse
+  entry of a `caseListOnly` module carries the query and no post
+  (`test_inline_search_case_list_item`). `formLinkProjection.ts::withInlineSearchQueries`
+  inserts the query datum before every nodeset datum whose source module is
+  search-first, after `alignWithRootMenu`, so a search-first parent-select
+  source contributes its query to the child's chain too.
+- **The claim `<post>`** (`claim.ts::buildInlineClaimPost`) sits between
+  `<form>` and `<command>`. Single: `relevant="count(instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/V]) = 0"`
+  + `<data key="case_id" ref=".../V"/>`. Multi-select: `relevant="$case_id != ''"`
+  + `<data key="case_id" ref="." nodeset="instance('V')/results/value"
+  exclude="count(instance('casedb')/casedb/case[@case_id=current()/.]) = 1"/>`.
+  Parent-relationship parent-select
+  (`module_uses_inline_search_with_parent_relationship_parent_select`):
+  `relevant="$case_id != ''"`, own data plus one `<data>` per other case
+  datum, each `exclude="count(instance('casedb')/casedb/case[@case_id=…]) != 0"`,
+  and a trailing `_xpath_query "ancestor-exists(parent, @case_type='P')"`.
+  The oracle is `tests/test_suite_inline_search.py::InlineSearchSuiteTest`;
+  `__tests__/inlineSearchEmission.test.ts` pins five of its partials with the
+  stack compared separately (HQ's fixture forms carry `post_form_workflow:
+  default`; Nova's `module` default emits `[command 'm0']`) and three
+  deliberate deviations (`x_commcare_include_all_related_cases`, the
+  calculated `<variable>` template, the `@case_type` qualifier).
+- **Instances.** `results:inline` is a Core instance id whose root prints as
+  `results` (`predicate/termEmitter.ts::instanceRootPath`; `InstanceRoot` is
+  `casedb | results | results:inline`), and every `input(...)` read on a
+  search-first module — prompt defaults, Results filter, calculated columns,
+  the search-button condition — prints `instance('search-input:results:inline')`
+  (`validator/rules/case-list/shared.ts::moduleTypeContext` sets
+  `searchInputInstanceId`; `session.ts::accumulateCaseLoadingInstances`
+  declares it). Details read `caseSource: "results:inline"`
+  (`suite/case-list/columns.ts::instanceRootFor`) so a calculated column's
+  `current()/../case[...]` sibling walk resolves inside the results roster.
+- **Links into a search-first module** carry HQ's `WorkflowQueryMeta` child:
+  `<query id="results:inline" value="https://www.commcarehq.org/a/__DOMAIN__/phone/case_fixture/__APP_ID__/"><data key="case_type" ref="'t'"/><data key="case_id" ref="instance('commcaresession')/session/data/<source>"/></query>`
+  (`formLinkProjection.ts::queryChild`, `CASE_FIXTURE_URL_TEMPLATE`;
+  `test_form_linking_to_inline_search_module_from_registration_form`). The
+  query is `requiresSelection` only without prompts and with `default_search`,
+  so a manual-datum link that omits the selection is `FORM_LINK_DATUMS_INCOMPLETE`
+  there too. The stack parser needs `id` and a `java.net.URL`-parseable
+  `value` (`StackFrameStepParser::parseQuery`); `suiteOracle.ts` checks both
+  (`SUITE_STACK_QUERY_INVALID`) and scopes the session-query rules to
+  non-stack queries.
+
+The four refusals mirror HQ's build validator (`helpers/validators.py`)
+because every Nova-uploaded module carries a `search_config` shell, which is
+what its `non-unique instance name` checks key on: `SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE`
+(inline needs a case datum on every entry), `SEARCH_FIRST_NO_BUTTON_DISPLAY_CONDITION`
+(there is no action for `relevant` to gate), `SEARCH_FIRST_NO_PREVIOUS_WORKFLOW`
+(explicit `previous` on a case form; `workflow previous inline search`), and
+`SEARCH_FIRST_UNIQUE_INSTANCE` (no submenu under, and no parent-select from, a
+search-first module; a search-first CHILD of an ordinary parent-select source
+is fine). The setter tool refuses `searchFirst` on an owner-only config
+because there is no search to open on.
+
 `caseSearchConfig.searchButtonDisplayCondition` is orthogonal to that flag decision. It emits as the case-list Search action's `relevant` predicate, not as a Results-row filter and not as the `auto_launch` expression itself. Core first removes irrelevant actions and then evaluates auto-launch among the remaining actions, so the predicate gates the automatic transition only in the web filter-plus-zero-input shape; in every list-first shape it gates the manual Search action. Preview and authoring copy must preserve that distinction rather than treating any input-free search config as a generic “go to Results” rule.
 
 Module/form navigation display conditions use `suite/displayConditions.ts`.
@@ -829,4 +905,4 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 - Repeat homogeneity
 
 Validation stubs that activate when features land:
-- `previous` + `multi_select`, `previous` + `inline_search`
+- `previous` + `multi_select`

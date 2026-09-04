@@ -558,6 +558,10 @@ interface ModuleGenSpec {
 				defaultSearch: boolean;
 				title: boolean;
 				excludedOwners: boolean;
+				/** Open on Search (inline shape). Applied only where the four
+				 *  search-first rules admit it: every form loads a case, no
+				 *  submenu, and the next module does not select its parent here. */
+				searchFirst: boolean;
 		  };
 	readonly isChild: boolean;
 	/**
@@ -631,6 +635,7 @@ const moduleGenSpecArb: fc.Arbitrary<ModuleGenSpec> = fc.record({
 				defaultSearch: fc.boolean(),
 				title: fc.boolean(),
 				excludedOwners: fc.boolean(),
+				searchFirst: fc.boolean(),
 			}),
 		},
 	),
@@ -832,6 +837,21 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					}),
 		});
 
+		// Search first needs a case-first module. The fuzz oracles nest the
+		// second module under the first, and the module after this one may
+		// select its parent from it, so a search-first module is never a root
+		// with submenus and never a parent-select source
+		// (`SEARCH_FIRST_UNIQUE_INSTANCE`).
+		const nextSelectsParentHere = spec.modules[mIdx + 1]?.isChild === true;
+		const becomesRootOfSubmenu = mIdx === 0 && spec.modules.length > 1;
+		const searchFirst =
+			modSpec.searchConfig.present &&
+			modSpec.searchConfig.searchFirst &&
+			modSpec.forms.every(
+				(form) => form.type === "followup" || form.type === "close",
+			) &&
+			!nextSelectsParentHere &&
+			!becomesRootOfSubmenu;
 		const caseSearchConfig: CaseSearchConfig | undefined = modSpec.searchConfig
 			.present
 			? {
@@ -841,6 +861,7 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 					...(modSpec.searchConfig.excludedOwners
 						? { excludedOwnerIds: term(literal("owner-1 owner-2")) }
 						: {}),
+					...(searchFirst ? { searchFirst: true as const } : {}),
 				}
 			: undefined;
 

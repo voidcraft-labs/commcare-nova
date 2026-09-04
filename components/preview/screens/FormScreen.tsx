@@ -42,11 +42,13 @@ import {
 	caseSelectionCanFlowBetweenModules,
 	caseSelectionCardinality,
 	defaultPostSubmit,
+	effectivePostSubmit,
 	type FormLink,
 	type FormType,
 	isCaseFirstModule,
 	makeTranslationUnitId,
 	materializableCaseTypes as materializableCaseTypesFromDoc,
+	moduleOpensOnSearch,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
 	reachableCaseTypes,
@@ -780,7 +782,10 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	const postSubmitDestination =
 		form === undefined
 			? undefined
-			: (form.postSubmit ?? defaultPostSubmit(form.type));
+			: (form.postSubmit ??
+				defaultPostSubmit(form.type, {
+					searchFirst: mod !== undefined && moduleOpensOnSearch(mod),
+				}));
 	const mountedRef = useRef(true);
 	useEffect(() => {
 		mountedRef.current = true;
@@ -1666,10 +1671,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				...submittedBase,
 				formType: submittedForm?.type,
 				destination:
-					submittedForm === undefined
+					submittedBase.formUuid === undefined
 						? undefined
-						: (submittedForm.postSubmit ??
-							defaultPostSubmit(submittedForm.type)),
+						: effectivePostSubmit(doc, submittedBase.formUuid),
 				moduleCaseType:
 					submittedBase.moduleUuid === undefined
 						? undefined

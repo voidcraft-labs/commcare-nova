@@ -308,6 +308,7 @@ function emitDateAddQuantitySegments(
 	const classification = classifyCalendarDateAddQuantity(
 		expr.quantity,
 		typeContext?.knownInputs,
+		typeContext?.searchInputInstanceId,
 	);
 	if (classification.kind === "static-valid") return segments;
 	if (classification.kind === "runtime-input") {

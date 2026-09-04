@@ -88,7 +88,13 @@ import {
 	deriveCaseSelectionDatum,
 	deriveSessionDatums,
 	type SessionDatum,
+	type StackQueryData,
 } from "./session";
+import {
+	buildInlineSearch,
+	type InlineSearchEmission,
+	moduleIsSearchFirst,
+} from "./suite/case-search/inlineSearch";
 import type { FormActions } from "./types";
 import { moduleTypeContext } from "./validator/rules/case-list/shared";
 import type { AttachmentUrlTarget } from "./xform/captureUrlNode";
@@ -122,6 +128,18 @@ export interface FrameDatum {
 	 * XPath back out of a string.
 	 */
 	readonly renderFunction?: (sessionRef: (datumId: string) => string) => string;
+	/**
+	 * Present on the `<query>` session child of a search-first module (HQ
+	 * `WorkflowQueryMeta`). `id` is the storage instance; `caseType` is the
+	 * module's; `requiresSelection` is HQ's `not prompts and default_search`.
+	 */
+	readonly query?: {
+		/** The datum that reads the results, whose session value the frame's
+		 *  query fetches (`source_id`). */
+		readonly nextDatumId: string;
+		/** Whether that datum is a multiple selection (`instance-datum`). */
+		readonly nextDatumIsCollection: boolean;
+	};
 }
 
 export type FrameChild =
@@ -131,7 +149,15 @@ export type FrameChild =
 /** A frame child after matching: what the `<create>` carries. */
 export type MatchedChild =
 	| { readonly type: "command"; readonly id: string }
-	| { readonly type: "datum"; readonly id: string; readonly value: string };
+	| { readonly type: "datum"; readonly id: string; readonly value: string }
+	/** HQ `WorkflowQueryMeta.to_stack_datum`: fetch the selected case into
+	 *  a search-first module's results instance before its datum reads it. */
+	| {
+			readonly type: "query";
+			readonly id: string;
+			readonly value: string;
+			readonly data: readonly StackQueryData[];
+	  };
 
 /** `instance('commcaresession')/session/data/<id>`, HQ's `session_var`. */
 export function sessionDataRef(datumId: string): string {
@@ -160,6 +186,10 @@ export interface FormLinkProjectionContext {
 	/** Root-computed datums copied into a child entry by `add_parent_datums`.
 	 * Weak provenance keeps the session wire object unchanged. */
 	readonly fromParentModuleDatums: WeakSet<SessionDatum>;
+	/** Each search-first module's inline search, built once per context. */
+	readonly inlineSearches: Map<Uuid, InlineSearchEmission>;
+	/** The datum each placed `<query>` feeds (HQ `WorkflowQueryMeta.next_datum`). */
+	readonly queryNextDatums: WeakMap<SessionDatum, SessionDatum>;
 }
 
 /**
@@ -228,7 +258,69 @@ export function formLinkProjectionContext(
 		entryDatums: new Map(),
 		selectionSourceModules: new WeakMap(),
 		fromParentModuleDatums: new WeakSet(),
+		inlineSearches: new Map(),
+		queryNextDatums: new WeakMap(),
 	};
+}
+
+/**
+ * The inline search of a search-first module, or `undefined` for any
+ * other module. The compiler reads it for the strings; the datum
+ * projection places its `<query>`.
+ */
+export function inlineSearchFor(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	moduleUuid: Uuid,
+): InlineSearchEmission | undefined {
+	const mod = doc.modules[moduleUuid];
+	if (mod === undefined || !moduleIsSearchFirst(mod)) return undefined;
+	const held = ctx.inlineSearches.get(moduleUuid);
+	if (held !== undefined) return held;
+	const parentUuid = parentSelectModuleUuid(doc, ctx, moduleUuid);
+	const ancestorCaseType =
+		parentUuid === undefined ? undefined : doc.modules[parentUuid]?.caseType;
+	const built = buildInlineSearch({
+		module: mod,
+		moduleIndex: moduleIndexOf(ctx, moduleUuid),
+		typeContext: moduleTypeContext(mod, doc),
+		lookupNaming: ctx.lookupNaming,
+		...(ancestorCaseType !== undefined && { ancestorCaseType }),
+	});
+	ctx.inlineSearches.set(moduleUuid, built);
+	return built;
+}
+
+/**
+ * HQ's `add_remote_query_datums`: a search-first module's `<query>` goes
+ * immediately before every selection datum that module supplies. Runs
+ * after root-menu alignment, as HQ's does, so the datum the query names
+ * carries its final id.
+ */
+function withInlineSearchQueries(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	datums: readonly SessionDatum[],
+): SessionDatum[] {
+	const out: SessionDatum[] = [];
+	for (const datum of datums) {
+		const sourceUuid = ctx.selectionSourceModules.get(datum);
+		const search =
+			datum.nodeset === undefined || sourceUuid === undefined
+				? undefined
+				: inlineSearchFor(doc, ctx, sourceUuid);
+		if (search !== undefined) {
+			const queryDatum: SessionDatum = {
+				id: search.query.storageInstance,
+				caseType: search.query.caseType,
+				query: search.query,
+			};
+			ctx.queryNextDatums.set(queryDatum, datum);
+			out.push(queryDatum);
+		}
+		out.push(datum);
+	}
+	return out;
 }
 
 function moduleIndexOf(
@@ -275,10 +367,24 @@ function toFrameDatum(
 	datum: SessionDatum,
 	ctx: Pick<
 		FormLinkProjectionContext,
-		"selectionSourceModules" | "fromParentModuleDatums"
+		"selectionSourceModules" | "fromParentModuleDatums" | "queryNextDatums"
 	>,
 ): FrameDatum {
 	const selectionSourceModuleUuid = ctx.selectionSourceModules.get(datum);
+	if (datum.query !== undefined) {
+		const next = ctx.queryNextDatums.get(datum);
+		return {
+			id: datum.id,
+			// HQ `WorkflowQueryMeta.requires_selection`: a query with nothing
+			// to answer that runs on its own counts as a selecting step.
+			requiresSelection: !datum.query.hasPrompts && datum.query.defaultSearch,
+			caseType: datum.query.caseType,
+			query: {
+				nextDatumId: next?.id ?? datum.id,
+				nextDatumIsCollection: next?.maxSelectValue !== undefined,
+			},
+		};
+	}
 	return {
 		id: datum.id,
 		requiresSelection: datum.nodeset !== undefined,
@@ -377,6 +483,9 @@ function selectableDatums(
 			...(multiple?.kind === "multiple" && {
 				maxSelectValue: multiple.maximum,
 			}),
+			...(moduleIsSearchFirst(selectedModule) && {
+				caseSource: "results:inline" as const,
+			}),
 		});
 		datum.parentSelection = parentSelection;
 		ctx.selectionSourceModules.set(datum, selectedModuleUuid);
@@ -424,6 +533,8 @@ function alignWithRootMenu(
 	const remaining = [...current];
 	const prefix: SessionDatum[] = [];
 	for (const parentDatum of parentDatums) {
+		// HQ aligns against the root's datums BEFORE its queries are placed.
+		if (parentDatum.query !== undefined) continue;
 		if (parentDatum.nodeset === undefined) {
 			const inherited = { ...parentDatum };
 			ctx.fromParentModuleDatums.add(inherited);
@@ -491,7 +602,11 @@ export function entrySessionDatums(
 			tileGrouping: mod.caseListConfig.tile.grouping,
 		}),
 	});
-	const aligned = alignWithRootMenu(doc, ctx, moduleUuid, datums);
+	const aligned = withInlineSearchQueries(
+		doc,
+		ctx,
+		alignWithRootMenu(doc, ctx, moduleUuid, datums),
+	);
 	ctx.entryDatums.set(formUuid, aligned);
 	return aligned;
 }
@@ -540,7 +655,11 @@ export function caseListSessionDatums(
 	if (own !== undefined && hasDetailScreen) {
 		own.detailConfirm = `m${moduleIndexOf(ctx, moduleUuid)}_case_long`;
 	}
-	return alignWithRootMenu(doc, ctx, moduleUuid, datums);
+	return withInlineSearchQueries(
+		doc,
+		ctx,
+		alignWithRootMenu(doc, ctx, moduleUuid, datums),
+	);
 }
 
 /**
@@ -715,7 +834,40 @@ type PendingChild =
 			readonly id: string;
 			readonly value: string;
 			readonly renderFunction?: FrameDatum["renderFunction"];
-	  };
+	  }
+	| Extract<MatchedChild, { type: "query" }>;
+
+/**
+ * HQ's `WorkflowQueryMeta.to_stack_datum`: the frame fetches the one case
+ * the next datum will select, through the case-fixture endpoint rather than
+ * a full search, keyed by the session value `sourceId` holds.
+ */
+function queryChild(datum: FrameDatum, sourceId: string): PendingChild {
+	const query = datum.query;
+	if (query === undefined) {
+		throw new Error(`Frame datum ${datum.id} is not a query`);
+	}
+	return {
+		type: "query",
+		id: datum.id,
+		value: CASE_FIXTURE_URL_TEMPLATE,
+		data: [
+			{ key: "case_type", ref: `'${datum.caseType ?? ""}'` },
+			query.nextDatumIsCollection
+				? {
+						key: "case_id",
+						ref: ".",
+						nodeset: `instance('${sourceId}')/results/value`,
+					}
+				: { key: "case_id", ref: sessionDataRef(sourceId) },
+		],
+	};
+}
+
+/** CCHQ's `case_fixture` endpoint, the search URL with `/phone/search/`
+ *  swapped for `/phone/case_fixture/`; placeholders as in `SEARCH_URL_TEMPLATE`. */
+export const CASE_FIXTURE_URL_TEMPLATE =
+	"https://www.commcarehq.org/a/__DOMAIN__/phone/case_fixture/__APP_ID__/";
 
 function functionChild(datum: FrameDatum): PendingChild {
 	return {
@@ -739,6 +891,7 @@ function findBestMatch(
 	sources: readonly FrameDatum[],
 ): { readonly sourceId: string } | undefined {
 	for (const source of sources) {
+		if (source.query !== undefined) continue;
 		if (source.fromParentModule === true) continue;
 		if (source.caseType === undefined) continue;
 		if (source.caseType !== target.caseType) continue;
@@ -770,12 +923,25 @@ export function matchFrameToSource(
 	const pending: PendingChild[] = [];
 	const unmatched: FrameDatum[] = [];
 	const matched: Array<{ id: string; sourceId: string }> = [];
-	for (const child of target) {
+	for (const [index, child] of target.entries()) {
 		if (child.type === "command") {
 			pending.push(child);
 			continue;
 		}
 		const { datum } = child;
+		if (datum.query !== undefined) {
+			// The query fetches whatever the NEXT datum will match to, so it
+			// looks ahead without consuming (`_get_datums_matched_to_source`).
+			const next = target[index + 1];
+			const nextMatch =
+				next?.type === "datum" && next.datum.requiresSelection
+					? findBestMatch(next.datum, unused)
+					: undefined;
+			pending.push(
+				queryChild(datum, nextMatch?.sourceId ?? datum.query.nextDatumId),
+			);
+			continue;
+		}
 		if (!datum.requiresSelection) {
 			pending.push(functionChild(datum));
 			continue;
@@ -840,6 +1006,14 @@ export function matchFrameToManual(
 			pending.push({ type: "datum", id: datum.id, value });
 			continue;
 		}
+		if (datum.query !== undefined) {
+			// HQ carries a prompted query through as is and refuses a
+			// self-running one no manual value names, exactly like a
+			// selection datum (`_get_datums_matched_to_manual_values`).
+			if (datum.requiresSelection) missing.push(datum);
+			pending.push(queryChild(datum, datum.query.nextDatumId));
+			continue;
+		}
 		if (!datum.requiresSelection) {
 			pending.push(functionChild(datum));
 			continue;
@@ -874,7 +1048,7 @@ function replaceSessionReferences(
 ): MatchedChild[] {
 	const earlier = new Map<string, string>();
 	return children.map((child) => {
-		if (child.type === "command") return child;
+		if (child.type === "command" || child.type === "query") return child;
 		const value =
 			child.renderFunction === undefined
 				? child.value
@@ -940,18 +1114,21 @@ export function previousFrameChildren(
 	) {
 		last = children.pop();
 	}
-	const pending: PendingChild[] = children.map((child) =>
-		child.type === "command"
-			? child
-			: child.datum.requiresSelection
-				? {
-						type: "datum",
-						id: child.datum.id,
-						value: sessionDataRef(child.datum.id),
-					}
-				: functionChild(child.datum),
-	);
+	const pending: PendingChild[] = children.map(staticFrameChild);
 	return replaceSessionReferences(pending, new Set());
+}
+
+/** A frame child with no source to match: a selection reads its own
+ *  session value, a query fetches its next datum's, a function carries
+ *  its function. */
+function staticFrameChild(child: FrameChild): PendingChild {
+	if (child.type === "command") return child;
+	const { datum } = child;
+	if (datum.query !== undefined)
+		return queryChild(datum, datum.query.nextDatumId);
+	return datum.requiresSelection
+		? { type: "datum", id: datum.id, value: sessionDataRef(datum.id) }
+		: functionChild(datum);
 }
 
 /** Parent-aware static `module` destination for post-submit workflows. */
@@ -961,16 +1138,7 @@ export function moduleDestinationFrameChildren(
 	moduleUuid: Uuid,
 ): MatchedChild[] {
 	const pending: PendingChild[] = moduleFrameChildren(doc, ctx, moduleUuid).map(
-		(child) =>
-			child.type === "command"
-				? child
-				: child.datum.requiresSelection
-					? {
-							type: "datum",
-							id: child.datum.id,
-							value: sessionDataRef(child.datum.id),
-						}
-					: functionChild(child.datum),
+		staticFrameChild,
 	);
 	return replaceSessionReferences(pending, new Set());
 }

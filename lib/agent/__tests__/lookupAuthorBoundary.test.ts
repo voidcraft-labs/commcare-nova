@@ -260,10 +260,12 @@ const TOOL_CASES: readonly ToolBoundaryCase[] = [
 		canonicalInput: {
 			moduleUuid: MODULE_UUID,
 			excludedOwnerIds: lookupExpression,
+			searchFirst: null,
 		},
 		legacyInput: {
 			moduleIndex: 0,
 			excludedOwnerIds: legacyLookupExpression,
+			searchFirst: null,
 		},
 	},
 	{

@@ -16,6 +16,7 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
 	searchInputExpressions,
+	visibleSearchInputs,
 	type WireStringSource,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
@@ -33,7 +34,11 @@ import {
 	deriveSimpleArmPredicate,
 	simpleArmNeedsXPathQueryEmission,
 } from "./simpleArmDerivation";
-import type { WireShape } from "./types";
+import {
+	searchInputInstanceId,
+	searchStorageInstance,
+	type WireShape,
+} from "./types";
 import {
 	buildRuntimeCsqlPromptValidations,
 	composeXPathQueryEmission,
@@ -45,7 +50,7 @@ import {
  * substitutes both at build time; the literal placeholders never
  * reach a runtime (same path as `CLAIM_URL_TEMPLATE`).
  */
-const SEARCH_URL_TEMPLATE =
+export const SEARCH_URL_TEMPLATE =
 	"https://www.commcarehq.org/a/__DOMAIN__/phone/search/__APP_ID__/";
 
 /**
@@ -92,22 +97,103 @@ export interface SearchSessionEmission {
 }
 
 /**
+ * The `<query>` alone: what a search-first module's entries embed
+ * directly in `<session>` (CCHQ's `EntriesHelper.get_query_datums`), and
+ * what the standalone `<remote-request>` wraps with its own datum.
+ * `instances` are the ids the query body reads; the caller adds the
+ * storage instance its datum reads and whatever its post reads.
+ */
+export interface SearchQueryEmission {
+	readonly element: Element;
+	readonly strings: Record<string, string>;
+	readonly translationUnits: Record<string, WireStringSource>;
+	readonly instances: ReadonlySet<string>;
+	/** Whether the worker has anything to answer. */
+	readonly hasPrompts: boolean;
+}
+
+export interface SearchQueryArgs {
+	readonly caseListConfig: CaseListConfig;
+	readonly caseSearchConfig: OrdinaryCaseSearchConfig;
+	readonly wire: WireShape;
+	readonly caseType: string;
+	readonly moduleIndex: number;
+	readonly typeContext?: TypeContext;
+	readonly lookupNaming?: LookupWireNaming;
+	/**
+	 * For a search-first module whose cases sit under a selected parent
+	 * (HQ `parent_select` with the `parent` relationship): the parent's
+	 * case type, sent as a trailing `_xpath_query` so the server returns
+	 * only cases with such an ancestor
+	 * (`RemoteRequestFactory._remote_request_query_datums`).
+	 */
+	readonly ancestorCaseType?: string;
+}
+
+/**
  * Build the `<session>` Element. `wire` flows from `compileForPlatform`:
  * `inlineSearch` picks the storage-instance id (`results:inline` vs
  * `results`); `defaultSearch` lands on `<query default_search>`.
  * `autoLaunch` flows past — the case-list short-detail emitter
  * consumes it for `<action auto_launch>` on `m{N}_case_short`.
  */
-export function buildSearchSession(args: {
-	readonly caseListConfig: CaseListConfig;
-	readonly caseSearchConfig: OrdinaryCaseSearchConfig;
-	readonly wire: WireShape;
-	readonly caseType: string;
-	readonly moduleIndex: number;
-	readonly hasDetailScreen?: boolean;
-	readonly typeContext?: TypeContext;
-	readonly lookupNaming?: LookupWireNaming;
-}): SearchSessionEmission {
+export function buildSearchSession(
+	args: SearchQueryArgs & { readonly hasDetailScreen?: boolean },
+): SearchSessionEmission {
+	const { caseListConfig, wire, moduleIndex } = args;
+	const caseType = validateCaseType(args.caseType);
+	const moduleId = `m${moduleIndex}`;
+	const storageInstance = searchStorageInstance(wire);
+	const query = buildSearchQuery(args);
+
+	// `<datum>` references the search-side detail ids
+	// (`m{N}_search_short` / `m{N}_search_long`) — distinct from the
+	// `m{N}_case_short` / `m{N}_case_long` ids the local case-list
+	// entry uses.
+	const datumNodeset = composeDatumNodeset(storageInstance, caseType);
+	const multiple = caseListConfig.selection?.kind === "multiple";
+	const datumEl = el(multiple ? "instance-datum" : "datum", {
+		id: multiple ? SEARCH_SELECTED_CASES_ID : "search_case_id",
+		nodeset: datumNodeset,
+		value: "./@case_id",
+		...((args.hasDetailScreen ?? true) && {
+			"detail-confirm": `${moduleId}_search_long`,
+		}),
+		"detail-select": `${moduleId}_search_short`,
+		...(multiple && {
+			"max-select-value": String(caseListConfig.selection?.maximum),
+		}),
+	});
+
+	const sessionEl = el("session", {}, [query.element, datumEl]);
+
+	// `casedb` and `commcaresession` are always required (the `<post
+	// relevant>` guard references both); the chosen results instance
+	// is what the `<datum nodeset>` references.
+	const instances = new Set<string>([
+		"casedb",
+		"commcaresession",
+		storageInstance,
+		...(multiple ? [SEARCH_SELECTED_CASES_ID] : []),
+		...query.instances,
+	]);
+
+	return {
+		element: sessionEl,
+		strings: query.strings,
+		translationUnits: query.translationUnits,
+		instances,
+	};
+}
+
+/**
+ * Build the `<query>` Element and everything it carries. `wire` flows
+ * from `compileForPlatform`: `inlineSearch` picks the storage-instance id
+ * (`results:inline` vs `results`) and the answer instance every
+ * `input(...)` read prints through; `defaultSearch` lands on
+ * `<query default_search>`.
+ */
+export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	const { caseListConfig, caseSearchConfig, wire, moduleIndex } = args;
 	// Route `caseType` through the identifier-validation gate before
 	// interpolating into the XPath body — the sibling derivation at
@@ -121,10 +207,17 @@ export function buildSearchSession(args: {
 	const caseType = validateCaseType(args.caseType);
 	const moduleId = `m${moduleIndex}`;
 
-	// `results:inline` signals embedded results (Android, inline-with-
-	// parent-relationship); `results` is the standalone post-and-query
-	// roundtrip.
-	const storageInstance = wire.inlineSearch ? "results:inline" : "results";
+	// `results:inline` is the inline shape (search first); `results` is
+	// the standalone post-and-query roundtrip. Every `input(...)` read in
+	// the body prints through the matching answer instance.
+	const storageInstance = searchStorageInstance(wire);
+	const typeContext: TypeContext | undefined =
+		args.typeContext === undefined
+			? undefined
+			: {
+					...args.typeContext,
+					searchInputInstanceId: searchInputInstanceId(wire),
+				};
 
 	// `<data>` slot order matches CCHQ's canonical order at
 	// `commcare-hq/.../suite_xml/post_process/remote_requests.py::_remote_request_query_datums`:
@@ -168,7 +261,7 @@ export function buildSearchSession(args: {
 	const xpathQueryEmission = composeXPathQueryEmission(
 		caseListConfig,
 		caseType,
-		args.typeContext,
+		typeContext,
 		args.lookupNaming,
 	);
 	if (xpathQueryEmission !== undefined) {
@@ -193,7 +286,7 @@ export function buildSearchSession(args: {
 	if (caseSearchConfig.excludedOwnerIds !== undefined) {
 		const excludedOwnerIds = emitNormalizedExcludedOwnerIdsExpression(
 			caseSearchConfig.excludedOwnerIds,
-			args.typeContext ?? {},
+			typeContext ?? {},
 		);
 		dataElements.push(
 			el("data", {
@@ -205,7 +298,7 @@ export function buildSearchSession(args: {
 
 	if (
 		searchNeedsSupportingCases(caseListConfig, {
-			...(args.typeContext ?? {}),
+			...(typeContext ?? {}),
 			currentCaseType: caseType,
 		})
 	) {
@@ -217,13 +310,24 @@ export function buildSearchSession(args: {
 		);
 	}
 
+	// Under a selected parent, the inline shape narrows the server search
+	// to that parent's descendants by type; CCHQ appends this last.
+	if (wire.inlineSearch && args.ancestorCaseType !== undefined) {
+		dataElements.push(
+			el("data", {
+				key: XPATH_QUERY_KEY,
+				ref: `"ancestor-exists(parent, @case_type='${validateCaseType(args.ancestorCaseType)}')"`,
+			}),
+		);
+	}
+
 	// `<prompt>`s render in searchInputs array order; the instance accumulation
 	// below is order-independent (a Set).
 	const promptEmission = buildSearchPrompts(
 		[...caseListConfig.searchInputs],
 		moduleId,
 		buildRuntimeCsqlPromptValidations(xpathQueryEmission),
-		args.typeContext ?? {},
+		typeContext ?? {},
 		args.lookupNaming,
 	);
 
@@ -282,27 +386,6 @@ export function buildSearchSession(args: {
 		queryChildren,
 	);
 
-	// `<datum>` references the search-side detail ids
-	// (`m{N}_search_short` / `m{N}_search_long`) — distinct from the
-	// `m{N}_case_short` / `m{N}_case_long` ids the local case-list
-	// entry uses.
-	const datumNodeset = composeDatumNodeset(storageInstance, caseType);
-	const multiple = caseListConfig.selection?.kind === "multiple";
-	const datumEl = el(multiple ? "instance-datum" : "datum", {
-		id: multiple ? SEARCH_SELECTED_CASES_ID : "search_case_id",
-		nodeset: datumNodeset,
-		value: "./@case_id",
-		...((args.hasDetailScreen ?? true) && {
-			"detail-confirm": `${moduleId}_search_long`,
-		}),
-		"detail-select": `${moduleId}_search_short`,
-		...(multiple && {
-			"max-select-value": String(caseListConfig.selection?.maximum),
-		}),
-	});
-
-	const sessionEl = el("session", {}, [queryEl, datumEl]);
-
 	const strings: Record<string, string> = {
 		[titleLocaleId]: titleDisplay,
 		...(subtitleDisplay !== undefined
@@ -312,15 +395,10 @@ export function buildSearchSession(args: {
 	};
 	const translationUnits = { ...promptEmission.translationUnits };
 
-	// `casedb` and `commcaresession` are always required (the `<post
-	// relevant>` guard references both); the chosen results instance
-	// is what the `<datum nodeset>` references.
-	const instances = new Set<string>([
-		"casedb",
-		"commcaresession",
-		storageInstance,
-		...(multiple ? [SEARCH_SELECTED_CASES_ID] : []),
-	]);
+	// The ids the query body reads; the caller adds what its datum and
+	// post read.
+	const instances = new Set<string>();
+	const answerInstance = searchInputInstanceId(wire);
 
 	// Every Term ref reachable from a wire-emitted XPath needs its
 	// instance declared on the surrounding `<remote-request>`.
@@ -341,6 +419,8 @@ export function buildSearchSession(args: {
 		for (const id of collectPredicateInstances(
 			caseListConfig.filter,
 			args.lookupNaming,
+			"suite",
+			answerInstance,
 		)) {
 			instances.add(id);
 		}
@@ -349,6 +429,8 @@ export function buildSearchSession(args: {
 		for (const id of collectPredicateInstances(
 			entry.predicate,
 			args.lookupNaming,
+			"suite",
+			answerInstance,
 		)) {
 			instances.add(id);
 		}
@@ -361,12 +443,13 @@ export function buildSearchSession(args: {
 		// the instance accumulator must walk it the same way the
 		// advanced-arm predicates above are walked.
 		if (input.kind === "simple" && simpleArmNeedsXPathQueryEmission(input)) {
-			const derived = deriveSimpleArmPredicate(
-				input,
-				caseType,
-				args.typeContext,
-			);
-			for (const id of collectPredicateInstances(derived, args.lookupNaming)) {
+			const derived = deriveSimpleArmPredicate(input, caseType, typeContext);
+			for (const id of collectPredicateInstances(
+				derived,
+				args.lookupNaming,
+				"suite",
+				answerInstance,
+			)) {
 				instances.add(id);
 			}
 		}
@@ -379,6 +462,8 @@ export function buildSearchSession(args: {
 			for (const id of collectExpressionInstances(
 				expression,
 				args.lookupNaming,
+				"suite",
+				answerInstance,
 			)) {
 				instances.add(id);
 			}
@@ -393,6 +478,8 @@ export function buildSearchSession(args: {
 		for (const id of collectExpressionInstances(
 			caseSearchConfig.excludedOwnerIds,
 			args.lookupNaming,
+			"suite",
+			answerInstance,
 		)) {
 			instances.add(id);
 		}
@@ -412,12 +499,20 @@ export function buildSearchSession(args: {
 		for (const id of collectExpressionInstances(
 			column.expression,
 			args.lookupNaming,
+			"suite",
+			answerInstance,
 		)) {
 			instances.add(id);
 		}
 	}
 
-	return { element: sessionEl, strings, translationUnits, instances };
+	return {
+		element: queryEl,
+		strings,
+		translationUnits,
+		instances,
+		hasPrompts: visibleSearchInputs(caseListConfig.searchInputs).length > 0,
+	};
 }
 
 /**
@@ -427,15 +522,9 @@ export function buildSearchSession(args: {
  * (`remoteRequest.ts::buildRemoteRequest`) consumes the Element
  * directly.
  */
-export function emitSearchSession(args: {
-	readonly caseListConfig: CaseListConfig;
-	readonly caseSearchConfig: OrdinaryCaseSearchConfig;
-	readonly wire: WireShape;
-	readonly caseType: string;
-	readonly moduleIndex: number;
-	readonly hasDetailScreen?: boolean;
-	readonly typeContext?: TypeContext;
-}): {
+export function emitSearchSession(
+	args: SearchQueryArgs & { readonly hasDetailScreen?: boolean },
+): {
 	readonly xml: string;
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, WireStringSource>;

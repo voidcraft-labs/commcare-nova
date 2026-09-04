@@ -88,6 +88,8 @@ export interface SearchCanvasProps {
 	readonly opensResultsAutomatically?: boolean;
 	/** A Search-action setting is invalid and needs a findable repair mark. */
 	readonly searchSettingsHasError?: boolean;
+	/** The module opens on Search: no browse list, Results only after a search. */
+	readonly searchFirst?: boolean;
 }
 
 export function SearchCanvas({
@@ -106,6 +108,7 @@ export function SearchCanvas({
 	hasSearchAction,
 	opensResultsAutomatically = false,
 	searchSettingsHasError = false,
+	searchFirst = false,
 }: SearchCanvasProps) {
 	const canEdit = useCanEdit();
 	const projectProse = useProseProjection();
@@ -193,9 +196,11 @@ export function SearchCanvas({
 						Search
 					</h1>
 					<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-						{canEdit
-							? "Choose how people narrow cases before selecting one"
-							: "People narrow cases here before selecting one"}
+						{searchFirst
+							? "People search before they see any cases. Results shows only what a search finds."
+							: canEdit
+								? "Choose how people narrow cases before selecting one"
+								: "People narrow cases here before selecting one"}
 					</p>
 				</div>
 			</header>
@@ -228,6 +233,7 @@ export function SearchCanvas({
 						data-search-settings-state={
 							searchSettingsHasError ? "needs-attention" : "ready"
 						}
+						data-search-first={searchFirst ? "true" : undefined}
 						className={`rounded-2xl border p-4 transition-colors ${
 							panelSelected
 								? "border-nova-violet bg-nova-surface/25"

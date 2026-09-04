@@ -38,6 +38,7 @@ export * from "./moduleHierarchy";
 export * from "./modules";
 export * from "./multimedia";
 export * from "./organization";
+export * from "./postSubmit";
 export * from "./prose";
 export * from "./records";
 export * from "./referenceIndex";

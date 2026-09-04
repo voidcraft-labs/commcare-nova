@@ -6,6 +6,8 @@ import type {
 	SearchInputDecl,
 	ValueExpression,
 } from "@/lib/domain/predicate";
+import type { SearchInputInstanceId } from "@/lib/domain/predicate/typeChecker";
+import { STANDALONE_SEARCH_INPUT_INSTANCE_ID } from "./termEmitter";
 
 export type RuntimeCsqlNumericConstraint =
 	| "whole-number"
@@ -25,6 +27,7 @@ export type CsqlNumericValueClassification =
 export function classifyCalendarDateAddQuantity(
 	expression: ValueExpression,
 	knownInputs: readonly SearchInputDecl[] = [],
+	searchInputInstanceId?: SearchInputInstanceId,
 ): CsqlNumericValueClassification {
 	const known = staticallyKnownNumber(expression);
 	if (known !== undefined && Number.isInteger(known)) {
@@ -37,7 +40,7 @@ export function classifyCalendarDateAddQuantity(
 			kind: "runtime-input",
 			inputUuid,
 			inputName,
-			inputXPath: searchInputXPath(inputName),
+			inputXPath: searchInputXPath(inputName, searchInputInstanceId),
 		};
 	}
 	return { kind: "unsupported" };
@@ -58,6 +61,7 @@ export function isRepresentableCalendarDateAddQuantity(
 export function classifySubcaseCountBound(
 	expression: ValueExpression,
 	knownInputs: readonly SearchInputDecl[] = [],
+	searchInputInstanceId?: SearchInputInstanceId,
 ): CsqlNumericValueClassification {
 	const known = staticallyKnownNumber(expression);
 	if (known !== undefined && Number.isInteger(known) && known >= 0) {
@@ -70,7 +74,7 @@ export function classifySubcaseCountBound(
 			kind: "runtime-input",
 			inputUuid,
 			inputName,
-			inputXPath: searchInputXPath(inputName),
+			inputXPath: searchInputXPath(inputName, searchInputInstanceId),
 		};
 	}
 	return { kind: "unsupported" };
@@ -361,6 +365,9 @@ function finiteNumber(value: unknown): number | undefined {
 	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
-function searchInputXPath(name: string): string {
-	return `instance('search-input:results')/input/field[@name='${name}']`;
+function searchInputXPath(
+	name: string,
+	searchInputInstanceId: SearchInputInstanceId | undefined,
+): string {
+	return `instance('${searchInputInstanceId ?? STANDALONE_SEARCH_INPUT_INSTANCE_ID}')/input/field[@name='${name}']`;
 }

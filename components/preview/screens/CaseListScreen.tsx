@@ -181,6 +181,7 @@ import {
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
 import type { PreviewCaseChoice } from "@/lib/session/types";
+import { caseListStep, resultsConstraintContext } from "./caseListPhase";
 
 /** Canvas width where search sits beside the results instead of above
  *  them: the same responsive truth the running app follows. */
@@ -449,6 +450,16 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						EMPTY_SEARCH_INPUT_VALUES,
 						lookupStatus.kind === "data" ? lookupStatus.data : undefined,
 					)));
+	/* A module that opens on Search shows the Search screen alone until a
+	 * search completes; Results exist only after (the running app's inline
+	 * search). The commit gate refuses a button condition on such a module,
+	 * so the action is always relevant there. */
+	const searchFirst = searchConfig?.searchFirst === true;
+	const step = caseListStep({
+		searchFirst,
+		hasVisibleInputs: hasSearchInputs,
+		hasSubmitted: searchRun.hasSubmitted,
+	});
 	/* A retained flipbook submission belongs to the Search action. If a live
 	 * session/config edit makes that action irrelevant, show the ordinary case
 	 * list instead of silently keeping an inaccessible remote-search query. The
@@ -770,7 +781,9 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		reload: reloadCases,
 	} = useCases({
 		appId,
-		caseType: caseType?.name,
+		/* On the Search step no results query runs: the list does not exist
+		 * until the worker's search completes. */
+		caseType: step === "search" ? undefined : caseType?.name,
 		caseListConfig: config,
 		inputValues: activeSearchInputValues,
 		excludedOwnerIdsExpression,
@@ -813,13 +826,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		)?.name;
 		return { kind: "persona", name: name ?? "this worker" };
 	}, [personas, previewPersonaUuid]);
+	/* On a search-first module every result is the outcome of a search the
+	 * worker ran, so an all-blank search that finds nothing reads as that
+	 * search's empty answer, not as an invitation to add case data. */
+	const resultsContext = resultsConstraintContext(step, queryConstraintSource);
 	const workerSearchProvesUnderlyingRows =
-		queryConstraintSource === "worker-search" &&
+		resultsContext === "worker-search" &&
 		authoredMatchingCount !== undefined &&
 		authoredMatchingCount > 0;
 	const needsUnfilteredCount =
 		state.kind === "empty" &&
-		queryConstraintSource !== "unconstrained" &&
+		resultsContext !== "unconstrained" &&
 		!workerSearchProvesUnderlyingRows;
 	const { state: unfilteredCountState, reload: reloadUnfilteredCount } =
 		useCaseCount({
@@ -1105,14 +1122,19 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const hasEffectiveSearchFilter = effectiveSearchFilter !== undefined;
 	const zeroInputSearchActionIsRelevant =
 		!hasSearchInputs && searchActionIsRelevant;
+	/* CommCare auto-launches an input-free Search when its Results filter
+	 * narrows the population; a search-first module runs its input-free
+	 * search on its own regardless (`default_search`). */
 	const automaticallyLaunchesZeroInputSearch =
-		zeroInputSearchActionIsRelevant && hasEffectiveSearchFilter;
+		zeroInputSearchActionIsRelevant &&
+		(hasEffectiveSearchFilter || searchFirst);
 	const automaticSearchToken = automaticallyLaunchesZeroInputSearch
 		? JSON.stringify({
 				scopeEpoch,
 				moduleUuid,
 				filter: effectiveSearchFilter,
 				condition: searchButtonCondition,
+				searchFirst,
 			})
 		: undefined;
 	const launchedAutomaticSearchRef = useRef<string | undefined>(undefined);
@@ -1483,11 +1505,15 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 
 	// ── Panes ──
 
+	/* Browse: the pane sits beside Results whenever the action applies.
+	 * Search-first: the pane IS the screen until a search completes, then it
+	 * steps aside for Results, which carries Search again. */
 	const searchPane =
-		hasSearchInputs && searchActionIsRelevant ? (
+		hasSearchInputs && searchActionIsRelevant && step !== "results" ? (
 			<div
 				ref={searchPaneRef}
-				className={`${split ? "w-72 shrink-0" : "w-full"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
+				data-case-list-step={step}
+				className={`${split && step === "browse" ? "w-72 shrink-0" : "w-full max-w-lg"} grid self-start gap-4 rounded-lg border border-pv-input-border bg-pv-surface p-4`}
 			>
 				<div>
 					<div className="flex min-h-11 min-w-0 items-center gap-2">
@@ -1895,19 +1921,36 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					</>
 				)}
 			</div>
-			{zeroInputSearchActionIsRelevant && !hasEffectiveSearchFilter && (
+			{step === "results" && hasSearchInputs && (
 				<Button
 					type="button"
+					variant="ghost"
+					data-search-again
 					onClick={() => {
-						submitSearch(EMPTY_SEARCH_INPUT_VALUES);
-						focusNextFrame(() => resultsTitleRef.current);
+						searchRun.clear();
+						focusFirstSearchControl();
 					}}
-					className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
+					className="-ml-2 mb-4 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
 				>
-					<Icon icon={tablerSearch} width="16" height="16" />
-					{searchButtonLabel}
+					<Icon icon={tablerChevronLeft} width="15" height="15" />
+					Search again
 				</Button>
 			)}
+			{zeroInputSearchActionIsRelevant &&
+				!hasEffectiveSearchFilter &&
+				!searchFirst && (
+					<Button
+						type="button"
+						onClick={() => {
+							submitSearch(EMPTY_SEARCH_INPUT_VALUES);
+							focusNextFrame(() => resultsTitleRef.current);
+						}}
+						className="mb-4 h-auto min-h-11 max-w-full gap-2 whitespace-normal break-words rounded-lg bg-pv-accent px-4 py-2.5 text-center text-[14px] font-semibold text-nova-void not-disabled:hover:bg-pv-accent not-disabled:hover:brightness-110 [overflow-wrap:anywhere]"
+					>
+						<Icon icon={tablerSearch} width="16" height="16" />
+						{searchButtonLabel}
+					</Button>
+				)}
 			{state.kind === "rows" && loadedRows.length > 0 && (
 				<div className="mb-3">
 					<ListFilterBox
@@ -1963,7 +2006,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				tile={resultsTileLayout}
 				caseProperties={caseType.properties}
 				columnDisplayContext={columnDisplayContext}
-				emptyResultContext={queryConstraintSource}
+				emptyResultContext={resultsContext}
 				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}
 				searchErrorShown={hasSearchInputs && searchActionIsRelevant}
@@ -2074,15 +2117,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				{/* Stacked + a sub-screen open = the narrow experience: the
 				 *  sub-screen takes the whole canvas, search waits behind Back. */}
 				{(split || !onSubScreen) && searchPane}
-				{multiFormMenuOpen
-					? multiFormMenuPane
-					: displayedFormMenuCase !== null
-						? formMenuPane
-						: displayedOpenCase !== null
-							? detailPane
-							: routeCaseId !== undefined
-								? routeCaseFallbackPane
-								: resultsPane}
+				{step === "search" && !onSubScreen
+					? null
+					: multiFormMenuOpen
+						? multiFormMenuPane
+						: displayedFormMenuCase !== null
+							? formMenuPane
+							: displayedOpenCase !== null
+								? detailPane
+								: routeCaseId !== undefined
+									? routeCaseFallbackPane
+									: resultsPane}
 			</div>
 		</ContentFrame>
 	);

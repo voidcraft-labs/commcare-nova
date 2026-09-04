@@ -426,6 +426,7 @@ describe("case-search integration — SA tool round-trip", () => {
 		const r2 = await h.runTool(setCaseSearchAdvancedTool, {
 			moduleUuid: MOD_A,
 			excludedOwnerIds: excluded,
+			searchFirst: null,
 		});
 		expect(r2.kind).toBe("mutate");
 		if ("error" in r2.result) {

@@ -2524,6 +2524,14 @@ export const ordinaryCaseSearchConfigSchema = z
 		searchScreenSubtitle: z.string().min(1).optional(),
 		searchButtonLabel: z.string().min(1).optional(),
 		searchButtonDisplayCondition: predicateSchema.optional(),
+
+		// Search first: the module opens on the Search screen and Results
+		// exist only after a completed search; the browse list goes away.
+		// Presence IS the switch (`true` or absent), so an app that never
+		// turned it on serializes byte-identically to one that cannot. On
+		// the wire this is CommCare's inline-search shape on every platform
+		// (`lib/commcare/suite/case-search/compileForPlatform.ts`).
+		searchFirst: z.literal(true).optional(),
 	})
 	.strict();
 
@@ -2564,7 +2572,8 @@ export function caseSearchConfigHasAuthoredSettings(
 		config.searchScreenTitle !== undefined ||
 		config.searchScreenSubtitle !== undefined ||
 		config.searchButtonLabel !== undefined ||
-		config.searchButtonDisplayCondition !== undefined
+		config.searchButtonDisplayCondition !== undefined ||
+		config.searchFirst !== undefined
 	);
 }
 
@@ -2608,9 +2617,12 @@ export function caseSearchConfigAfterFinalInputRemoval(
 		searchScreenSubtitle: _subtitle,
 		...action
 	} = config;
+	// Search first survives its last visible input: the module still opens
+	// on Search, which then runs on its own (`default_search`).
 	const hasSearchActionSetting =
 		action.searchButtonLabel !== undefined ||
-		action.searchButtonDisplayCondition !== undefined;
+		action.searchButtonDisplayCondition !== undefined ||
+		action.searchFirst !== undefined;
 	if (hasCasesAvailableCondition || hasSearchActionSetting) return action;
 	if (action.excludedOwnerIds !== undefined) {
 		return { ...action, searchActionEnabled: false };
@@ -2660,6 +2672,17 @@ export type Module = z.infer<typeof moduleSchema>;
  * receives Nova's friendly defaults. A case-list filter by itself does NOT turn
  * on search; it remains the always-on "Cases available" rule.
  */
+/**
+ * Whether the module opens on its Search screen instead of a browse list
+ * (`caseSearchConfig.searchFirst`). Results exist only after a completed
+ * search, and every case-loading entry runs that search first.
+ */
+export function moduleOpensOnSearch(
+	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
+): boolean {
+	return effectiveCaseSearchConfig(module)?.searchFirst === true;
+}
+
 export function effectiveCaseSearchConfig(
 	module: Pick<Module, "caseListConfig" | "caseSearchConfig">,
 ): OrdinaryCaseSearchConfig | undefined {
