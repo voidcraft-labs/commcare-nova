@@ -16,6 +16,12 @@
  *     Results (`post_form_workflow: case_list`), and the form is never on a
  *     menu, so after-submit links, an after-submit choice, and a display
  *     condition have nowhere to act.
+ *   - `SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM`: the Register
+ *     action carries a parent selection into the form only by copying it
+ *     from the host's first menu form (`DetailContributor.get_datums_for_action`
+ *     matches the target's selection datums against that form's and drops
+ *     an unmatched one), so a host that selects a parent case first needs a
+ *     menu form for the registration to know its parent.
  *   - `SEARCH_NO_MATCHES_DUPLICATE`: a module carries at most one
  *     `case_list_form`.
  *   - `FORM_LINK_TARGET_NO_MATCHES_FORM` (in `rules/form.ts`): an
@@ -24,10 +30,15 @@
  */
 
 import {
+	formLinkProjectionContext,
+	parentSelectModuleUuid,
+} from "@/lib/commcare/formLinkProjection";
+import {
 	type BlueprintDoc,
 	type Form,
 	isNoMatchesForm,
 	type Module,
+	menuFormUuidsOf,
 	moduleOpensOnSearch,
 	type Uuid,
 } from "@/lib/domain";
@@ -78,7 +89,21 @@ export function searchNoMatchesEntry(
 			validationError(
 				"SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION",
 				"form",
-				`Form "${form.name}" opens after a search finds no matches, so it always returns to Results showing the case it registered and is never on a menu; it cannot carry ${navigation.join(", ")}. Remove them, or clear the form's entry.`,
+				`Form "${form.name}" opens after a search finds no matches, so after submit it always returns to the module's search and is never on a menu; it cannot carry ${navigation.join(", ")}. Remove them, or clear the form's entry.`,
+				loc,
+			),
+		);
+	}
+	if (
+		menuFormUuidsOf(doc, moduleUuid).length === 0 &&
+		parentSelectModuleUuid(doc, formLinkProjectionContext(doc), moduleUuid) !==
+			undefined
+	) {
+		errors.push(
+			validationError(
+				"SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM",
+				"form",
+				`Form "${form.name}" opens after a search finds no matches in module "${mod.name}", which selects a "${mod.caseType ?? ""}" case's parent first, but the module has no menu form, and CommCare carries that parent into the registration only from the module's first menu form. Add a menu form to the module, or clear the form's entry.`,
 				loc,
 			),
 		);

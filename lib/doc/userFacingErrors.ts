@@ -574,7 +574,9 @@ const USER_MESSAGE_BY_CODE: Partial<
 	SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION: (e) =>
 		`${q(formName(e))} opens when a search finds nothing, so it needs to register a new case. Make it a registration form, or make it a menu form again.`,
 	SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION: (e) =>
-		`${q(formName(e))} opens when a search finds nothing and always returns to Results, so it can't have after-submit links, an after-submit choice, or a display condition. Clear those, or make it a menu form again.`,
+		`${q(formName(e))} opens when a search finds nothing and always returns to the search, so it can't have after-submit links, an after-submit choice, or a display condition. Clear those, or make it a menu form again.`,
+	SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM: (e) =>
+		`${q(formName(e))} opens when a search finds nothing in ${q(modName(e))}, which picks a parent case first, but the module has no menu form to carry that parent into the registration. Add a menu form to the module, or make ${q(formName(e))} a menu form again.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 

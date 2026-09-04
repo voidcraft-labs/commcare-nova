@@ -213,6 +213,32 @@ describe("useSearchInputRunState — hidden inputs", () => {
 		expect(Object.fromEntries(result.current.draft)).toEqual({ name: "Amara" });
 	});
 
+	it("restores a standing search's answers and hidden values as that search carried them", () => {
+		const { result } = renderHook(() =>
+			useSearchInputRunState({
+				scopeKey: "module-a",
+				searchInputs: [inputWithDefault("Alice"), SEARCHED_BY],
+				session: SESSION,
+			}),
+		);
+		expect(result.current.hasSubmitted).toBe(false);
+
+		act(() =>
+			result.current.restore(
+				new Map([
+					["name", "Amara"],
+					["searched_by", "someone-else@example.org"],
+				]),
+			),
+		);
+		expect(result.current.hasSubmitted).toBe(true);
+		expect(Object.fromEntries(result.current.submitted)).toEqual({
+			name: "Amara",
+			searched_by: "someone-else@example.org",
+		});
+		expect(Object.fromEntries(result.current.draft)).toEqual({ name: "Amara" });
+	});
+
 	it("drops a worker-supplied value under a hidden input's key", () => {
 		// The Search screen has no widget for a hidden input, so a value under
 		// its key can only be stale or forged; the resolved system value wins.

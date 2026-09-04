@@ -10,6 +10,7 @@
 "use client";
 
 import { useContext, useMemo } from "react";
+import { shallow } from "zustand/shallow";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/doc/types";
@@ -163,7 +164,7 @@ export function useMenuFormCounts(): Readonly<Record<string, number>> {
 					}).length,
 				]),
 			),
-		(left, right) => JSON.stringify(left) === JSON.stringify(right),
+		shallow,
 	);
 }
 

@@ -236,6 +236,35 @@ describe("searchAnswerFields", () => {
 		expect([...occupied]).toEqual(["case_name", "patient_name", "search_time"]);
 	});
 
+	it("skips a prompt whose property the form already writes", () => {
+		const fields = searchAnswerFields(
+			fixture(),
+			MODULE,
+			new Set(),
+			new Set(["case_name"]),
+		);
+		expect(fields.map((field) => field.id)).toEqual(["search_time"]);
+	});
+
+	it("keeps a hidden value off the case when its name cannot be a property", () => {
+		const doc = fixture();
+		const mod = doc.modules[MODULE];
+		const config = mod.caseListConfig;
+		if (config === undefined) throw new Error("no case list");
+		config.searchInputs = [
+			{
+				kind: "hidden",
+				uuid: TIME_INPUT,
+				name: "case_id",
+				label: "Case id",
+				value: now(),
+			},
+		];
+		const [field] = searchAnswerFields(doc, MODULE, new Set());
+		expect(field).toMatchObject({ kind: "hidden", id: "case_id" });
+		expect(field).not.toHaveProperty("caseWrite");
+	});
+
 	it("dedupes an id the form already uses", () => {
 		const fields = searchAnswerFields(
 			fixture(),

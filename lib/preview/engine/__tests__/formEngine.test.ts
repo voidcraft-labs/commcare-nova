@@ -298,6 +298,39 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(seeded());
 			expect(engine.getState("/data/name").value).toBe("");
 		});
+
+		it("counts #search/<name> as a node of the search-input instance", () => {
+			const counted = () => ({
+				...dTree([
+					{
+						id: "answered",
+						kind: "hidden",
+						calculate: xp("count(#search/patient_name)"),
+					},
+				]),
+				searchInputs: [{ uuid: NAME_INPUT, name: "patient_name" }],
+			});
+			const withAnswer = new FormEngine(
+				counted(),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ searchAnswers: new Map([["patient_name", "Zzz"]]) },
+			);
+			expect(withAnswer.getState("/data/answered").value).toBe("1");
+			const blank = new FormEngine(
+				counted(),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ searchAnswers: new Map() },
+			);
+			expect(blank.getState("/data/answered").value).toBe("0");
+		});
 	});
 
 	describe("relevant (visibility)", () => {

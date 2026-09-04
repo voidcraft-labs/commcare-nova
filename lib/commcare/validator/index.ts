@@ -31,7 +31,7 @@ import {
 	formExpressionValue,
 	isConnectLearnConfig,
 	isNoMatchesForm,
-	owningModuleOfForm,
+	moduleUuidOfForm,
 	type ProseTemplate,
 	projectXPath,
 	reachableCaseTypes,
@@ -259,7 +259,7 @@ function searchAnswerRefError(
 				"reads a search answer, but only a form that opens after a search finds no matches can read one. Set this form's entry to search-no-matches, or drop the #search/ reference.",
 		};
 	}
-	const moduleUuid = owningModuleOfForm(doc, formUuid);
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	const inputs =
 		moduleUuid === undefined
 			? []

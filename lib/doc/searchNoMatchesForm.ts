@@ -21,6 +21,9 @@ import {
 	type SearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
+import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
+import { suffixUntilFree } from "@/lib/domain/idSlug";
+import { FORBIDDEN_CASE_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
 
 /** Turn Search first on for the module, or nothing when it already is. */
 export function searchFirstOnMutations(
@@ -71,15 +74,14 @@ function searchAnswerExpression(input: SearchInputDef) {
 	};
 }
 
-function uniqueFieldId(base: string, occupied: Set<string>): string {
-	let candidate = base;
-	let n = 2;
-	while (occupied.has(candidate)) {
-		candidate = `${base}_${n}`;
-		n += 1;
-	}
-	occupied.add(candidate);
-	return candidate;
+/** Whether a hidden prompt's name can be the case property its value is
+ * saved under: an authored property name, and not one the case system owns
+ * (a prompt named `case_id`, say, is searched, never written). */
+function hiddenPromptSavesAs(name: string): boolean {
+	return (
+		authoredCasePropertyNameSchema.safeParse(name).success &&
+		!FORBIDDEN_CASE_WRITE_PROPERTIES.has(name)
+	);
 }
 
 /**
@@ -88,43 +90,53 @@ function uniqueFieldId(base: string, occupied: Set<string>): string {
  * (a `select` keeps the prompt's choices); an advanced prompt, a date range,
  * and a hidden value seed a field with no case destination, except that a
  * hidden value is saved under the prompt's name as provenance of the search
- * (a search time, say). `occupiedIds` are field ids already taken on the
- * form; the returned fields' ids are added to it.
+ * (a search time, say) when that name can be a case property. A prompt
+ * whose property the form already writes (`occupiedProperties`) is skipped:
+ * the authored field carries it, and two writers of one property would not
+ * pass the gate. `occupiedIds` are field ids already taken on the form; the
+ * returned fields' ids are added to it.
  */
 export function searchAnswerFields(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	occupiedIds: Set<string>,
+	occupiedProperties: ReadonlySet<string> = new Set(),
 ): Field[] {
 	const mod = doc.modules[moduleUuid];
 	const caseType = mod?.caseType;
 	const inputs = mod?.caseListConfig?.searchInputs ?? [];
 	const fields: Field[] = [];
 	for (const input of inputs) {
-		const id = uniqueFieldId(input.name, occupiedIds);
+		const property =
+			input.kind === "hidden"
+				? hiddenPromptSavesAs(input.name)
+					? input.name
+					: undefined
+				: input.kind === "simple" && input.type !== "date-range"
+					? input.property
+					: undefined;
+		if (property !== undefined && occupiedProperties.has(property)) continue;
+		const id = suffixUntilFree(input.name, occupiedIds);
+		occupiedIds.add(id);
 		const uuid = asUuid(crypto.randomUUID());
 		const label = proseText(
 			input.label.trim().length > 0 ? input.label : input.name,
 		);
 		const default_value = searchAnswerExpression(input);
+		const caseWrite =
+			property !== undefined && caseType !== undefined
+				? { caseWrite: { caseType, property } }
+				: {};
 		if (input.kind === "hidden") {
 			fields.push({
 				kind: "hidden",
 				uuid,
 				id,
 				default_value,
-				...(caseType !== undefined && {
-					caseWrite: { caseType, property: input.name },
-				}),
+				...caseWrite,
 			});
 			continue;
 		}
-		const caseWrite =
-			input.kind === "simple" &&
-			input.type !== "date-range" &&
-			caseType !== undefined
-				? { caseWrite: { caseType, property: input.property } }
-				: {};
 		switch (input.type) {
 			case "date":
 				fields.push({

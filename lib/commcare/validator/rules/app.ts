@@ -466,7 +466,7 @@ function reservedCaseTypeName(doc: BlueprintDoc): ValidationError[] {
 			validationError(
 				"RESERVED_CASE_TYPE_NAME",
 				"app",
-				`Case type "${name}" collides with a reserved reference namespace. CommCare's hashtag system reserves #form/, #user/, #case/, and #parent/: "#${name}/<property>" would resolve to the built-in "${lower}" namespace, not this case type. Rename it to something project-specific (for example "${name}_record").`,
+				`Case type "${name}" collides with a reserved reference namespace. Nova's references reserve #form/, #user/, #search/, #case/, and #parent/: "#${name}/<property>" would resolve to the built-in "${lower}" namespace, not this case type. Rename it to something project-specific (for example "${name}_record").`,
 				location,
 				{ caseType: name },
 			),

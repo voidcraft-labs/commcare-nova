@@ -485,7 +485,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const step = caseListStep({
 		searchFirst,
 		hasVisibleInputs: hasSearchInputs,
-		hasSubmitted: searchRun.hasSubmitted || searchState?.kind === "completed",
+		hasSubmitted: searchRun.hasSubmitted,
 	});
 	/* Whether a Search has been pressed whose query has not yet been seen to
 	 * start and end; read by the settlement effect below. */
@@ -854,7 +854,10 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		caseType: step === "search" ? undefined : caseType?.name,
 		...(registeredCaseIds === undefined ? {} : { caseIds: registeredCaseIds }),
 		caseListConfig: config,
-		inputValues: activeSearchInputValues,
+		/* The registered case is the whole population (the wire's frame keys
+		 * the search to its id), so the answers no longer narrow it. */
+		inputValues:
+			registeredCaseIds === undefined ? activeSearchInputValues : undefined,
 		excludedOwnerIdsExpression,
 		// The live case-type catalog: the schema slice the SQL compiler
 		// casts the config's predicate/sort/calc against. Sent with the
@@ -1278,6 +1281,32 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		setPreviewCaseTarget,
 		navigate,
 	]);
+	/* The module's search context in the session and this screen's run
+	 * state describe one search, and this screen may mount after the context
+	 * was written (a form of the module returned to its list, where the
+	 * device re-runs the standing query) or outlive it (a formless host's
+	 * registration retired it, a Preview toggle cleared it). On the first
+	 * pass for a module the run state follows the context; after that a
+	 * retired context clears the run state, and a run state the screen
+	 * dropped on its own (the last prompt removed) retires the context. */
+	const syncedSearchModuleRef = useRef<Uuid | undefined>(undefined);
+	useEffect(() => {
+		if (moduleUuid === undefined || !searchFirst) return;
+		const active =
+			searchState !== undefined && searchState.kind !== "not-searched";
+		const firstPass = syncedSearchModuleRef.current !== moduleUuid;
+		syncedSearchModuleRef.current = moduleUuid;
+		if (active && !searchRun.hasSubmitted) {
+			if (!firstPass) {
+				setPreviewSearchState(moduleUuid, undefined);
+				return;
+			}
+			if (searchState.kind === "running") awaitingSearchFetchRef.current = true;
+			searchRun.restore(new Map(Object.entries(searchState.answers)));
+		} else if (!active && searchRun.hasSubmitted) {
+			searchRun.clear();
+		}
+	}, [moduleUuid, searchFirst, searchState, searchRun, setPreviewSearchState]);
 	const launchedAutomaticSearchRef = useRef<string | undefined>(undefined);
 	useEffect(() => {
 		if (

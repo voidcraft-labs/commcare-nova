@@ -50,18 +50,6 @@ export type AfterSubmitRoute =
 			readonly caseSelections: readonly TargetCaseSelection[];
 	  }
 	/**
-	 * A no-matches registration form registered a case: back to the host
-	 * module's Results, showing exactly that case (the wire's
-	 * `CaseListFormWorkflow` return frame re-keys the inline search to the
-	 * new case id). The host lands on its case list whether or not it has
-	 * menu forms, because Results IS the screen the search left.
-	 */
-	| {
-			readonly kind: "results-with-registered-case";
-			readonly moduleUuid: Uuid;
-			readonly caseId: string;
-	  }
-	/**
 	 * The link fired but its target is not in the document. The gate keeps
 	 * links and their targets consistent, so this is a bypass or a race the
 	 * screen must report rather than route around.
@@ -97,22 +85,8 @@ export function afterSubmitRoute(args: {
 	/** Resolves the case a FORM target opens with; called only for a target
 	 *  the document holds. */
 	readonly carriedCase: (link: FormLink) => CarriedCase;
-	/** Present when a no-matches registration form just registered this
-	 * case. The gate keeps such a form free of links, so this decides the
-	 * route before any link is consulted. */
-	readonly noMatchesRegistration?: {
-		readonly moduleUuid: Uuid;
-		readonly caseId: string;
-	};
 }): AfterSubmitRoute {
 	const { choice, doc } = args;
-	if (args.noMatchesRegistration !== undefined) {
-		return {
-			kind: "results-with-registered-case",
-			moduleUuid: args.noMatchesRegistration.moduleUuid,
-			caseId: args.noMatchesRegistration.caseId,
-		};
-	}
 	if (choice.kind === "fallback") {
 		return { kind: "post-submit", destination: choice.destination };
 	}

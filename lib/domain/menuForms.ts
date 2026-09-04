@@ -13,6 +13,7 @@ import {
 	isCaseFirstModule,
 	isNoMatchesForm,
 } from "./forms";
+import { moduleUuidOfForm } from "./postSubmit";
 import type { Uuid } from "./uuid";
 import type { ResolveSearchInputName } from "./xpath/resolve";
 
@@ -39,16 +40,6 @@ export function noMatchesFormOf(
 }
 
 /** The module whose `formOrder` lists the form, when any does. */
-export function owningModuleOfForm(
-	doc: Pick<BlueprintDoc, "formOrder">,
-	formUuid: Uuid,
-): Uuid | undefined {
-	for (const [moduleUuid, formUuids] of Object.entries(doc.formOrder)) {
-		if (formUuids?.includes(formUuid)) return moduleUuid as Uuid;
-	}
-	return undefined;
-}
-
 /**
  * The parse-side `#search/<name>` resolver for one form. It resolves
  * only inside a no-matches registration form, against the Search prompts
@@ -63,7 +54,7 @@ export function searchInputNameResolver(
 	if (formUuid === undefined) return () => undefined;
 	const form = doc.forms[formUuid];
 	if (form === undefined || !isNoMatchesForm(form)) return () => undefined;
-	const moduleUuid = owningModuleOfForm(doc, formUuid);
+	const moduleUuid = moduleUuidOfForm(doc, formUuid);
 	const inputs =
 		moduleUuid === undefined
 			? []

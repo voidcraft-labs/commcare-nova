@@ -77,6 +77,7 @@ const FOLLOWUP_FORM = testUuid("00000000-0000-4000-8000-0000000b0011");
 const REGISTER_FORM = testUuid("00000000-0000-4000-8000-0000000b0012");
 const NAME_INPUT = testUuid("00000000-0000-4000-8000-0000000b0001");
 const NAME_FIELD = testUuid("00000000-0000-4000-8000-0000000b0020");
+const HOUSEHOLD_MODULE = testUuid("00000000-0000-4000-8000-0000000b0030");
 
 /**
  * A search-first "Patients" module with one prompt `patient_name`, one
@@ -295,6 +296,69 @@ describe("no-matches registration form", () => {
 		expect(hidden.forms).toHaveLength(1);
 		expect(hidden.forms[0].name).toEqual({ en: "Register patient" });
 		expect(hidden.case_list_form.form_id).toBeNull();
+	});
+
+	it("copies a parent selection from the host's first menu form (case-list-form-suite-parent-child-basic.xml)", () => {
+		const base = noMatchesDoc();
+		const doc: BlueprintDoc = {
+			...base,
+			modules: {
+				...base.modules,
+				[HOUSEHOLD_MODULE]: {
+					...base.modules[HOST_MODULE],
+					uuid: HOUSEHOLD_MODULE,
+					id: "households",
+					name: "Households",
+					caseListOnly: true,
+					caseType: "household",
+					caseSearchConfig: undefined,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+				},
+			},
+			moduleOrder: [...base.moduleOrder, HOUSEHOLD_MODULE],
+			formOrder: { ...base.formOrder, [HOUSEHOLD_MODULE]: [] },
+			caseTypes: [
+				...(base.caseTypes ?? []).map((caseType) =>
+					caseType.name === "patient"
+						? { ...caseType, parent_type: "household" }
+						: caseType,
+				),
+				{
+					name: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+		};
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		const { suite } = compileSuite(doc);
+		const detail = childrenNamed(suite, "detail").find(
+			(candidate) => candidate.attribs.id === "m0_case_short",
+		);
+		if (detail === undefined) throw new Error("no m0_case_short");
+		const [action] = childrenNamed(detail, "action");
+		const [stack] = childrenNamed(action, "stack");
+		const [push] = childrenNamed(stack, "push");
+		// HQ `get_datums_for_action`: the target's parent selection reads the
+		// session value of the host's first menu form's datum of that case
+		// type; the new-case datum keeps its function.
+		expect(
+			elementsOf(push.children).map((child) => [
+				child.name,
+				child.attribs.id ?? child.attribs.value,
+				child.attribs.id === undefined ? undefined : child.attribs.value,
+			]),
+		).toEqual([
+			["command", "'m2-f0'", undefined],
+			[
+				"datum",
+				"case_id",
+				"instance('commcaresession')/session/data/parent_id",
+			],
+			["datum", "case_id_new_patient_0", "uuid()"],
+			["datum", "return_to", "'m0'"],
+		]);
 	});
 
 	it("still lowers on a bare case list host, with a bare return frame", () => {

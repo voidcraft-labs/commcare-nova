@@ -407,7 +407,30 @@ describe("Preview structural XPath instances", () => {
 		).toBe(0);
 	});
 
-	it("leaves the #search namespace to the engine's scalar resolver", () => {
+	it("selects #search/<name> as the instance's field node, and no node for a prompt the search left blank", () => {
+		const searchInputs = searchInputXPathInstance(
+			new Map([["patient_name", "Zzz"]]),
+		);
+		const nodes = previewHashtagNodeSet("#search/patient_name", {
+			casedb: undefined,
+			caseData: new Map(),
+			userId: "worker-1",
+			searchInputs,
+		});
+		expect(nodes?.candidates.map((node) => node.path)).toEqual([
+			"/input/field",
+		]);
+		expect(
+			previewHashtagNodeSet("#search/missing", {
+				casedb: undefined,
+				caseData: new Map(),
+				userId: "worker-1",
+				searchInputs,
+			})?.candidates,
+		).toEqual([]);
+	});
+
+	it("leaves #search/ to the engine's scalar resolver when the form has no search instance", () => {
 		expect(
 			previewHashtagNodeSet("#search/patient_name", {
 				casedb: undefined,

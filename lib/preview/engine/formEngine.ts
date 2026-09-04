@@ -128,6 +128,7 @@ import {
 } from "./types";
 import {
 	type CaseDatabaseSnapshot,
+	INLINE_SEARCH_INPUT_INSTANCE_ID,
 	previewHashtagNodeSet,
 	secondaryXPathInstances,
 	xpathNodeAtPath,
@@ -3736,6 +3737,9 @@ export class FormEngine {
 				casedb: this.secondaryInstances.get("casedb"),
 				caseData: this.caseData,
 				userId: this.previewIdentity?.session.context.userid,
+				searchInputs: this.secondaryInstances.get(
+					INLINE_SEARCH_INPUT_INSTANCE_ID,
+				),
 			}) ?? context.resolveHashtag(ref);
 		return context;
 	}

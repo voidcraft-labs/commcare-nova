@@ -41,15 +41,18 @@ import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import {
 	caseListFormReturnFrame,
 	caseListSessionDatums,
+	entryFrameDatums,
 	entrySessionDatums,
 	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 	inlineSearchFor,
 	moduleDestinationFrameChildren,
+	moduleIndexOf,
 	parentSelectModuleUuid,
 	previousFrameChildren,
 	projectFormLinks,
 	selectedCaseSessionDatum,
+	sessionDataRef,
 } from "@/lib/commcare/formLinkProjection";
 import { serializeLocaleFileValue } from "@/lib/commcare/localeFile";
 import { commCareLocalization } from "@/lib/commcare/localization";
@@ -160,31 +163,53 @@ function newCaseDatumId(
 }
 
 /**
- * The Register action of a host module: HQ's
- * `DetailContributor.get_datums_for_action` yields the target entry's
- * non-selection datums as `<datum id value=function>`; the selection datums
- * a registration form under a parent select would need are not offered by
- * Nova (a no-matches form's module has no parent select).
+ * The Register action of a host module, HQ's
+ * `DetailContributor.get_datums_for_action`: every datum of the target
+ * entry in order, a function datum as its function and a selection datum
+ * as the session value of the host's FIRST menu form's datum of the same
+ * case type (`case-list-form-suite-parent-child-basic.xml`). HQ matches
+ * against that one form and drops a selection datum it cannot match, so a
+ * host without menu forms offers function datums alone; the validator
+ * refuses a no-matches form on such a host when its case type selects a
+ * parent first (`SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM`).
  */
 function registerActionFor(
 	doc: BlueprintDoc,
 	linkContext: FormLinkProjectionContext,
 	noMatches: SyntheticModule,
 ): RegisterActionContext {
-	const mIdx = projectedModulePreorder(doc).indexOf(noMatches.moduleUuid);
-	const datums = entrySessionDatums(
+	const target = entryFrameDatums(
 		doc,
 		linkContext,
 		noMatches.moduleUuid,
 		noMatches.formUuid,
 	);
+	const [firstMenuForm] = linkContext.formOrder[noMatches.hostModuleUuid] ?? [];
+	const source =
+		firstMenuForm === undefined
+			? []
+			: entryFrameDatums(
+					doc,
+					linkContext,
+					noMatches.hostModuleUuid,
+					firstMenuForm,
+				);
 	return {
-		commandId: `m${mIdx}-f0`,
-		datums: datums.flatMap((datum) =>
-			datum.nodeset === undefined && datum.function !== undefined
-				? [{ id: datum.id, value: datum.function }]
-				: [],
-		),
+		commandId: `m${moduleIndexOf(linkContext, noMatches.moduleUuid)}-f0`,
+		datums: target.flatMap((datum) => {
+			if (!datum.requiresSelection) {
+				return datum.function === undefined
+					? []
+					: [{ id: datum.id, value: datum.function }];
+			}
+			const matches = source.filter(
+				(candidate) =>
+					candidate.requiresSelection && candidate.caseType === datum.caseType,
+			);
+			return matches.length === 1
+				? [{ id: datum.id, value: sessionDataRef(matches[0].id) }]
+				: [];
+		}),
 		relevant: NO_MATCHES_RELEVANCY,
 	};
 }

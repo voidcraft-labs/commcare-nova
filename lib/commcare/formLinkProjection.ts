@@ -323,7 +323,7 @@ function withInlineSearchQueries(
 	return out;
 }
 
-function moduleIndexOf(
+export function moduleIndexOf(
 	ctx: FormLinkProjectionContext,
 	moduleUuid: Uuid,
 ): number {
@@ -1151,6 +1151,10 @@ export function caseListFormReturnFrame(
 	sourceSessionVar: string,
 	caseType: string,
 ): { readonly ifClause: string; readonly children: MatchedChild[] } {
+	/* HQ's `_get_entries_datums` reads form entries only (`_include_datums`
+	 * skips the `*-case-list` entry), so a host without menu forms has no
+	 * common prefix: the frame is the host command alone, and the worker
+	 * returns to the module rather than to a Results keyed to the new case. */
 	const hostForms = ctx.formOrder[hostModuleUuid] ?? [];
 	const common = commonPrefixById(
 		hostForms.map((uuid) => entryFrameDatums(doc, ctx, hostModuleUuid, uuid)),

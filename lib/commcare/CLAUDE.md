@@ -813,9 +813,14 @@ partial emission.
   "count(instance('results:inline')/results/case) = 0" }`; local suite an
   `<action relevant="count(instance('results:inline')/results/case) = 0">` on
   `m{N}_case_short` (row and tile) whose `<stack><push>` carries the synthetic
-  form's command, the target's `case_id_new_<type>_0 = uuid()` datum, and
-  `<datum id="return_to" value="'m{N}'"/>`, before any Search action
-  (`suite/case-list/shortDetail.ts::RegisterActionContext`). The relevancy is
+  form's command, the target entry's datums as HQ's `get_datums_for_action`
+  offers them (`compiler.ts::registerActionFor`: a function datum as its
+  function, `case_id_new_<type>_0 = uuid()`; a parent selection as the
+  session value of the host's FIRST menu form's datum of that case type,
+  `case-list-form-suite-parent-child-basic.xml`; a host without menu forms
+  offers function datums alone), and `<datum id="return_to" value="'m{N}'"/>`,
+  before any Search action (`suite/case-list/shortDetail.ts::RegisterActionContext`).
+  The relevancy is
   an explicit boolean comparison because Core string-compares
   `Action.relevant` to `"true"`, and it is safe only in the inline shape,
   where `results:inline` exists before the list renders; the label rides
@@ -832,7 +837,10 @@ partial emission.
   (`formLinkProjection.ts::caseListFormReturnFrame`), so the worker lands on
   Results showing exactly the case they registered; HQ regenerates the same
   frame from `post_form_workflow: case_list`
-  (`test_form_linking_to_inline_search_module_from_registration_form`).
+  (`test_form_linking_to_inline_search_module_from_registration_form`). A
+  host without menu forms has no common datum prefix (HQ reads form entries
+  only), so its frame is the host command alone and the worker returns to
+  the module's search; Preview mirrors both.
 - **Carried answers.** The XPath leaf `search-answer-ref { searchInputUuid }`
   prints `#search/<name>` for people and emits
   `instance('search-input:results:inline')/input/field[@name='<name>']`
@@ -847,7 +855,9 @@ partial emission.
 - **Validator** (`rules/case-search/searchNoMatches.ts`, all soundness):
   `SEARCH_NO_MATCHES_ENTRY_REQUIRES_SEARCH_FIRST`, `…_NOT_REGISTRATION`,
   `…_HAS_NAVIGATION` (links, an after-submit choice, a display condition),
-  `SEARCH_NO_MATCHES_DUPLICATE`, and `FORM_LINK_TARGET_NO_MATCHES_FORM` in
+  `…_PARENT_NEEDS_MENU_FORM` (a host that selects a parent case first has
+  no menu form to copy the selection from), `SEARCH_NO_MATCHES_DUPLICATE`,
+  and `FORM_LINK_TARGET_NO_MATCHES_FORM` in
   `rules/form.ts`. `hqJsonOracle.ts::checkCaseListForm` pins `form_id`
   resolution and `post_form_workflow ∈ {default, case_list}`
   (`HQJSON_BAD_CASE_LIST_FORM`).

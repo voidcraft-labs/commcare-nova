@@ -43,6 +43,7 @@ import type { FormEntry, FormType, PostSubmitDestination } from "@/lib/domain";
 import {
 	asUuid,
 	FORM_TYPES,
+	fieldCaseWrite,
 	findAuthoredBlueprintIdentity,
 	POST_SUBMIT_DESTINATIONS,
 	uuidSchema,
@@ -124,7 +125,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"With entry search-no-matches: append one field per Search prompt, seeded from #search/<prompt name> and saving to the prompt's property (a hidden prompt under its own name). Leave off when your fields already carry them.",
+				"With entry search-no-matches: append one field per Search prompt, seeded from #search/<prompt name> and saving to the prompt's property (a hidden prompt under its own name when that is a legal property name); a prompt whose property your fields already write is skipped.",
 			),
 	})
 	.strict();
@@ -262,7 +263,21 @@ export const createFormTool = {
 			const carried: Mutation[] = [];
 			if (carry_search_answers === true) {
 				const occupied = new Set(assembly.created.map((field) => field.id));
-				for (const field of searchAnswerFields(doc, moduleUuid, occupied)) {
+				const written = new Set(
+					assembly.mutations.flatMap((mutation) => {
+						const write =
+							mutation.kind === "addField"
+								? fieldCaseWrite(mutation.field)
+								: undefined;
+						return write === undefined ? [] : [write.property];
+					}),
+				);
+				for (const field of searchAnswerFields(
+					doc,
+					moduleUuid,
+					occupied,
+					written,
+				)) {
 					carried.push(...declareCaseTypeForField(doc, field));
 					carried.push({ kind: "addField", parentUuid: formUuid, field });
 				}

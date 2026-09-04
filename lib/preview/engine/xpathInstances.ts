@@ -591,8 +591,26 @@ export function previewHashtagNodeSet(
 		readonly casedb: XPathInstance | undefined;
 		readonly caseData: ReadonlyMap<string, ReadonlyMap<string, string>>;
 		readonly userId: string | undefined;
+		/** The `search-input:results:inline` instance of an admitted
+		 *  no-matches form; absent when the form runs without one. */
+		readonly searchInputs?: XPathInstance | undefined;
 	},
 ): XPathNodeSet | undefined {
+	if (reference.startsWith("#search/")) {
+		/* A search answer is a field of the search-input instance, the node the
+		 * wire's `instance('search-input:results:inline')/input/field[@name]`
+		 * selects, so `count()` and predicates see a prompt the search left
+		 * blank as no node. Without the instance the engine's scalar resolver
+		 * answers blank. */
+		if (args.searchInputs === undefined) return undefined;
+		const name = reference.slice("#search/".length);
+		const fields =
+			args.searchInputs.root().children("input")[0]?.children("field") ?? [];
+		return new XPathNodeSet(
+			fields.filter((node) => nodeAttributeValue(node, "name") === name),
+			true,
+		);
+	}
 	const casedb = args.casedb;
 	if (casedb === undefined) return undefined;
 	const cases = casedb.root().children("casedb")[0]?.children("case") ?? [];
@@ -613,14 +631,7 @@ export function previewHashtagNodeSet(
 	}
 
 	const match = /^#([^/]+)\/(.+)$/.exec(reference);
-	if (
-		match === null ||
-		match[1] === "form" ||
-		match[1] === "case" ||
-		/* A search answer is a scalar from the search-input instance, never a
-		 * casedb selection; the engine's scalar resolver owns it. */
-		match[1] === "search"
-	) {
+	if (match === null || match[1] === "form" || match[1] === "case") {
 		return undefined;
 	}
 	const namespace = match[1] ?? "";

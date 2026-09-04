@@ -172,6 +172,60 @@ describe("searchNoMatchesEntry", () => {
 		expect(messages[0]).toContain("an after-submit destination");
 		expect(messages[0]).toContain("a display condition");
 	});
+
+	it("needs a menu form on a host that selects a parent case first", () => {
+		const households: ModuleSpec = {
+			uuid: OTHER_MODULE,
+			name: "Households",
+			caseType: "household",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [
+				{
+					uuid: OTHER_FORM,
+					name: "Visit household",
+					type: "followup",
+					fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
+				},
+			],
+		};
+		const withParent = (doc: BlueprintDoc): BlueprintDoc => ({
+			...doc,
+			caseTypes: [
+				...(doc.caseTypes ?? []).map((caseType) =>
+					caseType.name === "patient"
+						? { ...caseType, parent_type: "household" }
+						: caseType,
+				),
+				{
+					name: "household",
+					properties: [{ name: "case_name", label: proseText("Name") }],
+				},
+			],
+		});
+		// The menu form's parent datum is what the Register action copies.
+		expect(
+			codes(
+				withParent(docWith({}, households)),
+				"SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM",
+			),
+		).toEqual([]);
+		const formless = withParent(
+			docWith({ caseListOnly: true, forms: [registerForm()] }, households),
+		);
+		const messages = codes(
+			formless,
+			"SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM",
+		);
+		expect(messages).toHaveLength(1);
+		expect(messages[0]).toContain("has no menu form");
+		// Without the parent relationship a formless host is fine.
+		expect(
+			codes(
+				docWith({ caseListOnly: true, forms: [registerForm()] }),
+				"SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM",
+			),
+		).toEqual([]);
+	});
 });
 
 describe("searchNoMatchesFormUnique", () => {

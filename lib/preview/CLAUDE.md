@@ -817,7 +817,16 @@ that attempt (`awaitingSearchFetchRef` / `sawSearchFetchRef`), because the
 submit commits before the query effect fires and an earlier load's `rows`
 would otherwise settle the new attempt. **Search again** resets to
 not-searched. Failure is its own state: an `invalid-search`, transport, or
-persona refusal is not "no matches", and nothing is offered on it.
+persona refusal is not "no matches", and nothing is offered on it. The
+screen's run state (`useSearchInputRunState`) is screen-local while the
+context outlives the screen, so `CaseListScreen` keeps them one search: on a
+module's first pass the run state follows the context (`restore`, so a form
+of the module that returned to its list finds the standing search, as the
+device re-runs the query it kept); after that a retired context clears the
+run state, and a run state the screen dropped on its own retires the context.
+The context keeps the screen's answers (a date range as its two bounds);
+`runtimeBindings.ts::searchInputInstanceValues` folds them to the instance's
+one field per prompt where `FormScreen` hands them to the engine.
 
 The no-matches registration form (`Form.entry`, the wire's `case_list_form`)
 is admitted or refused by `components/preview/screens/noMatchesForm.ts::noMatchesFormAdmission`,
@@ -831,19 +840,24 @@ launch a later search superseded shows the refusal panel ("This form opens
 after a search finds no matches" plus the next step and **Go to Search**),
 and the engine never activates. An admitted launch hands the attempt's answers
 to `useFormEngine → engineController → FormEngine.runtimeOptions.searchAnswers`:
-`FormEngine.resolveHashtag` answers `#search/<name>` from that map (blank when
-absent), `xpathInstances.ts::searchInputXPathInstance` synthesizes the
-`search-input:results:inline` instance beside `commcaresession` so the wire
-spelling evaluates too, and the worker path reaches the same values through
-`workerInstances.hashtagValues`; `previewHashtagNodeSet` leaves the `search`
-namespace to that scalar resolver.
+`xpathInstances.ts::searchInputXPathInstance` synthesizes the
+`search-input:results:inline` instance beside `commcaresession`, and
+`previewHashtagNodeSet` selects `#search/<name>` as that instance's field
+node (the wire's `input/field[@name]`, so `count()` sees a prompt the search
+left blank as no node); the worker path reaches the same nodes through
+`workerInstances.hashtagValues`, and `FormEngine.resolveHashtag` answers the
+scalar (blank when absent) only for a form running without the instance.
 
-After submit, `afterSubmitRouting.ts` decides `results-with-registered-case`
-BEFORE any link (the form has none): `FormScreen` records the new case on the
-module's state (`recordRegisteredCase`: the same attempt, now completed with
-one match and `registeredCaseId`, which also closes the no-matches door), then
-opens the case list, and Results reads only that case (`useCases({ caseIds })`),
-mirroring the wire's `case_fixture` return frame. The form is on no menu:
+After submit, `FormScreen.dispatchAfterSubmit` lands a no-matches registration
+BEFORE any link (the form has none), as the wire's return frame does. A host
+with menu forms records the new case on the module's state
+(`recordRegisteredCase`: the same attempt, now completed with one match and
+`registeredCaseId`, which also closes the no-matches door) and opens the case
+list, where Results reads only that case (`useCases({ caseIds })`, the
+answers no longer narrowing it), mirroring the `case_fixture` frame. A host
+without menu forms has a frame of the host command alone, so its context
+retires and the module opens on Search again (or its automatic Results). The
+form is on no menu:
 `ModuleScreen`, `HomeScreen`'s form counts, and the case-list form menu read
 `useOrderedMenuForms` / `useMenuFormCounts`, while `screenProjection.ts` still
 projects the form URL so a stale link meets the refusal rather than a blank

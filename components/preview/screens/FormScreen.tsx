@@ -48,6 +48,7 @@ import {
 	isNoMatchesForm,
 	makeTranslationUnitId,
 	materializableCaseTypes as materializableCaseTypesFromDoc,
+	menuFormUuidsOf,
 	moduleIsCaseFirst,
 	moduleOpensOnSearch,
 	POST_SUBMIT_DESTINATIONS,
@@ -83,6 +84,7 @@ import {
 	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import {
@@ -575,12 +577,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			}),
 		[form, moduleUuid, searchLaunch, searchState],
 	);
+	/* The search context keeps the screen's answers (a date range as its
+	 * two bounds); the engine's search-input instance holds one field per
+	 * prompt, as the device's does. */
+	const hostSearchInputs = mod?.caseListConfig?.searchInputs;
 	const searchAnswers = useMemo(
 		() =>
 			mode === "preview" && noMatchesAdmission.kind === "admitted"
-				? new Map(Object.entries(noMatchesAdmission.answers))
+				? searchInputInstanceValues(
+						hostSearchInputs ?? [],
+						new Map(Object.entries(noMatchesAdmission.answers)),
+					)
 				: undefined,
-		[mode, noMatchesAdmission],
+		[mode, noMatchesAdmission, hostSearchInputs],
 	);
 	const language = useBuilderLanguage();
 	const formNameUnitId = makeTranslationUnitId(
@@ -1124,9 +1133,14 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			announced = true;
 			args.announceWrite();
 		};
-		/* A no-matches registration form returns to its module's Results
-		 * showing the case it registered, as the wire's return frame does; the
-		 * gate keeps such a form free of links, so this is decided first. */
+		/* A no-matches registration form returns to its module as the wire's
+		 * return frame does; the gate keeps such a form free of links, so
+		 * this is decided first. A host with menu forms lands on Results
+		 * showing the case it registered (the frame re-keys the search to
+		 * that case); a host without any has no frame beyond its command
+		 * (`caseListFormReturnFrame`), so the search context retires and the
+		 * module opens the way it first did: on Search, or on an automatic
+		 * Results when there is nothing to answer. */
 		const landOnResultsWithRegisteredCase = (
 			moduleUuid: Uuid,
 			caseId: string,
@@ -1134,10 +1148,12 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			announceWrite();
 			setPreviewSearchState(
 				moduleUuid,
-				recordRegisteredCase(
-					session.getState().previewSearchStates[moduleUuid],
-					caseId,
-				),
+				menuFormUuidsOf(submitted.doc, moduleUuid).length > 0
+					? recordRegisteredCase(
+							session.getState().previewSearchStates[moduleUuid],
+							caseId,
+						)
+					: undefined,
 			);
 			setPreviewSelectedCase(undefined);
 			setPreviewCaseTarget(undefined);
@@ -1155,19 +1171,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			submitted.moduleUuid !== undefined
 				? { moduleUuid: submitted.moduleUuid, caseId: result.caseId }
 				: undefined;
+		if (noMatchesRegistration !== undefined) {
+			landOnResultsWithRegisteredCase(
+				noMatchesRegistration.moduleUuid,
+				noMatchesRegistration.caseId,
+			);
+			return;
+		}
 		const links = submitted.links;
 		if (
 			links === undefined ||
 			links.length === 0 ||
 			submitted.formUuid === undefined
 		) {
-			if (noMatchesRegistration !== undefined) {
-				landOnResultsWithRegisteredCase(
-					noMatchesRegistration.moduleUuid,
-					noMatchesRegistration.caseId,
-				);
-				return;
-			}
 			announceWrite();
 			settleAttempt({ kind: "idle" });
 			dispatchPostSubmit(submitted.destination, submitted.moduleUuid);
@@ -1423,9 +1439,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				carriedCase: (link) =>
 					carriedCaseFromSelections(input, link, projectedSelections),
 				caseSelections: () => projectedSelections,
-				...(noMatchesRegistration === undefined
-					? {}
-					: { noMatchesRegistration }),
 			});
 			let targetCaseData = caseData;
 			let targetFormCaseData: ReturnType<typeof caseDatabaseToFormPreloads>;
@@ -1561,9 +1574,6 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 					});
 					settleAttempt({ kind: "idle" });
 					navigate.openForm(route.moduleUuid, route.formUuid);
-					return;
-				case "results-with-registered-case":
-					landOnResultsWithRegisteredCase(route.moduleUuid, route.caseId);
 					return;
 				case "unresolvable":
 					failAfterSave(

@@ -23,7 +23,7 @@ import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import {
 	useIsBareCaseListModule,
 	useIsCaseFirstModule,
-	useOrderedForms,
+	useOrderedMenuForms,
 } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
 import type { CaseType } from "@/lib/domain";
@@ -69,7 +69,7 @@ export function useDisplayConditionCarrier(
 	const mod = useModule(target.moduleUuid);
 	const parentModule = useModule(mod?.parentModuleUuid);
 	const form = useForm(target.kind === "form" ? target.formUuid : undefined);
-	const forms = useOrderedForms(target.moduleUuid);
+	const menuForms = useOrderedMenuForms(target.moduleUuid);
 	const caseFirst = useIsCaseFirstModule(target.moduleUuid);
 	const moduleIsBareCaseList = useIsBareCaseListModule(target.moduleUuid);
 	const caseTypes = useEffectiveCaseTypes();
@@ -92,13 +92,13 @@ export function useDisplayConditionCarrier(
 			moduleName: mod.name,
 			caseFirst,
 			caseType: mod.caseType,
-			formCount: forms.length,
+			formCount: menuForms.length,
 		};
 	}, [
 		mod,
 		parentModule,
 		form,
-		forms,
+		menuForms,
 		caseFirst,
 		moduleIsBareCaseList,
 		target.kind,
