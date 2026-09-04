@@ -23,6 +23,7 @@
 export const PLATFORM_CONSTRAINT_CODES = [
 	// Preview / runtime limitations
 	"PREVIEW_AUTOMATIONS_NOT_EXECUTED",
+	"NO_MATCHES_REGISTRATION_IS_WEB_APPS_ONLY",
 	// External setup requirements
 	"AUTOMATION_HQ_MANUAL_SETUP",
 	"HQ_BUILD_RELEASE_NOT_API_DRIVEN",
@@ -71,6 +72,12 @@ export const PLATFORM_CONSTRAINTS: Record<
 		statement:
 			"Preview shows a read-only current-match count for an automation; it never updates a case, sends a message, or advances a schedule, and current matching does not predict CommCare HQ's next sweep.",
 		sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
+	},
+	NO_MATCHES_REGISTRATION_IS_WEB_APPS_ONLY: {
+		code: "NO_MATCHES_REGISTRATION_IS_WEB_APPS_ONLY",
+		statement:
+			"A search-first module's registration form offered after a search finds no matches, and the search answers it carries into that form, work in the browser app only: a phone never shows a case list for an empty search response and passes no search answers to a form, so workers on Android cannot register from an empty search and must reach registration another way.",
+		sourceAnchor: "lib/commcare/suite/case-search/noMatches.ts",
 	},
 	AUTOMATION_HQ_MANUAL_SETUP: {
 		code: "AUTOMATION_HQ_MANUAL_SETUP",

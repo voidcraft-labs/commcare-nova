@@ -83,10 +83,10 @@ export function planSearchTakeawayDependents(
 			: "remove Search from";
 	const message =
 		`Cannot ${action} module "${moduleName}" (${moduleUuid}): form "${form.name}" (${form.uuid}) opens after a search finds no matches, which needs the module to open on Search. ` +
-		`Clear that form's entry with update_form (entry: null) so it becomes a menu form, or remove it with remove_form, then change the module's Search.`;
+		`Clear that form's entry with update_form (entry: null), which turns Search first off and drops the starting values its fields read from the search in the same call, or remove it with remove_form, then change the module's Search.`;
 	const userMessage =
 		`"${moduleName}" keeps opening on Search for now: "${form.name}" opens when a search finds nothing. ` +
-		`Make "${form.name}" a menu form again, or remove it, then try again.`;
+		`Make "${form.name}" a menu form again (Search first turns off with it), or remove it, then try again.`;
 	return { kind: "blocked", message, userMessage };
 }
 

@@ -5,10 +5,15 @@
 // (`Form.entry` of kind `search-no-matches`). Setting the entry turns Search
 // first on in the same batch when it is off, because the form's rule
 // (`SEARCH_NO_MATCHES_ENTRY_REQUIRES_SEARCH_FIRST`) reads the module, and
-// a two-batch flip would leave the first batch failing the gate. The
-// carried-answer fields are the scaffold every editor offers: one field per
-// Search prompt, seeded from `#search/<name>` and saved to the prompt's
-// property where the prompt has one.
+// a two-batch flip would leave the first batch failing the gate. Clearing
+// it is the mirror image: a registration form on the menu makes the module
+// forms-first, which `SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE` refuses, and
+// a `#search/` read outside a no-matches form is `INVALID_SEARCH_REF`, so
+// the clear turns Search first off and drops the starting values read from
+// the search in the same batch. The carried-answer fields are the scaffold
+// every editor offers: one field per Search prompt, seeded from
+// `#search/<name>` and saved to the prompt's property where the prompt has
+// one.
 
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -18,6 +23,7 @@ import {
 	type FormEntry,
 	fieldCaseWrite,
 	humanizeId,
+	menuFormUuidsOf,
 	moduleOpensOnSearch,
 	proseText,
 	type SearchInputDef,
@@ -26,8 +32,12 @@ import {
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import { suffixUntilFree } from "@/lib/domain/idSlug";
 import { FORBIDDEN_CASE_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
-import { findContainingForm } from "./mutations/helpers";
+import { walkFormFieldUuids } from "./mutations/helpers";
 import { declareCaseTypeForField, formScaffoldMutations } from "./scaffolds";
+import {
+	type SearchAnswerFieldDependent,
+	searchAnswerFieldDependents,
+} from "./searchNoMatchesDependents";
 
 /** Turn Search first on for the module, or nothing when it already is. */
 export function searchFirstOnMutations(
@@ -50,9 +60,72 @@ export function searchFirstOnMutations(
 }
 
 /**
- * Set or clear the form's entry. Setting it also opens the module on
- * Search when it does not already; clearing leaves the module's Search as
- * it is (the module keeps opening on Search until someone turns it off).
+ * The fields of `formUuid` reading any of `moduleUuid`'s Search prompts,
+ * one entry per field with every slot holding a read.
+ */
+export function searchAnswerReadersOf(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): readonly SearchAnswerFieldDependent[] {
+	const inputs = doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? [];
+	const readers = new Map<Uuid, SearchAnswerFieldDependent>();
+	for (const input of inputs) {
+		for (const dependent of searchAnswerFieldDependents(doc, input.uuid)) {
+			if (dependent.formUuid !== formUuid) continue;
+			const known = readers.get(dependent.fieldUuid);
+			readers.set(
+				dependent.fieldUuid,
+				known === undefined
+					? dependent
+					: {
+							...known,
+							slots: [
+								...known.slots,
+								...dependent.slots.filter(
+									(slot) => !known.slots.includes(slot),
+								),
+							],
+						},
+			);
+		}
+	}
+	return [...readers.values()];
+}
+
+/**
+ * The fields of `formUuid` whose only read of the search is their starting
+ * value: the ones {@link noMatchesFormEntryMutations} clears when the form
+ * returns to the menu. A field reading an answer anywhere else keeps its
+ * expression and the gate names it.
+ */
+export function searchAnswerDefaultsOf(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): readonly SearchAnswerFieldDependent[] {
+	return searchAnswerReadersOf(doc, moduleUuid, formUuid).filter((reader) =>
+		reader.slots.every((slot) => slot === "default_value"),
+	);
+}
+
+/**
+ * Set or clear the form's entry, landing a module the gate accepts either
+ * way.
+ *
+ * Setting it opens the module on Search when it does not already, and
+ * moves the menu shape with the form: a module whose only menu form this
+ * was becomes a case list with no menu forms (`caseListOnly`, the one valid
+ * formless shape, and the one the search-first rule admits).
+ *
+ * Clearing it puts a registration form back on the menu, which no module
+ * that opens on Search may hold, so Search first turns off in the same
+ * batch (the module lands on its case list with a Search button again), a
+ * bare host loses `caseListOnly`, and every field whose only search read is
+ * its starting value loses that `default_value` (`#search/` resolves inside
+ * a no-matches form alone). A read in any other slot is left for the gate
+ * to name: it is hand-authored, and dropping it would be a decision made
+ * for the person.
  */
 export function noMatchesFormEntryMutations(
 	doc: BlueprintDoc,
@@ -60,8 +133,62 @@ export function noMatchesFormEntryMutations(
 	formUuid: Uuid,
 	entry: FormEntry | null,
 ): Mutation[] {
+	const mod = doc.modules[moduleUuid];
+	if (entry === null) {
+		const defaultsCleared = searchAnswerDefaultsOf(
+			doc,
+			moduleUuid,
+			formUuid,
+		).flatMap((reader): Mutation[] => {
+			const field = doc.fields[reader.fieldUuid];
+			if (field === undefined) return [];
+			return [
+				{
+					kind: "updateField",
+					uuid: field.uuid,
+					targetKind: field.kind,
+					patch: { default_value: null },
+				} as Mutation,
+			];
+		});
+		return [
+			...(mod !== undefined && moduleOpensOnSearch(mod)
+				? [
+						{
+							kind: "updateModule" as const,
+							uuid: moduleUuid,
+							patch: {},
+							caseSearchConfigPatch: { searchFirst: null },
+						},
+					]
+				: []),
+			...(mod?.caseListOnly === true
+				? [
+						{
+							kind: "updateModule" as const,
+							uuid: moduleUuid,
+							patch: { caseListOnly: false },
+						},
+					]
+				: []),
+			...defaultsCleared,
+			{ kind: "updateForm", uuid: formUuid, patch: { entry: null } },
+		];
+	}
+	const otherMenuForms = menuFormUuidsOf(doc, moduleUuid).filter(
+		(uuid) => uuid !== formUuid,
+	);
 	return [
-		...(entry === null ? [] : searchFirstOnMutations(doc, moduleUuid)),
+		...searchFirstOnMutations(doc, moduleUuid),
+		...(otherMenuForms.length === 0 && mod?.caseListOnly !== true
+			? [
+					{
+						kind: "updateModule" as const,
+						uuid: moduleUuid,
+						patch: { caseListOnly: true },
+					},
+				]
+			: []),
 		{ kind: "updateForm", uuid: formUuid, patch: { entry } },
 	];
 }
@@ -81,10 +208,15 @@ function searchAnswerExpression(input: SearchInputDef) {
 /**
  * The builder's one-step answer to "register a new case when nothing
  * matches": a registration form born as the module's no-matches form, its
- * `case_name` writer seeded from a Search prompt on the name when the
- * module has one, one field per remaining prompt seeded from its answer
- * (`searchAnswerFields`), and Search first turned on in the same batch.
- * Returns `null` for a module without a case type (nothing to register).
+ * `case_name` writer seeded from a text Search prompt on the name when the
+ * module has one (a choice prompt on the name is carried as its own choice
+ * field instead, since its answer is an option token), one field per
+ * remaining prompt seeded from its answer (`searchAnswerFields`), and
+ * Search first turned on in the same batch. A module with no menu forms
+ * stays the case list it is (`caseListOnly`): the new form is not a menu
+ * form, so the scaffold's viewer-to-menu flip would leave a module with no
+ * forms and no case list. Returns `null` for a module without a case type
+ * (nothing to register).
  */
 export function noMatchesRegistrationFormMutations(
 	doc: BlueprintDoc,
@@ -98,36 +230,55 @@ export function noMatchesRegistrationFormMutations(
 	const nameInput = (mod.caseListConfig?.searchInputs ?? []).find(
 		(input) =>
 			input.kind === "simple" &&
-			input.type !== "date-range" &&
+			(input.type === "text" || input.type === "barcode") &&
 			input.property === "case_name",
 	);
-	const mutations: Mutation[] = scaffold.mutations.map((mutation) => {
-		if (mutation.kind === "addForm") {
-			return {
-				...mutation,
-				form: {
-					...mutation.form,
-					name: formName,
-					entry: { kind: "search-no-matches" },
-				},
-			};
-		}
-		if (
-			mutation.kind === "addField" &&
-			nameInput !== undefined &&
-			mutation.field.kind === "text" &&
-			mutation.field.id === "case_name"
-		) {
-			return {
-				...mutation,
-				field: {
-					...mutation.field,
-					default_value: searchAnswerExpression(nameInput),
-				},
-			};
-		}
-		return mutation;
-	});
+	const keepsViewer =
+		mod.caseListOnly === true && menuFormUuidsOf(doc, moduleUuid).length === 0;
+	const mutations: Mutation[] = scaffold.mutations.flatMap(
+		(mutation): Mutation[] => {
+			if (keepsViewer && mutation.kind === "updateModule") {
+				const { caseListOnly, ...patch } = mutation.patch;
+				if (caseListOnly !== false) return [mutation];
+				const rest = { ...mutation, patch };
+				const carriesMore =
+					Object.keys(patch).length > 0 ||
+					Object.keys(rest).some(
+						(key) => !["kind", "uuid", "patch"].includes(key),
+					);
+				return carriesMore ? [rest] : [];
+			}
+			if (mutation.kind === "addForm") {
+				return [
+					{
+						...mutation,
+						form: {
+							...mutation.form,
+							name: formName,
+							entry: { kind: "search-no-matches" },
+						},
+					},
+				];
+			}
+			if (
+				mutation.kind === "addField" &&
+				nameInput !== undefined &&
+				mutation.field.kind === "text" &&
+				mutation.field.id === "case_name"
+			) {
+				return [
+					{
+						...mutation,
+						field: {
+							...mutation.field,
+							default_value: searchAnswerExpression(nameInput),
+						},
+					},
+				];
+			}
+			return [mutation];
+		},
+	);
 	const carried = searchAnswerFields(
 		doc,
 		moduleUuid,
@@ -154,8 +305,9 @@ export function carrySearchAnswersMutations(
 ): Mutation[] {
 	const occupiedIds = new Set<string>();
 	const occupiedProperties = new Set<string>();
-	for (const field of Object.values(doc.fields)) {
-		if (findContainingForm(doc, field.uuid) !== formUuid) continue;
+	for (const fieldUuid of walkFormFieldUuids(doc, formUuid)) {
+		const field = doc.fields[fieldUuid];
+		if (field === undefined) continue;
 		occupiedIds.add(field.id);
 		const write = fieldCaseWrite(field);
 		if (write !== undefined) occupiedProperties.add(write.property);
@@ -190,14 +342,17 @@ function hiddenPromptSavesAs(name: string): boolean {
  * (a search time, say) when that name can be a case property. A prompt
  * whose property the form already writes (`occupiedProperties`) is skipped:
  * the authored field carries it, and two writers of one property would not
- * pass the gate. `occupiedIds` are field ids already taken on the form; the
- * returned fields' ids are added to it.
+ * pass the gate. Two prompts on one property (a typed and a scanned phone,
+ * say) are legal on the Search screen, so the first carries the property
+ * and the rest are skipped the same way. `occupiedIds` are field ids
+ * already taken on the form; the returned fields' ids and properties are
+ * added to the two sets.
  */
 export function searchAnswerFields(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
 	occupiedIds: Set<string>,
-	occupiedProperties: ReadonlySet<string> = new Set(),
+	occupiedProperties: Set<string> = new Set(),
 ): Field[] {
 	const mod = doc.modules[moduleUuid];
 	const caseType = mod?.caseType;
@@ -212,7 +367,10 @@ export function searchAnswerFields(
 				: input.kind === "simple" && input.type !== "date-range"
 					? input.property
 					: undefined;
-		if (property !== undefined && occupiedProperties.has(property)) continue;
+		if (property !== undefined) {
+			if (occupiedProperties.has(property)) continue;
+			occupiedProperties.add(property);
+		}
 		const id = suffixUntilFree(input.name, occupiedIds);
 		occupiedIds.add(id);
 		const uuid = asUuid(crypto.randomUUID());

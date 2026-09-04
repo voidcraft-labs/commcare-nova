@@ -10,7 +10,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { searchInputRemovalDependenciesInDoc } from "@/lib/doc/searchInputMutations";
+import { searchInputFormFieldDependencies } from "@/lib/doc/searchInputMutations";
 import {
 	planSearchInputRemovalFieldDependents,
 	planSearchTakeawayDependents,
@@ -20,10 +20,15 @@ import {
 	carrySearchAnswersMutations,
 	noMatchesFormEntryMutations,
 	noMatchesRegistrationFormMutations,
+	searchAnswerDefaultsOf,
 	searchAnswerFields,
 	searchFirstOnMutations,
 } from "@/lib/doc/searchNoMatchesForm";
 import { simpleSearchInputDef } from "@/lib/domain";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { now } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
@@ -35,7 +40,14 @@ const TIME_INPUT = testUuid("00000000-0000-4000-8000-0000000c0002");
 const NAME_FIELD = testUuid("00000000-0000-4000-8000-0000000c0020");
 
 function fixture(
-	options: { searchFirst?: boolean; entry?: boolean; register?: boolean } = {},
+	options: {
+		searchFirst?: boolean;
+		entry?: boolean;
+		register?: boolean;
+		/** Drop the Visit form so the registration form is the only form. */
+		visit?: boolean;
+		caseListOnly?: boolean;
+	} = {},
 ) {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 	config.searchInputs = [
@@ -62,16 +74,25 @@ function fixture(
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: config,
+				...(options.caseListOnly === undefined
+					? {}
+					: { caseListOnly: options.caseListOnly }),
 				...(options.searchFirst === false
 					? {}
 					: { caseSearchConfig: { searchFirst: true } }),
 				forms: [
-					{
-						uuid: VISIT,
-						name: "Visit",
-						type: "followup",
-						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
-					},
+					...(options.visit === false
+						? []
+						: [
+								{
+									uuid: VISIT,
+									name: "Visit",
+									type: "followup" as const,
+									fields: [
+										f({ kind: "text", id: "note", label: proseText("Note") }),
+									],
+								},
+							]),
 					...(options.register === false
 						? []
 						: [
@@ -216,10 +237,88 @@ describe("noMatchesFormEntryMutations", () => {
 		});
 	});
 
-	it("clears the entry without touching the module's Search", () => {
+	it("returns the form to the menu with Search first off and the search-answer starting values removed", () => {
+		const doc = fixture();
+		const mutations = noMatchesFormEntryMutations(doc, MODULE, REGISTER, null);
+		expect(mutations).toEqual([
+			{
+				kind: "updateModule",
+				uuid: MODULE,
+				patch: {},
+				caseSearchConfigPatch: { searchFirst: null },
+			},
+			{
+				kind: "updateField",
+				uuid: NAME_FIELD,
+				targetKind: "text",
+				patch: { default_value: null },
+			},
+			{ kind: "updateForm", uuid: REGISTER, patch: { entry: null } },
+		]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict, null, 1));
+		expect(verdict.nextDoc.forms[REGISTER]?.entry).toBeUndefined();
+		expect(verdict.nextDoc.modules[MODULE]?.caseSearchConfig).not.toMatchObject(
+			{ searchFirst: true },
+		);
+		expect(verdict.nextDoc.fields[NAME_FIELD]).not.toHaveProperty(
+			"default_value",
+		);
+	});
+
+	it("names the fields whose only search read is their starting value", () => {
+		const doc = fixture();
 		expect(
-			noMatchesFormEntryMutations(fixture(), MODULE, REGISTER, null),
-		).toEqual([{ kind: "updateForm", uuid: REGISTER, patch: { entry: null } }]);
+			searchAnswerDefaultsOf(doc, MODULE, REGISTER).map((reader) => [
+				reader.fieldUuid,
+				reader.slots,
+			]),
+		).toEqual([[NAME_FIELD, ["default_value"]]]);
+		expect(searchAnswerDefaultsOf(doc, MODULE, VISIT)).toEqual([]);
+	});
+
+	it("makes the module a bare case list when its only menu form leaves the menu", () => {
+		const doc = fixture({ searchFirst: false, entry: false, visit: false });
+		const mutations = noMatchesFormEntryMutations(doc, MODULE, REGISTER, {
+			kind: "search-no-matches",
+		});
+		expect(mutations).toContainEqual({
+			kind: "updateModule",
+			uuid: MODULE,
+			patch: { caseListOnly: true },
+		});
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict, null, 1));
+		expect(verdict.nextDoc.modules[MODULE]?.caseListOnly).toBe(true);
+		expect(verdict.nextDoc.forms[REGISTER]?.entry).toEqual({
+			kind: "search-no-matches",
+		});
+	});
+
+	it("puts the form back on the menu of a bare case list when clearing", () => {
+		const doc = fixture({ visit: false, caseListOnly: true });
+		const mutations = noMatchesFormEntryMutations(doc, MODULE, REGISTER, null);
+		expect(mutations).toContainEqual({
+			kind: "updateModule",
+			uuid: MODULE,
+			patch: { caseListOnly: false },
+		});
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict, null, 1));
+		expect(verdict.nextDoc.modules[MODULE]?.caseListOnly).toBeFalsy();
+		expect(verdict.nextDoc.forms[REGISTER]?.entry).toBeUndefined();
 	});
 });
 
@@ -281,6 +380,69 @@ describe("noMatchesRegistrationFormMutations", () => {
 			),
 		).toBeNull();
 	});
+
+	it("keeps a formless case list a case list, since the new form is not a menu form", () => {
+		const doc = fixture({
+			searchFirst: false,
+			register: false,
+			visit: false,
+			caseListOnly: true,
+		});
+		const planned = noMatchesRegistrationFormMutations(doc, MODULE);
+		if (planned === null) throw new Error("no plan");
+		const modulePatches = planned.mutations.flatMap((mutation) =>
+			mutation.kind === "updateModule" ? [mutation.patch] : [],
+		);
+		expect(modulePatches).not.toContainEqual(
+			expect.objectContaining({ caseListOnly: false }),
+		);
+		const verdict = mutationCommitVerdict(
+			doc,
+			planned.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict, null, 1));
+		expect(verdict.nextDoc.modules[MODULE]?.caseListOnly).toBe(true);
+	});
+
+	it("carries a choice prompt on the name as its own field rather than seeding the name writer", () => {
+		const doc = fixture({ searchFirst: false, register: false });
+		const config = doc.modules[MODULE].caseListConfig;
+		if (config === undefined) throw new Error("no case list");
+		config.searchInputs = [
+			{
+				kind: "simple",
+				uuid: NAME_INPUT,
+				name: "patient_name",
+				label: "Patient name",
+				type: "select",
+				property: "case_name",
+				mode: { kind: "exact" },
+				options: {
+					kind: "lookup",
+					tableId: lookupTableIdSchema.parse(
+						"01912d68-783e-7000-8000-00000000a001",
+					),
+					valueColumnId: lookupColumnIdSchema.parse(
+						"01912d68-783e-7000-8000-00000000c001",
+					),
+					labelColumnId: lookupColumnIdSchema.parse(
+						"01912d68-783e-7000-8000-00000000c002",
+					),
+				},
+			},
+		];
+		const planned = noMatchesRegistrationFormMutations(doc, MODULE);
+		if (planned === null) throw new Error("no plan");
+		const fields = planned.mutations.flatMap((mutation) =>
+			mutation.kind === "addField" ? [mutation.field] : [],
+		);
+		const nameWriter = fields.find((field) => field.id === "case_name");
+		expect(nameWriter).not.toHaveProperty("default_value");
+		// The prompt's own field is skipped too: the name writer already
+		// carries `case_name`, and a choice token is not a name.
+		expect(fields.map((field) => field.id)).toEqual(["case_name"]);
+	});
 });
 
 describe("carrySearchAnswersMutations", () => {
@@ -308,12 +470,10 @@ describe("carrySearchAnswersMutations", () => {
 	});
 });
 
-describe("searchInputRemovalDependenciesInDoc", () => {
-	it("lists the form fields reading the prompt beside the config's own dependencies", () => {
+describe("searchInputFormFieldDependencies", () => {
+	it("lists the form fields reading the prompt as removal dependencies", () => {
 		const doc = fixture();
-		expect(
-			searchInputRemovalDependenciesInDoc(doc, MODULE, NAME_INPUT),
-		).toEqual([
+		expect(searchInputFormFieldDependencies(doc, MODULE, NAME_INPUT)).toEqual([
 			{
 				kind: "form-field",
 				label: "“case_name” in “Register patient”",
@@ -323,9 +483,9 @@ describe("searchInputRemovalDependenciesInDoc", () => {
 				uses: 1,
 			},
 		]);
-		expect(
-			searchInputRemovalDependenciesInDoc(doc, MODULE, TIME_INPUT),
-		).toEqual([]);
+		expect(searchInputFormFieldDependencies(doc, MODULE, TIME_INPUT)).toEqual(
+			[],
+		);
 	});
 });
 
@@ -381,6 +541,37 @@ describe("searchAnswerFields", () => {
 		const [field] = searchAnswerFields(doc, MODULE, new Set());
 		expect(field).toMatchObject({ kind: "hidden", id: "case_id" });
 		expect(field).not.toHaveProperty("caseWrite");
+	});
+
+	it("gives two prompts on one property a single writer", () => {
+		const doc = fixture();
+		const config = doc.modules[MODULE].caseListConfig;
+		if (config === undefined) throw new Error("no case list");
+		config.searchInputs = [
+			simpleSearchInputDef(
+				NAME_INPUT,
+				"patient_name",
+				"Patient name",
+				"text",
+				"case_name",
+			),
+			simpleSearchInputDef(
+				TIME_INPUT,
+				"scanned_name",
+				"Scanned name",
+				"barcode",
+				"case_name",
+			),
+		];
+		const occupiedProperties = new Set<string>();
+		const fields = searchAnswerFields(
+			doc,
+			MODULE,
+			new Set(),
+			occupiedProperties,
+		);
+		expect(fields.map((field) => field.id)).toEqual(["patient_name"]);
+		expect([...occupiedProperties]).toEqual(["case_name"]);
 	});
 
 	it("dedupes an id the form already uses", () => {

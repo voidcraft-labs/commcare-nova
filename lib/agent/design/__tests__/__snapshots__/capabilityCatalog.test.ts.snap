@@ -13,9 +13,10 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "04e3064ceaf08d867539d8a36ac5d8d10867f6c481b3c9a9ac885a70d00bb34e",
+  "catalogDigest": "9a9b4336c37567c16164ec282515eaf114650519b6f5da31e1ec4943cbc9cff7",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
+    "NO_MATCHES_REGISTRATION_IS_WEB_APPS_ONLY",
     "AUTOMATION_HQ_MANUAL_SETUP",
     "HQ_BUILD_RELEASE_NOT_API_DRIVEN",
     "WORKER_SCHEMA_AND_ROLES_NOT_PUSHED",

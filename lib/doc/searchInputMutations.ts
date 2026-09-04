@@ -114,27 +114,6 @@ export function searchInputFormFieldDependencies(
 	}));
 }
 
-/**
- * {@link searchInputRemovalDependencies} over the document's own copy of the
- * module's config, plus {@link searchInputFormFieldDependencies}.
- */
-export function searchInputRemovalDependenciesInDoc(
-	doc: BlueprintDoc,
-	moduleUuid: Uuid,
-	inputUuid: Uuid,
-): readonly SearchInputRemovalDependency[] {
-	const mod = doc.modules[moduleUuid];
-	if (mod?.caseListConfig === undefined) return [];
-	return [
-		...searchInputRemovalDependencies(
-			mod.caseListConfig,
-			mod.caseSearchConfig,
-			inputUuid,
-		),
-		...searchInputFormFieldDependencies(doc, moduleUuid, inputUuid),
-	];
-}
-
 function predicateInputPaths(
 	predicate: NonNullable<CaseListConfig["filter"]>,
 	searchInputUuid: Uuid,

@@ -6,8 +6,9 @@
 // both plan through `lib/doc/searchNoMatchesForm.ts`, review the exact
 // batch against the gate, and name the worker-visible consequences (the
 // module opening on Search, the form leaving the menu) before committing.
-// Clearing the entry is undoable and changes only the menu, so it commits
-// without a review.
+// Clearing is reviewed the same way, because it is not the menu alone that
+// changes: Search first turns off with it, and the starting values the
+// form read from the search go.
 
 "use client";
 
@@ -28,12 +29,13 @@ import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	noMatchesFormEntryMutations,
 	noMatchesRegistrationFormMutations,
+	searchAnswerDefaultsOf,
 } from "@/lib/doc/searchNoMatchesForm";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
-	isNoMatchesForm,
 	menuFormUuidsOf,
 	moduleOpensOnSearch,
+	noMatchesFormOf,
 	type Uuid,
 } from "@/lib/domain";
 
@@ -47,11 +49,17 @@ export type NoMatchesFormChoice =
 	| { readonly kind: "clear" };
 
 export interface NoMatchesFormReview {
-	readonly choice: Exclude<NoMatchesFormChoice, { kind: "clear" }>;
-	/** The form Results will offer. */
+	readonly choice: NoMatchesFormChoice;
+	/** The form Results will offer, or the one returning to the menu. */
 	readonly formName: string;
 	/** Whether the batch turns Search first on for the module. */
 	readonly turnsSearchFirstOn: boolean;
+	/** Whether the batch turns Search first off (a clear on a module that
+	 *  opens on Search). */
+	readonly turnsSearchFirstOff: boolean;
+	/** How many fields lose the starting value they read from the search
+	 *  (a clear). */
+	readonly defaultsCleared: number;
 	/** Whether the module keeps a menu form once this one leaves the menu:
 	 *  decides where the registration returns (Results with the new case,
 	 *  or the module's Search). */
@@ -93,14 +101,15 @@ function planChoice(
 			};
 		}
 		case "clear": {
-			const formUuid = (doc.formOrder[moduleUuid] ?? []).find((uuid) => {
-				const form = doc.forms[uuid];
-				return form !== undefined && isNoMatchesForm(form);
-			});
-			const form = formUuid === undefined ? undefined : doc.forms[formUuid];
-			if (formUuid === undefined || form === undefined) return null;
+			const form = noMatchesFormOf(doc, moduleUuid);
+			if (form === undefined) return null;
 			return {
-				mutations: noMatchesFormEntryMutations(doc, moduleUuid, formUuid, null),
+				mutations: noMatchesFormEntryMutations(
+					doc,
+					moduleUuid,
+					form.uuid,
+					null,
+				),
 				formName: form.name,
 			};
 		}
@@ -109,10 +118,9 @@ function planChoice(
 
 /**
  * The controller both surfaces share: `request` plans the choice against
- * the live document and either commits (clear) or opens the review;
- * `confirm` replans against the freshest document and commits. Every
- * commit and refusal lands in `announcement` / `refusal` for the host's
- * live regions.
+ * the live document and opens the review; `confirm` replans against the
+ * freshest document and commits. Every commit and refusal lands in
+ * `announcement` / `refusal` for the host's live regions.
  */
 export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 	const docApi = useBlueprintDocApi();
@@ -125,19 +133,27 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 	const describe = useCallback(
 		(
 			doc: BlueprintDoc,
-			choice: Exclude<NoMatchesFormChoice, { kind: "clear" }>,
+			choice: NoMatchesFormChoice,
 			planned: PlannedChoice,
 			blockers: readonly string[],
 		): NoMatchesFormReview => {
 			if (moduleUuid === undefined) throw new Error("module required");
 			const mod = doc.modules[moduleUuid];
+			const opensOnSearch = mod !== undefined && moduleOpensOnSearch(mod);
 			const menuForms = menuFormUuidsOf(doc, moduleUuid).filter(
 				(uuid) => choice.kind !== "existing" || uuid !== choice.formUuid,
 			);
+			const clearing = choice.kind === "clear";
+			const current = clearing ? noMatchesFormOf(doc, moduleUuid) : undefined;
 			return {
 				choice,
 				formName: planned.formName,
-				turnsSearchFirstOn: mod !== undefined && !moduleOpensOnSearch(mod),
+				turnsSearchFirstOn: !clearing && !opensOnSearch,
+				turnsSearchFirstOff: clearing && opensOnSearch,
+				defaultsCleared:
+					current === undefined
+						? 0
+						: searchAnswerDefaultsOf(doc, moduleUuid, current.uuid).length,
 				hostKeepsMenuForms: menuForms.length > 0,
 				blockers,
 			};
@@ -153,17 +169,6 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 			const doc = docApi.getState();
 			const planned = planChoice(doc, moduleUuid, choice);
 			if (planned === null) return;
-			if (choice.kind === "clear") {
-				const outcome = inline.commitMany(planned.mutations);
-				if (outcome.ok) {
-					setAnnouncement(
-						`“${planned.formName}” is a menu form again. Results shows only the notice when nothing matches, and the module still opens on Search.`,
-					);
-				} else {
-					setRefusal(outcome.messages.join(" "));
-				}
-				return;
-			}
 			const reviewed = inline.reviewMany([...planned.mutations]);
 			setReview(
 				describe(doc, choice, planned, reviewed.ok ? [] : reviewed.messages),
@@ -198,7 +203,9 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 		setAnnouncement(
 			review.choice.kind === "create"
 				? `“${planned.formName}” was added. Results offers it after a search finds nothing, and the module opens on Search.`
-				: `Results offers “${planned.formName}” after a search finds nothing, and the module opens on Search.`,
+				: review.choice.kind === "existing"
+					? `Results offers “${planned.formName}” after a search finds nothing, and the module opens on Search.`
+					: `“${planned.formName}” is a menu form again. Results shows only the notice when nothing matches${review.turnsSearchFirstOff ? ", and the module opens on its case list" : ""}.`,
 		);
 	}, [describe, docApi, inline, moduleUuid, review]);
 
@@ -234,14 +241,21 @@ export function NoMatchesFormReviewDialog({
 	const cancelRef = useRef<HTMLButtonElement>(null);
 	const blocked = review.blockers.length > 0;
 	const creating = review.choice.kind === "create";
+	const clearing = review.choice.kind === "clear";
 	const title = blocked
-		? "Review this module before offering a form"
-		: creating
-			? `Add “${review.formName}” for empty searches?`
-			: `Offer “${review.formName}” after an empty search?`;
+		? clearing
+			? "Review this form before it returns to the menu"
+			: "Review this module before offering a form"
+		: clearing
+			? `Make “${review.formName}” a menu form again?`
+			: creating
+				? `Add “${review.formName}” for empty searches?`
+				: `Offer “${review.formName}” after an empty search?`;
 	const description = blocked
 		? "Nothing has changed. Each item below explains what needs attention. Once these items are resolved, this setting will be available."
-		: `When a search finds nothing, Results offers “${review.formName}”. It opens with the search's answers, so people register what they looked for.`;
+		: clearing
+			? `“${review.formName}” returns to the module menu, and Results shows only the notice when a search finds nothing.`
+			: `When a search finds nothing, Results offers “${review.formName}”. It opens with the search's answers, so people register what they looked for.`;
 	return (
 		<AlertDialog
 			open
@@ -275,6 +289,25 @@ export function NoMatchesFormReviewDialog({
 								</li>
 							))}
 						</ul>
+					) : clearing ? (
+						<div className="space-y-3 text-[13px] leading-5 text-nova-text-secondary">
+							{review.turnsSearchFirstOff && (
+								<p className="rounded-xl border border-nova-amber/25 bg-nova-amber/[0.05] p-3">
+									Search first turns off. A menu registration form cannot open
+									on Search, so the module opens on its case list with a Search
+									button, and its forms return to the previous screen after
+									submit.
+								</p>
+							)}
+							{review.defaultsCleared > 0 && (
+								<p className="rounded-xl border border-white/[0.07] bg-nova-surface/20 p-3">
+									{review.defaultsCleared === 1
+										? "One field loses the starting value it read from the search. The field stays."
+										: `${review.defaultsCleared} fields lose the starting values they read from the search. The fields stay.`}
+								</p>
+							)}
+							<p className="text-nova-text-muted">You can undo this.</p>
+						</div>
 					) : (
 						<div className="space-y-3 text-[13px] leading-5 text-nova-text-secondary">
 							{review.turnsSearchFirstOn && (
@@ -306,11 +339,19 @@ export function NoMatchesFormReviewDialog({
 				</AlertDialogBody>
 				<AlertDialogFooter>
 					<AlertDialogCancel ref={cancelRef}>
-						{blocked ? "Close" : "Keep the notice only"}
+						{blocked
+							? "Close"
+							: clearing
+								? "Keep offering it"
+								: "Keep the notice only"}
 					</AlertDialogCancel>
 					{!blocked && (
 						<AlertDialogAction onClick={onConfirm}>
-							{creating ? "Add the form" : "Offer the form"}
+							{clearing
+								? "Make it a menu form"
+								: creating
+									? "Add the form"
+									: "Offer the form"}
 						</AlertDialogAction>
 					)}
 				</AlertDialogFooter>

@@ -74,6 +74,7 @@ export function FormEntrySection({
 			},
 		});
 	const carryAnswers = () => {
+		setCarryRefusal(undefined);
 		const mutations = carrySearchAnswersMutations(
 			docApi.getState(),
 			moduleUuid,
@@ -86,7 +87,6 @@ export function FormEntrySection({
 		}
 		const outcome = inline.commitMany(mutations);
 		if (outcome.ok) {
-			setCarryRefusal(undefined);
 			setCarried(
 				`${added.length} ${added.length === 1 ? "field" : "fields"} added, filled in from the search.`,
 			);

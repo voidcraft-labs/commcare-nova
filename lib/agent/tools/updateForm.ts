@@ -359,7 +359,10 @@ export const updateFormTool = {
 				formChanges.push("display condition removed (always shown)");
 			else if (displayCondition !== undefined)
 				formChanges.push("display condition updated");
-			if (entry === null) formChanges.push("entry cleared (menu form)");
+			if (entry === null)
+				formChanges.push(
+					`entry cleared (menu form${moduleOpensOnSearch(module) ? "; Search first off, search-answer starting values removed" : ""})`,
+				);
 			else if (entry !== undefined)
 				formChanges.push(
 					`entry → search-no-matches${moduleOpensOnSearch(module) ? "" : " (module now opens on Search)"}`,

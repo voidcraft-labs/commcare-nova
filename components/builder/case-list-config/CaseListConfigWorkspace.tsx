@@ -1250,6 +1250,22 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	const reviewInputRemovalDependency = useCallback(
 		(dependency: SearchInputRemovalDependency) => {
 			if (inputRemovalReview?.phase !== "dependencies") return;
+			if (dependency.kind === "form-field") {
+				/* The field is on another screen with no way back into this
+				 * dialog, so the review ends here rather than opening a
+				 * "target" session nobody can return from; the dialog said to
+				 * press Remove again once the field no longer reads the answer,
+				 * and it recomputes on each open. No announcement either: the
+				 * workspace leaves the screen in this same commit, so a live
+				 * region here would change inside a hidden subtree. */
+				setInputRemovalReview(null);
+				navigate.openForm(
+					dependency.moduleUuid,
+					dependency.formUuid,
+					dependency.fieldUuid,
+				);
+				return;
+			}
 			inputRemovalReviewTokenRef.current += 1;
 			const nextReview: SearchInputRemovalReviewSession = {
 				phase: "target",
@@ -1282,18 +1298,6 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			}
 			if (dependency.kind === "calculated-column") {
 				setSel({ type: "column", uuid: dependency.columnUuid });
-				return;
-			}
-			if (dependency.kind === "form-field") {
-				/* The field is on another screen; the review ends here and the
-				 * person presses Remove again once the field no longer reads the
-				 * answer (the dialog recomputes on each open). */
-				setInputRemovalReview(null);
-				navigate.openForm(
-					dependency.moduleUuid,
-					dependency.formUuid,
-					dependency.fieldUuid,
-				);
 				return;
 			}
 			deselect();
