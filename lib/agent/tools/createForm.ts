@@ -124,7 +124,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				"With entry search-no-matches: also append one field per Search prompt of the module, in prompt order, each seeded from #search/<prompt name> and saving to the prompt's case property where it has one (a hidden prompt saves under its own name). Skip prompts your own fields already carry by giving those fields the same default_value yourself and leaving this off.",
+				"With entry search-no-matches: append one field per Search prompt, seeded from #search/<prompt name> and saving to the prompt's property (a hidden prompt under its own name). Leave off when your fields already carry them.",
 			),
 	})
 	.strict();
