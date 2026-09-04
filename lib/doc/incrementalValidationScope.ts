@@ -167,11 +167,15 @@ export function incrementalValidationScope(
 				break;
 			case "updateModule": {
 				/* A module case-type/mode change alters the session requirements seen
-				 * by form links elsewhere in the app. All other module settings own
-				 * only this module's rules. */
+				 * by form links elsewhere in the app. Opening the module on Search
+				 * gives its search instance to a submenu or a parent-select child,
+				 * whose own rules must run, and rewrites its forms' after-submit
+				 * destinations. All other module settings own only this module's
+				 * rules. */
 				if (
 					Object.hasOwn(mutation.patch, "caseType") ||
-					Object.hasOwn(mutation.patch, "caseListOnly")
+					Object.hasOwn(mutation.patch, "caseListOnly") ||
+					mutation.caseSearchConfigPatch?.searchFirst === true
 				) {
 					return undefined;
 				}

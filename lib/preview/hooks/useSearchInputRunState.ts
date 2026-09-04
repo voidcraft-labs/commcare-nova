@@ -21,6 +21,12 @@ import {
 interface SearchRunState {
 	readonly scopeKey: string;
 	readonly revision: string;
+	/** The hidden inputs' identity (name, uuid, value), so an edit to one
+	 *  moves the revision even though nobody answers it. */
+	readonly hiddenRevision: string;
+	/** Resolve the hidden inputs against the current session and lookup
+	 *  data; what a fresh search would carry. */
+	readonly resolveHidden: () => SearchInputValues;
 	readonly allowedKeys: ReadonlySet<string>;
 	readonly keyShapes: ReadonlyMap<string, string>;
 	readonly defaults: SearchInputValues;
@@ -169,15 +175,25 @@ function buildDesiredState(
 		session,
 		lookupData,
 	);
+	const hiddenRevision = JSON.stringify(
+		searchInputs
+			.filter((input) => input.kind === "hidden")
+			.map((input) => [input.name, input.uuid, input.value])
+			.sort(([left], [right]) => String(left).localeCompare(String(right))),
+	);
 	const revision = JSON.stringify({
 		shapes: [...keyShapes].sort(([left], [right]) => left.localeCompare(right)),
 		defaults: [...defaults].sort(([left], [right]) =>
 			left.localeCompare(right),
 		),
+		hidden: hiddenRevision,
 	});
 	return {
 		scopeKey,
 		revision,
+		hiddenRevision,
+		resolveHidden: () =>
+			resolveSearchHiddenValues(searchInputs, session, lookupData),
 		allowedKeys,
 		keyShapes,
 		defaults,
@@ -229,7 +245,16 @@ function reconcileSearchRunState(
 				([key]) => desired.allowedKeys.has(key) && keyIsCompatible(key),
 			),
 		),
-		submittedHidden: previous.submittedHidden,
+		// A hidden input that was removed or renamed must not keep feeding
+		// its old name into the query, and one that was added or re-authored
+		// should carry what the device would seed on the next screen build.
+		// The last search stands, so its hidden values are re-resolved rather
+		// than dropped.
+		submittedHidden:
+			previous.hasSubmitted &&
+			previous.hiddenRevision !== desired.hiddenRevision
+				? desired.resolveHidden()
+				: previous.submittedHidden,
 		hasSubmitted: previous.hasSubmitted,
 		touched,
 	};

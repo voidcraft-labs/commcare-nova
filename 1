@@ -1,0 +1,28 @@
+npm notice run commcare-nova@0.6.0 npx
+npm notice run 'vitest' run lib/doc/__tests__/incrementalValidationScope.test.ts
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  lib/doc/__tests__/incrementalValidationScope.test.ts > incrementalValidationScope > falls back when form/module changes alter cross-form session shape
+AssertionError: expected { Object (moduleUuids) } to deeply equal { …(2) }
+
+- Expected
++ Received
+
+  {
+-   "formUuids": Set {},
+    "moduleUuids": Set {
+      "6658f43a-0e00-5826-a65e-aa78d045f22a",
+    },
+  }
+
+ ❯ lib/doc/__tests__/incrementalValidationScope.test.ts:398:5
+    396|     },
+    397|    ]),
+    398|   ).toEqual({ moduleUuids: new Set([moduleUuid]), formUuids: new Set()…
+       |     ^
+    399|  });
+    400|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+

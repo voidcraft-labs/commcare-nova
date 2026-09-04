@@ -24,10 +24,13 @@ import { expandDoc } from "@/lib/commcare/expander";
 import { CASE_FIXTURE_URL_TEMPLATE } from "@/lib/commcare/formLinkProjection";
 import { CLAIM_URL_TEMPLATE } from "@/lib/commcare/suite/case-search/claim";
 import { SEARCH_URL_TEMPLATE } from "@/lib/commcare/suite/case-search/searchSession";
-import type { BlueprintDoc } from "@/lib/domain";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { BlueprintDoc, CaseListConfig } from "@/lib/domain";
 import {
 	advancedSearchInputDef,
 	calculatedColumn,
+	hiddenSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import {
@@ -232,9 +235,14 @@ function question1() {
  * registration form links to the search-first module's form
  * (`test_form_linking_to_inline_search_module_from_registration_form`).
  */
-function registrationLinkDoc(): BlueprintDoc {
+function registrationLinkDoc(
+	options: {
+		readonly searchInputs?: CaseListConfig["searchInputs"];
+		readonly datums?: Array<{ name: string; xpath: string }>;
+	} = {},
+): BlueprintDoc {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
-	config.searchInputs = [nameInput()];
+	config.searchInputs = options.searchInputs ?? [nameInput()];
 	return buildDoc({
 		appName: "Inline",
 		modules: [
@@ -270,6 +278,7 @@ function registrationLinkDoc(): BlueprintDoc {
 									moduleUuid: FOLLOWUP_MODULE,
 									formUuid: FOLLOWUP_FORM,
 								},
+								datums: options.datums,
 							},
 						],
 						fields: [
@@ -367,6 +376,44 @@ describe("search-first modules lower to HQ's inline search shape", () => {
           </create>
         </partial>`,
 		);
+	});
+
+	it("a hidden-only search is still a prompted query for frames: HQ counts every prompt in requires_selection", () => {
+		// `WorkflowQueryMeta.requires_selection` is `not query.prompts and
+		// default_search`, and `build_query_prompts` skips only groups, so a
+		// module whose only input is hidden runs `default_search` yet is NOT
+		// a selecting step. A manual-datum link that names the case datum
+		// therefore passes the query through (HQ's
+		// `_get_datums_matched_to_manual_values`), and Nova admits it too.
+		const hiddenOnly = [
+			hiddenSearchInputDef(
+				testUuid("00000000-0000-4000-8000-000000000042"),
+				"search_time",
+				"Search time",
+				term({ kind: "literal", value: "now" }),
+			),
+		];
+		const doc = registrationLinkDoc({
+			searchInputs: hiddenOnly,
+			datums: [
+				{
+					name: "case_id",
+					xpath: "instance('commcaresession')/session/data/case_id_new_case_0",
+				},
+			],
+		});
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code),
+		).not.toContain("FORM_LINK_DATUMS_INCOMPLETE");
+		const suite = compileSuite(doc);
+		const [followup, registration] = childrenNamed(suite, "entry");
+		const [session] = childrenNamed(followup, "session");
+		const [query] = childrenNamed(session, "query");
+		expect(query.attribs.default_search).toBe("true");
+		const [stack] = childrenNamed(registration, "stack");
+		const [create] = childrenNamed(stack, "create");
+		expect(childrenNamed(create, "query")).toHaveLength(1);
+		expect(childrenNamed(create, "datum")).toHaveLength(1);
 	});
 
 	it("test_inline_search_with_parent_relationship_parent_select: the parent datum leads, the query filters by ancestor, and the post offers both cases", () => {

@@ -16,7 +16,6 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
 	searchInputExpressions,
-	visibleSearchInputs,
 	type WireStringSource,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
@@ -108,7 +107,11 @@ export interface SearchQueryEmission {
 	readonly strings: Record<string, string>;
 	readonly translationUnits: Record<string, WireStringSource>;
 	readonly instances: ReadonlySet<string>;
-	/** Whether the worker has anything to answer. */
+	/** Whether the query carries any `<prompt>`, hidden ones included. HQ's
+	 *  `WorkflowQueryMeta.requires_selection` is `not prompts and
+	 *  default_search` over every emitted prompt (`remote_requests.py::
+	 *  build_query_prompts` skips only groups), so a hidden-only search is
+	 *  a prompted one for frame purposes even though nobody answers it. */
 	readonly hasPrompts: boolean;
 }
 
@@ -511,7 +514,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		strings,
 		translationUnits,
 		instances,
-		hasPrompts: visibleSearchInputs(caseListConfig.searchInputs).length > 0,
+		hasPrompts: caseListConfig.searchInputs.length > 0,
 	};
 }
 

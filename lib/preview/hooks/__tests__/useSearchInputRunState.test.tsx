@@ -247,6 +247,43 @@ describe("useSearchInputRunState — hidden inputs", () => {
 		);
 	});
 
+	it("re-resolves the hidden values of a standing search when a hidden input is renamed or removed", () => {
+		const renamed = hiddenSearchInputDef(
+			HIDDEN_UUID,
+			"run_by",
+			"Run by",
+			term(sessionContext("username")),
+		);
+		const { result, rerender } = renderHook(
+			({ hidden }: { hidden: readonly (typeof SEARCHED_BY)[] }) =>
+				useSearchInputRunState({
+					scopeKey: "module-a",
+					searchInputs: [inputWithDefault("Alice"), ...hidden],
+					session: SESSION,
+				}),
+			{ initialProps: { hidden: [SEARCHED_BY] } },
+		);
+		act(() => result.current.submit(new Map([["name", "Amara"]])));
+		expect(Object.fromEntries(result.current.submitted)).toEqual({
+			name: "Amara",
+			searched_by: "worker@example.org",
+		});
+
+		// Renamed: the dead name leaves the query and the new one carries.
+		rerender({ hidden: [renamed] });
+		expect(result.current.hasSubmitted).toBe(true);
+		expect(Object.fromEntries(result.current.submitted)).toEqual({
+			name: "Amara",
+			run_by: "worker@example.org",
+		});
+
+		// Removed: nothing hidden is sent at all.
+		rerender({ hidden: [] });
+		expect(Object.fromEntries(result.current.submitted)).toEqual({
+			name: "Amara",
+		});
+	});
+
 	it("carries a hidden value even when every visible prompt is blank", () => {
 		const { result } = renderHook(() =>
 			useSearchInputRunState({

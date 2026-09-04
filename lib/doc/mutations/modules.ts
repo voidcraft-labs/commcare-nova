@@ -6,10 +6,12 @@ import {
 } from "@/lib/doc/mutations/sequence";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	CASE_LOADING_FORM_TYPES,
 	type CaseListConfig,
 	caseSearchConfigHasAuthoredSettings,
 	emptyCaseListConfig,
 	isOwnerOnlyCaseSearchConfig,
+	moduleOpensOnSearch,
 	type Uuid,
 } from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
@@ -245,6 +247,7 @@ export function applyModuleMutation(
 		case "updateModule": {
 			const mod = draft.modules[mut.uuid];
 			if (!mod) return;
+			const openedOnSearch = moduleOpensOnSearch(mod);
 			// Apply the patch key-by-key: a `null` (the wire representation of a
 			// clear — JSON drops `undefined`, so a cleared optional slot crosses
 			// the persistence wire as `null`) or `undefined` (an in-memory clear)
@@ -408,6 +411,7 @@ export function applyModuleMutation(
 				if (value === null || value === undefined) delete target[key];
 				else target[key] = value;
 			}
+			reconcilePostSubmitWithSearchFirst(draft, mut.uuid, openedOnSearch);
 			return;
 		}
 		case "setModuleMedia": {
@@ -610,6 +614,41 @@ export function applyModuleMutation(
  * a case list another member concurrently removed. It reads the config directly
  * and no-ops when absent; the guarded commit rejects that case as a conflict.
  */
+/**
+ * Keep every case form's after-submit destination meaning what it meant
+ * when the module's Search-first setting flips, whichever writer flipped it
+ * (a settings edit, a wholesale config write, or final-input cleanup).
+ *
+ * The absent slot resolves to the module while Search first is on and to
+ * the previous screen otherwise (`defaultPostSubmit`), so the same stored
+ * document would change destination under the switch. Turning it on
+ * rewrites an explicit `previous` to `module`: CommCare refuses the
+ * previous-screen workflow on a case form of an inline-search module, and
+ * the previous screen was the search itself. Turning it off pins `module`
+ * where the slot was absent, so the destination the author saw in Preview
+ * survives. Registration and survey forms default to the app home either
+ * way and are left alone.
+ */
+function reconcilePostSubmitWithSearchFirst(
+	draft: Draft<BlueprintDoc>,
+	moduleUuid: Uuid,
+	openedOnSearch: boolean,
+): void {
+	const mod = draft.modules[moduleUuid];
+	if (!mod) return;
+	const opensOnSearch = moduleOpensOnSearch(mod);
+	if (opensOnSearch === openedOnSearch) return;
+	for (const formUuid of draft.formOrder[moduleUuid] ?? []) {
+		const form = draft.forms[formUuid];
+		if (!form || !CASE_LOADING_FORM_TYPES.has(form.type)) continue;
+		if (opensOnSearch) {
+			if (form.postSubmit === "previous") form.postSubmit = "module";
+		} else if (form.postSubmit === undefined) {
+			form.postSubmit = "module";
+		}
+	}
+}
+
 function ensureCaseListConfig(
 	draft: Draft<BlueprintDoc>,
 	moduleUuid: string,

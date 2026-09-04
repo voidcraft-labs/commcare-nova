@@ -262,7 +262,7 @@ describe("user collection mutations", () => {
 			ok: false,
 			referenceCount: 2,
 			references: [
-				"condition in module “Patients”",
+				"display condition in module “Patients”",
 				"relevant condition on “notes”",
 			],
 			userMessage: expect.stringContaining(

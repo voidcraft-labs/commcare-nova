@@ -164,7 +164,7 @@ export function SearchPanelInspectorBody({
 						description={
 							searchFirst
 								? "People search before they see any cases. Results shows only what a search finds."
-								: "Open this module on Search instead of a list. Results shows only what a search finds."
+								: "Open this module on Search instead of a list. Results shows only what a search finds, and its forms return here after submit."
 						}
 						checked={searchFirst}
 						onChange={setSearchFirst}

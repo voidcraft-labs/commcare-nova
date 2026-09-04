@@ -1649,13 +1649,6 @@ export class EngineController {
 		this.searchXPathRuntime?.dispose();
 	}
 
-	/** Whether a running Search screen can judge a pattern-bearing required
-	 *  condition or check here. Without the worker host the constraint stays
-	 *  unjudged, as it does on the server. */
-	get searchScreenPatternsAvailable(): boolean {
-		return this.searchXPathRuntime !== undefined;
-	}
-
 	/**
 	 * Evaluate one emitted Search-screen XPath in the worker, where the
 	 * device's Java Pattern engine runs. The draft's answers are already bound

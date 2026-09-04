@@ -46,6 +46,7 @@ import {
 	useRef,
 	useState,
 } from "react";
+import { choiceKeysForAnswer } from "@/components/preview/shared/multiSelectChoiceKeys";
 import { Button } from "@/components/shadcn/button";
 import { DatePicker } from "@/components/shadcn/date-picker";
 import {
@@ -79,7 +80,6 @@ import {
 	type CaseType,
 	joinMultiSelectSearchAnswer,
 	type SearchInputDef,
-	splitMultiSelectSearchAnswer,
 	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
@@ -229,7 +229,7 @@ export function SearchInputForm({
 	const validateSubmission = useCallback(
 		async (candidate: SearchInputValues) => {
 			const request = ++validationRequestRef.current;
-			const validation = await loadSearchInputValidation();
+			const superseded = () => request !== validationRequestRef.current;
 			const caseListConfig = {
 				columns: [],
 				listColumnOrder: [],
@@ -237,25 +237,38 @@ export function SearchInputForm({
 				searchInputs: [...searchInputs],
 				...(filter !== undefined ? { filter } : {}),
 			};
-			const errors =
-				evaluateOnDevice === undefined
-					? validation.searchInputSubmissionErrors(
-							caseListConfig,
-							caseType?.name,
-							candidate,
-							session,
-							typeContext,
-							{ lookupData },
-						)
-					: await validation.searchInputSubmissionErrorsOnDevice(
-							caseListConfig,
-							caseType?.name,
-							candidate,
-							session,
-							typeContext,
-							{ lookupData, evaluateOnDevice },
-						);
-			if (request !== validationRequestRef.current) return undefined;
+			let errors: ReturnType<
+				SearchInputValidationModule["searchInputSubmissionErrors"]
+			>;
+			try {
+				const validation = await loadSearchInputValidation();
+				errors =
+					evaluateOnDevice === undefined
+						? validation.searchInputSubmissionErrors(
+								caseListConfig,
+								caseType?.name,
+								candidate,
+								session,
+								typeContext,
+								{ lookupData },
+							)
+						: await validation.searchInputSubmissionErrorsOnDevice(
+								caseListConfig,
+								caseType?.name,
+								candidate,
+								session,
+								typeContext,
+								{ lookupData, evaluateOnDevice },
+							);
+			} catch (error) {
+				// A rejection from a request a later draft has already superseded
+				// says nothing about the draft on screen: a retired worker runtime
+				// or a slow pattern evaluation must not paint a failure over a
+				// newer draft that judged clean.
+				if (superseded()) return undefined;
+				throw error;
+			}
+			if (superseded()) return undefined;
 			lastValidatedDraftRef.current = candidate;
 			setValidationFailure(undefined);
 			setValidationState({
@@ -1269,8 +1282,17 @@ function SelectRow({
 /**
  * Several-choice row: one checkbox per lookup row, the shape Web Apps
  * renders for a `select` prompt. The value is CommCare's own encoding, the
- * chosen values joined by single spaces in choice order, so the runtime
+ * chosen values joined by the delimiter in choice order, so the runtime
  * bindings split it exactly as `RemoteQuerySessionManager` does.
+ *
+ * Selection is tracked by ROW, not by value: lookup rows guarantee neither
+ * unique nor non-blank values (row-level validity is the export boundary's
+ * verdict), and Web Apps keeps each checkbox's own state, so two rows that
+ * share a value tick and untick independently and the answer carries one
+ * token per ticked row. The answer string alone cannot say which of two
+ * same-value rows was ticked, which is why the row set is local state,
+ * re-derived only when the answer changes from outside (a clear, a default)
+ * or the rows arrive.
  */
 function MultiSelectRow({
 	name,
@@ -1285,22 +1307,30 @@ function MultiSelectRow({
 	const groupId = useId();
 	const errorId = `${groupId}-error`;
 	const hintId = `${groupId}-hint`;
-	const chosen = new Set(splitMultiSelectSearchAnswer(value));
-	const toggle = (choiceValue: string) => {
-		if (choices === undefined || choiceValue === "") return;
+	const [selection, setSelection] = useState<{
+		readonly value: string;
+		readonly choices: readonly LookupChoice[] | undefined;
+		readonly keys: ReadonlySet<string>;
+	}>(() => ({ value, choices, keys: choiceKeysForAnswer(value, choices) }));
+	if (selection.value !== value || selection.choices !== choices) {
+		setSelection({ value, choices, keys: choiceKeysForAnswer(value, choices) });
+	}
+	const chosen = selection.keys;
+	const toggle = (choice: LookupChoice) => {
+		if (choices === undefined || choice.value === "") return;
 		const next = new Set(chosen);
-		if (next.has(choiceValue)) {
-			next.delete(choiceValue);
+		if (next.has(choice.key)) {
+			next.delete(choice.key);
 		} else {
-			next.add(choiceValue);
+			next.add(choice.key);
 		}
-		onChange(
-			joinMultiSelectSearchAnswer(
-				choices
-					.map((choice) => choice.value)
-					.filter((candidate) => next.has(candidate)),
-			),
+		const nextValue = joinMultiSelectSearchAnswer(
+			choices
+				.filter((candidate) => next.has(candidate.key))
+				.map((candidate) => candidate.value),
 		);
+		setSelection({ value: nextValue, choices, keys: next });
+		onChange(nextValue);
 	};
 	return (
 		<fieldset
@@ -1323,7 +1353,7 @@ function MultiSelectRow({
 			) : (
 				<div className="space-y-1.5">
 					{choices.map((choice) => {
-						const isSelected = choice.value !== "" && chosen.has(choice.value);
+						const isSelected = choice.value !== "" && chosen.has(choice.key);
 						return (
 							<label
 								key={choice.key}
@@ -1338,7 +1368,7 @@ function MultiSelectRow({
 									name={name}
 									value={choice.value}
 									checked={isSelected}
-									onChange={() => toggle(choice.value)}
+									onChange={() => toggle(choice)}
 									className="sr-only"
 								/>
 								<div

@@ -86,6 +86,38 @@ const fieldName = (e: ValidationError): string =>
 const det = (e: ValidationError, key: string, fallback: string): string =>
 	present(e.details?.[key], fallback);
 
+/**
+ * The person-facing name of the module surface a wire-slot finding sits on,
+ * one arm per `ModuleWireSlotSurface` so a finding on a search field's
+ * required condition, check, or hidden value is never reported as the
+ * module's Cases available rule.
+ */
+const moduleWireSlotSubject = (e: ValidationError): string => {
+	const inputLabel = q(
+		present(e.details?.inputLabel ?? e.details?.inputName, "this field"),
+	);
+	switch (e.details?.surface) {
+		case "search-button":
+			return `The Search button condition in ${q(modName(e))}`;
+		case "advanced-input":
+			return `The condition for search field ${inputLabel}`;
+		case "search-input-default":
+			return `The default for search field ${inputLabel}`;
+		case "search-input-required":
+			return `The required condition for search field ${inputLabel}`;
+		case "search-input-validation":
+			return `The check on search field ${inputLabel}`;
+		case "search-input-hidden-value":
+			return `The hidden search value ${inputLabel}`;
+		case "calculated-column":
+			return `The calculation for field ${q(det(e, "columnLabel", "this field"))}`;
+		case "excluded-owner-ids":
+			return `${q(modName(e))}'s assigned cases setting`;
+		default:
+			return `${q(modName(e))}'s Cases available rule`;
+	}
+};
+
 /** The field id at the end of a `/data/...` path: what the builder calls it. */
 const pathLeaf = (path: string): string =>
 	path.slice(path.lastIndexOf("/") + 1);
@@ -440,23 +472,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 		}
 	},
 	CASE_LIST_MATCH_MODE_NOT_ON_DEVICE: (e) => {
-		const inputLabel = e.details?.inputLabel || e.details?.inputName;
-		const subject = (() => {
-			switch (e.details?.surface) {
-				case "search-button":
-					return `The Search button condition in ${q(modName(e))}`;
-				case "advanced-input":
-					return `The condition for search field ${q(inputLabel || "this field")}`;
-				case "search-input-default":
-					return `The default for search field ${q(inputLabel || "this field")}`;
-				case "calculated-column":
-					return `The calculation for field ${q(det(e, "columnLabel", "this field"))}`;
-				case "excluded-owner-ids":
-					return `${q(modName(e))}'s assigned cases setting`;
-				default:
-					return `${q(modName(e))}'s Cases available rule`;
-			}
-		})();
+		const subject = moduleWireSlotSubject(e);
 		const repair =
 			e.details?.surface === "filter"
 				? "Use “Begins with” here instead, or move the matching rule into a custom search condition."
@@ -464,23 +480,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 		return `${subject} uses a matching option that isn't available here. ${repair}`;
 	},
 	CASE_LIST_DATE_ADD_NOT_ON_DEVICE: (e) => {
-		const inputLabel = e.details?.inputLabel || e.details?.inputName;
-		const subject = (() => {
-			switch (e.details?.surface) {
-				case "search-button":
-					return `The Search button condition in ${q(modName(e))}`;
-				case "advanced-input":
-					return `The condition for search field ${q(inputLabel || "this field")}`;
-				case "search-input-default":
-					return `The default for search field ${q(inputLabel || "this field")}`;
-				case "calculated-column":
-					return `The calculation for field ${q(det(e, "columnLabel", "this field"))}`;
-				case "excluded-owner-ids":
-					return `${q(modName(e))}'s assigned cases setting`;
-				default:
-					return `${q(modName(e))}'s Cases available rule`;
-			}
-		})();
+		const subject = moduleWireSlotSubject(e);
 		switch (e.details?.reason) {
 			case "datetime-base":
 				return `${subject} uses a date and time in a calculation that only supports whole dates here, so the time would be lost. Use a date without a time or rewrite the calculation.`;
@@ -489,23 +489,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 		}
 	},
 	CASE_LIST_EXPRESSION_NOT_ON_DEVICE: (e) => {
-		const inputLabel = e.details?.inputLabel || e.details?.inputName;
-		const subject = (() => {
-			switch (e.details?.surface) {
-				case "search-button":
-					return `The Search button condition in ${q(modName(e))}`;
-				case "advanced-input":
-					return `The condition for search field ${q(inputLabel || "this field")}`;
-				case "search-input-default":
-					return `The default for search field ${q(inputLabel || "this field")}`;
-				case "calculated-column":
-					return `The calculation for field ${q(det(e, "columnLabel", "this field"))}`;
-				case "excluded-owner-ids":
-					return `${q(modName(e))}'s assigned cases setting`;
-				default:
-					return `${q(modName(e))}'s Cases available rule`;
-			}
-		})();
+		const subject = moduleWireSlotSubject(e);
 		switch (e.details?.reason) {
 			case "multi-valued-relation-read":
 				return `${subject} can read several ${q(det(e, "property", "values"))} values from related cases, but it needs one value. Use “Count related cases” or move the check into a related-case condition.`;
@@ -524,23 +508,7 @@ const USER_MESSAGE_BY_CODE: Partial<
 	CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE: (e) =>
 		`A search in ${q(modName(e))} checks each word in a value separately, so a value with spaces may match more cases than you expect. Use one word or “Begins with.”`,
 	CASE_LIST_STRICT_NULL_NOT_PORTABLE: (e) => {
-		const inputLabel = e.details?.inputLabel || e.details?.inputName;
-		const subject = (() => {
-			switch (e.details?.surface) {
-				case "search-button":
-					return `The Search button condition in ${q(modName(e))}`;
-				case "advanced-input":
-					return `The condition for search field ${q(inputLabel || "this field")}`;
-				case "search-input-default":
-					return `The default for search field ${q(inputLabel || "this field")}`;
-				case "calculated-column":
-					return `The calculation for field ${q(det(e, "columnLabel", "this field"))}`;
-				case "excluded-owner-ids":
-					return `${q(modName(e))}'s assigned cases setting`;
-				default:
-					return `${q(modName(e))}'s Cases available rule`;
-			}
-		})();
+		const subject = moduleWireSlotSubject(e);
 		return `${subject} checks whether information was never recorded, but the app can only tell whether it's blank here. Use “is blank” instead.`;
 	},
 	CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK: (e) =>

@@ -388,6 +388,24 @@ describe("setCaseSearchAdvanced", () => {
 			ownerOnly(h.currentDoc().modules[MOD_A]?.caseSearchConfig)
 				.searchActionEnabled,
 		).toBe(false);
+
+		// Clearing the owner rule in the same call leaves no config at all, so
+		// a `searchFirst` riding along would vanish while the result named it
+		// as set. The refusal covers that shape too.
+		const clearing = await h.runTool(setCaseSearchAdvancedTool, {
+			moduleUuid: MOD_A,
+			excludedOwnerIds: null,
+			searchFirst: true,
+		});
+		if (!("error" in clearing.result)) {
+			throw new Error("expected a refusal");
+		}
+		expect(clearing.result.error).toContain("Add a search input first");
+		expect(clearing.mutations).toEqual([]);
+		expect(
+			ownerOnly(h.currentDoc().modules[MOD_A]?.caseSearchConfig)
+				.searchActionEnabled,
+		).toBe(false);
 	});
 
 	it("emits the same mutation batch through chat + MCP contexts", async () => {

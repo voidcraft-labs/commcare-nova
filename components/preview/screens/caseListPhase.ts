@@ -3,7 +3,7 @@
 // Which screen a module's case list is on. A browse-then-search module
 // shows Results at once, with the Search pane beside it when the Search
 // action applies. A module that opens on Search (`searchFirst`) shows the
-// Search screen alone until a search completes, and Results only after —
+// Search screen alone until a search completes, and Results only after,
 // exactly the running app's inline search, where the search runs before
 // the list exists. A search-first module with nothing visible to answer
 // runs its search on its own, so it is on Results from the start.

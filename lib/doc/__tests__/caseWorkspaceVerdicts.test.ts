@@ -13,6 +13,7 @@ import {
 	imageMapEntry,
 	plainColumn,
 	type SearchInputDef,
+	simpleSearchInputDef,
 } from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
@@ -300,6 +301,40 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 						tableLookup(LOOKUP_TABLE, LOOKUP_COLUMN, matchAll()),
 						literal("north"),
 					),
+				),
+			],
+			caseSearchConfig: {},
+		});
+
+		expect(
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				MODULE_UUID,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).searchInputsBroken,
+		).toBe(true);
+	});
+
+	it("marks Search broken for a lookup finding on a choice prompt's options", () => {
+		// `search_input_options` is a registry slot the older hand-written
+		// match never named; the finding carries only `registrySlot`, so a
+		// literal set left the workspace clean while export refused.
+		const doc = docWith({
+			searchInputs: [
+				simpleSearchInputDef(
+					testUuid("region-input"),
+					"region",
+					"Region",
+					"select",
+					"region",
+					{
+						options: {
+							kind: "lookup",
+							tableId: LOOKUP_TABLE,
+							valueColumnId: LOOKUP_COLUMN,
+							labelColumnId: LOOKUP_COLUMN,
+						},
+					},
 				),
 			],
 			caseSearchConfig: {},

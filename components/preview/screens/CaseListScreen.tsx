@@ -1128,6 +1128,12 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const automaticallyLaunchesZeroInputSearch =
 		zeroInputSearchActionIsRelevant &&
 		(hasEffectiveSearchFilter || searchFirst);
+	/* A hidden input is part of the search the automatic launch performs
+	 * (the device seeds it on every query-screen build), so editing one
+	 * launches again rather than leaving the previous values in the query. */
+	const hiddenInputIdentity = (config?.searchInputs ?? [])
+		.filter((input) => input.kind === "hidden")
+		.map((input) => [input.name, input.uuid, input.value]);
 	const automaticSearchToken = automaticallyLaunchesZeroInputSearch
 		? JSON.stringify({
 				scopeEpoch,
@@ -1135,6 +1141,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				filter: effectiveSearchFilter,
 				condition: searchButtonCondition,
 				searchFirst,
+				hidden: hiddenInputIdentity,
 			})
 		: undefined;
 	const launchedAutomaticSearchRef = useRef<string | undefined>(undefined);
