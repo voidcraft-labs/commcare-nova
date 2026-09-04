@@ -180,7 +180,7 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
 	barcode: { appearance: "barcode_scan" },
 	// One choice from the itemset; CommCare's XForms-derived token.
 	select: { input: "select1" },
-	// Several choices, stored as one space-separated answer.
+	// Several choices, stored as one `#,#`-joined answer.
 	"multi-select": { input: "select" },
 };
 

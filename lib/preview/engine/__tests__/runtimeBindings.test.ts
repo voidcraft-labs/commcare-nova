@@ -2393,13 +2393,13 @@ describe("composeRuntimeFilter — choice and hidden prompts", () => {
 		);
 	});
 
-	it("compiles a `multi-select` answer as any-of over its space-separated tokens", () => {
-		// CommCare stores several chosen values as one space-joined answer and
+	it("compiles a `multi-select` answer as any-of over its `#,#`-joined tokens", () => {
+		// CommCare stores several chosen values as one `#,#`-joined answer and
 		// splits it into repeated query parameters, which the search endpoint
 		// matches as any-of (`RemoteQuerySessionManager.extractMultipleChoices`).
 		const result = composeRuntimeFilter(
 			[several],
-			new Map(Object.entries({ region: "north south" })),
+			new Map(Object.entries({ region: "north#,#south" })),
 			PATIENT,
 		);
 		expect(result).toEqual(

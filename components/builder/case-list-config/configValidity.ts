@@ -198,6 +198,9 @@ export function caseListConfigVerdicts(
 		knownInputs: [...inputDecls],
 		currentCaseType,
 	};
+	// The two device-evaluated slots admit a pattern match; the gate's
+	// `searchInputScreenPredicateTypeCheck` types them under this context.
+	const screenCtx: TypeContext = { ...predicateCtx, patternMatching: true };
 	let search =
 		boundary.searchInputsBroken || boundary.searchButtonConditionBroken;
 	const resolved = resolveRows(
@@ -236,13 +239,13 @@ export function caseListConfigVerdicts(
 		// scope an advanced predicate resolves `input(...)` against.
 		if (
 			row.required?.when !== undefined &&
-			!checkPredicate(row.required.when, predicateCtx).ok
+			!checkPredicate(row.required.when, screenCtx).ok
 		) {
 			search = true;
 		}
 		if (
 			row.validation !== undefined &&
-			!checkPredicate(row.validation.rule, predicateCtx).ok
+			!checkPredicate(row.validation.rule, screenCtx).ok
 		) {
 			search = true;
 		}

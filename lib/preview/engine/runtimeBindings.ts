@@ -20,6 +20,7 @@ import {
 	type SearchInputMode,
 	type SearchInputType,
 	searchInputRuntimeValueType,
+	splitMultiSelectSearchAnswer,
 	type Uuid,
 } from "@/lib/domain";
 import type {
@@ -346,15 +347,14 @@ function buildSimpleArmClause(
 				});
 			}
 			if (input.type === "multi-select") {
-				// CommCare stores several chosen values as one space-separated
+				// CommCare stores several chosen values as one `#,#`-joined
 				// answer and splits it into repeated query parameters
 				// (`RemoteQuerySessionManager.extractMultipleChoices`), which
 				// the search endpoint matches as any-of. Preview mirrors that
 				// with one `in` over the chosen values.
-				const [first, ...rest] = value
-					.split(" ")
-					.filter((token) => token !== "")
-					.map((token) => literal(token));
+				const [first, ...rest] = splitMultiSelectSearchAnswer(value).map(
+					(token) => literal(token),
+				);
 				if (first === undefined) return undefined;
 				return isIn(property, first, ...rest);
 			}

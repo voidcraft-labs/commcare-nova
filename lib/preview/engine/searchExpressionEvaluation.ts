@@ -124,6 +124,12 @@ export function evaluatePreviewSearchPredicate(
  * with a different evaluator (the XPath worker, for a pattern-bearing
  * constraint) runs the same bytes the scalar path does. Only the session
  * instance remains to be resolved.
+ *
+ * A hidden input the bag does not carry is seeded here: the device holds
+ * every hidden prompt's value from the moment it builds the query screen
+ * (`util/screen/QueryScreen.java::init`), so a condition reading one judges
+ * the seeded value before the worker searches, not blank. A bag that
+ * already carries the value (the submitted answers) keeps it.
  */
 export function emitPreviewSearchPredicate(
 	predicate: Predicate,
@@ -134,7 +140,7 @@ export function emitPreviewSearchPredicate(
 ): string {
 	const expressionValues = withSearchInputExpressionValues(
 		searchInputs,
-		inputValues,
+		withSeededHiddenValues(searchInputs, inputValues, session, lookupData),
 	);
 	const bound = bindSearchInputValuesInPredicate(
 		predicate,
@@ -152,6 +158,24 @@ export function emitPreviewSearchPredicate(
 	return emitCaseListFilter(folded, "casedb", {
 		userPropertySlugs: previewUserPropertySlugMap(session),
 	});
+}
+
+/** The bag with every hidden input it lacks resolved in, or the bag
+ *  itself when it already holds them all (or there are none). */
+function withSeededHiddenValues(
+	searchInputs: readonly SearchInputDef[],
+	inputValues: SearchInputValues,
+	session: PreviewSearchSessionValues,
+	lookupData: PreviewLookupData | undefined,
+): SearchInputValues {
+	const missing = searchInputs.filter(
+		(input) => input.kind === "hidden" && !inputValues.has(input.name),
+	);
+	if (missing.length === 0) return inputValues;
+	return new Map([
+		...inputValues,
+		...resolveSearchHiddenValues(missing, session, lookupData),
+	]);
 }
 
 function evaluatePreviewSearchXPath(

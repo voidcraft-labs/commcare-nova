@@ -49,12 +49,15 @@ import {
 	idMappingColumn,
 	idMappingEntry,
 	intervalColumn,
+	joinMultiSelectSearchAnswer,
+	MULTI_SELECT_SEARCH_ANSWER_DELIMITER,
 	moduleSchema,
 	phoneColumn,
 	plainColumn,
 	type SimpleSearchInputDef,
 	searchInputDefSchema,
 	simpleSearchInputDef,
+	splitMultiSelectSearchAnswer,
 } from "../modules";
 import { asMediaAssetId } from "../multimedia";
 import { eq, literal, sessionUser, term } from "../predicate";
@@ -898,6 +901,27 @@ describe("searchInputDefSchema — exact four-arm union", () => {
 		});
 		expect(simple.success).toBe(false);
 		expect(advanced.success).toBe(false);
+	});
+});
+
+describe("multi-select search answer delimiter", () => {
+	// `commcare-core session/RemoteQuerySessionManager.java::ANSWER_DELIMITER`
+	// and Web Apps' `query.js::selectDelimiter` both spell it `#,#`.
+	it("is CommCare's three-character separator, never a space", () => {
+		expect(MULTI_SELECT_SEARCH_ANSWER_DELIMITER).toBe("#,#");
+	});
+
+	it("round-trips tokens, including one holding a space", () => {
+		const tokens = ["north", "south west", "east"];
+		const answer = joinMultiSelectSearchAnswer(tokens);
+		expect(answer).toBe("north#,#south west#,#east");
+		expect(splitMultiSelectSearchAnswer(answer)).toEqual(tokens);
+	});
+
+	it("drops blank tokens when splitting and yields none for a blank answer", () => {
+		expect(splitMultiSelectSearchAnswer("")).toEqual([]);
+		expect(splitMultiSelectSearchAnswer("#,#north#,#")).toEqual(["north"]);
+		expect(joinMultiSelectSearchAnswer([])).toBe("");
 	});
 });
 

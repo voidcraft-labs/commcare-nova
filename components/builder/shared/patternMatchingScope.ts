@@ -20,4 +20,4 @@ export function patternMatchingInScope(ctx: PredicateEditContext): boolean {
  *  menu's disabled state and the add-condition menu so both surfaces say
  *  the same thing. */
 export const PATTERN_MATCH_UNAVAILABLE_REASON =
-	"Only available in a Search field's required condition or check, which run on the device";
+	"Only available in a Search field's required condition or check, which run in the browser app";

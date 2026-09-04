@@ -38,7 +38,14 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerScan from "@iconify-icons/tabler/scan";
 import tablerSearch from "@iconify-icons/tabler/search";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { Button } from "@/components/shadcn/button";
 import { DatePicker } from "@/components/shadcn/date-picker";
 import {
@@ -68,10 +75,12 @@ import {
 } from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useReconcilerContext } from "@/lib/collab/context";
-import type {
-	CaseType,
-	SearchInputDef,
-	VisibleSearchInputDef,
+import {
+	type CaseType,
+	joinMultiSelectSearchAnswer,
+	type SearchInputDef,
+	splitMultiSelectSearchAnswer,
+	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
@@ -81,10 +90,11 @@ import type {
 	PreviewLookupData,
 } from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import { resolveSearchInputChoices } from "@/lib/preview/engine/searchExpressionEvaluation";
 import {
-	evaluatePreviewSearchPredicate,
-	resolveSearchInputChoices,
-} from "@/lib/preview/engine/searchExpressionEvaluation";
+	searchInputRequiredMarks,
+	searchInputRequiredMarksOnDevice,
+} from "@/lib/preview/engine/searchInputConstraints";
 import {
 	LookupChoicesEmpty,
 	LookupChoicesLoading,
@@ -201,6 +211,16 @@ export function SearchInputForm({
 		undefined,
 	);
 	const [validating, setValidating] = useState(false);
+	/* A check the device could not run at all (a pattern Java refuses, or
+	 * the Search worker gone). Distinct from a prompt error: nothing the
+	 * worker types repairs it, so it names the builder instead. */
+	const [validationFailure, setValidationFailure] = useState<
+		{ readonly scopeKey: string; readonly message: string } | undefined
+	>(undefined);
+	const validationFailureMessage =
+		validationFailure?.scopeKey === scopeKey
+			? validationFailure.message
+			: undefined;
 
 	// `draft` is the form's local-typing buffer. Per-input change
 	// handlers update it synchronously so the rendered inputs stay
@@ -237,6 +257,7 @@ export function SearchInputForm({
 						);
 			if (request !== validationRequestRef.current) return undefined;
 			lastValidatedDraftRef.current = candidate;
+			setValidationFailure(undefined);
 			setValidationState({
 				scopeKey,
 				attempted: errors.size > 0,
@@ -266,12 +287,94 @@ export function SearchInputForm({
 	// Once feedback is visible, keep it in step with the corrected draft. This
 	// path runs only after the worker has attempted Search; ordinary typing pays
 	// no CSQL compilation cost.
+	/* The judged validation, with the one failure that is not a prompt
+	 * error caught here: the worker's Pattern engine refusing a pattern, or
+	 * the Search runtime being unavailable. Reported once per attempt and
+	 * cleared by the next judged pass. */
+	const judgeSubmission = useCallback(
+		async (candidate: SearchInputValues) => {
+			try {
+				return await validateSubmission(candidate);
+			} catch (error) {
+				lastValidatedDraftRef.current = candidate;
+				setValidationFailure({
+					scopeKey,
+					message: searchCheckFailureMessage(error),
+				});
+				return undefined;
+			}
+		},
+		[scopeKey, validateSubmission],
+	);
+
 	useEffect(() => {
 		if (!validationAttempted || lastValidatedDraftRef.current === draft) {
 			return;
 		}
-		void validateSubmission(draft);
-	}, [draft, validateSubmission, validationAttempted]);
+		void judgeSubmission(draft);
+	}, [draft, judgeSubmission, validationAttempted]);
+
+	/* Which prompts are required right now. The scalar thread judges every
+	 * condition it can; a pattern-bearing one is judged in the Search
+	 * worker against the same draft, and shows no mark until that verdict
+	 * lands (never a guess). */
+	const requiredMarks = useMemo(
+		() =>
+			session === undefined
+				? undefined
+				: searchInputRequiredMarks(searchInputs, draft, session, lookupData),
+		[draft, lookupData, searchInputs, session],
+	);
+	const [deviceMarks, setDeviceMarks] = useState<
+		| {
+				readonly draft: SearchInputValues;
+				readonly marks: ReadonlyMap<string, boolean>;
+		  }
+		| undefined
+	>(undefined);
+	const needsDeviceMarks =
+		requiredMarks !== undefined &&
+		[...requiredMarks.values()].some((mark) => mark === undefined);
+	useEffect(() => {
+		if (
+			!needsDeviceMarks ||
+			session === undefined ||
+			evaluateOnDevice === undefined
+		) {
+			return;
+		}
+		let cancelled = false;
+		void searchInputRequiredMarksOnDevice(
+			searchInputs,
+			draft,
+			session,
+			lookupData,
+			{ evaluateOnDevice },
+		).then(
+			(marks) => {
+				if (!cancelled) setDeviceMarks({ draft, marks });
+			},
+			() => {
+				/* Left unmarked; the submit path reports the failure. */
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		draft,
+		evaluateOnDevice,
+		lookupData,
+		needsDeviceMarks,
+		searchInputs,
+		session,
+	]);
+	const requiredNow = (input: VisibleSearchInputDef): boolean =>
+		requiredMarks?.get(input.name) ??
+		(deviceMarks?.draft === draft
+			? deviceMarks.marks.get(input.name)
+			: undefined) ??
+		false;
 
 	// `lastEmittedRef` carries the value most recently treated as
 	// "already emitted" by the form. Two writes land here:
@@ -368,7 +471,7 @@ export function SearchInputForm({
 					if (!submitAvailable || validating) return;
 					setValidating(true);
 					try {
-						const errors = await validateSubmission(draft);
+						const errors = await judgeSubmission(draft);
 						if (errors?.size === 0) onSubmit?.(draft);
 					} finally {
 						setValidating(false);
@@ -386,13 +489,7 @@ export function SearchInputForm({
 								input={input}
 								draft={draft}
 								setKey={setKey}
-								required={promptRequiredNow(
-									input,
-									searchInputs,
-									draft,
-									session,
-									lookupData,
-								)}
+								required={requiredNow(input)}
 								choices={
 									"options" in input && session !== undefined
 										? resolveSearchInputChoices(input, session, lookupData)
@@ -412,6 +509,21 @@ export function SearchInputForm({
 						))}
 					</div>
 				</div>
+				{validationFailureMessage !== undefined && (
+					<p
+						role="alert"
+						data-search-check-failure
+						className="mt-3 flex items-start gap-2 text-sm text-destructive"
+					>
+						<Icon
+							icon={tablerAlertCircle}
+							width="16"
+							height="16"
+							className="mt-0.5 shrink-0"
+						/>
+						<span>{validationFailureMessage}</span>
+					</p>
+				)}
 				{submitAvailable && (
 					<Button
 						type="submit"
@@ -432,31 +544,15 @@ export function SearchInputForm({
 // ── Per-row renderer ───────────────────────────────────────────────
 
 /**
- * Whether a prompt is required at this moment: always when it carries no
- * condition, otherwise when its condition holds over the live draft. The
- * device evaluates the same test against the search-input instance on
- * every answer change
- * (`RemoteQuerySessionManager.java::refreshInputDependentState`).
- * Without a session there is no world to evaluate a condition in, so a
- * conditional requirement is shown only once the identity has resolved.
+ * The sentence shown when a check could not be judged at all. The device
+ * refuses a pattern Java cannot compile (the builder cannot compile Java
+ * patterns, so this is where an author first learns of one), and the
+ * Search worker can be unavailable; neither is the worker's to repair.
  */
-function promptRequiredNow(
-	input: VisibleSearchInputDef,
-	searchInputs: ReadonlyArray<SearchInputDef>,
-	draft: SearchInputValues,
-	session: PreviewSearchSessionValues | undefined,
-	lookupData: PreviewLookupData | undefined,
-): boolean {
-	if (input.required === undefined) return false;
-	if (input.required.when === undefined) return true;
-	if (session === undefined) return false;
-	return evaluatePreviewSearchPredicate(
-		input.required.when,
-		searchInputs,
-		session,
-		draft,
-		lookupData,
-	);
+function searchCheckFailureMessage(error: unknown): string {
+	const detail =
+		error instanceof Error && error.message !== "" ? ` (${error.message})` : "";
+	return `Nova couldn't run one of this search's checks${detail}. Open the field's required condition or check in the builder and fix its pattern`;
 }
 
 interface SearchInputRowProps {
@@ -1189,7 +1285,7 @@ function MultiSelectRow({
 	const groupId = useId();
 	const errorId = `${groupId}-error`;
 	const hintId = `${groupId}-hint`;
-	const chosen = new Set(value.split(" ").filter((token) => token !== ""));
+	const chosen = new Set(splitMultiSelectSearchAnswer(value));
 	const toggle = (choiceValue: string) => {
 		if (choices === undefined || choiceValue === "") return;
 		const next = new Set(chosen);
@@ -1199,10 +1295,11 @@ function MultiSelectRow({
 			next.add(choiceValue);
 		}
 		onChange(
-			choices
-				.map((choice) => choice.value)
-				.filter((candidate) => next.has(candidate))
-				.join(" "),
+			joinMultiSelectSearchAnswer(
+				choices
+					.map((choice) => choice.value)
+					.filter((candidate) => next.has(candidate)),
+			),
 		);
 	};
 	return (

@@ -240,7 +240,7 @@ export function deriveSimpleArmPredicate(
 		);
 	}
 	if (authored.type === "multi-select") {
-		// A multiple-choice answer is one space-separated string in the
+		// A multiple-choice answer is one `#,#`-joined string in the
 		// search-input instance; only the bare-prompt route splits it into
 		// an any-of match. `searchInputViaModeCompatibility` rejects every
 		// shape that would land here.

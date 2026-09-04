@@ -104,9 +104,17 @@ export function useSearchInputRunState(args: {
 		});
 	};
 
+	// Memoized on the two stored maps: the merged bag is what the case query
+	// keys its reload on, so a fresh Map per render would re-run the search
+	// on every commit once a hidden value exists.
+	const submitted = useMemo(
+		() => withHiddenValues(current.submitted, current.submittedHidden),
+		[current.submitted, current.submittedHidden],
+	);
+
 	return {
 		draft: current.draft,
-		submitted: withHiddenValues(current.submitted, current.submittedHidden),
+		submitted,
 		draftActive: hasNonEmptyValue(current.draft),
 		queryActive: hasNonEmptyValue(current.submitted),
 		hasSubmitted: current.hasSubmitted,
@@ -139,8 +147,9 @@ function buildDesiredState(
 	const allowedKeys = new Set<string>();
 	const keyShapes = new Map<string, string>();
 	for (const input of searchInputs) {
-		// A hidden input has no draft key: the worker never answers it, and
-		// its value is resolved at submit.
+		// A hidden input has no draft key: the worker never answers it. Its
+		// value is resolved at submit, and a constraint judged over the draft
+		// seeds it itself (`emitPreviewSearchPredicate`).
 		if (input.kind === "hidden") continue;
 		const shape = `${input.uuid}:${input.type}`;
 		if (input.type === "date-range") {

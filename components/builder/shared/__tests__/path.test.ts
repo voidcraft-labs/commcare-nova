@@ -17,6 +17,7 @@ import {
 	ifExpr,
 	literal,
 	matchAll,
+	matchesPattern,
 	now,
 	prop,
 	switchCase,
@@ -285,6 +286,33 @@ describe("mixed rule navigation", () => {
 		expect(nextExpression.where.right.kind).toBe("date-add");
 		if (nextExpression.where.right.kind !== "date-add") return;
 		expect(nextExpression.where.right.quantity).toBe(replacement);
+	});
+});
+
+describe("matches-pattern navigation", () => {
+	// The one leaf the Search screen's constraint slots add: its subject is
+	// addressable and replaceable like an `is-blank` subject, so the card's
+	// operand editor can open on it.
+	const subject = term(prop("patient", "score"));
+	const root = matchesPattern(subject, "^[0-9]+$");
+	const ctx = NAVIGATION_CONTEXT;
+
+	it("locates the pattern's subject at `left`", () => {
+		const location = locateRuleNode(root, ["left"], ctx);
+		expect(location?.node).toEqual({ family: "expression", value: subject });
+	});
+
+	it("replaces only the subject and keeps the pattern", () => {
+		const replacement = term(literal("42"));
+		const next = replaceRuleNodeAtPath(root, ["left"], {
+			family: "expression",
+			value: replacement,
+		});
+		expect(next).toEqual(matchesPattern(replacement, "^[0-9]+$"));
+		expect(locateRuleNode(next, ["left"], ctx)?.node).toEqual({
+			family: "expression",
+			value: replacement,
+		});
 	});
 });
 

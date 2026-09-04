@@ -16,6 +16,7 @@ import {
 	simpleSearchInputDef,
 	type TranslationUnit,
 } from "@/lib/domain";
+import { input, matchesPattern } from "@/lib/domain/predicate";
 
 const MODULE = testUuid("localized-builder-module");
 const FORM = testUuid("localized-builder-form");
@@ -51,6 +52,20 @@ function spanishValue(unit: TranslationUnit) {
 			return "Cerrado";
 		case makeTranslationUnitId("search-input", SEARCH_INPUT, "label"):
 			return "Nombre del paciente";
+		case makeTranslationUnitId("search-input", SEARCH_INPUT, "hint"):
+			return "Como aparece en la tarjeta";
+		case makeTranslationUnitId(
+			"search-input",
+			SEARCH_INPUT,
+			"required-message",
+		):
+			return "Escriba un nombre";
+		case makeTranslationUnitId(
+			"search-input",
+			SEARCH_INPUT,
+			"validation-message",
+		):
+			return "Empiece con mayúscula";
 		case makeTranslationUnitId("module", MODULE, "search-title"):
 			return "Buscar pacientes";
 		case makeTranslationUnitId("module", MODULE, "search-subtitle"):
@@ -128,6 +143,14 @@ function fixture(): BlueprintDoc {
 							"Patient name",
 							"text",
 							"case_name",
+							{
+								hint: "As it appears on the card",
+								required: { message: "Give a name" },
+								validation: {
+									rule: matchesPattern(input(SEARCH_INPUT), "^[A-Z]"),
+									message: "Start with a capital letter",
+								},
+							},
 						),
 					],
 				}),
@@ -513,6 +536,146 @@ describe("projectBuilderLanguageMutations", () => {
 			ok: false,
 			message:
 				"This translation must preserve every referenced answer, case value, and worker value. Edit it in Languages to repair the protected references.",
+		});
+	});
+
+	it("projects a Search prompt's hint and messages into the selected language", () => {
+		const doc = fixture();
+		const localized = projectLocalizedModule(doc, "spa", MODULE);
+		const prompt = localized?.caseListConfig?.searchInputs[0];
+		if (prompt === undefined || prompt.kind === "hidden") {
+			throw new Error("Expected a visible localized prompt.");
+		}
+		expect(prompt.label).toBe("Nombre del paciente");
+		expect(prompt.hint).toBe("Como aparece en la tarjeta");
+		expect(prompt.required?.message).toBe("Escriba un nombre");
+		expect(prompt.validation?.message).toBe("Empiece con mayúscula");
+	});
+
+	it("redirects a Search prompt's hint and messages to the selected target", () => {
+		const doc = fixture();
+		const current = doc.modules[MODULE]?.caseListConfig?.searchInputs[0];
+		if (current === undefined || current.kind === "hidden") {
+			throw new Error("Expected a visible prompt.");
+		}
+		const { uuid: _uuid, ...content } = current;
+		const mutations = project(doc, [
+			{
+				kind: "updateSearchInput",
+				moduleUuid: MODULE,
+				uuid: SEARCH_INPUT,
+				searchInput: {
+					...content,
+					label: "Nombre",
+					hint: "Tal como está en la tarjeta",
+					required: { message: "Indique un nombre" },
+					validation: {
+						rule:
+							current.validation?.rule ??
+							matchesPattern(input(SEARCH_INPUT), "^[A-Z]"),
+						message: "Use mayúscula inicial",
+					},
+				},
+			},
+		]);
+		const next = apply(doc, mutations);
+		const source = next.modules[MODULE]?.caseListConfig?.searchInputs[0];
+		if (source === undefined || source.kind === "hidden") {
+			throw new Error("Expected a visible prompt.");
+		}
+		expect(source.label).toBe("Patient name");
+		expect(source.hint).toBe("As it appears on the card");
+		expect(source.required?.message).toBe("Give a name");
+		expect(source.validation?.message).toBe("Start with a capital letter");
+		const translations = effectiveAppLocalization(next.localization)
+			.translations.spa;
+		expect(
+			translations?.[
+				makeTranslationUnitId("search-input", SEARCH_INPUT, "hint")
+			]?.value,
+		).toBe("Tal como está en la tarjeta");
+		expect(
+			translations?.[
+				makeTranslationUnitId("search-input", SEARCH_INPUT, "required-message")
+			]?.value,
+		).toBe("Indique un nombre");
+		expect(
+			translations?.[
+				makeTranslationUnitId(
+					"search-input",
+					SEARCH_INPUT,
+					"validation-message",
+				)
+			]?.value,
+		).toBe("Use mayúscula inicial");
+	});
+
+	it("clears a Search prompt's translated hint when the worker-language editor removes it, keeping the source", () => {
+		const doc = fixture();
+		const current = doc.modules[MODULE]?.caseListConfig?.searchInputs[0];
+		if (current === undefined || current.kind === "hidden") {
+			throw new Error("Expected a visible prompt.");
+		}
+		const { uuid: _uuid, hint: _hint, ...content } = current;
+		const next = apply(
+			doc,
+			project(doc, [
+				{
+					kind: "updateSearchInput",
+					moduleUuid: MODULE,
+					uuid: SEARCH_INPUT,
+					searchInput: content,
+				},
+			]),
+		);
+		const source = next.modules[MODULE]?.caseListConfig?.searchInputs[0];
+		if (source === undefined || source.kind === "hidden") {
+			throw new Error("Expected a visible prompt.");
+		}
+		expect(source.hint).toBe("As it appears on the card");
+		expect(
+			effectiveAppLocalization(next.localization).translations.spa?.[
+				makeTranslationUnitId("search-input", SEARCH_INPUT, "hint")
+			],
+		).toBeUndefined();
+	});
+
+	it("requires a Search prompt's optional sentences to exist in the source language first", () => {
+		const doc = fixture();
+		const current = doc.modules[MODULE]?.caseListConfig?.searchInputs[0];
+		if (current === undefined || current.kind === "hidden") {
+			throw new Error("Expected a visible prompt.");
+		}
+		const { uuid: _uuid, ...content } = current;
+		expect(
+			projectBuilderLanguageMutations(doc, "spa", [
+				{
+					kind: "updateSearchInput",
+					moduleUuid: MODULE,
+					uuid: SEARCH_INPUT,
+					searchInput: { ...content, required: { message: "Obligatorio" } },
+				},
+			]).ok,
+		).toBe(true);
+		const withoutMessage = produce(doc, (draft) => {
+			const prompt = draft.modules[MODULE]?.caseListConfig?.searchInputs[0];
+			if (prompt !== undefined && prompt.kind !== "hidden") {
+				prompt.required = {};
+			}
+		});
+		expect(
+			projectBuilderLanguageMutations(withoutMessage, "spa", [
+				{
+					kind: "updateSearchInput",
+					moduleUuid: MODULE,
+					uuid: SEARCH_INPUT,
+					searchInput: { ...content, required: { message: "Obligatorio" } },
+				},
+			]),
+		).toEqual({
+			ok: false,
+			message:
+				"Add this worker-facing content in English first, then translate it into Español.",
 		});
 	});
 });

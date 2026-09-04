@@ -292,6 +292,7 @@ function locatePredicate(
 			return undefined;
 		}
 		case "is-blank":
+		case "matches-pattern":
 			return first === "left"
 				? descendExpression(
 						value.left,
@@ -716,6 +717,7 @@ function replacePredicate(
 			break;
 		case "in":
 		case "is-blank":
+		case "matches-pattern":
 			if (first === "left") {
 				return { ...value, left: replaceExpressionChild(value.left, 1) };
 			}

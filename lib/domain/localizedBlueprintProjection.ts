@@ -13,6 +13,7 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	type Module,
+	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 } from "./modules";
 import {
 	localizeTranslationUnit,
@@ -122,13 +123,61 @@ export function projectLocalizedModule(
 			},
 		);
 		localized.caseListConfig.searchInputs =
-			localized.caseListConfig.searchInputs.map((input) => ({
-				...input,
-				label: text(
-					makeTranslationUnitId("search-input", input.uuid, "label"),
-					input.label !== "" ? input.label : input.name,
-				),
-			}));
+			localized.caseListConfig.searchInputs.map((input) => {
+				const next = {
+					...input,
+					label: text(
+						makeTranslationUnitId("search-input", input.uuid, "label"),
+						input.label !== "" ? input.label : input.name,
+					),
+				};
+				if (next.kind === "hidden") return next;
+				if (next.hint !== undefined) {
+					next.hint = text(
+						makeTranslationUnitId("search-input", input.uuid, "hint"),
+						next.hint,
+					);
+				}
+				if (next.required !== undefined) {
+					// A requirement without its own message reads the system
+					// sentence, localized once for the whole app.
+					next.required = {
+						...next.required,
+						message:
+							next.required.message === undefined
+								? text(
+										makeTranslationUnitId(
+											"system",
+											"search-required",
+											"default",
+										),
+										SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+									)
+								: text(
+										makeTranslationUnitId(
+											"search-input",
+											input.uuid,
+											"required-message",
+										),
+										next.required.message,
+									),
+					};
+				}
+				if (next.validation !== undefined) {
+					next.validation = {
+						...next.validation,
+						message: text(
+							makeTranslationUnitId(
+								"search-input",
+								input.uuid,
+								"validation-message",
+							),
+							next.validation.message,
+						),
+					};
+				}
+				return next;
+			});
 	}
 	const effectiveSearch = effectiveCaseSearchConfig(module);
 	if (effectiveSearch !== undefined) {

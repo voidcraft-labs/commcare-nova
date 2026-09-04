@@ -147,6 +147,75 @@ export async function searchInputConstraintErrorsOnDevice(
 	return errors;
 }
 
+/**
+ * Whether each visible prompt is required at this moment, keyed by the
+ * prompt's wire name: `true` for an unconditional requirement, the
+ * condition's verdict over the draft for a conditional one, and
+ * `undefined` where this thread cannot judge the condition (a pattern, or
+ * a lookup carrier whose rows the caller does not hold). The device
+ * evaluates the same test on every answer change
+ * (`RemoteQuerySessionManager.java::refreshInputDependentState`), and the
+ * Search screen's required mark follows it.
+ */
+export function searchInputRequiredMarks(
+	searchInputs: readonly SearchInputDef[],
+	values: SearchInputValues,
+	session: PreviewSearchSessionValues,
+	lookupData?: PreviewLookupData,
+): ReadonlyMap<string, boolean | undefined> {
+	const judge = constraintJudge(
+		searchInputs,
+		values,
+		session,
+		lookupData,
+		undefined,
+	);
+	const marks = new Map<string, boolean | undefined>();
+	for (const input of searchInputs) {
+		if (input.kind === "hidden" || input.required === undefined) continue;
+		marks.set(
+			input.name,
+			input.required.when === undefined ? true : judge(input.required.when),
+		);
+	}
+	return marks;
+}
+
+/**
+ * The marks {@link searchInputRequiredMarks} leaves unjudged for want of a
+ * Pattern engine, judged on the device: one request per pattern-bearing
+ * condition. Conditions left unjudged for another reason (uncovered lookup
+ * rows) stay absent.
+ */
+export async function searchInputRequiredMarksOnDevice(
+	searchInputs: readonly SearchInputDef[],
+	values: SearchInputValues,
+	session: PreviewSearchSessionValues,
+	lookupData: PreviewLookupData | undefined,
+	options: SearchInputConstraintDeviceOptions,
+): Promise<ReadonlyMap<string, boolean>> {
+	const marks = new Map<string, boolean>();
+	for (const input of searchInputs) {
+		if (input.kind === "hidden") continue;
+		const when = input.required?.when;
+		if (when === undefined || !predicateUsesPattern(when)) continue;
+		if (!judgeable(when, lookupData, options)) continue;
+		marks.set(
+			input.name,
+			await options.evaluateOnDevice(
+				emitPreviewSearchPredicate(
+					when,
+					searchInputs,
+					session,
+					values,
+					lookupData,
+				),
+			),
+		);
+	}
+	return marks;
+}
+
 /** One constraint to judge: which prompt, what it says, and how the
  *  predicate's verdict decides it. `predicate` is absent for an
  *  unconditional requirement, which fires on a blank answer outright. */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
+	hiddenSearchInputDef,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -11,11 +12,14 @@ import {
 	literal,
 	matchesPattern,
 	sessionContext,
+	term,
 } from "@/lib/domain/predicate";
 import type { PreviewSearchSessionValues } from "../identity";
 import {
 	searchInputConstraintErrors,
 	searchInputConstraintErrorsOnDevice,
+	searchInputRequiredMarks,
+	searchInputRequiredMarksOnDevice,
 } from "../searchInputConstraints";
 
 const NAME = testUuid("00000000-0000-0000-0000-0000000000b1");
@@ -167,5 +171,114 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 		expect(devicePasses).toBe(0);
 		expect(errors.get("name")).toBe(SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE);
 		expect(errors.get("phone")).toBe("Give a name or a phone");
+	});
+});
+
+describe("searchInputRequiredMarks", () => {
+	it("marks an unconditional requirement always and a conditional one by its verdict over the draft", () => {
+		expect([...searchInputRequiredMarks(INPUTS, new Map(), SESSION)]).toEqual([
+			["name", true],
+			["phone", true],
+		]);
+		expect(
+			searchInputRequiredMarks(
+				INPUTS,
+				new Map([["name", "Asha"]]),
+				SESSION,
+			).get("phone"),
+		).toBe(false);
+	});
+
+	it("leaves a pattern-bearing condition unjudged on the scalar thread and judges it on the device", async () => {
+		const byPattern = simpleSearchInputDef(
+			PHONE,
+			"phone",
+			"Phone",
+			"text",
+			"phone",
+			{
+				required: {
+					when: matchesPattern(input(NAME), "^Dr"),
+					message: "A doctor needs a phone",
+				},
+			},
+		);
+		const draft = new Map([["name", "Dr Asha"]]);
+		expect(
+			searchInputRequiredMarks([name, byPattern], draft, SESSION).get("phone"),
+		).toBeUndefined();
+		const sources: string[] = [];
+		const marks = await searchInputRequiredMarksOnDevice(
+			[name, byPattern],
+			draft,
+			SESSION,
+			undefined,
+			{
+				evaluateOnDevice: async (source) => {
+					sources.push(source);
+					return true;
+				},
+			},
+		);
+		expect([...marks]).toEqual([["phone", true]]);
+		expect(sources).toEqual(["regex('Dr Asha', '^Dr')"]);
+	});
+});
+
+describe("hidden inputs on the Search screen", () => {
+	// The device seeds every hidden prompt's value when it builds the query
+	// screen, so a condition reading one judges the seeded value before the
+	// worker searches, not blank.
+	const SEARCH_MODE = testUuid("00000000-0000-0000-0000-0000000000b4");
+	const mode = hiddenSearchInputDef(
+		SEARCH_MODE,
+		"search_mode",
+		"Search mode",
+		term(literal("strict")),
+	);
+	const strictPhone = simpleSearchInputDef(
+		PHONE,
+		"phone",
+		"Phone",
+		"text",
+		"phone",
+		{
+			required: {
+				when: eq(input(SEARCH_MODE), literal("strict")),
+				message: "Strict searches need a phone",
+			},
+		},
+	);
+
+	it("judges a condition reading a hidden input against its seeded value", () => {
+		expect(
+			searchInputConstraintErrors([mode, strictPhone], new Map(), SESSION).get(
+				"phone",
+			),
+		).toBe("Strict searches need a phone");
+		expect(
+			searchInputRequiredMarks([mode, strictPhone], new Map(), SESSION).get(
+				"phone",
+			),
+		).toBe(true);
+	});
+
+	it("keeps a hidden value the submitted bag already carries", () => {
+		expect(
+			searchInputConstraintErrors(
+				[mode, strictPhone],
+				new Map([["search_mode", "loose"]]),
+				SESSION,
+			).has("phone"),
+		).toBe(false);
+	});
+
+	it("never raises a constraint for the hidden input itself", () => {
+		const marks = searchInputRequiredMarks(
+			[mode, strictPhone],
+			new Map(),
+			SESSION,
+		);
+		expect(marks.has("search_mode")).toBe(false);
 	});
 });

@@ -982,6 +982,30 @@ export function calculatedColumn(
  * the editor's type picker, the SA tools' tool-schema enum, and the
  * validator's per-type / per-mode applicability gate.
  */
+/**
+ * The separator CommCare puts between a multiple-choice search answer's
+ * chosen tokens, both in the search-input instance a condition reads and in
+ * the value the runtime later splits into repeated query parameters
+ * (`commcare-core session/RemoteQuerySessionManager.java::ANSWER_DELIMITER`;
+ * Web Apps' `cloudcare/js/formplayer/menus/views/query.js::selectDelimiter`
+ * is the same three characters). Not a space: a lookup value may itself hold
+ * one, and the device would read a space-joined answer as a single unknown
+ * choice.
+ */
+export const MULTI_SELECT_SEARCH_ANSWER_DELIMITER = "#,#";
+
+/** The chosen tokens of a multiple-choice search answer, blank ones dropped. */
+export function splitMultiSelectSearchAnswer(answer: string): string[] {
+	return answer
+		.split(MULTI_SELECT_SEARCH_ANSWER_DELIMITER)
+		.filter((token) => token !== "");
+}
+
+/** One multiple-choice search answer from its chosen tokens. */
+export function joinMultiSelectSearchAnswer(tokens: readonly string[]): string {
+	return tokens.join(MULTI_SELECT_SEARCH_ANSWER_DELIMITER);
+}
+
 export const SEARCH_INPUT_TYPES = [
 	"text",
 	"date",
@@ -1001,7 +1025,7 @@ export type ScalarSearchInputType = (typeof SCALAR_SEARCH_INPUT_TYPES)[number];
  *
  *   - `select` — one choice; wire `input="select1"`.
  *   - `multi-select` — several choices; wire `input="select"`. The runtime
- *     splits the space-joined answer into repeated query parameters
+ *     splits the `#,#`-joined answer into repeated query parameters
  *     (`RemoteQuerySessionManager.getRawQueryParams` →
  *     `extractMultipleChoices`), and HQ's exact match over a list is any-of
  *     (`corehq/apps/es/case_search.py::exact_case_property_text_query`), so a
@@ -1170,7 +1194,7 @@ const selectSearchInputModeSchema = z
  * Simple choice input. `options` names the Project lookup table and the
  * label / value columns the prompt's `<itemset>` reads, in the same
  * vocabulary a lookup-backed form select uses. The stored answer is the
- * value column's token (space-joined for `multi-select`), so the property
+ * value column's token (`#,#`-joined for `multi-select`), so the property
  * it matches must hold plain text or single-select tokens.
  */
 export const simpleSelectSearchInputSchema = visibleSearchInputBase
@@ -1870,7 +1894,7 @@ export const SEARCH_INPUT_RUNTIME_VALUE_TYPES: Readonly<
 	date: "date",
 	"date-range": "text",
 	barcode: "text",
-	// A choice binds its value token; several choices bind the space-joined tokens.
+	// A choice binds its value token; several choices bind the `#,#`-joined tokens.
 	select: "text",
 	"multi-select": "text",
 };
@@ -1927,7 +1951,7 @@ export function simpleSearchInputHasCoherentRangeWidget(
 
 /**
  * Whether a simple multiple-choice field can match at all. A multi-select
- * answer is one space-separated string of chosen tokens, and CommCare splits
+ * answer is one `#,#`-joined string of chosen tokens, and CommCare splits
  * it into an any-of match only on the BARE prompt route: the prompt key names
  * the case property directly, on the case being searched, with no rewritten
  * spelling. Anything else (a parent-case walk, a reference name that differs

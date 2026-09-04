@@ -75,7 +75,7 @@ export function searchInputViaModeCompatibility(
 		const viaIsCrossWalk = via !== undefined && via.kind !== "self";
 		const nameDiverges = input.name !== input.property;
 		// A `multi-select` prompt stores every chosen value in one
-		// space-separated answer. Only CCHQ's bare-prompt route splits
+		// `#,#`-joined answer. Only CCHQ's bare-prompt route splits
 		// that answer into repeated query parameters (an any-of match on
 		// the property named by the prompt key). The `_xpath_query`
 		// route compares one string, so every shape that would need it

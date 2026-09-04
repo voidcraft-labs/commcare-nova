@@ -23,6 +23,7 @@ import {
 	input,
 	literal,
 	matchAll,
+	matchesPattern,
 	prop,
 	term,
 	whenInput,
@@ -255,6 +256,22 @@ describe("caseListConfigVerdicts", () => {
 		});
 		expect(v.errorAreas.search).toBe(true);
 		expect(v.errorAreas.list).toBe(false);
+	});
+
+	it("admits a pattern match in a prompt's required condition and check, the two device-evaluated slots", () => {
+		const name = testUuid("pattern-name");
+		const v = verdicts({
+			searchInputs: [
+				simpleSearchInputDef(name, "name", "Name", "text", "case_name", {
+					required: { when: matchesPattern(input(name), "^Dr") },
+					validation: {
+						rule: matchesPattern(input(name), "^[A-Z]"),
+						message: "Start with a capital letter",
+					},
+				}),
+			],
+		});
+		expect(v.errorAreas).toEqual(CLEAN);
 	});
 
 	it("accepts the final date-range shape", () => {
