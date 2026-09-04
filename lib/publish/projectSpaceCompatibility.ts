@@ -16,7 +16,8 @@ export type ProjectSpaceCapabilityId =
 	| "case-search"
 	| "commcare-connect"
 	| "case-attachments"
-	| "attachment-links";
+	| "attachment-links"
+	| "registration-after-empty-search";
 
 export type ProjectSpaceAdvisoryId = "large-search-performance";
 
@@ -57,6 +58,12 @@ export const PROJECT_SPACE_CAPABILITIES: Readonly<
 		label: "Links to captured files",
 		description:
 			"Lets workers open a captured file from the link saved on a case.",
+	},
+	"registration-after-empty-search": {
+		id: "registration-after-empty-search",
+		label: "Registration offered after an empty search",
+		description:
+			"Lets a case list offer its registration form only when a search finds no matches.",
 	},
 };
 
@@ -323,6 +330,7 @@ const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
 	"commcare-connect",
 	"case-attachments",
 	"attachment-links",
+	"registration-after-empty-search",
 ]);
 const ADVISORY_IDS = new Set<ProjectSpaceAdvisoryId>([
 	"large-search-performance",

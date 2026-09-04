@@ -423,7 +423,11 @@ export class TriggerDag {
 			const path = `${prefix}/${field.id}`;
 			let hasValidationDependency = false;
 
-			const defaultValue = expressionSource(field, "default_value", this.doc);
+			const defaultValue = expressionInspectionSource(
+				field,
+				"default_value",
+				this.doc,
+			);
 			if (defaultValue !== undefined) {
 				for (const ref of extractPathRefs(defaultValue)) {
 					this.addEdge(ref, path);

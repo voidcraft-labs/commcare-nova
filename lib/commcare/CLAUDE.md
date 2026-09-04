@@ -792,6 +792,87 @@ because there is no search to open on.
 
 `caseSearchConfig.searchButtonDisplayCondition` is orthogonal to that flag decision. It emits as the case-list Search action's `relevant` predicate, not as a Results-row filter and not as the `auto_launch` expression itself. Core first removes irrelevant actions and then evaluates auto-launch among the remaining actions, so the predicate gates the automatic transition only in the web filter-plus-zero-input shape; in every list-first shape it gates the manual Search action. Preview and authoring copy must preserve that distinction rather than treating any input-free search config as a generic “go to Results” rule.
 
+### No-matches registration lowering
+
+`Form.entry = { kind: "search-no-matches" }` (`lib/domain/forms.ts::isNoMatchesForm`)
+is Nova's whole authoring of CommCare's `case_list_form`; the wire vocabulary
+never enters a document (`validationRules.test.ts` keeps `case_list_form`
+rejected by the strict module schema). `emissionPlan.ts::emissionPlan(doc)` is
+the ONE derived module sequence both emitters walk: the authored preorder with
+every no-matches form lifted out of its host, then one synthetic module per
+lifted form appended in host order (`syntheticModuleUuid(formUuid)`, a UUIDv5
+so `m{H}` is stable across emissions), carrying the host's case type and that
+one form. `compiler.ts` and `expander.ts` consume the plan, so `m{N}` /
+`unique_id` / `owningModuleOf` agree on both paths. The lowering is emitted
+only when `hostLowersNoMatchesForm(host)` (the host opens on Search and has a
+case type); a form whose module fails that is a validator finding, not a
+partial emission.
+
+- **Host module.** HQ JSON `case_list_form: { form_id, label,
+  post_form_workflow: "case_list", relevancy_expression:
+  "count(instance('results:inline')/results/case) = 0" }`; local suite an
+  `<action relevant="count(instance('results:inline')/results/case) = 0">` on
+  `m{N}_case_short` (row and tile) whose `<stack><push>` carries the synthetic
+  form's command, the target entry's datums as HQ's `get_datums_for_action`
+  offers them (`compiler.ts::registerActionFor`: a function datum as its
+  function, `case_id_new_<type>_0 = uuid()`; a parent selection as the
+  session value of the host's FIRST menu form's datum of that case type,
+  `case-list-form-suite-parent-child-basic.xml`; a host without menu forms
+  offers function datums alone), and `<datum id="return_to" value="'m{N}'"/>`,
+  before any Search action (`suite/case-list/shortDetail.ts::RegisterActionContext`).
+  The relevancy is
+  an explicit boolean comparison because Core string-compares
+  `Action.relevant` to `"true"`, and it is safe only in the inline shape,
+  where `results:inline` exists before the list renders; the label rides
+  `case_list_form.m{N}` (`emissionPlan.ts::caseListFormLabelUnit`, source
+  `entry.label ?? form.name`). Bytes pinned to
+  `tests/data/case_list_form/case-list-form-suite.xml` and the relevancy
+  partial in `test_case_list_form.py`.
+- **Synthetic module.** HQ `module_filter: "false()"` / local
+  `<menu relevant="false()">` (`displayConditions.ts::NEVER_RELEVANT`): stack
+  pushes ignore menu relevance, so the form is reachable through the action
+  and nowhere else. Its entry's `<stack>` is the return frame
+  `<create if="count(instance('commcaresession')/session/data/return_to) = 1 and instance('commcaresession')/session/data/return_to = 'm{N}'">`
+  with the host command plus the `case_fixture` query child
+  (`formLinkProjection.ts::caseListFormReturnFrame`), so the worker lands on
+  Results showing exactly the case they registered; HQ regenerates the same
+  frame from `post_form_workflow: case_list`
+  (`test_form_linking_to_inline_search_module_from_registration_form`). A
+  host without menu forms has no common datum prefix (HQ reads form entries
+  only), so its frame is the host command alone and the worker returns to
+  the module's search; Preview mirrors both.
+- **Carried answers.** The XPath leaf `search-answer-ref { searchInputUuid }`
+  prints `#search/<name>` for people and emits
+  `instance('search-input:results:inline')/input/field[@name='<name>']`
+  (`xpath/expressionAst.ts` binds it only through
+  `searchInputNameResolver(doc, formUuid)`, which resolves inside a no-matches
+  form alone); `xform/builder.ts` declares the
+  `jr://instance/search-input/results:inline` instance, `xpath/carriers.ts`
+  admits it for that profile only, and no Vellum shadow is emitted for it.
+  `validator/index.ts::searchAnswerRefError` refuses the leaf outside a
+  no-matches form or against a prompt the module no longer has
+  (`INVALID_SEARCH_REF`).
+- **Validator** (`rules/case-search/searchNoMatches.ts`, all soundness):
+  `SEARCH_NO_MATCHES_ENTRY_REQUIRES_SEARCH_FIRST`, `…_NOT_REGISTRATION`,
+  `…_HAS_NAVIGATION` (links, an after-submit choice, a display condition),
+  `…_PARENT_NEEDS_MENU_FORM` (a host that selects a parent case first has
+  no menu form to copy the selection from), `SEARCH_NO_MATCHES_DUPLICATE`,
+  and `FORM_LINK_TARGET_NO_MATCHES_FORM` in
+  `rules/form.ts`. `hqJsonOracle.ts::checkCaseListForm` pins `form_id`
+  resolution and `post_form_workflow ∈ {default, case_list}`
+  (`HQJSON_BAD_CASE_LIST_FORM`).
+- **Compatibility.** HQ emits the action's `relevant` only under
+  `FOLLOWUP_FORMS_AS_CASE_LIST_FORM` (`details.py::get_case_list_form_action`);
+  without it the action is UNCONDITIONAL. The flag row is
+  `no-matches-registration` in `config/commcare-hq-feature-flags.json`, the
+  public capability `registration-after-empty-search` ("Registration offered
+  after an empty search", required), derived by
+  `projectSpaceCompatibility.ts::moduleRequiresNoMatchesRegistration`.
+- **Web Apps only at runtime.** Android never shows the case list on an
+  empty search response and passes no search-input extra
+  (`QueryRequestActivity::processSuccess`), so author-facing copy says the
+  action and the carried answers work in the browser app.
+
 Module/form navigation display conditions use `suite/displayConditions.ts`.
 Module conditions emit to `<menu relevant>` and HQ `module_filter`; their
 secondary instances are child `<instance>` elements on that menu, requiring the

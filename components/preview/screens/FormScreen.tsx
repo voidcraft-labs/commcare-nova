@@ -45,9 +45,11 @@ import {
 	effectivePostSubmit,
 	type FormLink,
 	type FormType,
-	isCaseFirstModule,
+	isNoMatchesForm,
 	makeTranslationUnitId,
 	materializableCaseTypes as materializableCaseTypesFromDoc,
+	menuFormUuidsOf,
+	moduleIsCaseFirst,
 	moduleOpensOnSearch,
 	POST_SUBMIT_DESTINATIONS,
 	type PostSubmitDestination,
@@ -82,6 +84,7 @@ import {
 	sourceSessionDatums,
 } from "@/lib/preview/engine/formLinkEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
+import { searchInputInstanceValues } from "@/lib/preview/engine/runtimeBindings";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import type { CaseDatabaseSnapshot } from "@/lib/preview/engine/xpathInstances";
 import {
@@ -105,13 +108,16 @@ import {
 	usePreviewCaseTarget,
 	usePreviewMenuCaseSelections,
 	usePreviewPersonaUuid,
+	usePreviewSearchState,
 	useProjectId,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewing,
 	useSetPreviewMenuCaseSelection,
+	useSetPreviewSearchState,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
+import { recordRegisteredCase } from "@/lib/session/previewSearchState";
 import { useBuilderSessionApi } from "@/lib/session/provider";
 import type { PreviewCaseChoice } from "@/lib/session/types";
 import {
@@ -143,6 +149,7 @@ import {
 	FORM_QUIET_ACTION_CLS,
 } from "./formActionButtonStyles";
 import { openModuleLanding } from "./moduleLanding";
+import { noMatchesFormAdmission, noMatchesRefusalCopy } from "./noMatchesForm";
 
 /**
  * Failure arms of `SubmissionResult`: the complement of the success
@@ -549,6 +556,41 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 		() => previewMenuCaseContext(menuSource, moduleUuid, menuCaseSelections),
 		[menuCaseSelections, menuSource, moduleUuid],
 	);
+	/* A no-matches registration form is admitted only through the Register
+	 * action on its module's empty search (`noMatchesForm.ts`): the launch on
+	 * the case target names the search attempt that offered it, and the
+	 * module's search context says whether that search found nothing. The
+	 * admitted answers are what `#search/<name>` reads in the engine. */
+	const searchState = usePreviewSearchState(moduleUuid);
+	const setPreviewSearchState = useSetPreviewSearchState();
+	const searchLaunch =
+		previewCaseTarget?.formUuid === formUuid
+			? previewCaseTarget.searchLaunch
+			: undefined;
+	const noMatchesAdmission = useMemo(
+		() =>
+			noMatchesFormAdmission({
+				form,
+				moduleUuid,
+				launch: searchLaunch,
+				searchState,
+			}),
+		[form, moduleUuid, searchLaunch, searchState],
+	);
+	/* The search context keeps the screen's answers (a date range as its
+	 * two bounds); the engine's search-input instance holds one field per
+	 * prompt, as the device's does. */
+	const hostSearchInputs = mod?.caseListConfig?.searchInputs;
+	const searchAnswers = useMemo(
+		() =>
+			mode === "preview" && noMatchesAdmission.kind === "admitted"
+				? searchInputInstanceValues(
+						hostSearchInputs ?? [],
+						new Map(Object.entries(noMatchesAdmission.answers)),
+					)
+				: undefined,
+		[mode, noMatchesAdmission, hostSearchInputs],
+	);
 	const language = useBuilderLanguage();
 	const formNameUnitId = makeTranslationUnitId(
 		"form",
@@ -732,7 +774,12 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 
 	const editable = isReady;
 
-	const controller = useFormEngine(formUuid, caseData, carriedCaseDatabase);
+	const controller = useFormEngine(
+		formUuid,
+		caseData,
+		carriedCaseDatabase,
+		searchAnswers,
+	);
 	const engineEntry = useEngineEntry();
 	const runtimeFault =
 		engineEntry.fault?.formUuid === formUuid ? engineEntry.fault : undefined;
@@ -1086,6 +1133,51 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			announced = true;
 			args.announceWrite();
 		};
+		/* A no-matches registration form returns to its module as the wire's
+		 * return frame does; the gate keeps such a form free of links, so
+		 * this is decided first. A host with menu forms lands on Results
+		 * showing the case it registered (the frame re-keys the search to
+		 * that case); a host without any has no frame beyond its command
+		 * (`caseListFormReturnFrame`), so the search context retires and the
+		 * module opens the way it first did: on Search, or on an automatic
+		 * Results when there is nothing to answer. */
+		const landOnResultsWithRegisteredCase = (
+			moduleUuid: Uuid,
+			caseId: string,
+		): void => {
+			announceWrite();
+			setPreviewSearchState(
+				moduleUuid,
+				menuFormUuidsOf(submitted.doc, moduleUuid).length > 0
+					? recordRegisteredCase(
+							session.getState().previewSearchStates[moduleUuid],
+							caseId,
+						)
+					: undefined,
+			);
+			setPreviewSelectedCase(undefined);
+			setPreviewCaseTarget(undefined);
+			settleAttempt({ kind: "idle" });
+			navigate.openCaseList(moduleUuid);
+		};
+		const submittedForm =
+			submitted.formUuid === undefined
+				? undefined
+				: submitted.doc.forms[submitted.formUuid];
+		const noMatchesRegistration =
+			submittedForm !== undefined &&
+			isNoMatchesForm(submittedForm) &&
+			result.kind === "registration" &&
+			submitted.moduleUuid !== undefined
+				? { moduleUuid: submitted.moduleUuid, caseId: result.caseId }
+				: undefined;
+		if (noMatchesRegistration !== undefined) {
+			landOnResultsWithRegisteredCase(
+				noMatchesRegistration.moduleUuid,
+				noMatchesRegistration.caseId,
+			);
+			return;
+		}
 		const links = submitted.links;
 		if (
 			links === undefined ||
@@ -1225,18 +1317,9 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				formOrder: doc.formOrder,
 			};
 			const caseFirstModules = new Set(
-				doc.moduleOrder.filter((moduleUuid) => {
-					const formTypes = (doc.formOrder[moduleUuid] ?? []).flatMap(
-						(formUuid) => {
-							const type = doc.forms[formUuid]?.type;
-							return type === undefined ? [] : [type];
-						},
-					);
-					return isCaseFirstModule(
-						formTypes,
-						doc.modules[moduleUuid]?.caseType !== undefined,
-					);
-				}),
+				doc.moduleOrder.filter((moduleUuid) =>
+					moduleIsCaseFirst(doc, moduleUuid),
+				),
 			);
 			const createdChildren =
 				result.kind === "survey" ? [] : result.createdChildren;
@@ -1505,7 +1588,13 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 							where: "preview.FormScreen.dispatchAfterSubmit",
 							family: "AfterSubmitRoute",
 							received: _exhaustive,
-							knownKinds: ["post-submit", "module", "form", "unresolvable"],
+							knownKinds: [
+								"post-submit",
+								"module",
+								"form",
+								"results-with-registered-case",
+								"unresolvable",
+							],
 						}),
 					);
 				}
@@ -2042,6 +2131,41 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 	 * execute. It is an internal invariant breach, never an editable invalid
 	 * draft. Keep the Builder available in Edit, but do not render or submit a
 	 * running form against guessed/blank semantics. */
+	/* The running app refuses a no-matches registration form that did not
+	 * arrive through the Register action on an empty search: the device has
+	 * no other door to it (`<menu relevant="false()">`), so neither does
+	 * Preview. Edit mode keeps the authoring surface. */
+	if (mode === "preview" && noMatchesAdmission.kind === "refused") {
+		const copy = noMatchesRefusalCopy(noMatchesAdmission.reason);
+		return (
+			<div className="flex h-full items-center justify-center px-6 py-10">
+				<div
+					role="status"
+					data-no-matches-refusal={noMatchesAdmission.reason}
+					className="flex max-w-md flex-col items-start gap-4 rounded-2xl border border-pv-input-border bg-pv-surface p-6 shadow-sm"
+				>
+					<div className="space-y-2">
+						<h2 className="text-lg font-semibold text-nova-text">
+							{copy.title}
+						</h2>
+						<p className="text-sm leading-relaxed text-nova-text-secondary">
+							{copy.description}
+						</p>
+					</div>
+					<button
+						type="button"
+						onClick={() => {
+							if (moduleUuid !== undefined) navigate.openCaseList(moduleUuid);
+						}}
+						className={FORM_PRIMARY_ACTION_CLS}
+					>
+						Go to Search
+					</button>
+				</div>
+			</div>
+		);
+	}
+
 	if (mode === "preview" && runtimeFault !== undefined) {
 		return (
 			<div className="flex h-full items-center justify-center px-6 py-10">

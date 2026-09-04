@@ -38,13 +38,20 @@ import {
 	asUuid,
 	opaqueXPathExpression,
 	type ResolveFieldPath,
+	type ResolveSearchInputName,
 	type ResolveUserPropertySlug,
 	type XPathExpression,
 	type XPathPart,
 } from "@/lib/domain";
 import { parser } from "./parser";
 
-export type { ResolveFieldPath, ResolveUserPropertySlug };
+export type {
+	ResolveFieldPath,
+	ResolveSearchInputName,
+	ResolveUserPropertySlug,
+};
+
+const NO_SEARCH_INPUTS: ResolveSearchInputName = () => undefined;
 
 // Pre-resolved node types. The grammar emits TWO distinct `Child` /
 // `Descendant` node types (root-step rule vs expression rule), so
@@ -102,18 +109,26 @@ export function parseXPathExpression(
 	source: string,
 	resolveFieldPath: ResolveFieldPath,
 	resolveUserPropertySlug: ResolveUserPropertySlug,
+	resolveSearchInputName: ResolveSearchInputName = NO_SEARCH_INPUTS,
 ): XPathExpression {
 	return parseXPathExpressionWithIssues(
 		source,
 		resolveFieldPath,
 		resolveUserPropertySlug,
+		resolveSearchInputName,
 	).expression;
 }
 
+/**
+ * `resolveSearchInputName` binds `#search/<name>`; it defaults to binding
+ * nothing, which is right everywhere but a no-matches registration form
+ * (build one with `searchInputNameResolver(doc, formUuid)`).
+ */
 export function parseXPathExpressionWithIssues(
 	source: string,
 	resolveFieldPath: ResolveFieldPath,
 	resolveUserPropertySlug: ResolveUserPropertySlug,
+	resolveSearchInputName: ResolveSearchInputName = NO_SEARCH_INPUTS,
 ): XPathParseResult {
 	if (source.length === 0) return { expression: { parts: [] }, issues: [] };
 	const tree = parser.parse(source);
@@ -141,6 +156,7 @@ export function parseXPathExpressionWithIssues(
 		source,
 		resolveFieldPath,
 		resolveUserPropertySlug,
+		resolveSearchInputName,
 		spans,
 	);
 	spans.sort((a, b) => a.from - b.from);
@@ -185,6 +201,7 @@ function collectLeafSpans(
 	source: string,
 	resolveFieldPath: ResolveFieldPath,
 	resolveUserPropertySlug: ResolveUserPropertySlug,
+	resolveSearchInputName: ResolveSearchInputName,
 	spans: LeafSpan[],
 ): void {
 	if (node.type === T.HashtagRef) {
@@ -193,6 +210,7 @@ function collectLeafSpans(
 			source,
 			resolveFieldPath,
 			resolveUserPropertySlug,
+			resolveSearchInputName,
 		);
 		if (part !== undefined) {
 			spans.push({ from: node.from, to: node.to, part });
@@ -217,6 +235,7 @@ function collectLeafSpans(
 			source,
 			resolveFieldPath,
 			resolveUserPropertySlug,
+			resolveSearchInputName,
 			spans,
 		);
 	}
@@ -227,6 +246,7 @@ function classifyHashtag(
 	source: string,
 	resolveFieldPath: ResolveFieldPath,
 	resolveUserPropertySlug: ResolveUserPropertySlug,
+	resolveSearchInputName: ResolveSearchInputName,
 ): XPathPart | XPathUnresolvedReference | undefined {
 	const nsNode = node.getChild(T.HashtagType.name);
 	if (!nsNode) return undefined;
@@ -256,6 +276,18 @@ function classifyHashtag(
 	if (namespace === "case") {
 		// CommCare-private projection vocabulary, not a canonical
 		// `(caseType, property)` identity. It cannot enter authored storage.
+		return { kind: "unresolved-reference", namespace, segments };
+	}
+	if (namespace === "search") {
+		// A search answer carried into a no-matches registration form. The
+		// namespace is reserved (`RESERVED_CASE_TYPE_NAMES`), so it never
+		// falls through to the case-ref arm below.
+		if (segments.length === 1) {
+			const uuid = resolveSearchInputName(segments[0]);
+			if (uuid !== undefined) {
+				return { kind: "search-answer-ref", searchInputUuid: asUuid(uuid) };
+			}
+		}
 		return { kind: "unresolved-reference", namespace, segments };
 	}
 	if (segments.length === 1) {

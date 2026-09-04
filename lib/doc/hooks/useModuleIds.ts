@@ -10,16 +10,17 @@
 "use client";
 
 import { useContext, useMemo } from "react";
+import { shallow } from "zustand/shallow";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
 import { sameSequenceByIdentity } from "@/lib/doc/sequenceEquality";
 import type { Uuid } from "@/lib/doc/types";
 import {
 	childModuleUuids,
 	type Form,
-	type FormType,
-	isCaseFirstModule,
+	formEntersFromMenu,
 	type Module,
 	moduleIsBareCaseListDestination,
+	moduleIsCaseFirst,
 	moduleSiblingUuids,
 	projectLocalizedForm,
 	projectLocalizedModule,
@@ -138,23 +139,45 @@ export function useOrderedForms(moduleUuid: Uuid | undefined): Form[] {
 }
 
 /**
+ * The module's menu forms in display sequence: `useOrderedForms` minus the
+ * forms an `entry` reaches another way (the no-matches registration form
+ * opens from Results, never from the menu). Menus, tiles, and navigation
+ * decisions read this one; the structure tree and settings read every form.
+ */
+export function useOrderedMenuForms(moduleUuid: Uuid | undefined): Form[] {
+	const forms = useOrderedForms(moduleUuid);
+	return useMemo(() => forms.filter(formEntersFromMenu), [forms]);
+}
+
+/** How many forms each module's MENU lists, keyed by module uuid. Home
+ * tiles count what a worker will see on the menu, so a no-matches
+ * registration form (reached from Results, never the menu) is not one. */
+export function useMenuFormCounts(): Readonly<Record<string, number>> {
+	return useBlueprintDocEq(
+		(s) =>
+			Object.fromEntries(
+				s.moduleOrder.map((moduleUuid) => [
+					moduleUuid,
+					(s.formOrder[moduleUuid] ?? []).filter((formUuid) => {
+						const form = s.forms[formUuid];
+						return form !== undefined && formEntersFromMenu(form);
+					}).length,
+				]),
+			),
+		shallow,
+	);
+}
+
+/**
  * Whether a module's running-app navigation is case-first (the case list is
  * the module's landing, then a form menu) vs forms-first. See
- * `isCaseFirstModule` — true iff the module has a case type and every form
- * is case-loading (followup/close). `undefined` uuid → false.
+ * `isCaseFirstModule` — true iff the module has a case type and every menu
+ * form is case-loading (followup/close). `undefined` uuid → false.
  */
 export function useIsCaseFirstModule(moduleUuid: Uuid | undefined): boolean {
-	const { order, forms, caseType } = useBlueprintDocShallow((s) => ({
-		order: moduleUuid ? s.formOrder[moduleUuid] : undefined,
-		forms: s.forms,
-		caseType: moduleUuid ? s.modules[moduleUuid]?.caseType : undefined,
-	}));
-	return useMemo(() => {
-		const types = (order ?? [])
-			.map((uuid) => forms[uuid]?.type)
-			.filter((t): t is FormType => t !== undefined);
-		return isCaseFirstModule(types, caseType !== undefined);
-	}, [order, forms, caseType]);
+	return useBlueprintDoc((doc) =>
+		moduleUuid ? moduleIsCaseFirst(doc, moduleUuid) : false,
+	);
 }
 
 /**
@@ -190,15 +213,9 @@ export function useCaseFirstModuleUuids(): Set<Uuid> {
 	);
 	return useMemo(() => {
 		const caseFirst = new Set<Uuid>();
+		const doc = { modules, forms, formOrder };
 		for (const moduleUuid of moduleOrder) {
-			const types = (formOrder[moduleUuid] ?? [])
-				.map((uuid) => forms[uuid]?.type)
-				.filter((t): t is FormType => t !== undefined);
-			if (
-				isCaseFirstModule(types, modules[moduleUuid]?.caseType !== undefined)
-			) {
-				caseFirst.add(moduleUuid);
-			}
+			if (moduleIsCaseFirst(doc, moduleUuid)) caseFirst.add(moduleUuid);
 		}
 		return caseFirst;
 	}, [moduleOrder, modules, formOrder, forms]);

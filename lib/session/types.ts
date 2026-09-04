@@ -48,11 +48,62 @@ export interface PreviewCaseChoice {
 export interface PreviewCaseTarget {
 	formUuid: Uuid;
 	cases?: readonly PreviewCaseChoice[];
+	/** The Register action that opened a no-matches registration form: the
+	 * host module's search and the attempt it was offered on. Absent on every
+	 * other way into a form, which is what lets the form screen refuse a
+	 * direct URL (`components/preview/screens/noMatchesForm.ts`). */
+	searchLaunch?: PreviewSearchLaunch;
 	/** Post-submit local-device world carried by a direct form link. A fresh
 	 * restore may omit a case the device just closed, but the linked form still
 	 * opens against the case and casedb state the submitting entry committed. */
 	caseData?: CaseDataByType;
 	caseDatabase?: CaseDatabaseSnapshot;
+}
+
+/** The worker's answers as the search-input instance would hold them:
+ * prompt name → value, hidden inputs included. */
+export type PreviewSearchAnswers = Readonly<Record<string, string>>;
+
+export type PreviewSearchFailure =
+	| "invalid-search"
+	| "error"
+	| "unauthenticated"
+	| "persona-unavailable";
+
+/**
+ * One module's search context in the running app: not searched yet, a
+ * search running, the last search failed, or the last search completed
+ * with a match count. Kept per module in the session store so the
+ * no-matches registration form, a different screen, can ask whether the
+ * search that offered it found nothing (`previewSearchState.ts`).
+ */
+export type PreviewSearchState =
+	| { readonly kind: "not-searched" }
+	| {
+			readonly kind: "running";
+			readonly attempt: number;
+			readonly answers: PreviewSearchAnswers;
+	  }
+	| {
+			readonly kind: "failed";
+			readonly attempt: number;
+			readonly answers: PreviewSearchAnswers;
+			readonly reason: PreviewSearchFailure;
+	  }
+	| {
+			readonly kind: "completed";
+			readonly attempt: number;
+			readonly answers: PreviewSearchAnswers;
+			readonly matchCount: number;
+			/** Set once the no-matches form registers a case: Results then
+			 * shows that one case, as the wire's return frame does. */
+			readonly registeredCaseId?: string;
+	  };
+
+/** Which search offered a no-matches registration form. */
+export interface PreviewSearchLaunch {
+	readonly moduleUuid: Uuid;
+	readonly attempt: number;
 }
 
 /**

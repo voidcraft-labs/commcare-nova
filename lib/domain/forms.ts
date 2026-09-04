@@ -79,6 +79,31 @@ export const POST_SUBMIT_DESTINATIONS = [
 export type PostSubmitDestination = (typeof POST_SUBMIT_DESTINATIONS)[number];
 
 /**
+ * How a form is reached when it is not a menu item. The one kind today is
+ * the no-matches registration form: it opens from Results after a search
+ * on its module found nothing, carries the search answers, and is listed
+ * nowhere else. A form with no `entry` enters from the module menu.
+ */
+export const formEntrySchema = z
+	.object({
+		kind: z.literal("search-no-matches"),
+		/** The action's label on Results; the form's name when absent. */
+		label: z.string().min(1).optional(),
+	})
+	.strict();
+export type FormEntry = z.infer<typeof formEntrySchema>;
+
+/** Whether the form is a menu item of its module. */
+export function formEntersFromMenu(form: Pick<Form, "entry">): boolean {
+	return form.entry === undefined;
+}
+
+/** Whether the form opens from Results after a search found nothing. */
+export function isNoMatchesForm(form: Pick<Form, "entry">): boolean {
+	return form.entry?.kind === "search-no-matches";
+}
+
+/**
  * The one stored and machine-authored navigation vocabulary:
  *   "app_home" → App Home (main menu)
  *   "module"   → This Module (case list / form list)
@@ -496,6 +521,14 @@ export const formSchema = z
 		closeCondition: closeConditionSchema.optional(),
 		connect: connectConfigSchema.optional(),
 		postSubmit: z.enum(POST_SUBMIT_DESTINATIONS).optional(),
+		/**
+		 * Present when the form is not a menu item. A no-matches form has a
+		 * fixed after-submit (Results showing the case it registered), so
+		 * `postSubmit`, `formLinks`, and `displayCondition` are refused on it
+		 * by the validator rather than the schema, which keeps the patch and
+		 * clear shapes ordinary.
+		 */
+		entry: formEntrySchema.optional(),
 		/**
 		 * Where the app goes after this form is submitted, checked in order:
 		 * the first link whose condition holds is followed, and `postSubmit`

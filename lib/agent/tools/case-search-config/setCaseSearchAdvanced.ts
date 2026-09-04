@@ -16,6 +16,7 @@
  */
 
 import type { z } from "zod";
+import { planSearchTakeawayDependents } from "@/lib/doc/searchNoMatchesDependents";
 import {
 	type CaseSearchConfig,
 	isOwnerOnlyCaseSearchConfig,
@@ -132,6 +133,28 @@ export const setCaseSearchAdvancedTool = {
 			const nextConfig = clearingOwnerOnly
 				? undefined
 				: collapseUnauthoredCaseSearchConfig(existing, nextConfigCandidate);
+
+			/* A no-matches registration form needs the module to keep opening
+			 * on Search; the shared planner refuses and names the form
+			 * (`searchNoMatchesDependents.ts`). */
+			const opensOnSearch = (config: CaseSearchConfig | undefined): boolean =>
+				config !== undefined &&
+				!isOwnerOnlyCaseSearchConfig(config) &&
+				config.searchFirst === true;
+			if (opensOnSearch(existing) && !opensOnSearch(nextConfig)) {
+				const dependents = planSearchTakeawayDependents(
+					doc,
+					moduleUuid,
+					nextConfig === undefined ? "search" : "search-first",
+				);
+				if (dependents.kind === "blocked") {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						result: { error: dependents.message },
+					};
+				}
+			}
 
 			const mutations = updateModuleMutations(mod, {
 				caseSearchConfig: nextConfig ?? null,

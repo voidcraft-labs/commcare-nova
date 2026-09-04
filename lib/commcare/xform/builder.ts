@@ -48,6 +48,7 @@ import {
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import { readFieldString } from "@/lib/commcare/fieldProps";
+import { referencesSearchAnswer } from "@/lib/commcare/hashtags";
 import {
 	caseTypeDepthMap,
 	expandHashtagsInContext,
@@ -193,6 +194,8 @@ class InstanceTracker {
 	private fixtures = new Map<string, string>();
 	/** Collection-valued case selections, id → selected-entities src. */
 	private selectedCases = new Map<string, string>();
+	/** The inline search's answers, id → search-input src. */
+	private searchInputs = new Map<string, string>();
 
 	/**
 	 * `caseTypeNames` is the form's reachable case-type namespaces (the keys of
@@ -205,6 +208,7 @@ class InstanceTracker {
 	constructor(
 		private caseTypeNames: ReadonlySet<string>,
 		private lookupNaming: LookupWireNaming | undefined,
+		private searchAnswers: FormHashtagContext["searchAnswers"] = undefined,
 	) {}
 
 	require(id: InstanceId): void {
@@ -221,10 +225,24 @@ class InstanceTracker {
 		this.selectedCases.set(id, `jr://instance/selected-entities/${id}`);
 	}
 
+	/**
+	 * Declare the inline search's search-input instance
+	 * (`post_process/instances.py::search_input_instances`:
+	 * `jr://instance/search-input/<storage>`).
+	 */
+	requireSearchInput(id: string): void {
+		// `search-input:<storage>` → `jr://instance/search-input/<storage>`.
+		const storage = id.slice("search-input:".length);
+		this.searchInputs.set(id, `jr://instance/search-input/${storage}`);
+	}
+
 	/** Scan a pre-expansion XPath expression for instance references. */
 	scanXPath(expr: string): void {
 		if (expr.includes("#user/") || this.referencesCaseType(expr)) {
 			this.require("casedb");
+		}
+		if (this.searchAnswers !== undefined && referencesSearchAnswer(expr)) {
+			this.requireSearchInput(this.searchAnswers.instanceId);
 		}
 
 		for (const id of collectInstanceRefs(expr)) {
@@ -283,6 +301,9 @@ class InstanceTracker {
 				.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
 				.map(([id, src]) => el("instance", { src, id })),
 			...[...this.selectedCases]
+				.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
+				.map(([id, src]) => el("instance", { src, id })),
+			...[...this.searchInputs]
 				.sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
 				.map(([id, src]) => el("instance", { src, id })),
 		];
@@ -447,6 +468,12 @@ export interface BuildXFormOptions {
 	/** Session reference of the selected own case. Nested child menus may use
 	 * an HQ-aligned id such as `case_id_guppy`. */
 	selectedCaseIdRef?: string;
+	/**
+	 * The search answers a no-matches registration form reads (`#search/`):
+	 * the inline search's search-input instance and the host module's prompt
+	 * names. The instance is declared when a `#search/` read is present.
+	 */
+	searchAnswers?: FormHashtagContext["searchAnswers"];
 	/** Collection-valued selected-entities instance for a multi-select entry. */
 	selectedCasesInstanceId?: string;
 	/** Ordinary close action lowered through the selected-case iteration. */
@@ -515,7 +542,11 @@ export function buildXForm(
 	);
 	const caseTypeNames: ReadonlySet<string> = new Set(caseTypeDepths.keys());
 
-	const instances = new InstanceTracker(caseTypeNames, opts.lookupNaming);
+	const instances = new InstanceTracker(
+		caseTypeNames,
+		opts.lookupNaming,
+		opts.searchAnswers,
+	);
 	if (opts.selectedCasesInstanceId !== undefined) {
 		instances.requireSelectedCases(opts.selectedCasesInstanceId);
 	}
@@ -587,6 +618,9 @@ export function buildXForm(
 		caseTypeDepths,
 		...(opts.selectedCaseIdRef !== undefined && {
 			currentCaseIdRef: opts.selectedCaseIdRef,
+		}),
+		...(opts.searchAnswers !== undefined && {
+			searchAnswers: opts.searchAnswers,
 		}),
 	};
 	const expand = (expr: string): string =>

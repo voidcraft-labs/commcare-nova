@@ -575,6 +575,7 @@ export interface NewFormInput {
 	purpose?: string;
 	closeCondition?: Form["closeCondition"];
 	postSubmit?: PostSubmitDestination;
+	entry?: Form["entry"];
 }
 
 /** Build an `addForm` mutation. Mints a uuid when the caller doesn't
@@ -610,6 +611,7 @@ export function addFormMutations(
 			closeCondition: input.closeCondition,
 		}),
 		...(input.postSubmit !== undefined && { postSubmit: input.postSubmit }),
+		...(input.entry !== undefined && { entry: input.entry }),
 	};
 	return [
 		// The form appends; `moveForm` is how the SA reorders one.

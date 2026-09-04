@@ -802,6 +802,67 @@ A form's `formLinks` run in the running app the way they run on a device, throug
 - **The submit row stays running until the next screen is pushed**, because the write has landed and a second press must not land it again. A failure after the write (the read-back did not answer a row, the target is not in the document, the evaluation threw) settles an inline error that says the answers were saved and logs through `log.error`; it never throws and never silently goes back.
 - **A just-closed case carried into a case-loading form finds no case in Preview.** The target form's own preload stays device-scoped, and the restore scope drops a closed root case, so a close form linking to a followup on the same case opens it bound to a missing row (Submit disabled) where the device, which has not synced yet, would open the closed case.
 
+## The completed-search context and the no-matches form
+
+A search-first module's running state is ONE fact per module in the session
+store, `previewSearchStates[moduleUuid]` (`lib/session/previewSearchState.ts`):
+`not-searched | running | failed | completed { matchCount, registeredCaseId? }`,
+each attempt numbered, each carrying the answers the worker searched with
+(visible values plus the hidden values `useSearchInputRunState.resolveHidden`
+evaluated at submit). `CaseListScreen` is the only writer: `submitSearch`
+begins the attempt (the automatic zero-input launch included), and the settle
+effect completes or fails it from `engine/searchPhase.ts::searchOutcomeFromLoad`
+over the `useCases` load, but only after it has SEEN a fetch start and end for
+that attempt (`awaitingSearchFetchRef` / `sawSearchFetchRef`), because the
+submit commits before the query effect fires and an earlier load's `rows`
+would otherwise settle the new attempt. **Search again** resets to
+not-searched. Failure is its own state: an `invalid-search`, transport, or
+persona refusal is not "no matches", and nothing is offered on it. The
+screen's run state (`useSearchInputRunState`) is screen-local while the
+context outlives the screen, so `CaseListScreen` keeps them one search: on a
+module's first pass the run state follows the context (`restore`, so a form
+of the module that returned to its list finds the standing search, as the
+device re-runs the query it kept); after that a retired context clears the
+run state, and a run state the screen dropped on its own retires the context.
+The context keeps the screen's answers (a date range as its two bounds);
+`runtimeBindings.ts::searchInputInstanceValues` folds them to the instance's
+one field per prompt where `FormScreen` hands them to the engine.
+
+The no-matches registration form (`Form.entry`, the wire's `case_list_form`)
+is admitted or refused by `components/preview/screens/noMatchesForm.ts::noMatchesFormAdmission`,
+and both screens ask it. Results renders the **Register** action inside the
+empty notice only while `noMatchesActionAvailable` (completed with zero
+matches); pressing it sets `previewCaseTarget.searchLaunch = { moduleUuid,
+attempt }` and opens the form. `FormScreen` admits the form only for a launch
+naming its own module and the CURRENT completed empty attempt; a direct URL,
+another module's launch, a search still running or failed, matches found, or a
+launch a later search superseded shows the refusal panel ("This form opens
+after a search finds no matches" plus the next step and **Go to Search**),
+and the engine never activates. An admitted launch hands the attempt's answers
+to `useFormEngine → engineController → FormEngine.runtimeOptions.searchAnswers`:
+`xpathInstances.ts::searchInputXPathInstance` synthesizes the
+`search-input:results:inline` instance beside `commcaresession`, and
+`previewHashtagNodeSet` selects `#search/<name>` as that instance's field
+node (the wire's `input/field[@name]`, so `count()` sees a prompt the search
+left blank as no node); the worker path reaches the same nodes through
+`workerInstances.hashtagValues`, and `FormEngine.resolveHashtag` answers the
+scalar (blank when absent) only for a form running without the instance.
+
+After submit, `FormScreen.dispatchAfterSubmit` lands a no-matches registration
+BEFORE any link (the form has none), as the wire's return frame does. A host
+with menu forms records the new case on the module's state
+(`recordRegisteredCase`: the same attempt, now completed with one match and
+`registeredCaseId`, which also closes the no-matches door) and opens the case
+list, where Results reads only that case (`useCases({ caseIds })`, the
+answers no longer narrowing it), mirroring the `case_fixture` frame. A host
+without menu forms has a frame of the host command alone, so its context
+retires and the module opens on Search again (or its automatic Results). The
+form is on no menu:
+`ModuleScreen`, `HomeScreen`'s form counts, and the case-list form menu read
+`useOrderedMenuForms` / `useMenuFormCounts`, while `screenProjection.ts` still
+projects the form URL so a stale link meets the refusal rather than a blank
+screen.
+
 ## Case-data Server Action wire shape (edge-WAF constraint)
 
 Two rules govern the args these `caseDataBinding` Server Actions take. The edge Cloud Armor CRS rules that punish breaking them run in **log-only / preview** mode today (`scripts/infra/setup-cloud-armor-lb.sh` — they record would-be blocks, they don't 403), so this is wire hygiene that keeps the previewed-match logs clean enough to eventually enforce, not a hard gate:

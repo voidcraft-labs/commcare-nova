@@ -980,6 +980,17 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly formDisplayCondition?: Predicate;
 	/** The claim post of a search-first module's case-requiring entry. */
 	readonly post?: EntryPost;
+	/**
+	 * HQ's case-list-form return frame (`CaseListFormWorkflow`): the one
+	 * `<create if="…return_to = 'm{N}'">` a no-matches registration form's
+	 * entry carries after its own workflow frames, so submitting returns to
+	 * the host module's Results. Built by
+	 * `formLinkProjection.ts::caseListFormReturnFrame`.
+	 */
+	readonly returnFrame?: {
+		readonly ifClause: string;
+		readonly children: readonly MatchedChild[];
+	};
 }
 
 export function deriveEntryDefinition(
@@ -1117,8 +1128,8 @@ export function deriveEntryDefinition(
 	// frame. `app_home` (HQ `default`) contributes no frame either way, so a
 	// form with no links and `app_home` emits no `<stack>` at all — CommCare
 	// pops the form frame and lands home.
-	const operations =
-		formLinks !== undefined
+	const operations = [
+		...(formLinks !== undefined
 			? deriveFormLinkStack(
 					formLinks,
 					postSubmit,
@@ -1131,7 +1142,20 @@ export function deriveEntryDefinition(
 					moduleIndex,
 					previousFrame,
 					moduleFrame,
-				);
+				)),
+		// End-of-form frames win over the case-list-form frame, so it is
+		// last (`WorkflowHelper.add_form_workflow` appends
+		// `case_list_forms_frames` after the workflow's own).
+		...(args.returnFrame === undefined
+			? []
+			: [
+					{
+						op: "create" as const,
+						ifClause: args.returnFrame.ifClause,
+						children: args.returnFrame.children.map(toStackChild),
+					},
+				]),
+	];
 	for (const operation of operations) {
 		for (const child of operation.children) {
 			for (const expression of stackChildExpressions(child)) {

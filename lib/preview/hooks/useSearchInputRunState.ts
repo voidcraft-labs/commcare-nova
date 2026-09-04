@@ -51,8 +51,15 @@ export interface SearchInputRunState {
 	 *  with every prompt blank. Distinct from `queryActive`, which only reflects
 	 *  non-empty criteria. */
 	readonly hasSubmitted: boolean;
+	/** The hidden inputs' values a search pressed now would carry. */
+	readonly resolveHidden: () => SearchInputValues;
 	readonly changeDraft: (next: SearchInputValues) => void;
 	readonly submit: (next: SearchInputValues) => void;
+	/** Re-enter the submitted phase with the values of a search this screen
+	 *  did not press itself (the module's standing search context): the
+	 *  visible prompts' answers and the hidden values as that search carried
+	 *  them, so a `now()` search time is the time of that search. */
+	readonly restore: (values: SearchInputValues) => void;
 	readonly clear: () => void;
 }
 
@@ -124,8 +131,30 @@ export function useSearchInputRunState(args: {
 		draftActive: hasNonEmptyValue(current.draft),
 		queryActive: hasNonEmptyValue(current.submitted),
 		hasSubmitted: current.hasSubmitted,
+		resolveHidden: current.resolveHidden,
 		changeDraft: (next) => commitDraft(next, false),
 		submit: (next) => commitDraft(next, true),
+		restore: (values) => {
+			setStored((previous) => {
+				const base = reconcileSearchRunState(previous, desired);
+				const draft = retainAllowed(values, base.allowedKeys);
+				return {
+					...base,
+					draft,
+					submitted: draft,
+					submittedHidden: new Map(
+						[...values].filter(([key]) => !base.allowedKeys.has(key)),
+					),
+					hasSubmitted: true,
+					touched: changedKeys(
+						base.draft,
+						draft,
+						base.touched,
+						base.allowedKeys,
+					),
+				};
+			});
+		},
 		clear: () => {
 			setStored((previous) => {
 				const base = reconcileSearchRunState(previous, desired);

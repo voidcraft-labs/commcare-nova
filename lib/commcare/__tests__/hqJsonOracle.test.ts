@@ -509,6 +509,49 @@ describe("HQ-JSON oracle — form choice slots", () => {
 	});
 });
 
+describe("HQ-JSON oracle — case_list_form", () => {
+	it("flags a registration form id no module carries", () => {
+		const app = baselineApp();
+		moduleOf(app).case_list_form = {
+			doc_type: "CaseListForm",
+			form_id: "not-a-form-in-this-app",
+			label: { en: "Register" },
+			post_form_workflow: "case_list",
+		};
+		const findings = validateHqJson(app).filter(
+			(error) => error.code === "HQJSON_BAD_CASE_LIST_FORM",
+		);
+		expect(findings).toHaveLength(1);
+		expect(findings[0]?.message).toContain("no module in this app carries");
+	});
+
+	it("flags a post_form_workflow outside CaseListForm's choices", () => {
+		const app = baselineApp();
+		moduleOf(app).case_list_form = {
+			doc_type: "CaseListForm",
+			form_id: moduleOf(app).forms[0].unique_id,
+			label: { en: "Register" },
+			post_form_workflow: "previous_screen" as "default",
+		};
+		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_CASE_LIST_FORM");
+	});
+
+	it("accepts a resolvable form under case_list", () => {
+		const app = baselineApp();
+		moduleOf(app).case_list_form = {
+			doc_type: "CaseListForm",
+			form_id: moduleOf(app).forms[0].unique_id,
+			label: { en: "Register" },
+			post_form_workflow: "case_list",
+			relevancy_expression:
+				"count(instance('results:inline')/results/case) = 0",
+		};
+		expect(codes(validateHqJson(app))).not.toContain(
+			"HQJSON_BAD_CASE_LIST_FORM",
+		);
+	});
+});
+
 // ── Condition choices: type + operator ──────────────────────────────
 
 describe("HQ-JSON oracle — condition choice slots", () => {

@@ -267,6 +267,59 @@ describe("BuilderSession store", () => {
 		expect(store.getState().previewMenuCaseSelections).toEqual({});
 	});
 
+	it("keeps each module's completed-search context uuid-keyed and clears it with the case state", () => {
+		const store = createBuilderSessionStore();
+		const moduleUuid = testUuid("module-search");
+		const running = {
+			kind: "running" as const,
+			attempt: 1,
+			answers: { patient_name: "Zzz" },
+		};
+		store.getState().setPreviewSearchState(moduleUuid, running);
+		expect(store.getState().previewSearchStates[moduleUuid]).toEqual(running);
+
+		const prev = store.getState();
+		store.getState().setPreviewSearchState(moduleUuid, running);
+		expect(store.getState()).toBe(prev);
+
+		store
+			.getState()
+			.setPreviewSearchState(moduleUuid, { kind: "not-searched" });
+		expect(store.getState().previewSearchStates).toEqual({});
+		store.getState().setPreviewSearchState(moduleUuid, running);
+		store.getState().setPreviewSearchState(moduleUuid, undefined);
+		expect(store.getState().previewSearchStates).toEqual({});
+
+		// Leaving or entering Preview, switching persona, and crossing a Project
+		// boundary each start the running app over, so the search context goes
+		// with the case state.
+		store.getState().setPreviewing(true);
+		store.getState().setPreviewSearchState(moduleUuid, running);
+		store
+			.getState()
+			.setPreviewPersonaUuid("11111111-1111-4111-8111-111111111111");
+		expect(store.getState().previewSearchStates).toEqual({});
+		store.getState().setPreviewSearchState(moduleUuid, running);
+		store.getState().setPreviewing(false);
+		expect(store.getState().previewSearchStates).toEqual({});
+		store.getState().setPreviewSearchState(moduleUuid, running);
+		store.getState().setPreviewing(true);
+		expect(store.getState().previewSearchStates).toEqual({});
+		store.getState().setPreviewSearchState(moduleUuid, running);
+		store.getState().applyAccessSnapshot({
+			projectId: "project-source",
+			role: "editor",
+			canEdit: true,
+		});
+		expect(store.getState().previewSearchStates[moduleUuid]).toEqual(running);
+		store.getState().applyAccessSnapshot({
+			projectId: "project-destination",
+			role: "editor",
+			canEdit: true,
+		});
+		expect(store.getState().previewSearchStates).toEqual({});
+	});
+
 	it("tracks a case-parent selection return independently of menu selections", () => {
 		const store = createBuilderSessionStore();
 		const request = {

@@ -70,6 +70,8 @@
  * | `Form.post_form_workflow` ∈ ALL_WORKFLOWS | `FormBase.post_form_workflow = StringProperty(choices=const.ALL_WORKFLOWS)` | fatal | {default,root,parent_module,module,previous_screen,form} |
  * | `Form.post_form_workflow_fallback` (any string / null) | `FormBase.post_form_workflow_fallback = StringProperty(choices=const.WORKFLOW_FALLBACK_OPTIONS)` with `WORKFLOW_FALLBACK_OPTIONS = None` | NOT fatal | read only by `_get_fallback_frame` at suite build; the emitter's table is the contract (`checkFormLinks`) |
  * | `Form.form_links[*]` ids resolve            | `FormLink.form_id` / `form_module_id` / `module_unique_id` (bare `StringProperty` / `FormIdProperty`) | NOT fatal | `workflow.py::_get_link_frame` resolves them on the first build; the oracle resolves them here (`checkFormLinks`) |
+ * | `Module.case_list_form.post_form_workflow` ∈ {default,case_list} | `CaseListForm.post_form_workflow = StringProperty(choices=[WORKFLOW_DEFAULT, WORKFLOW_CASE_LIST])` | fatal | only when `form_id` is set |
+ * | `Module.case_list_form.form_id` resolves | `CaseListForm.form_id = FormIdProperty(...)` | NOT fatal | `details.py::add_register_action` calls `app.get_form(form_id)` on the first build; the oracle resolves it here (`checkCaseListForm`) |
  * | `ConditionalCaseUpdate.update_mode` ∈ {always,edit} | `ConditionalCaseUpdate.update_mode = StringProperty(choices=…)` | fatal | every update/subcase property |
  * | `OpenSubCaseAction.relationship` ∈ {child,extension} | `OpenSubCaseAction.relationship = StringProperty(choices=…)` | fatal | subcases |
  * | `DetailColumn.late_flag` finite int      | `DetailColumn.late_flag = IntegerProperty(default=30)` | fatal | NaN/Inf would break number coercion |
@@ -869,6 +871,7 @@ function checkModule(
 
 	checkDetail(module.case_details.short, moduleName, errors);
 	checkDetail(module.case_details.long, moduleName, errors);
+	checkCaseListForm(module, moduleName, ids, loc, errors);
 
 	// Module-level + case-list-level menu media. Each carrier emits a
 	// `media_image` / `media_audio` dict (NavMenuItemMediaMixin); when present,
@@ -909,6 +912,55 @@ function checkModule(
 	// exists on it today (see the function docstring), so this is a no-op guard
 	// the type-checker keeps honest.
 	noteSearchConfig(module.search_config);
+}
+
+const CASE_LIST_FORM_WORKFLOWS: ReadonlySet<string> = new Set([
+	"default",
+	"case_list",
+]);
+
+/**
+ * `case_list_form` — the Register action a case list offers
+ * (`models/modules.py::CaseListForm`). `post_form_workflow` is a `choices=`
+ * slot and wrap-fatal; `form_id` is a bare `FormIdProperty` that
+ * `details.py::add_register_action` resolves through `app.get_form` on the
+ * first build, so an unresolved id fails there rather than at import. The
+ * emitter sets `form_id` only from a form it placed in the app (the hidden
+ * module of a no-matches registration form), so either failure is an
+ * `expandDoc` bug.
+ */
+function checkCaseListForm(
+	module: HqModule,
+	moduleName: string,
+	ids: HqIdentityTable,
+	loc: ValidationLocation,
+	errors: ValidationError[],
+): void {
+	const { form_id, post_form_workflow } = module.case_list_form;
+	if (form_id === null) return;
+	if (!ids.formIds.has(form_id)) {
+		errors.push(
+			validationError(
+				"HQJSON_BAD_CASE_LIST_FORM",
+				"module",
+				`Module "${moduleName}" offers a case-list registration form "${form_id}" that no module in this app carries; CommCare HQ resolves it on the first build and fails there. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
+	if (
+		post_form_workflow !== undefined &&
+		!CASE_LIST_FORM_WORKFLOWS.has(post_form_workflow)
+	) {
+		errors.push(
+			validationError(
+				"HQJSON_BAD_CASE_LIST_FORM",
+				"module",
+				`Module "${moduleName}" has case_list_form.post_form_workflow="${post_form_workflow}", but CommCare HQ's importer only accepts "default" or "case_list" there and rejects the whole app otherwise. This is a bug in the app generator.`,
+				loc,
+			),
+		);
+	}
 }
 
 /**

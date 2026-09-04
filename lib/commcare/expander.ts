@@ -41,6 +41,10 @@ import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
 import {
+	NEVER_RELEVANT,
+	NO_MATCHES_RELEVANCY,
+} from "@/lib/commcare/suite/case-search/noMatches";
+import {
 	emitFormDisplayConditionForHq,
 	emitModuleDisplayCondition,
 } from "@/lib/commcare/suite/displayConditions";
@@ -59,6 +63,11 @@ import {
 } from "@/lib/domain";
 import { walkExpressionTerms } from "@/lib/domain/predicate";
 import { buildConnectSlugMap } from "./connectSlugs";
+import {
+	caseListFormLabelUnit,
+	emissionPlan,
+	searchAnswersOf,
+} from "./emissionPlan";
 import {
 	buildCaseReferencesLoad,
 	buildPrimaryCaseUpdateMap,
@@ -158,13 +167,19 @@ export interface ExpandOptions {
 }
 
 export function expandDoc(
-	doc: BlueprintDoc,
+	authoredDoc: BlueprintDoc,
 	opts: ExpandOptions = {},
 ): HqApplication {
+	// The wire's module sequence: authored modules with their menu forms,
+	// then one hidden module per no-matches registration form
+	// (`emissionPlan.ts`). Translation units are read off the authored
+	// document, whose ownership they describe.
+	const plan = emissionPlan(authoredDoc);
+	const doc = plan.doc;
 	const attachments: Record<string, string> = {};
 	const assets = opts.assets;
 	const userPropertySlugs = userPropertySlugsByUuid(doc);
-	const localization = commCareLocalization(doc);
+	const localization = commCareLocalization(authoredDoc);
 
 	// Child case type map: child_case_type → parent module index. Derived
 	// from `case_types[].parent_type` + matching module case types. The
@@ -237,6 +252,8 @@ export function expandDoc(
 	const modules = sortedModuleUuids.map((moduleUuid, mIdx) => {
 		const mod = doc.modules[moduleUuid];
 		const formUuids = sortedFormOrder[moduleUuid] ?? [];
+		const synthetic = plan.synthetic.get(moduleUuid);
+		const noMatches = plan.noMatchesFormOf.get(moduleUuid);
 
 		// A module "has cases" when it owns a case type AND either runs as
 		// a case-list-only module (no forms) or carries at least one
@@ -286,6 +303,9 @@ export function expandDoc(
 				// reachable-case-type depth map matches the deep validator's accept
 				// map, which builds from `mod.caseType` directly.
 				...(mod.caseType && { moduleCaseType: mod.caseType }),
+				...(synthetic !== undefined && {
+					searchAnswers: searchAnswersOf(authoredDoc, synthetic.hostModuleUuid),
+				}),
 				...(ownCaseDatumId !== undefined &&
 					ownCaseDatum?.maxSelectValue === undefined && {
 						selectedCaseIdRef: `instance('commcaresession')/session/data/${ownCaseDatumId}`,
@@ -387,7 +407,11 @@ export function expandDoc(
 
 		const shell = moduleShell(
 			moduleUniqueIds[mIdx],
-			localization.textMap(makeTranslationUnitId("module", moduleUuid, "name")),
+			localization.textMap(
+				synthetic === undefined
+					? makeTranslationUnitId("module", moduleUuid, "name")
+					: makeTranslationUnitId("form", synthetic.formUuid, "name"),
+			),
 			caseType,
 			forms,
 			caseDetails,
@@ -402,13 +426,35 @@ export function expandDoc(
 			}
 			shell.root_module_id = rootModuleId;
 		}
+		// A hidden module is never on a menu (`menus.py::_generate_menu`
+		// lowers the filter to `<menu relevant>`); the Register action reaches
+		// it through a stack push, which ignores relevance.
 		shell.module_filter =
-			emitModuleDisplayCondition(
-				mod.displayCondition,
-				mod.caseType,
-				opts.lookupNaming,
-				userPropertySlugs,
-			) ?? null;
+			synthetic !== undefined
+				? NEVER_RELEVANT
+				: (emitModuleDisplayCondition(
+						mod.displayCondition,
+						mod.caseType,
+						opts.lookupNaming,
+						userPropertySlugs,
+					) ?? null);
+		if (noMatches !== undefined) {
+			const formId = formUniqueIdOf.get(noMatches.formUuid);
+			if (formId === undefined) {
+				throw new Error(
+					`Cannot emit case_list_form for module ${moduleUuid}: form ${noMatches.formUuid} has no unique id`,
+				);
+			}
+			shell.case_list_form = {
+				doc_type: "CaseListForm",
+				form_id: formId,
+				label: localization.textMap(
+					caseListFormLabelUnit(authoredDoc, noMatches.formUuid),
+				),
+				post_form_workflow: "case_list",
+				relevancy_expression: NO_MATCHES_RELEVANCY,
+			};
+		}
 
 		// Stamp the module's home-tile media (icon + audio label) and the
 		// case-list link's media onto the shell + its `case_list` block.

@@ -736,8 +736,10 @@ Opening Details never silently defaults to a form. Continue records
 collection; `PreviewShell` grafts that collection onto the Form screen so
 `FormScreen` opens the exact scalar or batch target. A module with no
 case-loading Form is informational. The target clears on every Preview toggle.
-CommCare emits no register-from-case-list shortcut (`case_list_form.form_id`
-stays null), so case-first modules are purely list → Form menu.
+The one register-from-case-list shortcut is the no-matches registration form
+(`Form.entry`, lowered to `case_list_form`), offered on Results only after a
+search-first module's search finds nothing; every other case-first module is
+purely list → Form menu.
 
 **Case selection is authored in Results with concrete consequence copy.** The
 control is **Case selection**, its choices are **One case** and **Several

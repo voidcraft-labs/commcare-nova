@@ -22,10 +22,11 @@ import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import {
 	useIsBareCaseListModule,
-	useOrderedForms,
+	useIsCaseFirstModule,
+	useOrderedMenuForms,
 } from "@/lib/doc/hooks/useModuleIds";
 import type { Uuid } from "@/lib/doc/types";
-import { type CaseType, isCaseFirstModule } from "@/lib/domain";
+import type { CaseType } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import {
 	type DisplayConditionCarrier,
@@ -68,7 +69,8 @@ export function useDisplayConditionCarrier(
 	const mod = useModule(target.moduleUuid);
 	const parentModule = useModule(mod?.parentModuleUuid);
 	const form = useForm(target.kind === "form" ? target.formUuid : undefined);
-	const forms = useOrderedForms(target.moduleUuid);
+	const menuForms = useOrderedMenuForms(target.moduleUuid);
+	const caseFirst = useIsCaseFirstModule(target.moduleUuid);
 	const moduleIsBareCaseList = useIsBareCaseListModule(target.moduleUuid);
 	const caseTypes = useEffectiveCaseTypes();
 	const mutations = useBlueprintMutations();
@@ -88,14 +90,19 @@ export function useDisplayConditionCarrier(
 			kind: "form",
 			formName: form.name,
 			moduleName: mod.name,
-			caseFirst: isCaseFirstModule(
-				forms.map((candidate) => candidate.type),
-				mod.caseType !== undefined,
-			),
+			caseFirst,
 			caseType: mod.caseType,
-			formCount: forms.length,
+			formCount: menuForms.length,
 		};
-	}, [mod, parentModule, form, forms, moduleIsBareCaseList, target.kind]);
+	}, [
+		mod,
+		parentModule,
+		form,
+		menuForms,
+		caseFirst,
+		moduleIsBareCaseList,
+		target.kind,
+	]);
 
 	const targetKind = target.kind;
 	const moduleUuid = target.moduleUuid;

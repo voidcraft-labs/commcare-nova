@@ -27,6 +27,8 @@ export interface XPathPrintContext {
 	fieldPathSegments(uuid: string): readonly string[] | undefined;
 	/** The custom worker-information property's current saved name. */
 	userPropertySlug(uuid: string): string | undefined;
+	/** The Search prompt's current name, wherever its module is. */
+	searchInputName(uuid: string): string | undefined;
 }
 
 /**
@@ -40,13 +42,27 @@ export interface XPathPrintableDoc {
 	forms: Record<string, unknown>;
 	fieldOrder: Record<string, readonly string[] | undefined>;
 	userProperties?: Record<string, { slug: string } | undefined>;
+	/** Modules, for the Search prompts a `search-answer-ref` names. */
+	modules?: Record<
+		string,
+		| {
+				caseListConfig?: {
+					searchInputs: readonly { uuid: string; name: string }[];
+				};
+		  }
+		| undefined
+	>;
 	/** The maintained reverse index when present (in-memory docs);
 	 *  printing derives its own from `fieldOrder` when absent. */
 	fieldParent?: Record<string, string | null | undefined>;
 }
 
 export interface UnresolvedXPathProjection {
-	readonly kind: "field-ref" | "path-ref" | "user-property-ref";
+	readonly kind:
+		| "field-ref"
+		| "path-ref"
+		| "user-property-ref"
+		| "search-answer-ref";
 	readonly identity: string;
 }
 
@@ -121,6 +137,15 @@ export function xpathPrintContext(doc: XPathPrintableDoc): XPathPrintContext {
 		userPropertySlug(uuid) {
 			return ownRecordValue(doc.userProperties, uuid)?.slug;
 		},
+		searchInputName(uuid) {
+			for (const mod of Object.values(doc.modules ?? {})) {
+				const input = mod?.caseListConfig?.searchInputs.find(
+					(candidate) => candidate.uuid === uuid,
+				);
+				if (input !== undefined) return input.name;
+			}
+			return undefined;
+		},
 	};
 }
 
@@ -180,6 +205,19 @@ export function projectXPath(
 					out += "#user/[reference needs repair]";
 				} else {
 					out += `#user/${slug}`;
+				}
+				break;
+			}
+			case "search-answer-ref": {
+				const name = ctx.searchInputName(part.searchInputUuid);
+				if (name === undefined) {
+					unresolved.push({
+						kind: part.kind,
+						identity: part.searchInputUuid,
+					});
+					out += "#search/[reference needs repair]";
+				} else {
+					out += `#search/${name}`;
 				}
 				break;
 			}

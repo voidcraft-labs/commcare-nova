@@ -38,6 +38,7 @@ export const translationUnitRoles = [
 	"app-name",
 	"module-name",
 	"form-name",
+	"form-entry-label",
 	"field-label",
 	"field-hint",
 	"field-help",
@@ -146,6 +147,7 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"app-name",
 	"module-name",
 	"form-name",
+	"form-entry-label",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-button-label",
@@ -524,6 +526,21 @@ export function collectTranslationUnits(
 					context: { moduleName: module.name, formName: form.name },
 				}),
 			);
+			// The Register action's label on Results, when authored; the
+			// wire falls back to the form-name unit when it is not.
+			if (form.entry?.label !== undefined) {
+				out.push(
+					unit({
+						id: makeTranslationUnitId("form", formUuid, "entry-label"),
+						valueKind: "text",
+						role: "form-entry-label",
+						source: form.entry.label,
+						owner: { kind: "form", moduleUuid, formUuid },
+						breadcrumb: [...moduleBreadcrumb, form.name, "action label"],
+						context: { moduleName: module.name, formName: form.name },
+					}),
+				);
+			}
 			fieldUnits(
 				doc,
 				{ module, formUuid, formName: form.name },

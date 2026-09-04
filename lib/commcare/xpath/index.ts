@@ -29,6 +29,7 @@ export {
 	parseXPathExpression,
 	parseXPathExpressionWithIssues,
 	type ResolveFieldPath,
+	type ResolveSearchInputName,
 	type ResolveUserPropertySlug,
 	type XPathParseIssue,
 	type XPathParseResult,

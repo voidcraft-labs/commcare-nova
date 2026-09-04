@@ -278,10 +278,12 @@ search completes, and Results then shows only what that search found, with
 visible search fields runs its search on its own, so it lands on Results
 immediately.
 
-**Search first** is offered when every form in the module works on an
-existing case, or when the module is a case list with no forms. A module
-that also registers cases keeps browse-then-search, because there is no
-Search screen to open on before a registration form. Two Search settings
+**Search first** is offered when every form on the module's menu works on
+an existing case, or when the module is a case list with no forms. A module
+with a registration form on its menu keeps browse-then-search, because there
+is no Search screen to open on before that form; the one exception is a
+registration form offered only after an empty search (below), which is on no
+menu. Two Search settings
 go away with the list: there is no Search button to show or hide, so **When
 Search is available** has no effect, and **Previous screen** is not an
 after-submit destination for the module's forms, because the previous
@@ -291,6 +293,32 @@ module by default, which reopens Search.
 A search-first module does not share its search results with a submenu or
 with a module that selects a parent case from it. Give such a module its
 own ordinary case list instead.
+
+### Register when nothing matches
+
+A search-first module can offer a registration form only when a search finds
+no matches. Give a registration form in that module the entry **After a
+search finds no matches** (in Nova's tools, `entry: search-no-matches`), and it
+leaves the menu: Results shows a **Register** action, named after the form,
+only after a search completes with nothing found. The form opens with that
+search's answers, so a field can start from what the worker typed: a
+default value of `#search/patient_name` seeds the name from the name search
+field, and a hidden search field's value, such as a search time, can be saved
+to a case property as a record that the search happened. After submit the
+form returns to Results showing the case it just registered (a module with no
+forms of its own returns to Search, or to its automatic Results), so it has
+no after-submit destination, no after-submit links, and no display condition,
+and no other form can link to it. One such form per module. Setting the entry
+turns **Search first** on for the module if it was off.
+
+Because the form depends on the search, Nova refuses to remove a search field
+one of its fields reads, to turn **Search first** off, or to remove Search
+while the entry is set; clear the entry or the field first. In Preview,
+opening the form by its address without a completed empty search shows why it
+is not available and offers **Go to Search**. The action and the carried
+answers work in the browser app; a phone never shows Results for an empty
+search. Publishing to CommCare HQ needs the project space to allow
+registration after an empty search (listed in the setup artifact).
 
 Results owns **Cases available**, the rules that always decide which cases can
 appear before anyone searches. The conditions are listed and edited together

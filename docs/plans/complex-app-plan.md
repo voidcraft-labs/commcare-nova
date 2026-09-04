@@ -2452,10 +2452,12 @@ sharp edges rather than Nova bugs.
 A search-first module setting, a completed-search context distinct from
 not-searched and failed, and one no-matches registration form that carries the
 search answers, lowered to CommCare's `case_list_form` + hidden-module shape only
-at the boundary. The richer Search prompts and the search-first setting (the
+at the boundary. The richer Search prompts, the search-first setting (the
 inline-search wire shape on both paths, its validator rules, the Preview
-phases, and the builder switch) have shipped; the unit stays here until the
-no-matches form lands. **The file holds** the inline-search wire shape and its oracles,
+phases, and the builder switch), and the no-matches form itself (`Form.entry`,
+the `case_list_form` + hidden-module lowering, the completed-search context and
+the form's admission in Preview, the SA/MCP `entry` and carried answers) have
+shipped; the unit stays here until its builder surfaces and smoke land. **The file holds** the inline-search wire shape and its oracles,
 the Register action bytes and the frozen toggle that gates its relevancy, the
 regenerated return frame, the runtime facts that make the zero-results gate safe
 only post-query, why the feature is Web Apps-only, and the implementation gates

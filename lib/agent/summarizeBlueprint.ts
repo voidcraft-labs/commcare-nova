@@ -91,6 +91,11 @@ function summarizeForm(doc: BlueprintDoc, formUuid: Uuid): string {
 	const header = `  - Form "${form.name}" [uuid ${formUuid}] (${form.type}, ${count} field${count === 1 ? "" : "s"})`;
 	const extras: string[] = [];
 	if (form.postSubmit) extras.push(`    post_submit: ${form.postSubmit}`);
+	if (form.entry) {
+		extras.push(
+			`    entry: ${form.entry.kind}${form.entry.label === undefined ? "" : ` (label "${form.entry.label}")`} (offered on Results after an empty search; returns to Results with the new case)`,
+		);
+	}
 	if (form.connect) extras.push("    [Connect enabled]");
 	if (form.closeCondition) {
 		const op =

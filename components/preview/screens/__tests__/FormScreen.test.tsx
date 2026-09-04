@@ -215,6 +215,8 @@ vi.mock("@/lib/routing/hooks", async () => {
 	};
 });
 
+const setPreviewSearchStateMock = vi.fn();
+
 vi.mock("@/lib/session/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/session/hooks")>(
 		"@/lib/session/hooks",
@@ -234,6 +236,8 @@ vi.mock("@/lib/session/hooks", async () => {
 		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 		useSetPreviewMenuCaseSelection: () => setPreviewMenuCaseSelectionMock,
+		usePreviewSearchState: () => undefined,
+		useSetPreviewSearchState: () => setPreviewSearchStateMock,
 		useSetPreviewSelectedCase: () => setPreviewSelectedCaseMock,
 		useSetPreviewing: () => setPreviewingMock,
 	};

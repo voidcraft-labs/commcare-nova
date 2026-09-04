@@ -99,6 +99,20 @@ const xpathUserPropertyRefPartSchema = z
 	})
 	.strict();
 
+/**
+ * A search answer carried into a no-matches registration form: the value
+ * the worker typed into a Search prompt of the form's own module before
+ * the search that found nothing. Identity is the prompt's uuid, so a
+ * renamed prompt never rewrites the expression; printing resolves it to
+ * `#search/<current name>`.
+ */
+const xpathSearchAnswerRefPartSchema = z
+	.object({
+		kind: z.literal("search-answer-ref"),
+		searchInputUuid: uuidSchema,
+	})
+	.strict();
+
 const xpathPartSchema = z.discriminatedUnion("kind", [
 	xpathTextPartSchema,
 	xpathFieldRefPartSchema,
@@ -106,6 +120,7 @@ const xpathPartSchema = z.discriminatedUnion("kind", [
 	xpathCaseRefPartSchema,
 	xpathUserRefPartSchema,
 	xpathUserPropertyRefPartSchema,
+	xpathSearchAnswerRefPartSchema,
 ]);
 
 export type XPathTextPart = z.infer<typeof xpathTextPartSchema>;
@@ -115,6 +130,9 @@ export type XPathCaseRefPart = z.infer<typeof xpathCaseRefPartSchema>;
 export type XPathUserRefPart = z.infer<typeof xpathUserRefPartSchema>;
 export type XPathUserPropertyRefPart = z.infer<
 	typeof xpathUserPropertyRefPartSchema
+>;
+export type XPathSearchAnswerRefPart = z.infer<
+	typeof xpathSearchAnswerRefPartSchema
 >;
 export type XPathPart = z.infer<typeof xpathPartSchema>;
 

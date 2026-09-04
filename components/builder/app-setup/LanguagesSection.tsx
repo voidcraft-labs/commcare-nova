@@ -115,6 +115,7 @@ const ROLE_LABELS: Readonly<Record<TranslationUnitRole, string>> = {
 	"app-name": "App name",
 	"module-name": "Module name",
 	"form-name": "Form name",
+	"form-entry-label": "Register action label",
 	"field-label": "Field label",
 	"field-hint": "Field hint",
 	"field-help": "Field help",

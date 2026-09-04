@@ -13,6 +13,7 @@ import {
 	effectiveCaseSearchConfig,
 	isCaptureField,
 	type Module,
+	noMatchesFormOf,
 	searchInputDefault,
 } from "@/lib/domain";
 import {
@@ -23,6 +24,7 @@ import {
 	projectSpaceCapabilityUse,
 	projectSpaceCompatibilityForUnknownTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
+import { hostLowersNoMatchesForm } from "./emissionPlan";
 
 export * from "@/lib/publish/projectSpaceCompatibility";
 
@@ -32,6 +34,7 @@ export type HqPrivateFeatureFlagId =
 	| "commcare-connect"
 	| "case-attachments"
 	| "attachment-links"
+	| "no-matches-registration"
 	| "large-search-performance";
 
 /** Private input to the low-level HQ probe. Never serialize this object. */
@@ -101,9 +104,33 @@ function advancedCaseSearchReasons(module: Module): string[] {
 	return reasons;
 }
 
+type CompatibilityDoc = Pick<
+	BlueprintDoc,
+	"automations" | "connectType" | "fields" | "forms" | "formOrder" | "modules"
+>;
+
+/**
+ * Whether the module's Results offer a registration form after an empty
+ * search. HQ emits the Register action's `relevant` only under its private
+ * `followup_forms_as_case_list_form` setting
+ * (`details.py::get_case_list_form_action`); without it the action shows on
+ * every Results screen, so the setting is required, not advisory. The
+ * predicate is the emitter's own lowering gate so the check and the wire
+ * cannot disagree.
+ */
+function moduleRequiresNoMatchesRegistration(
+	doc: CompatibilityDoc,
+	module: Module,
+): boolean {
+	return (
+		hostLowersNoMatchesForm(module) &&
+		noMatchesFormOf(doc, module.uuid) !== undefined
+	);
+}
+
 /** Semantic capabilities and private proof inputs required by this app. */
 export function projectSpaceCompatibilityProbePlan(
-	doc: Pick<BlueprintDoc, "automations" | "connectType" | "fields" | "modules">,
+	doc: CompatibilityDoc,
 ): HqProjectSpaceCompatibilityProbePlan {
 	const reasonsByCapability = new Map<string, Set<string>>();
 	let advancedSearchRequired = false;
@@ -122,6 +149,12 @@ export function projectSpaceCompatibilityProbePlan(
 		const advancedReasons = advancedCaseSearchReasons(module);
 		if (advancedReasons.length > 0) advancedSearchRequired = true;
 		for (const reason of advancedReasons) addReason("case-search", reason);
+		if (moduleRequiresNoMatchesRegistration(doc, module)) {
+			addReason(
+				"registration-after-empty-search",
+				"A search that finds nothing offers to register a new case.",
+			);
+		}
 	}
 
 	for (const field of Object.values(doc.fields)) {
@@ -189,6 +222,18 @@ export function projectSpaceCompatibilityProbePlan(
 			runtimeProbes: [],
 		});
 	}
+	const noMatchesReasons = reasonsByCapability.get(
+		"registration-after-empty-search",
+	);
+	if (noMatchesReasons) {
+		capabilities.push({
+			capability: projectSpaceCapabilityUse("registration-after-empty-search", [
+				...noMatchesReasons,
+			]),
+			featureFlags: [privateFeatureFlag("no-matches-registration")],
+			runtimeProbes: [],
+		});
+	}
 
 	const advisories: HqProjectSpaceAdvisoryProbePlan[] = searchReasons
 		? [
@@ -206,7 +251,7 @@ export function projectSpaceCompatibilityProbePlan(
 }
 
 export function requiredProjectSpaceCapabilities(
-	doc: Pick<BlueprintDoc, "automations" | "connectType" | "fields" | "modules">,
+	doc: CompatibilityDoc,
 ): ProjectSpaceCapabilityUse[] {
 	return projectSpaceCompatibilityProbePlan(doc).capabilities.map(
 		(plan) => plan.capability,
@@ -214,7 +259,7 @@ export function requiredProjectSpaceCapabilities(
 }
 
 export function projectSpaceCompatibilityForDownload(
-	doc: Pick<BlueprintDoc, "automations" | "connectType" | "fields" | "modules">,
+	doc: CompatibilityDoc,
 ): ProjectSpaceCompatibilityReport {
 	const plan = projectSpaceCompatibilityProbePlan(doc);
 	return projectSpaceCompatibilityForUnknownTarget(
@@ -225,7 +270,7 @@ export function projectSpaceCompatibilityForDownload(
 }
 
 export function projectSpaceCompatibilityForPrepublish(
-	doc: Pick<BlueprintDoc, "automations" | "connectType" | "fields" | "modules">,
+	doc: CompatibilityDoc,
 ): ProjectSpaceCompatibilityReport {
 	const plan = projectSpaceCompatibilityProbePlan(doc);
 	return projectSpaceCompatibilityForUnknownTarget(

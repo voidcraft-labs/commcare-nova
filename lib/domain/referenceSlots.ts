@@ -1002,6 +1002,8 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	type: "discriminator",
 	purpose: "display-text",
 	postSubmit: "config",
+	"entry.kind": "discriminator",
+	"entry.label": "display-text",
 	"closeCondition.answer": "data-literal",
 	"closeCondition.operator": "config",
 	"formLinks[].uuid": "identity",

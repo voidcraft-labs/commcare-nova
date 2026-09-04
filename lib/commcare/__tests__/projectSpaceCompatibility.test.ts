@@ -266,6 +266,48 @@ describe("projectSpaceCompatibilityProbePlan", () => {
 		).toEqual(["commcare-connect"]);
 	});
 
+	it("requires registration after an empty search only for a lowered no-matches form", () => {
+		const formUuid = testUuid("form-register");
+		const registration = {
+			uuid: formUuid,
+			id: "register",
+			name: "Register patient",
+			type: "registration" as const,
+			entry: { kind: "search-no-matches" as const },
+		};
+		const searchFirst = module({ caseSearchConfig: { searchFirst: true } });
+		const plan = projectSpaceCompatibilityProbePlan(
+			doc({
+				modules: { [searchFirst.uuid]: searchFirst },
+				forms: { [formUuid]: registration },
+				formOrder: { [searchFirst.uuid]: [formUuid] },
+			}),
+		);
+		const capability = plan.capabilities.find(
+			(item) => item.capability.id === "registration-after-empty-search",
+		);
+		expect(capability?.capability.reasons).toEqual([
+			"A search that finds nothing offers to register a new case.",
+		]);
+		expect(capability?.featureFlags.map((flag) => flag.id)).toEqual([
+			"no-matches-registration",
+		]);
+		expect(capability?.runtimeProbes).toEqual([]);
+
+		// The same form on a module that does not open on search is a
+		// validator finding, not a lowered Register action.
+		const browse = module();
+		expect(
+			requiredProjectSpaceCapabilities(
+				doc({
+					modules: { [browse.uuid]: browse },
+					forms: { [formUuid]: registration },
+					formOrder: { [browse.uuid]: [formUuid] },
+				}),
+			).map((item) => item.id),
+		).not.toContain("registration-after-empty-search");
+	});
+
 	it("keeps the two attachment delivery capabilities distinct", () => {
 		const capture = (
 			mode: "url" | "attachment",

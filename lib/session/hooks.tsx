@@ -56,6 +56,7 @@ import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
+	PreviewSearchState,
 	PreviewSelectedCase,
 	StagedUpload,
 } from "./types";
@@ -125,6 +126,24 @@ export function useSetPreviewMenuCaseSelection(): (
 	selected: PreviewMenuCaseSelection | undefined,
 ) => void {
 	return useBuilderSession((s) => s.setPreviewMenuCaseSelection);
+}
+
+/** One module's search context in the running app; absent means not
+ * searched in this run. */
+export function usePreviewSearchState(
+	moduleUuid: string | undefined,
+): PreviewSearchState | undefined {
+	return useBuilderSession((s) =>
+		moduleUuid ? s.previewSearchStates[moduleUuid] : undefined,
+	);
+}
+
+/** Set or clear one module's search context. */
+export function useSetPreviewSearchState(): (
+	moduleUuid: string,
+	state: PreviewSearchState | undefined,
+) => void {
+	return useBuilderSession((s) => s.setPreviewSearchState);
 }
 
 export function usePreviewParentCaseRequest():

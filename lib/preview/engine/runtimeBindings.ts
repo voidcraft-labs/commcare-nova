@@ -136,6 +136,27 @@ export function withSearchInputExpressionValues(
 }
 
 /**
+ * The values CommCare's search-input instance holds for a completed search:
+ * {@link withSearchInputExpressionValues} plus the split bounds dropped, so
+ * a date range is one `<name>` field, never `<name>:from` / `<name>:to`.
+ * What a no-matches registration form's `#search/<name>` reads.
+ */
+export function searchInputInstanceValues(
+	searchInputs: readonly SearchInputDef[],
+	inputValues: SearchInputValues,
+): SearchInputValues {
+	const values = new Map(
+		withSearchInputExpressionValues(searchInputs, inputValues),
+	);
+	for (const input of searchInputs) {
+		if (input.kind === "hidden" || input.type !== "date-range") continue;
+		values.delete(`${input.name}:from`);
+		values.delete(`${input.name}:to`);
+	}
+	return values;
+}
+
+/**
  * Bind every `input(name)` leaf in a ValueExpression to the current running
  * search value. The preview XPath evaluator is scalar and intentionally does
  * not model the search-input XML nodeset, so substitution happens while the

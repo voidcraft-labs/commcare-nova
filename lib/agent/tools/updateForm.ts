@@ -41,8 +41,13 @@
 import { z } from "zod";
 import { setFormDisplayConditionMutation } from "@/lib/doc/displayConditionMutations";
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
+import { noMatchesFormEntryMutations } from "@/lib/doc/searchNoMatchesForm";
 import type { ConnectConfig, PostSubmitDestination } from "@/lib/domain";
-import { asUuid, POST_SUBMIT_DESTINATIONS } from "@/lib/domain";
+import {
+	asUuid,
+	moduleOpensOnSearch,
+	POST_SUBMIT_DESTINATIONS,
+} from "@/lib/domain";
 import { predicateSchema } from "@/lib/domain/predicate";
 import {
 	refineFormConnectMutations,
@@ -64,6 +69,10 @@ import {
 	formAddressSchema,
 	resolveFormAddress,
 } from "./shared/entityAddresses";
+import {
+	FORM_ENTRY_DESCRIPTION,
+	formEntryInputSchema,
+} from "./shared/formEntry";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -101,6 +110,10 @@ export const updateFormInputSchema = formAddressSchema
 			.describe(
 				"Running-app visibility rule. A Predicate sets it, null removes it, omission keeps it.",
 			),
+		entry: formEntryInputSchema
+			.nullable()
+			.optional()
+			.describe(FORM_ENTRY_DESCRIPTION),
 	})
 	.strict();
 
@@ -126,6 +139,7 @@ export const updateFormTool = {
 			post_submit,
 			connect,
 			displayCondition,
+			entry,
 		} = input;
 		try {
 			const address = resolveFormAddress(doc, {
@@ -174,6 +188,34 @@ export const updateFormTool = {
 			if (post_submit === null) patch.postSubmit = null;
 			if (post_submit != null) {
 				patch.postSubmit = post_submit as PostSubmitDestination;
+			}
+			if (entry != null) {
+				/* The no-matches form's after-submit is fixed and it is on no
+				 * menu, so the three navigation slots are refused in the same
+				 * call rather than left for the gate to name one at a time. */
+				const carried = [
+					...(post_submit != null ||
+					(post_submit === undefined && existing.postSubmit !== undefined)
+						? ["post_submit"]
+						: []),
+					...(displayCondition != null ||
+					(displayCondition === undefined &&
+						existing.displayCondition !== undefined)
+						? ["displayCondition"]
+						: []),
+					...((existing.formLinks?.length ?? 0) > 0
+						? ["after-submit links"]
+						: []),
+				];
+				if (carried.length > 0) {
+					return {
+						kind: "mutate" as const,
+						mutations: [],
+						result: {
+							error: `Form "${existing.name}" cannot open after a search finds no matches while it carries ${carried.join(", ")}: that form always returns to Results showing the case it registered and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, remove_form_link) in this call or before, then set entry.`,
+						},
+					};
+				}
 			}
 			if (connect !== undefined) {
 				if (doc.connectType === null) {
@@ -267,6 +309,21 @@ export const updateFormTool = {
 								displayCondition ?? undefined,
 							),
 						]),
+				/* Setting the entry also opens the module on Search when it does
+				 * not already, in this same batch (`searchNoMatchesForm.ts`). */
+				...(entry === undefined
+					? []
+					: noMatchesFormEntryMutations(
+							doc,
+							module.uuid,
+							formUuid,
+							entry === null
+								? null
+								: {
+										kind: entry.kind,
+										...(entry.label != null && { label: entry.label }),
+									},
+						)),
 			];
 			const commit = await guardedMutate(ctx, mutations, `form:${formUuid}`);
 			if (!commit.ok) {
@@ -302,6 +359,11 @@ export const updateFormTool = {
 				formChanges.push("display condition removed (always shown)");
 			else if (displayCondition !== undefined)
 				formChanges.push("display condition updated");
+			if (entry === null) formChanges.push("entry cleared (menu form)");
+			else if (entry !== undefined)
+				formChanges.push(
+					`entry → search-no-matches${moduleOpensOnSearch(module) ? "" : " (module now opens on Search)"}`,
+				);
 			return {
 				kind: "mutate" as const,
 				mutations: commit.mutations,

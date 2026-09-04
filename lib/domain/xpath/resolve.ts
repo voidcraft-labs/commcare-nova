@@ -26,6 +26,14 @@ export type ResolveUserPropertySlug = (slug: string) => string | undefined;
 export type IsBindableUserPropertySlug = (slug: string) => boolean;
 
 /**
+ * Resolve a Search prompt's name (`#search/<name>`) to the prompt's uuid.
+ * Only a no-matches registration form reads search answers, so the
+ * resolver is built per form and answers `undefined` everywhere else,
+ * leaving the text inert for the commit gate to reject.
+ */
+export type ResolveSearchInputName = (name: string) => string | undefined;
+
+/**
  * Build the parse-side custom worker-information resolver.
  *
  * Resolution is deliberately stricter than an exact record lookup. HQ treats

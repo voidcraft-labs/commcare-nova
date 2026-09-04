@@ -106,6 +106,7 @@ import {
 import {
 	bindSearchInputValuesInPredicate,
 	composeRuntimeFilter,
+	searchInputInstanceValues,
 	searchInputValuesFromWire,
 	searchInputValuesToWire,
 	withSearchInputExpressionValues,
@@ -181,6 +182,34 @@ describe("searchInputValues wire bridge", () => {
 			expect(values.has("visit_dates")).toBe(false);
 		},
 	);
+
+	it("searchInputInstanceValues keeps one field per prompt, a range as its wire scalar", () => {
+		const range = simpleSearchInputDef(
+			testUuid("range"),
+			"visit_dates",
+			"Visit dates",
+			"date-range",
+			"visit_date",
+		);
+		const values = searchInputInstanceValues(
+			[range],
+			new Map([
+				["patient_name", "Zzz"],
+				["visit_dates:from", "2025-01-02"],
+				["visit_dates:to", "2025-03-04"],
+			]),
+		);
+		expect(Object.fromEntries(values)).toEqual({
+			patient_name: "Zzz",
+			visit_dates: "__range__2025-01-02__2025-03-04",
+		});
+		expect(
+			searchInputInstanceValues(
+				[range],
+				new Map([["visit_dates:from", "2025-01-02"]]),
+			).size,
+		).toBe(0);
+	});
 });
 
 const PATIENT = "patient";

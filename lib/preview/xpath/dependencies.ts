@@ -27,7 +27,7 @@ const T = (() => {
  *
  * - Collects absolute paths (/data/question_id, /data/group/child)
  * - Translates #form/question_id → /data/question_id
- * - Ignores typed case refs and #user/ refs (external during form entry)
+ * - Ignores typed case refs, #user/, and #search/ refs (external during form entry)
  */
 export function extractPathRefs(expr: string): string[] {
 	if (!expr) return [];
@@ -44,7 +44,7 @@ export function extractPathRefs(expr: string): string[] {
 					// #form/question_id → /data/question_id
 					refs.add(`/data/${text.slice(6)}`);
 				}
-				// Typed case refs and #user/ are external — skip.
+				// Typed case refs, #user/, and #search/ are external — skip.
 			}
 		},
 	});

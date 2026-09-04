@@ -265,6 +265,74 @@ describe("FormEngine", () => {
 		expect(engine.getState("/data/name").value).toBe("Alice");
 	});
 
+	describe("search answers", () => {
+		const NAME_INPUT = testUuid("search-input-patient-name");
+		const seeded = () => ({
+			...dTree([
+				{
+					id: "name",
+					kind: "text",
+					label: proseText("Name"),
+					default_value: {
+						parts: [{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT }],
+					},
+				},
+			]),
+			searchInputs: [{ uuid: NAME_INPUT, name: "patient_name" }],
+		});
+
+		it("seeds #search/<name> from the completed search's answers", () => {
+			const engine = new FormEngine(
+				seeded(),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ searchAnswers: new Map([["patient_name", "Zzz"]]) },
+			);
+			expect(engine.getState("/data/name").value).toBe("Zzz");
+		});
+
+		it("reads blank when the form opened with no search context", () => {
+			const engine = new FormEngine(seeded());
+			expect(engine.getState("/data/name").value).toBe("");
+		});
+
+		it("counts #search/<name> as a node of the search-input instance", () => {
+			const counted = () => ({
+				...dTree([
+					{
+						id: "answered",
+						kind: "hidden",
+						calculate: xp("count(#search/patient_name)"),
+					},
+				]),
+				searchInputs: [{ uuid: NAME_INPUT, name: "patient_name" }],
+			});
+			const withAnswer = new FormEngine(
+				counted(),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ searchAnswers: new Map([["patient_name", "Zzz"]]) },
+			);
+			expect(withAnswer.getState("/data/answered").value).toBe("1");
+			const blank = new FormEngine(
+				counted(),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ searchAnswers: new Map() },
+			);
+			expect(blank.getState("/data/answered").value).toBe("0");
+		});
+	});
+
 	describe("relevant (visibility)", () => {
 		it("cascades container relevance into descendant nodeset readers", () => {
 			const engine = new FormEngine(

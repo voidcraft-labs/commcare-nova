@@ -126,6 +126,25 @@ export interface SearchActionContext {
 }
 
 /**
+ * The Register action CCHQ mounts on `m{N}_case_short` for a module's
+ * `case_list_form` (`DetailContributor.get_case_list_form_action`): it
+ * pushes the target form's command, the target entry's computed datums,
+ * and `return_to`. Nova emits it only for a search-first host, where its
+ * relevancy reads the inline results instance, so the `relevant`
+ * attribute is always present (HQ emits it under
+ * `FOLLOWUP_FORMS_AS_CASE_LIST_FORM`, the capability the publish path
+ * requires).
+ */
+export interface RegisterActionContext {
+	/** `m{H}-f0`, the no-matches form's command in its hidden module. */
+	readonly commandId: string;
+	/** The target entry's non-selection datums, in entry order. */
+	readonly datums: readonly { readonly id: string; readonly value: string }[];
+	/** The `<action relevant>` XPath. */
+	readonly relevant: string;
+}
+
+/**
  * The `auto_launch` XPath expression CCHQ uses for single-select
  * modules when auto-launch is enabled. Lifted verbatim from
  * `commcare-hq/corehq/apps/app_manager/suite_xml/sections/details.py::AUTO_LAUNCH_EXPRESSIONS["single-select"]`.
@@ -173,6 +192,9 @@ export function buildShortDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 	readonly searchAction?: SearchActionContext;
+	/** The Register action of a search-first host with a no-matches form;
+	 *  case target only, like `searchAction`. */
+	readonly registerAction?: RegisterActionContext;
 	/** The case-target rows' source; see `CaseListEmitContext.caseSource`. */
 	readonly caseSource?: "casedb" | "results:inline";
 	readonly assets?: AssetManifest;
@@ -196,6 +218,7 @@ export function buildShortDetail(args: {
 	// (the search-target detail is the action's destination, not
 	// its host); the emitter ignores the arg defensively.
 	const searchAction = target === "case" ? args.searchAction : undefined;
+	const registerAction = target === "case" ? args.registerAction : undefined;
 
 	// Early-exit shape: no caseListConfig OR no case type. The
 	// resulting detail still carries a title — CCHQ's
@@ -208,6 +231,7 @@ export function buildShortDetail(args: {
 				detailId,
 				[],
 				searchAction,
+				registerAction,
 				undefined,
 				moduleIndex,
 				relationContext,
@@ -273,6 +297,7 @@ export function buildShortDetail(args: {
 			detailId,
 			fields,
 			searchAction,
+			registerAction,
 			config.tile?.grouping,
 			moduleIndex,
 			relationContext,
@@ -314,6 +339,7 @@ function buildDetailShell(
 	detailId: string,
 	fields: readonly Element[],
 	searchAction: SearchActionContext | undefined,
+	registerAction: RegisterActionContext | undefined,
 	grouping: CaseTileGrouping | undefined,
 	moduleIndex: number,
 	relationContext: {
@@ -327,6 +353,12 @@ function buildDetailShell(
 		el("text", {}, [el("locale", { id: "cchq.case" })]),
 	]);
 	const children: Element[] = [titleEl, ...fields];
+	// HQ adds the register action before the search action
+	// (`DetailContributor.build_detail`: `add_register_action`, then
+	// `get_case_search_action`).
+	if (registerAction !== undefined) {
+		children.push(buildRegisterActionBlock(registerAction, moduleIndex));
+	}
 	if (searchAction !== undefined) {
 		children.push(
 			buildSearchActionBlock(
@@ -339,6 +371,33 @@ function buildDetailShell(
 	}
 	if (grouping !== undefined) children.push(buildTileGroupElement(grouping));
 	return el("detail", { id: detailId }, children);
+}
+
+/**
+ * The Register action's bytes, pinned to
+ * `commcare-hq/corehq/apps/app_manager/tests/data/case_list_form/case-list-form-suite.xml`
+ * plus the `relevant` partial of `tests/test_case_list_form.py`:
+ * `<action relevant><display><text><locale id="case_list_form.m{N}"/></text></display>
+ * <stack><push><command/><datum…/><datum id="return_to"/></push></stack></action>`.
+ */
+function buildRegisterActionBlock(
+	action: RegisterActionContext,
+	moduleIndex: number,
+): Element {
+	return el("action", { relevant: action.relevant }, [
+		el("display", {}, [
+			el("text", {}, [el("locale", { id: `case_list_form.m${moduleIndex}` })]),
+		]),
+		el("stack", {}, [
+			el("push", {}, [
+				el("command", { value: `'${action.commandId}'` }),
+				...action.datums.map((datum) =>
+					el("datum", { id: datum.id, value: datum.value }),
+				),
+				el("datum", { id: "return_to", value: `'m${moduleIndex}'` }),
+			]),
+		]),
+	]);
 }
 
 /**

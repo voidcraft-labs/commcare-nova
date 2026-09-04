@@ -17,11 +17,11 @@ import { Badge } from "@/components/shadcn/badge";
 import { Skeleton } from "@/components/shadcn/skeleton";
 import { useAppLogo } from "@/lib/doc/hooks/useAppLogo";
 import { useAppName } from "@/lib/doc/hooks/useAppName";
-import { useAppStructure } from "@/lib/doc/hooks/useAppStructure";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useDocHasData } from "@/lib/doc/hooks/useDocHasData";
 import {
 	useCaseFirstModuleUuids,
+	useMenuFormCounts,
 	useOrderedModules,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
@@ -54,11 +54,6 @@ export function HomeScreen() {
 		(localizedValues.get(appNameUnitId) as string | undefined) ??
 		canonicalAppName;
 	const appNameEditor = useTranslationUnitEditor(appNameUnitId);
-	/* Read only the `formOrder` slice of the app structure: the module
-	 * sequence is served separately by `useOrderedModules()` below.
-	 * `useAppStructure` returns a shallow-stable pair, so destructuring
-	 * one field keeps the reference cheap. */
-	const { formOrder } = useAppStructure();
 	const projectProse = useProseProjection();
 	const navigate = useNavigate();
 	const { inline } = useBlueprintMutations();
@@ -76,6 +71,7 @@ export function HomeScreen() {
 	/* Case-first modules (every form case-loading) land on the case list,
 	 * not a form menu: the running app hoists the shared case selection. */
 	const caseFirstModules = useCaseFirstModuleUuids();
+	const menuFormCounts = useMenuFormCounts();
 	const logo = useAppLogo();
 	const lookup = usePreviewLookupStatus();
 	/* Whoever Preview is running as: the member, or the persona they
@@ -170,7 +166,7 @@ export function HomeScreen() {
 							<Skeleton key={mod.uuid} className="h-[74px] w-full rounded-xl" />
 						);
 					}
-					const formCount = formOrder[mod.uuid]?.length ?? 0;
+					const formCount = menuFormCounts[mod.uuid] ?? 0;
 					const hasChildren = moduleHasChildren(menuSource, mod.uuid);
 					const menuCaseContext = previewMenuCaseContext(
 						menuSource,

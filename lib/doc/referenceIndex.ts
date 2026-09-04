@@ -1053,6 +1053,12 @@ function extractAstRefs(
 			case "user-property-ref":
 				sink.edge(userPropertyTargetKey(part.userPropertyUuid), slot);
 				break;
+			case "search-answer-ref":
+				// The Search prompt is an entity of its module's case list;
+				// `referencingCarrierUuids(inputUuid)` is what lets the removal
+				// planner name the form fields that carry its answer.
+				sink.edge(entityTargetKey(part.searchInputUuid), slot);
+				break;
 			default: {
 				const _exhaustive: never = part;
 				break;

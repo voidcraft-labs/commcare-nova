@@ -2029,6 +2029,12 @@ describe("CCHQ-only features stay unauthorable via the strict schema", () => {
 		await expectStrictReject("moduleSchema", { put_in_root: true });
 	});
 	it("module schema rejects case_list_form", async () => {
+		// `case_list_form` is CommCare's spelling and never enters a document.
+		// Nova's authoring of that behavior is `Form.entry` of kind
+		// `search-no-matches` (`lib/domain/forms.ts`), which
+		// `lib/commcare/emissionPlan.ts` lowers to the host module's
+		// `case_list_form` at emission; `searchNoMatches.test.ts` and
+		// `noMatchesEmission.test.ts` cover that path.
 		await expectStrictReject("moduleSchema", {
 			case_list_form: { form_id: "x" },
 		});

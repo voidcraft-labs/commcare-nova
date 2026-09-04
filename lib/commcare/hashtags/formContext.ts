@@ -70,6 +70,21 @@ export interface FormHashtagContext {
 	/** Session reference of the form's selected own case. Child root menus may
 	 * rename it from the flat `case_id` default. */
 	readonly currentCaseIdRef?: string;
+	/**
+	 * The search answers a no-matches registration form can read: the
+	 * search-input instance of the inline search that found nothing, and
+	 * the prompt names it holds. Absent on every other form, where
+	 * `#search/` is left verbatim for the validator to quote.
+	 */
+	readonly searchAnswers?: {
+		readonly instanceId: string;
+		readonly names: ReadonlySet<string>;
+	};
+}
+
+/** The wire read of one search answer: `instance('<id>')/input/field[@name='<name>']`. */
+export function searchAnswerWireRef(instanceId: string, name: string): string {
+	return `instance('${instanceId}')/input/field[@name='${name}']`;
 }
 
 /**
@@ -93,6 +108,21 @@ export function expandHashtagsInContext(
 			throw new Error(
 				'Authored "#case/..." is not a Nova reference; use an explicit case-type namespace',
 			);
+		}
+
+		// A search answer carried into the no-matches form. The namespace
+		// is reserved (`RESERVED_CASE_TYPE_NAMES`), so it never names a case
+		// type; outside that form it stays verbatim for the validator.
+		if (typeName === "search") {
+			const name = segments.length === 1 ? segments[0] : undefined;
+			if (
+				ctx.searchAnswers === undefined ||
+				name === undefined ||
+				!ctx.searchAnswers.names.has(name)
+			) {
+				return undefined;
+			}
+			return searchAnswerWireRef(ctx.searchAnswers.instanceId, name);
 		}
 
 		// Resolve the namespace to a parent-index hop count + the property path
@@ -145,6 +175,11 @@ export function expandHashtagsForSessionStack(
 		if (typeName === "case") {
 			throw new Error(
 				'Authored "#case/..." is not a Nova reference; use an explicit case-type namespace',
+			);
+		}
+		if (typeName === "search") {
+			throw new Error(
+				"Form-link stack XPath cannot reference #search because the search-input instance belongs to the closed form's entry.",
 			);
 		}
 		const hops = caseTypeDepths.get(typeName);
@@ -246,7 +281,10 @@ export function vellumShorthandInContext(
 			untranslatable = true;
 			return undefined;
 		};
-		if (typeName === "user" || !caseVocabulary) return fail();
+		// The editor has no `#search/` vocabulary; no shadow.
+		if (typeName === "user" || typeName === "search" || !caseVocabulary) {
+			return fail();
+		}
 
 		if (typeName === "case") {
 			throw new Error(

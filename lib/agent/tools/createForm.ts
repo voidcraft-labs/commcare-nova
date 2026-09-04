@@ -33,10 +33,17 @@
 
 import { z } from "zod";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
-import type { FormType, PostSubmitDestination } from "@/lib/domain";
+import { declareCaseTypeForField } from "@/lib/doc/scaffolds";
+import {
+	searchAnswerFields,
+	searchFirstOnMutations,
+} from "@/lib/doc/searchNoMatchesForm";
+import type { Mutation } from "@/lib/doc/types";
+import type { FormEntry, FormType, PostSubmitDestination } from "@/lib/domain";
 import {
 	asUuid,
 	FORM_TYPES,
+	fieldCaseWrite,
 	findAuthoredBlueprintIdentity,
 	POST_SUBMIT_DESTINATIONS,
 	uuidSchema,
@@ -60,6 +67,10 @@ import {
 	describeRejectedFields,
 	resolveCloseCondition,
 } from "./shared/fieldAssembly";
+import {
+	FORM_ENTRY_DESCRIPTION,
+	formEntryInputSchema,
+} from "./shared/formEntry";
 import type {
 	MutationSuccess,
 	ToolCallSummary,
@@ -105,6 +116,17 @@ export const createFormInputSchema = moduleAddressSchema
 			.describe(
 				"Close forms only — close the case only when the UUID-addressed field matches (the field may be predeclared in this same call). null for an unconditional close.",
 			),
+		entry: formEntryInputSchema
+			.nullable()
+			.optional()
+			.describe(FORM_ENTRY_DESCRIPTION),
+		carry_search_answers: z
+			.boolean()
+			.nullable()
+			.optional()
+			.describe(
+				"With entry search-no-matches: append one field per Search prompt, seeded from #search/<prompt name> and saving to the prompt's property (a hidden prompt under its own name when that is a legal property name); a prompt whose property your fields already write is skipped.",
+			),
 	})
 	.strict();
 
@@ -136,6 +158,8 @@ export const createFormTool = {
 			purpose,
 			post_submit,
 			close_condition,
+			entry,
+			carry_search_answers,
 		} = input;
 		try {
 			const address = resolveModuleAddress(doc, {
@@ -200,6 +224,31 @@ export const createFormTool = {
 				};
 			}
 			const closeCondition = resolveCloseCondition(close_condition);
+			if (entry != null && post_submit != null) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: {
+						error: `Form "${name}" cannot carry post_submit with entry search-no-matches: it always returns to Results showing the case it registered. Leave post_submit out.`,
+					},
+				};
+			}
+			if (carry_search_answers === true && entry == null) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: {
+						error: `carry_search_answers needs entry { kind: "search-no-matches" }: only that form can read the search answers.`,
+					},
+				};
+			}
+			const formEntry: FormEntry | undefined =
+				entry == null
+					? undefined
+					: {
+							kind: entry.kind,
+							...(entry.label != null && { label: entry.label }),
+						};
 			const formMutations = addFormMutations(doc, moduleUuid, {
 				uuid: formUuid,
 				name,
@@ -209,13 +258,41 @@ export const createFormTool = {
 					postSubmit: post_submit as PostSubmitDestination,
 				}),
 				...(closeCondition && { closeCondition }),
+				...(formEntry && { entry: formEntry }),
 			});
+			const carried: Mutation[] = [];
+			if (carry_search_answers === true) {
+				const occupied = new Set(assembly.created.map((field) => field.id));
+				const written = new Set(
+					assembly.mutations.flatMap((mutation) => {
+						const write =
+							mutation.kind === "addField"
+								? fieldCaseWrite(mutation.field)
+								: undefined;
+						return write === undefined ? [] : [write.property];
+					}),
+				);
+				for (const field of searchAnswerFields(
+					doc,
+					moduleUuid,
+					occupied,
+					written,
+				)) {
+					carried.push(...declareCaseTypeForField(doc, field));
+					carried.push({ kind: "addField", parentUuid: formUuid, field });
+				}
+			}
 
 			// Tag under the parent module — the event log groups this
 			// creation event with the rest of that module's activity so the
 			// lifecycle UI renders "forms added to Patient module" as one
 			// chapter rather than interleaved events per form index.
-			const mutations = [...formMutations, ...assembly.mutations];
+			const mutations = [
+				...(formEntry ? searchFirstOnMutations(doc, moduleUuid) : []),
+				...formMutations,
+				...assembly.mutations,
+				...carried,
+			];
 			const commit = await guardedMutate(
 				ctx,
 				mutations,

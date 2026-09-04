@@ -280,6 +280,14 @@ function buildEngineInput(
 		caseSelectionCardinality:
 			mod === undefined ? "single" : caseSelectionCardinality(mod),
 		userProperties: state.userProperties,
+		...(mod?.caseListConfig === undefined
+			? {}
+			: {
+					searchInputs: mod.caseListConfig.searchInputs.map((input) => ({
+						uuid: input.uuid,
+						name: input.name,
+					})),
+				}),
 	};
 }
 
@@ -605,6 +613,7 @@ export class EngineController {
 				readonly formUuid: Uuid;
 				readonly caseData?: CaseDataByType;
 				readonly caseDatabase?: CaseDatabaseSnapshot;
+				readonly searchAnswers?: ReadonlyMap<string, string>;
 		  }
 		| undefined;
 	private repeatCompactionListeners = new Set<
@@ -726,6 +735,16 @@ export class EngineController {
 	): CaseDatabaseSnapshot | undefined {
 		return this.requestedActivation?.formUuid === formUuid
 			? this.requestedActivation.caseDatabase
+			: undefined;
+	}
+
+	/** The admitted search answers of the requested no-matches launch, kept
+	 * through every rebuild of the same entry. */
+	private searchAnswersFor(
+		formUuid: Uuid,
+	): ReadonlyMap<string, string> | undefined {
+		return this.requestedActivation?.formUuid === formUuid
+			? this.requestedActivation.searchAnswers
 			: undefined;
 	}
 
@@ -1243,12 +1262,18 @@ export class EngineController {
 		formUuid: Uuid,
 		caseData?: CaseDataByType,
 		caseDatabase?: CaseDatabaseSnapshot,
+		searchAnswers?: ReadonlyMap<string, string>,
 	): void {
 		if (this.previewIdentityBlocked) {
 			this.deactivate();
 			return;
 		}
-		this.requestedActivation = { formUuid, caseData, caseDatabase };
+		this.requestedActivation = {
+			formUuid,
+			caseData,
+			caseDatabase,
+			searchAnswers,
+		};
 		this.runtimeFault = undefined;
 		if (
 			caseDatabase === undefined &&
@@ -1271,16 +1296,22 @@ export class EngineController {
 		formUuid: Uuid,
 		caseData?: CaseDataByType,
 		caseDatabase?: CaseDatabaseSnapshot,
+		searchAnswers?: ReadonlyMap<string, string>,
 	): Promise<boolean> {
 		if (this.xpathRuntime === undefined) {
-			this.activateForm(formUuid, caseData, caseDatabase);
+			this.activateForm(formUuid, caseData, caseDatabase, searchAnswers);
 			return this.engine !== undefined;
 		}
 		if (this.previewIdentityBlocked) {
 			this.deactivate();
 			return false;
 		}
-		this.requestedActivation = { formUuid, caseData, caseDatabase };
+		this.requestedActivation = {
+			formUuid,
+			caseData,
+			caseDatabase,
+			searchAnswers,
+		};
 		this.runtimeFault = undefined;
 		if (
 			caseDatabase === undefined &&
@@ -1388,6 +1419,7 @@ export class EngineController {
 		this.activeCaseData = caseData;
 		this.currentEntryKey = entryKey;
 		const caseDatabase = caseDatabaseOverride ?? this.caseDatabaseSnapshot;
+		const searchAnswers = this.searchAnswersFor(formUuid);
 		const engine = new FormEngine(
 			input,
 			state.modules[moduleUuid]?.caseType,
@@ -1395,7 +1427,10 @@ export class EngineController {
 			this.previewIdentity,
 			this.lookupData,
 			caseDatabase,
-			{ stagedAsync: true },
+			{
+				stagedAsync: true,
+				...(searchAnswers === undefined ? {} : { searchAnswers }),
+			},
 		);
 		this.engine = engine;
 		this.mountedCaseDatabaseSnapshot = caseDatabase;
@@ -1565,6 +1600,7 @@ export class EngineController {
 
 		const mod = s.modules[moduleUuid];
 		const caseDatabase = caseDatabaseOverride ?? this.caseDatabaseSnapshot;
+		const searchAnswers = this.searchAnswersFor(formUuid);
 		this.engine = new FormEngine(
 			input,
 			mod?.caseType,
@@ -1572,6 +1608,7 @@ export class EngineController {
 			this.previewIdentity,
 			this.lookupData,
 			caseDatabase,
+			searchAnswers === undefined ? {} : { searchAnswers },
 		);
 		this.mountedCaseDatabaseSnapshot = caseDatabase;
 

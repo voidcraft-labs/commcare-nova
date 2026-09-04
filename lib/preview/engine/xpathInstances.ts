@@ -525,8 +525,10 @@ export function secondaryXPathInstances(args: {
 	readonly caseDatabase: CaseDatabaseSnapshot | null;
 	readonly caseTypes?: readonly CaseType[];
 	readonly sessionData?: Readonly<Record<string, string>>;
+	/** Present only for an admitted no-matches registration form. */
+	readonly searchAnswers?: ReadonlyMap<string, string>;
 }): ReadonlyMap<string, XPathInstance> {
-	return new Map([
+	return new Map<string, XPathInstance>([
 		[
 			"commcaresession",
 			commcareSessionXPathInstance(args.identity, args.sessionData),
@@ -536,7 +538,40 @@ export function secondaryXPathInstances(args: {
 			caseDatabaseXPathInstance(args.caseDatabase, args.caseTypes ?? []),
 		],
 		...lookupXPathInstances(args.lookupData),
+		...(args.searchAnswers === undefined
+			? []
+			: [
+					[
+						INLINE_SEARCH_INPUT_INSTANCE_ID,
+						searchInputXPathInstance(args.searchAnswers),
+					] as const,
+				]),
 	]);
+}
+
+/** The inline search's answers instance, `search-input:results:inline`. */
+export const INLINE_SEARCH_INPUT_INSTANCE_ID = "search-input:results:inline";
+
+/**
+ * The device's search-input instance for a completed inline search
+ * (`RemoteQuerySessionManager.getEvaluationContextWithUserInputInstance`):
+ * `<input><field name="<prompt>">value</field>…</input>`, one field per
+ * answered prompt. A no-matches form's `#search/<name>` reads print as
+ * `instance('search-input:results:inline')/input/field[@name='<name>']` on
+ * the wire, so the same path resolves here.
+ */
+export function searchInputXPathInstance(
+	answers: ReadonlyMap<string, string>,
+): XPathInstance {
+	return new StaticXPathInstance(INLINE_SEARCH_INPUT_INSTANCE_ID, {
+		name: "input",
+		childTemplates: ["field"],
+		children: [...answers].map(([name, value]) => ({
+			name: "field",
+			value,
+			attributes: { name },
+		})),
+	});
 }
 
 /**
@@ -556,8 +591,26 @@ export function previewHashtagNodeSet(
 		readonly casedb: XPathInstance | undefined;
 		readonly caseData: ReadonlyMap<string, ReadonlyMap<string, string>>;
 		readonly userId: string | undefined;
+		/** The `search-input:results:inline` instance of an admitted
+		 *  no-matches form; absent when the form runs without one. */
+		readonly searchInputs?: XPathInstance | undefined;
 	},
 ): XPathNodeSet | undefined {
+	if (reference.startsWith("#search/")) {
+		/* A search answer is a field of the search-input instance, the node the
+		 * wire's `instance('search-input:results:inline')/input/field[@name]`
+		 * selects, so `count()` and predicates see a prompt the search left
+		 * blank as no node. Without the instance the engine's scalar resolver
+		 * answers blank. */
+		if (args.searchInputs === undefined) return undefined;
+		const name = reference.slice("#search/".length);
+		const fields =
+			args.searchInputs.root().children("input")[0]?.children("field") ?? [];
+		return new XPathNodeSet(
+			fields.filter((node) => nodeAttributeValue(node, "name") === name),
+			true,
+		);
+	}
 	const casedb = args.casedb;
 	if (casedb === undefined) return undefined;
 	const cases = casedb.root().children("casedb")[0]?.children("case") ?? [];
