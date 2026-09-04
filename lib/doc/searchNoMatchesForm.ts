@@ -16,6 +16,8 @@ import {
 	type BlueprintDoc,
 	type Field,
 	type FormEntry,
+	fieldCaseWrite,
+	humanizeId,
 	moduleOpensOnSearch,
 	proseText,
 	type SearchInputDef,
@@ -24,6 +26,8 @@ import {
 import { authoredCasePropertyNameSchema } from "@/lib/domain/casePropertyName";
 import { suffixUntilFree } from "@/lib/domain/idSlug";
 import { FORBIDDEN_CASE_WRITE_PROPERTIES } from "@/lib/domain/standardCaseProperties";
+import { findContainingForm } from "./mutations/helpers";
+import { declareCaseTypeForField, formScaffoldMutations } from "./scaffolds";
 
 /** Turn Search first on for the module, or nothing when it already is. */
 export function searchFirstOnMutations(
@@ -72,6 +76,99 @@ function searchAnswerExpression(input: SearchInputDef) {
 			{ kind: "search-answer-ref" as const, searchInputUuid: input.uuid },
 		],
 	};
+}
+
+/**
+ * The builder's one-step answer to "register a new case when nothing
+ * matches": a registration form born as the module's no-matches form, its
+ * `case_name` writer seeded from a Search prompt on the name when the
+ * module has one, one field per remaining prompt seeded from its answer
+ * (`searchAnswerFields`), and Search first turned on in the same batch.
+ * Returns `null` for a module without a case type (nothing to register).
+ */
+export function noMatchesRegistrationFormMutations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+): { mutations: Mutation[]; formUuid: Uuid; formName: string } | null {
+	const mod = doc.modules[moduleUuid];
+	if (mod?.caseType === undefined) return null;
+	const scaffold = formScaffoldMutations(doc, moduleUuid, "registration");
+	if (scaffold === null) return null;
+	const formName = `Register ${humanizeId(mod.caseType).toLowerCase()}`;
+	const nameInput = (mod.caseListConfig?.searchInputs ?? []).find(
+		(input) =>
+			input.kind === "simple" &&
+			input.type !== "date-range" &&
+			input.property === "case_name",
+	);
+	const mutations: Mutation[] = scaffold.mutations.map((mutation) => {
+		if (mutation.kind === "addForm") {
+			return {
+				...mutation,
+				form: {
+					...mutation.form,
+					name: formName,
+					entry: { kind: "search-no-matches" },
+				},
+			};
+		}
+		if (
+			mutation.kind === "addField" &&
+			nameInput !== undefined &&
+			mutation.field.kind === "text" &&
+			mutation.field.id === "case_name"
+		) {
+			return {
+				...mutation,
+				field: {
+					...mutation.field,
+					default_value: searchAnswerExpression(nameInput),
+				},
+			};
+		}
+		return mutation;
+	});
+	const carried = searchAnswerFields(
+		doc,
+		moduleUuid,
+		new Set(["case_name"]),
+		new Set(["case_name"]),
+	);
+	for (const field of carried) {
+		mutations.push(...declareCaseTypeForField(doc, field));
+		mutations.push({ kind: "addField", parentUuid: scaffold.formUuid, field });
+	}
+	mutations.push(...searchFirstOnMutations(doc, moduleUuid));
+	return { mutations, formUuid: scaffold.formUuid, formName };
+}
+
+/**
+ * Append a field per Search prompt of `moduleUuid` that `formUuid` does not
+ * carry yet: a prompt whose property one of the form's fields already
+ * writes is carried by that field. Empty when every prompt is covered.
+ */
+export function carrySearchAnswersMutations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	formUuid: Uuid,
+): Mutation[] {
+	const occupiedIds = new Set<string>();
+	const occupiedProperties = new Set<string>();
+	for (const field of Object.values(doc.fields)) {
+		if (findContainingForm(doc, field.uuid) !== formUuid) continue;
+		occupiedIds.add(field.id);
+		const write = fieldCaseWrite(field);
+		if (write !== undefined) occupiedProperties.add(write.property);
+	}
+	return searchAnswerFields(
+		doc,
+		moduleUuid,
+		occupiedIds,
+		occupiedProperties,
+	).flatMap((field) => [
+		...declareCaseTypeForField(doc, field),
+		{ kind: "addField" as const, parentUuid: formUuid, field },
+	]);
 }
 
 /** Whether a hidden prompt's name can be the case property its value is

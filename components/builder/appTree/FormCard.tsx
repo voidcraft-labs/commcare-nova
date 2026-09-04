@@ -13,6 +13,7 @@
  */
 "use client";
 import { Icon } from "@iconify/react/offline";
+import tablerSearch from "@iconify-icons/tabler/search";
 import { AnimatePresence, motion } from "motion/react";
 import { memo } from "react";
 import { FieldRow } from "@/components/builder/appTree/FieldRow";
@@ -31,11 +32,16 @@ import { useLocalizedText } from "@/components/builder/localization/BuilderLocal
 import { ProjectMediaImage } from "@/components/builder/media/ProjectMediaResource";
 import { PeerBadge } from "@/components/builder/PeerBadge";
 import { ConnectLogomark } from "@/components/icons/ConnectLogomark";
+import { SimpleTooltip } from "@/components/shadcn/tooltip";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useForm as useFormDoc } from "@/lib/doc/hooks/useEntity";
 import { useOrderedFields } from "@/lib/doc/hooks/useOrderedFields";
 import type { SearchResult } from "@/lib/doc/hooks/useSearchFilter";
-import { makeTranslationUnitId, type Uuid } from "@/lib/domain";
+import {
+	isNoMatchesForm,
+	makeTranslationUnitId,
+	type Uuid,
+} from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import { useIsFormSelected, useNavigate } from "@/lib/routing/hooks";
 
@@ -181,6 +187,20 @@ export const FormCard = memo(function FormCard({
 								size={11}
 								className="text-nova-violet-bright shrink-0"
 							/>
+						)}
+						{/* The one form that is not on the menu: it opens from
+						 * Results after a search finds nothing. */}
+						{isNoMatchesForm(form) && (
+							<SimpleTooltip content="Opens from Results after a search finds no matches">
+								<span
+									role="img"
+									aria-label="Opens from Results after a search finds no matches"
+									data-no-matches-form
+									className="inline-flex shrink-0 text-nova-violet-bright"
+								>
+									<Icon icon={tablerSearch} width="12" height="12" />
+								</span>
+							</SimpleTooltip>
 						)}
 					</div>
 				</div>

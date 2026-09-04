@@ -311,9 +311,23 @@ no after-submit destination, no after-submit links, and no display condition,
 and no other form can link to it. One such form per module. Setting the entry
 turns **Search first** on for the module if it was off.
 
+In the builder, the Search canvas carries **When no cases match**. Choose
+**Offer a registration form** and pick one of the module's registration forms,
+or **Add a new registration form**: Nova adds one named after the case type,
+with a field for each search field filled in from its answer and a name for the
+new case. A review names what changes before anything commits: Search first
+turns on if it was off, the form leaves the menu, and where the form returns
+after submit. **Only the notice** makes the form a menu form again. The form's
+own settings carry **How this form opens**: the Results action label, **Add
+fields for the search answers** (one field for each search field the form does
+not carry yet), and **Make it a menu form again**. A menu registration form in
+a module with Search offers **Open after a search finds no matches** in the
+same place. The structure tree marks the form with a search icon.
+
 Because the form depends on the search, Nova refuses to remove a search field
 one of its fields reads, to turn **Search first** off, or to remove Search
-while the entry is set; clear the entry or the field first. In Preview,
+while the entry is set; clear the entry or the field first. Removing such a
+search field lists the form field that reads it and opens it from the review. In Preview,
 opening the form by its address without a completed empty search shows why it
 is not available and offers **Go to Search**. The action and the carried
 answers work in the browser app; a phone never shows Results for an empty

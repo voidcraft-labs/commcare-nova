@@ -45,6 +45,7 @@ import {
 	isStandardCaseListProperty,
 	type SearchInputDef,
 	searchInputDefault,
+	type Uuid,
 } from "@/lib/domain";
 import type { ValueExpression } from "@/lib/domain/predicate";
 import { PreviewMarkdown } from "@/lib/markdown";
@@ -62,6 +63,7 @@ import {
 } from "../searchInputResolution";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import { AddGhostButton, AuthoredDragPreviewLabel } from "./canvasChrome";
+import { NoMatchesFormSetting } from "./NoMatchesFormSetting";
 
 export interface SearchCanvasProps {
 	readonly searchInputs: readonly SearchInputDef[];
@@ -90,6 +92,9 @@ export interface SearchCanvasProps {
 	readonly searchSettingsHasError?: boolean;
 	/** The module opens on Search: no browse list, Results only after a search. */
 	readonly searchFirst?: boolean;
+	/** The module whose Search this is; the no-matches setting plans against
+	 *  it. Absent while the URL is still resolving. */
+	readonly moduleUuid?: Uuid;
 }
 
 export function SearchCanvas({
@@ -109,6 +114,7 @@ export function SearchCanvas({
 	opensResultsAutomatically = false,
 	searchSettingsHasError = false,
 	searchFirst = false,
+	moduleUuid,
 }: SearchCanvasProps) {
 	const canEdit = useCanEdit();
 	const projectProse = useProseProjection();
@@ -394,6 +400,15 @@ export function SearchCanvas({
 						)}
 					</div>
 				</section>
+
+				{/* Only a module with a Search action and a case type can offer a
+				 * registration form after an empty search; without either there
+				 * is nothing to search and nothing to register. */}
+				{moduleUuid !== undefined &&
+					searchActionEnabled &&
+					currentCaseType !== "" && (
+						<NoMatchesFormSetting moduleUuid={moduleUuid} />
+					)}
 			</div>
 		</ContentFrame>
 	);

@@ -10,13 +10,16 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { searchInputRemovalDependenciesInDoc } from "@/lib/doc/searchInputMutations";
 import {
 	planSearchInputRemovalFieldDependents,
 	planSearchTakeawayDependents,
 	searchAnswerFieldDependents,
 } from "@/lib/doc/searchNoMatchesDependents";
 import {
+	carrySearchAnswersMutations,
 	noMatchesFormEntryMutations,
+	noMatchesRegistrationFormMutations,
 	searchAnswerFields,
 	searchFirstOnMutations,
 } from "@/lib/doc/searchNoMatchesForm";
@@ -31,7 +34,9 @@ const NAME_INPUT = testUuid("00000000-0000-4000-8000-0000000c0001");
 const TIME_INPUT = testUuid("00000000-0000-4000-8000-0000000c0002");
 const NAME_FIELD = testUuid("00000000-0000-4000-8000-0000000c0020");
 
-function fixture(options: { searchFirst?: boolean; entry?: boolean } = {}) {
+function fixture(
+	options: { searchFirst?: boolean; entry?: boolean; register?: boolean } = {},
+) {
 	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 	config.searchInputs = [
 		simpleSearchInputDef(
@@ -67,28 +72,35 @@ function fixture(options: { searchFirst?: boolean; entry?: boolean } = {}) {
 						type: "followup",
 						fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
 					},
-					{
-						uuid: REGISTER,
-						name: "Register patient",
-						type: "registration",
-						...(options.entry === false
-							? {}
-							: { entry: { kind: "search-no-matches" } }),
-						fields: [
-							f({
-								uuid: NAME_FIELD,
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
-								default_value: {
-									parts: [
-										{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT },
+					...(options.register === false
+						? []
+						: [
+								{
+									uuid: REGISTER,
+									name: "Register patient",
+									type: "registration" as const,
+									...(options.entry === false
+										? {}
+										: { entry: { kind: "search-no-matches" as const } }),
+									fields: [
+										f({
+											uuid: NAME_FIELD,
+											kind: "text",
+											id: "case_name",
+											label: proseText("Name"),
+											caseWrite: { caseType: "patient", property: "case_name" },
+											default_value: {
+												parts: [
+													{
+														kind: "search-answer-ref",
+														searchInputUuid: NAME_INPUT,
+													},
+												],
+											},
+										}),
 									],
 								},
-							}),
-						],
-					},
+							]),
 				],
 			},
 		],
@@ -208,6 +220,112 @@ describe("noMatchesFormEntryMutations", () => {
 		expect(
 			noMatchesFormEntryMutations(fixture(), MODULE, REGISTER, null),
 		).toEqual([{ kind: "updateForm", uuid: REGISTER, patch: { entry: null } }]);
+	});
+});
+
+describe("noMatchesRegistrationFormMutations", () => {
+	it("births a no-matches registration form carrying every prompt, with Search first on", () => {
+		const doc = fixture({ searchFirst: false, register: false });
+		const planned = noMatchesRegistrationFormMutations(doc, MODULE);
+		if (planned === null) throw new Error("no plan");
+		expect(planned.formName).toBe("Register patient");
+		const addForm = planned.mutations.find(
+			(mutation) => mutation.kind === "addForm",
+		);
+		expect(addForm).toMatchObject({
+			moduleUuid: MODULE,
+			form: {
+				uuid: planned.formUuid,
+				name: "Register patient",
+				type: "registration",
+				entry: { kind: "search-no-matches" },
+			},
+		});
+		const fields = planned.mutations.flatMap((mutation) =>
+			mutation.kind === "addField" ? [mutation.field] : [],
+		);
+		// The name writer is seeded from the prompt on `case_name`; the
+		// hidden search time rides beside it.
+		expect(fields.map((field) => [field.kind, field.id])).toEqual([
+			["text", "case_name"],
+			["hidden", "search_time"],
+		]);
+		expect(fields[0]).toMatchObject({
+			caseWrite: { caseType: "patient", property: "case_name" },
+			default_value: {
+				parts: [{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT }],
+			},
+		});
+		expect(planned.mutations).toContainEqual({
+			kind: "updateModule",
+			uuid: MODULE,
+			patch: {},
+			caseSearchConfigPatch: { searchFirst: true },
+		});
+		// The whole batch passes the gate as one commit.
+		const verdict = mutationCommitVerdict(
+			doc,
+			planned.mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!verdict.ok) throw new Error(JSON.stringify(verdict, null, 1));
+	});
+
+	it("declines a module without a case type", () => {
+		const doc = fixture();
+		const mod = doc.modules[MODULE];
+		expect(
+			noMatchesRegistrationFormMutations(
+				{ ...doc, modules: { [MODULE]: { ...mod, caseType: undefined } } },
+				MODULE,
+			),
+		).toBeNull();
+	});
+});
+
+describe("carrySearchAnswersMutations", () => {
+	it("appends only the prompts the form does not carry yet", () => {
+		const doc = fixture();
+		// The fixture's form already writes `case_name` from the name prompt.
+		const mutations = carrySearchAnswersMutations(doc, MODULE, REGISTER);
+		expect(
+			mutations.flatMap((mutation) =>
+				mutation.kind === "addField"
+					? [[mutation.parentUuid, mutation.field.id]]
+					: [],
+			),
+		).toEqual([[REGISTER, "search_time"]]);
+		const verdict = mutationCommitVerdict(
+			doc,
+			mutations,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok).toBe(true);
+		if (!verdict.ok) return;
+		expect(
+			carrySearchAnswersMutations(verdict.nextDoc, MODULE, REGISTER),
+		).toEqual([]);
+	});
+});
+
+describe("searchInputRemovalDependenciesInDoc", () => {
+	it("lists the form fields reading the prompt beside the config's own dependencies", () => {
+		const doc = fixture();
+		expect(
+			searchInputRemovalDependenciesInDoc(doc, MODULE, NAME_INPUT),
+		).toEqual([
+			{
+				kind: "form-field",
+				label: "“case_name” in “Register patient”",
+				moduleUuid: MODULE,
+				formUuid: REGISTER,
+				fieldUuid: NAME_FIELD,
+				uses: 1,
+			},
+		]);
+		expect(
+			searchInputRemovalDependenciesInDoc(doc, MODULE, TIME_INPUT),
+		).toEqual([]);
 	});
 });
 

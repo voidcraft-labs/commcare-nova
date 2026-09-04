@@ -2,5 +2,7 @@
 
 export {
 	type SearchInputRemovalDependency,
+	searchInputDependencyUses,
+	searchInputFormFieldDependencies,
 	searchInputRemovalDependencies,
 } from "@/lib/doc/searchInputMutations";

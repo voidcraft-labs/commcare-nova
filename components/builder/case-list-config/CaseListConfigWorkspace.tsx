@@ -153,6 +153,8 @@ import {
 } from "./searchInputConditions";
 import {
 	type SearchInputRemovalDependency,
+	searchInputDependencyUses,
+	searchInputFormFieldDependencies,
 	searchInputRemovalDependencies,
 } from "./searchInputRemovalDependencies";
 import { searchInputDecls } from "./searchInputResolution";
@@ -1282,6 +1284,18 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				setSel({ type: "column", uuid: dependency.columnUuid });
 				return;
 			}
+			if (dependency.kind === "form-field") {
+				/* The field is on another screen; the review ends here and the
+				 * person presses Remove again once the field no longer reads the
+				 * answer (the dialog recomputes on each open). */
+				setInputRemovalReview(null);
+				navigate.openForm(
+					dependency.moduleUuid,
+					dependency.formUuid,
+					dependency.fieldUuid,
+				);
+				return;
+			}
 			deselect();
 			navigate.openCaseList(requireRetainedModuleUuid(moduleUuid));
 		},
@@ -1289,11 +1303,20 @@ function useController(target: CaseListWorkspaceTarget | null) {
 	);
 	const returnToInputRemovalReview = useCallback(() => {
 		if (inputRemovalReview?.phase !== "target") return;
-		const remaining = searchInputRemovalDependencies(
-			config,
-			searchConfig,
-			inputRemovalReview.inputUuid,
-		).length;
+		/* The config half reads the rendered module, the same snapshot the
+		 * dialog's rows come from; the form fields reading the answer live on
+		 * other screens, so they come from the document. */
+		const remaining =
+			searchInputRemovalDependencies(
+				config,
+				searchConfig,
+				inputRemovalReview.inputUuid,
+			).length +
+			searchInputFormFieldDependencies(
+				docApi.getState(),
+				requireRetainedModuleUuid(moduleUuid),
+				inputRemovalReview.inputUuid,
+			).length;
 		inputRemovalReviewTokenRef.current += 1;
 		setInputRemovalReview({
 			phase: "dependencies",
@@ -1316,6 +1339,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		}
 	}, [
 		config,
+		docApi,
 		inputRemovalReview,
 		leaveSearchCondition,
 		moduleUuid,
@@ -1886,6 +1910,8 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		inspector = resolveInspector({
 			sel,
 			activeTab: tab,
+			moduleUuid,
+			docApi,
 			config,
 			searchConfig,
 			searchIsEffective: effectiveSearchConfig !== undefined,
@@ -2374,6 +2400,7 @@ export function CaseListWorkspaceCanvas() {
 								searchFirst={effectiveSearchConfig?.searchFirst === true}
 								onMoveInput={moveInput}
 								searchSettingsHasError={searchButtonConditionBroken}
+								{...(moduleUuid === undefined ? {} : { moduleUuid })}
 							/>
 						)}
 					</div>
@@ -2475,6 +2502,10 @@ export function CaseListWorkspaceCanvas() {
 interface ResolveInspectorArgs {
 	readonly sel: WorkspaceSelection | null;
 	readonly activeTab: CaseListWorkspaceTab;
+	/** The module whose config this is, once the URL has resolved it. */
+	readonly moduleUuid: Uuid | undefined;
+	/** The document, read imperatively for dependents outside this config. */
+	readonly docApi: ReturnType<typeof useBlueprintDocApi>;
 	readonly config: CaseListConfig;
 	readonly searchConfig: CaseSearchConfig | undefined;
 	readonly searchIsEffective: boolean;
@@ -2584,11 +2615,24 @@ function resolveInspector(args: ResolveInspectorArgs): {
 			const index = sortedInputs.findIndex((s) => s.uuid === sel.uuid);
 			const input = sortedInputs[index];
 			if (input === undefined) return null;
-			const removalDependencies = searchInputRemovalDependencies(
-				config,
-				args.searchConfig,
-				input.uuid,
-			);
+			/* The config half reads this config; the form fields reading the
+			 * answer live on other screens, so they are read imperatively from
+			 * the document (this inspector re-resolves whenever the selection
+			 * or the config changes). */
+			const removalDependencies = [
+				...searchInputRemovalDependencies(
+					config,
+					args.searchConfig,
+					input.uuid,
+				),
+				...(args.moduleUuid === undefined
+					? []
+					: searchInputFormFieldDependencies(
+							args.docApi.getState(),
+							args.moduleUuid,
+							input.uuid,
+						)),
+			];
 			return {
 				kicker: "Search field",
 				title: input.label || labelFromProperty(input.name) || "Untitled field",
@@ -2963,8 +3007,8 @@ function SearchInputInspectorBody({
 							This field is used in other rules
 						</AlertDialogTitle>
 						<AlertDialogDescription>
-							Open each rule and remove or replace {inputLabel}'s answer. Then
-							you can remove the field.
+							Open each rule or form field and remove or replace {inputLabel}'s
+							answer. Then you can remove the field.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogBody>
@@ -2974,8 +3018,14 @@ function SearchInputInspectorBody({
 									key={`${dependency.kind}:${
 										dependency.kind === "search-field-condition"
 											? `${dependency.inputUuid}:${dependency.slot}`
-											: "results"
-									}:${JSON.stringify(dependency.paths)}`}
+											: dependency.kind === "form-field"
+												? dependency.fieldUuid
+												: "results"
+									}:${
+										dependency.kind === "form-field"
+											? dependency.uses
+											: JSON.stringify(dependency.paths)
+									}`}
 								>
 									<Button
 										type="button"
@@ -2989,9 +3039,9 @@ function SearchInputInspectorBody({
 										<span className="min-w-0 flex-1 break-words font-medium text-nova-text">
 											<span className="block">{dependency.label}</span>
 											<span className="mt-0.5 block text-[12px] font-normal text-nova-text-muted">
-												{dependency.paths.length === 1
+												{searchInputDependencyUses(dependency) === 1
 													? "Uses this answer once"
-													: `Uses this answer in ${dependency.paths.length} places`}
+													: `Uses this answer in ${searchInputDependencyUses(dependency)} places`}
 											</span>
 										</span>
 										<span className="shrink-0 font-medium text-nova-violet-bright">

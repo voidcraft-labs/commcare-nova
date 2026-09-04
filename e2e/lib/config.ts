@@ -24,3 +24,7 @@ export const ORGANIZATION_FIXTURE_COUNT = SMOKE_RETRIES + 1;
 /** The after-submit journey authors a link and submits twice into its one
  *  case row, so a retry needs its own app and row. */
 export const FORM_LINKS_FIXTURE_COUNT = SMOKE_RETRIES + 1;
+
+/** The search-first journey registers a case from an empty search, so a
+ *  retry needs an app whose search still finds nothing for that name. */
+export const SEARCH_FIRST_FIXTURE_COUNT = SMOKE_RETRIES + 1;

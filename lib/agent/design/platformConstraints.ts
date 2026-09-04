@@ -46,7 +46,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
 	// Deliberate target gaps (one per remaining complex-app unit)
 	"GAP_SESSION_ENDPOINTS_DEEP_LINKS",
-	"GAP_SEARCH_BEFORE_REGISTER",
 ] as const;
 
 export type PlatformConstraintCode = (typeof PLATFORM_CONSTRAINT_CODES)[number];
@@ -191,12 +190,5 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"Session endpoints and shareable deep links resolved against the selected HQ server are a deliberate target gap.",
 		sourceAnchor: "docs/plans/complex-app/session-endpoints-and-deep-links.md",
 		gapUnitFile: "session-endpoints-and-deep-links.md",
-	},
-	GAP_SEARCH_BEFORE_REGISTER: {
-		code: "GAP_SEARCH_BEFORE_REGISTER",
-		statement:
-			"A module that opens on Search and offers a registration form only after a completed search finds no matches, carrying the search answers into that form, is a deliberate target gap. Search prompts themselves (hints, required conditions, checks, lookup-backed choices, hidden values) are available today.",
-		sourceAnchor: "docs/plans/complex-app/search-before-register.md",
-		gapUnitFile: "search-before-register.md",
 	},
 };

@@ -1,7 +1,7 @@
 /**
  * The wire constants of the no-matches registration form, shared by the
  * local suite compiler and the HQ-JSON expander so the two paths cannot
- * drift (`docs/plans/complex-app/search-before-register.md`).
+ * drift (`docs/plans/complex-app-plan.md` § Register when nothing matches).
  */
 
 /** `module_filter` / `<menu relevant>` of the hidden module that owns the

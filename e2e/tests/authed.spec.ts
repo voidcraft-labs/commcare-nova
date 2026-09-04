@@ -15,6 +15,7 @@ import { attachErrorGuard } from "../lib/errorGuard";
 import { expect, test } from "../lib/fixtures";
 import { FORM_LINKS_SEED } from "../lib/formLinksSeed";
 import { FORM_SECTIONS_SEED } from "../lib/formSectionsSeed";
+import { SEARCH_FIRST_SEED } from "../lib/searchFirstSeed";
 
 /**
  * Authenticated smoke checks, driven by the seeded session cookie in
@@ -91,6 +92,15 @@ interface SeedManifest {
 	formLinks: {
 		appId: string;
 		route: string;
+		caseId: string;
+	}[];
+	searchFirst: {
+		appId: string;
+		routes: {
+			searchConfig: string;
+			results: string;
+			registerForm: string;
+		};
 		caseId: string;
 	}[];
 	formSections: { appId: string; route: string };
@@ -2871,6 +2881,130 @@ test.describe("authenticated builder", () => {
 			const trail = page.getByRole("navigation", { name: "Page navigation" });
 			await expect(trail).toContainText(FORM_LINKS_SEED.caseName);
 			await expect(trail).toContainText(followUp.formName);
+		});
+	});
+
+	test("a search-first module registers what a search could not find", async ({
+		page,
+	}, testInfo) => {
+		test.setTimeout(120_000);
+		const fixture = seed.searchFirst[testInfo.retry];
+		if (fixture === undefined) {
+			throw new Error(
+				`Search-first fixture missing for Playwright attempt ${testInfo.retry}`,
+			);
+		}
+		const { prompt, register, caseName, unmatchedName } = SEARCH_FIRST_SEED;
+		const main = page.locator("main");
+		const searchScreen = main.getByRole("search", { name: "Search" });
+		const nameInput = searchScreen.getByRole("textbox", { name: prompt.label });
+		const runSearch = searchScreen.getByRole("button", {
+			name: "Search",
+			exact: true,
+		});
+		const resultsTitle = main.locator("[data-results-title]");
+		const resultRows = main
+			.getByRole("list", { name: "Cases" })
+			.getByRole("listitem");
+		const registerAction = main.getByRole("button", {
+			name: register.actionLabel,
+			exact: true,
+		});
+		const search = async (text: string) => {
+			await nameInput.fill(text);
+			await runSearch.click();
+		};
+
+		await test.step("the Search canvas names the form Results offers, and the tree marks it", async () => {
+			await page.goto(fixture.routes.searchConfig);
+			await expect(
+				page.getByRole("heading", { name: "Search", level: 1 }),
+			).toBeVisible({ timeout: 20_000 });
+			const setting = page.locator("[data-no-matches-setting]");
+			await expect(
+				setting.getByRole("heading", { name: "When no cases match", level: 2 }),
+			).toBeVisible();
+			await expect(
+				setting.getByRole("radio", { name: "Offer a registration form" }),
+			).toBeChecked();
+			await expect(setting).toContainText(register.formName);
+			await expect(
+				page.locator("[data-no-matches-form]").first(),
+			).toBeVisible();
+		});
+
+		await test.step("Preview opens on Search: no results, no register action", async () => {
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			await expect(searchScreen).toBeVisible({ timeout: 20_000 });
+			await expect(nameInput).toBeVisible();
+			await expect(resultsTitle).toHaveCount(0);
+			await expect(registerAction).toHaveCount(0);
+		});
+
+		await test.step("a blank search is refused with the prompt's own message", async () => {
+			await runSearch.click();
+			await expect(nameInput).toHaveAttribute("aria-invalid", "true");
+			await expect(main.getByText(prompt.requiredMessage)).toBeVisible();
+			await expect(resultsTitle).toHaveCount(0);
+		});
+
+		await test.step("a search that finds a case shows it, with no register action", async () => {
+			await search("Ada");
+			await expect(resultsTitle).toBeVisible({ timeout: 20_000 });
+			await expect(resultRows).toHaveCount(1);
+			await expect(resultRows.first()).toContainText(caseName);
+			await expect(registerAction).toHaveCount(0);
+		});
+
+		await test.step("Search again returns to the Search screen", async () => {
+			await main.getByRole("button", { name: "Search again" }).click();
+			await expect(searchScreen).toBeVisible();
+			await expect(resultsTitle).toHaveCount(0);
+		});
+
+		await test.step("an empty search offers the registration form", async () => {
+			await search(unmatchedName);
+			await expect(
+				main.getByRole("heading", {
+					name: "No cases match your search",
+					level: 2,
+				}),
+			).toBeVisible({ timeout: 20_000 });
+			await expect(resultRows).toHaveCount(0);
+			await registerAction.click();
+		});
+
+		await test.step("the form opens with the search's answer and returns to Results showing the new case", async () => {
+			// The running question is named "Question 1. Name"; the form's own
+			// title input in the trail is "Form name".
+			const formName = main.getByRole("textbox", {
+				name: new RegExp(`${register.nameFieldLabel}$`),
+			});
+			await expect(formName).toBeVisible({ timeout: 20_000 });
+			await expect(formName).toHaveValue(unmatchedName);
+			await main.getByRole("button", { name: "Submit", exact: true }).click();
+			await expect(resultsTitle).toBeVisible({ timeout: 20_000 });
+			await expect(resultRows).toHaveCount(1);
+			await expect(resultRows.first()).toContainText(unmatchedName);
+			await expect(resultRows.first()).not.toContainText(caseName);
+			await expect(registerAction).toHaveCount(0);
+		});
+
+		await test.step("the form refuses to open without an empty search behind it", async () => {
+			await page.goto(fixture.routes.registerForm);
+			await expect(page.getByTestId("editable-title")).toHaveValue(
+				register.formName,
+				{ timeout: 20_000 },
+			);
+			await page.getByRole("button", { name: "Preview", exact: true }).click();
+			const refusal = main.locator("[data-no-matches-refusal]");
+			await expect(refusal).toBeVisible({ timeout: 20_000 });
+			await expect(refusal).toContainText(
+				"This form opens after a search finds no matches",
+			);
+			await refusal.getByRole("button", { name: "Go to Search" }).click();
+			await expect(searchScreen).toBeVisible({ timeout: 20_000 });
+			await expect(registerAction).toHaveCount(0);
 		});
 	});
 
