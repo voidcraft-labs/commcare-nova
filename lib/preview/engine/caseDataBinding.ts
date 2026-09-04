@@ -53,7 +53,7 @@ import {
 	ownRecordValue,
 	personasOf,
 	recordFromEntries,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	searchInputRuntimeValueType,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
@@ -263,7 +263,7 @@ export async function loadCasesAction(args: {
 						knownInputs: args.caseListConfig.searchInputs.map((input) => ({
 							uuid: input.uuid,
 							name: input.name,
-							data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+							data_type: searchInputRuntimeValueType(input),
 						})),
 						currentCaseType: args.caseType,
 					};

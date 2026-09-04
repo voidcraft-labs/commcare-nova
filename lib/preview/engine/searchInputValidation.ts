@@ -9,7 +9,7 @@ import {
 import {
 	type CaseListConfig,
 	ownRecordValue,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	searchInputRuntimeValueType,
 	searchRuntimeGlobalValidationMessage,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate";
@@ -155,7 +155,7 @@ function withSearchInputBindings(
 			uuid: input.uuid,
 			name: input.name,
 			label: input.label,
-			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+			data_type: searchInputRuntimeValueType(input),
 		})),
 	};
 }

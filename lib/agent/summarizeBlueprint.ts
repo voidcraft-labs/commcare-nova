@@ -263,7 +263,9 @@ function formatSearchInput(input: SearchInputDef): string {
 	const body =
 		input.kind === "simple"
 			? `(simple) ${input.name} → ${input.property} (${input.type}, "${input.label}")`
-			: `(advanced) ${input.name} (${input.type}, "${input.label}")`;
+			: input.kind === "advanced"
+				? `(advanced) ${input.name} (${input.type}, "${input.label}")`
+				: `(hidden) ${input.name} (system value, "${input.label}")`;
 	return `${input.uuid}: ${body}`;
 }
 

@@ -67,7 +67,7 @@ import {
 	type BlueprintDoc,
 	type CaseType,
 	type Module,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	searchInputRuntimeValueType,
 	userPropertiesOf,
 } from "@/lib/domain";
 import {
@@ -154,7 +154,7 @@ export function moduleTypeContext(
 	const knownInputs: SearchInputDecl[] = inputs.map((input) => ({
 		uuid: input.uuid,
 		name: input.name,
-		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+		data_type: searchInputRuntimeValueType(input),
 	}));
 
 	return {

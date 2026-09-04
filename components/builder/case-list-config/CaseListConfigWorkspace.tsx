@@ -145,6 +145,10 @@ import { SearchInputEditor } from "./inspector/SearchInputEditor";
 import type { SearchPanelInspectorBodyProps } from "./inspector/SearchPanelInspectorBody";
 import { withPreservedIdentity } from "./preserveIdentity";
 import {
+	searchInputConditionAt,
+	withSearchInputCondition,
+} from "./searchInputConditions";
+import {
 	type SearchInputRemovalDependency,
 	searchInputRemovalDependencies,
 } from "./searchInputRemovalDependencies";
@@ -154,6 +158,7 @@ import {
 	seedCalculatedColumn,
 	seedColumnForProperty,
 	seededColumnAddMutation,
+	seedHiddenSearchInput,
 	seedSearchInputForProperty,
 } from "./seeds";
 import { TileCellInspector } from "./tile/TileCellInspector";
@@ -180,7 +185,11 @@ import {
 	removeColumnFromDisplay,
 	showColumnOnDisplay,
 } from "./workspaceProjection";
-import type { WorkspaceSelection } from "./workspaceSelection";
+import {
+	type SearchConditionSlot,
+	searchConditionSlotOf,
+	type WorkspaceSelection,
+} from "./workspaceSelection";
 
 const CASE_SELECTION_REVIEW_REFRESHED =
 	"The workflow changed while this review was open. I refreshed the details below for another look before you confirm.";
@@ -712,7 +721,13 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			const input = config.searchInputs.find(
 				(candidate) => candidate.uuid === inputUuid,
 			);
-			if (input?.kind === "advanced") return;
+			if (
+				input !== undefined &&
+				searchInputConditionAt(input, searchConditionSlotOf(sel.target)) !==
+					undefined
+			) {
+				return;
+			}
 			leaveSearchCondition(
 				input === undefined ? null : { type: "input", uuid: input.uuid },
 			);
@@ -1242,7 +1257,11 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				`Reviewing ${dependency.label}. It uses the ${inputRemovalReview.inputLabel} answer.`,
 			);
 			if (dependency.kind === "search-field-condition") {
-				openSearchCondition({ kind: "input", uuid: dependency.inputUuid });
+				openSearchCondition({
+					kind: "input",
+					uuid: dependency.inputUuid,
+					slot: dependency.slot,
+				});
 				return;
 			}
 			if (dependency.kind === "search-field-default") {
@@ -1317,6 +1336,22 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		// Never select an identity the gate refused to create. The gate can still
 		// reject a concurrent structural edit even though the seed was valid when
 		// this interaction began.
+		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
+	};
+	const addHiddenInput = () => {
+		// A hidden value names no case information, so there is nothing to
+		// choose first: the seed is the search time, and the inspector opens on
+		// its expression.
+		const seed = seedHiddenSearchInput(config);
+		const retainedModuleUuid = requireRetainedModuleUuid(moduleUuid);
+		const outcome = commitMany([
+			enableCaseSearchMutation(retainedModuleUuid, searchConfig),
+			{
+				kind: "addSearchInput",
+				moduleUuid: retainedModuleUuid,
+				searchInput: seed,
+			},
+		]);
 		if (outcome.ok) setSel({ type: "input", uuid: seed.uuid });
 	};
 	const moveInput = (uuid: SearchInputDef["uuid"], toIndex: number) =>
@@ -1856,8 +1891,8 @@ function useController(target: CaseListWorkspaceTarget | null) {
 			onSearchConfigChange: updateSearchConfig,
 			replaceColumn,
 			replaceInput,
-			onEditInputCondition: (uuid) =>
-				openSearchCondition({ kind: "input", uuid }),
+			onEditInputCondition: (uuid, slot) =>
+				openSearchCondition({ kind: "input", uuid, slot }),
 			onEditSearchButtonCondition: editSearchButtonCondition,
 			searchSettingsHasError: searchButtonConditionBroken,
 			onHideColumn: hideColumnFromSurface,
@@ -1881,11 +1916,15 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				const input = config.searchInputs.find(
 					(candidate) => candidate.uuid === inputUuid,
 				);
-				if (input?.kind === "advanced") {
+				const slot = searchConditionSlotOf(sel.target);
+				const condition =
+					input === undefined ? undefined : searchInputConditionAt(input, slot);
+				if (input !== undefined && condition !== undefined) {
 					const dependencyReview =
 						inputRemovalReview?.phase === "target" &&
 						inputRemovalReview.dependency.kind === "search-field-condition" &&
-						inputRemovalReview.dependency.inputUuid === input.uuid
+						inputRemovalReview.dependency.inputUuid === input.uuid &&
+						inputRemovalReview.dependency.slot === slot
 							? {
 									token: inputRemovalReview.token,
 									path: inputRemovalReview.dependency.paths[0],
@@ -1896,14 +1935,18 @@ function useController(target: CaseListWorkspaceTarget | null) {
 						<SearchConditionCanvas
 							context={{
 								kind: "input",
+								slot,
 								label:
 									input.label ||
 									labelFromProperty(input.name) ||
 									"this search field",
 							}}
-							value={input.predicate}
+							value={condition}
 							onChange={(predicate) =>
-								replaceInput(input.uuid, { ...input, predicate })
+								replaceInput(
+									input.uuid,
+									withSearchInputCondition(input, slot, predicate),
+								)
 							}
 							onBack={
 								dependencyReview === undefined
@@ -2016,6 +2059,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		resultsDependencyReview,
 		configureSearchAction,
 		addInput,
+		addHiddenInput,
 		moveInput,
 		addColumn,
 		addCalculatedColumn,
@@ -2243,6 +2287,7 @@ export function CaseListWorkspaceCanvas() {
 		resultsDependencyReview,
 		configureSearchAction,
 		addInput,
+		addHiddenInput,
 		moveInput,
 		addColumn,
 		addCalculatedColumn,
@@ -2316,6 +2361,7 @@ export function CaseListWorkspaceCanvas() {
 								onSelect={setSel}
 								onConfigureSearchAction={configureSearchAction}
 								onAddInput={addInput}
+								onAddHiddenInput={addHiddenInput}
 								addInputDisabledReason={addDisabledReason}
 								hasSearchSurface={config.searchInputs.length > 0}
 								hasSearchAction={effectiveSearchConfig !== undefined}
@@ -2432,7 +2478,10 @@ interface ResolveInspectorArgs {
 	readonly onSearchConfigChange: (next: CaseSearchConfig) => void;
 	readonly replaceColumn: (uuid: string, next: Column) => void;
 	readonly replaceInput: (uuid: string, next: SearchInputDef) => void;
-	readonly onEditInputCondition: (uuid: SearchInputDef["uuid"]) => void;
+	readonly onEditInputCondition: (
+		uuid: SearchInputDef["uuid"],
+		slot: SearchConditionSlot,
+	) => void;
 	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
 	readonly searchSettingsHasError: boolean;
 	readonly onHideColumn: (surface: CaseDisplaySurface, column: Column) => void;
@@ -2544,7 +2593,9 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						userProperties={args.userProperties}
 						currentCaseType={args.caseType}
 						onChange={(next) => args.replaceInput(input.uuid, next)}
-						onEditCondition={() => args.onEditInputCondition(input.uuid)}
+						onEditCondition={(slot) =>
+							args.onEditInputCondition(input.uuid, slot)
+						}
 						searchScreenSettingsRemoved={
 							sortedInputs.length === 1
 								? authoredSearchScreenSettings(args.searchConfig)
@@ -2789,7 +2840,7 @@ function SearchInputInspectorBody({
 	readonly userProperties: ReturnType<typeof useUserProperties>;
 	readonly currentCaseType: string;
 	readonly onChange: (next: SearchInputDef) => void;
-	readonly onEditCondition: () => void;
+	readonly onEditCondition: (slot: SearchConditionSlot) => void;
 	readonly searchScreenSettingsRemoved: readonly string[];
 	readonly searchActionSettingsPreserved: readonly string[];
 	readonly opensResultsAutomatically: boolean;
@@ -2913,7 +2964,7 @@ function SearchInputInspectorBody({
 								<li
 									key={`${dependency.kind}:${
 										dependency.kind === "search-field-condition"
-											? dependency.inputUuid
+											? `${dependency.inputUuid}:${dependency.slot}`
 											: "results"
 									}:${JSON.stringify(dependency.paths)}`}
 								>

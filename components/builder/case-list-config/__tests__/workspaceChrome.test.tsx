@@ -945,6 +945,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={onSelect}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 			/>,
@@ -992,6 +993,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={onMoveInput}
 			/>,
@@ -1033,6 +1035,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 			/>,
@@ -1068,6 +1071,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 			/>,
@@ -1110,6 +1114,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 			/>,
@@ -1189,6 +1194,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -1234,6 +1240,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -1271,6 +1278,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={onSelect}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -1306,6 +1314,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -1337,6 +1346,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -2806,7 +2816,7 @@ describe("case workspace chrome", () => {
 		const onBack = vi.fn();
 		render(
 			<SearchConditionCanvas
-				context={{ kind: "input", label: "Patient name" }}
+				context={{ kind: "input", slot: "match", label: "Patient name" }}
 				value={matchAll()}
 				onChange={() => {}}
 				onBack={onBack}
@@ -2993,6 +3003,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}

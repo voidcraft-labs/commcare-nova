@@ -13,7 +13,10 @@ import type { SearchInputDef } from "@/lib/domain";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
 import type { PreviewLookupData } from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
-import { resolveSearchInputDefaults } from "@/lib/preview/engine/searchExpressionEvaluation";
+import {
+	resolveSearchHiddenValues,
+	resolveSearchInputDefaults,
+} from "@/lib/preview/engine/searchExpressionEvaluation";
 
 interface SearchRunState {
 	readonly scopeKey: string;
@@ -22,13 +25,19 @@ interface SearchRunState {
 	readonly keyShapes: ReadonlyMap<string, string>;
 	readonly defaults: SearchInputValues;
 	readonly draft: SearchInputValues;
+	/** The worker's answers as of the last Search. */
 	readonly submitted: SearchInputValues;
+	/** Hidden inputs' system-generated values, resolved when the worker searched. */
+	readonly submittedHidden: SearchInputValues;
 	readonly hasSubmitted: boolean;
 	readonly touched: ReadonlySet<string>;
 }
 
 export interface SearchInputRunState {
 	readonly draft: SearchInputValues;
+	/** Every value the last Search carried: the worker's answers plus the
+	 *  hidden inputs' system-generated values, exactly as CommCare's
+	 *  search-input instance would hold them. */
 	readonly submitted: SearchInputValues;
 	readonly draftActive: boolean;
 	readonly queryActive: boolean;
@@ -79,6 +88,16 @@ export function useSearchInputRunState(args: {
 				...base,
 				draft,
 				submitted: submit ? draft : base.submitted,
+				// Hidden values are read when the worker searches, the moment
+				// CommCare seeds them, so a `now()` search time is the time of
+				// this Search rather than of the screen's first render.
+				submittedHidden: submit
+					? resolveSearchHiddenValues(
+							args.searchInputs,
+							args.session,
+							args.lookupData,
+						)
+					: base.submittedHidden,
 				hasSubmitted: submit ? true : base.hasSubmitted,
 				touched: changedKeys(base.draft, draft, base.touched, base.allowedKeys),
 			};
@@ -87,7 +106,7 @@ export function useSearchInputRunState(args: {
 
 	return {
 		draft: current.draft,
-		submitted: current.submitted,
+		submitted: withHiddenValues(current.submitted, current.submittedHidden),
 		draftActive: hasNonEmptyValue(current.draft),
 		queryActive: hasNonEmptyValue(current.submitted),
 		hasSubmitted: current.hasSubmitted,
@@ -100,6 +119,7 @@ export function useSearchInputRunState(args: {
 					...base,
 					draft: new Map(),
 					submitted: new Map(),
+					submittedHidden: new Map(),
 					hasSubmitted: false,
 					// Clearing is an intentional worker edit. Mark every prompt so a
 					// later session/auth refresh does not immediately resurrect defaults.
@@ -119,6 +139,9 @@ function buildDesiredState(
 	const allowedKeys = new Set<string>();
 	const keyShapes = new Map<string, string>();
 	for (const input of searchInputs) {
+		// A hidden input has no draft key: the worker never answers it, and
+		// its value is resolved at submit.
+		if (input.kind === "hidden") continue;
 		const shape = `${input.uuid}:${input.type}`;
 		if (input.type === "date-range") {
 			const fromKey = `${input.name}:from`;
@@ -151,6 +174,7 @@ function buildDesiredState(
 		defaults,
 		draft: defaults,
 		submitted: new Map(),
+		submittedHidden: new Map(),
 		hasSubmitted: false,
 		touched: new Set(),
 	};
@@ -196,9 +220,18 @@ function reconcileSearchRunState(
 				([key]) => desired.allowedKeys.has(key) && keyIsCompatible(key),
 			),
 		),
+		submittedHidden: previous.submittedHidden,
 		hasSubmitted: previous.hasSubmitted,
 		touched,
 	};
+}
+
+function withHiddenValues(
+	submitted: SearchInputValues,
+	hidden: SearchInputValues,
+): SearchInputValues {
+	if (hidden.size === 0) return submitted;
+	return new Map([...submitted, ...hidden]);
 }
 
 function retainAllowed(

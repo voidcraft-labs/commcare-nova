@@ -41,6 +41,10 @@ import {
 	persistableJsonNonnegativeIntegerSchema,
 	persistableJsonPositiveIntegerSchema,
 } from "./jsonNumber";
+import {
+	type LookupOptionsSource,
+	lookupOptionsSourceSchema,
+} from "./lookupCarriers";
 import { type MediaAssetId, mediaAssetIdSchema } from "./multimedia";
 import type {
 	Predicate,
@@ -53,6 +57,7 @@ import {
 	valueExpressionSchema,
 	XML_ELEMENT_NAME_PATTERN,
 } from "./predicate/types";
+import { CASE_NODE_ATTRIBUTE_PROPERTIES } from "./standardCaseProperties";
 import { type Uuid, uuidSchema } from "./uuid";
 
 // ── Sort + visibility — common column slots ──────────────────────
@@ -982,10 +987,35 @@ export const SEARCH_INPUT_TYPES = [
 	"date",
 	"date-range",
 	"barcode",
+	"select",
+	"multi-select",
 ] as const;
 export type SearchInputType = (typeof SEARCH_INPUT_TYPES)[number];
 export const SCALAR_SEARCH_INPUT_TYPES = ["text", "date", "barcode"] as const;
 export type ScalarSearchInputType = (typeof SCALAR_SEARCH_INPUT_TYPES)[number];
+/**
+ * Choice widgets. Both are lookup-backed: the CommCare query prompt reads
+ * its choices only from an `<itemset>` over a fixture
+ * (`commcare-core/.../org/commcare/xml/QueryPromptParser.java` reads no inline
+ * items), so a choice input always names a Project lookup table.
+ *
+ *   - `select` — one choice; wire `input="select1"`.
+ *   - `multi-select` — several choices; wire `input="select"`. The runtime
+ *     splits the space-joined answer into repeated query parameters
+ *     (`RemoteQuerySessionManager.getRawQueryParams` →
+ *     `extractMultipleChoices`), and HQ's exact match over a list is any-of
+ *     (`corehq/apps/es/case_search.py::exact_case_property_text_query`), so a
+ *     simple multi-select input means "the property equals any chosen value".
+ */
+export const SELECT_SEARCH_INPUT_TYPES = ["select", "multi-select"] as const;
+export type SelectSearchInputType = (typeof SELECT_SEARCH_INPUT_TYPES)[number];
+
+/** Whether a widget type reads its answers from a lookup-backed choice list. */
+export function isSelectSearchInputType(
+	type: SearchInputType,
+): type is SelectSearchInputType {
+	return (SELECT_SEARCH_INPUT_TYPES as readonly string[]).includes(type);
+}
 
 /**
  * Discriminated union of search-input modes. Each mode targets a
@@ -1041,6 +1071,55 @@ const searchInputBase = z
 	.strict();
 
 /**
+ * Whether a worker must answer a prompt before Search runs. `{}` is
+ * "always required"; `when` makes it conditional on the Search screen's
+ * own state (other answers, session values, literals). `message` replaces
+ * the runtime's stock "Sorry, this response is required!".
+ *
+ * Evaluated on the Search screen where the worker's answers ARE loaded
+ * (`RemoteQuerySessionManager.validateUserAnswers` runs `<required test>`
+ * against the search-input instance), so `when` may read sibling inputs
+ * directly — unlike a prompt `default`, which fires before anyone types.
+ * Web Apps enforces this; Android never enforces prompt validation.
+ */
+export const searchInputRequiredSchema = z
+	.object({
+		when: predicateSchema.optional(),
+		message: z.string().min(1).optional(),
+	})
+	.strict();
+export type SearchInputRequired = z.infer<typeof searchInputRequiredSchema>;
+
+/**
+ * One check a nonblank answer must pass. Exactly one per input: the
+ * runtime keeps only the last `<validation>` it parses
+ * (`QueryPromptParser.parse` assigns a single `validation` slot), so a list
+ * here would silently drop every rule but one. `rule` evaluates in the same
+ * Search-screen scope as `required.when`; `message` is what the worker reads
+ * when the rule is false.
+ */
+export const searchInputValidationSchema = z
+	.object({
+		rule: predicateSchema,
+		message: z.string().min(1),
+	})
+	.strict();
+export type SearchInputValidation = z.infer<typeof searchInputValidationSchema>;
+
+/**
+ * Slots every prompt a worker can see may carry. The hidden arm sits on the
+ * bare `searchInputBase`: a prompt nobody sees cannot be hinted, required, or
+ * checked, so those states are unrepresentable rather than validated away.
+ */
+const visibleSearchInputBase = searchInputBase
+	.extend({
+		hint: z.string().min(1).optional(),
+		required: searchInputRequiredSchema.optional(),
+		validation: searchInputValidationSchema.optional(),
+	})
+	.strict();
+
+/**
  * Simple search input — the (property, mode, via) shape. The wire
  * layer builds a predicate from the targeted property's value, the
  * mode (defaulted at wire-emit when absent), and an optional
@@ -1065,7 +1144,7 @@ const simpleSearchInputSlots = {
 	via: relationPathSchema.optional(),
 };
 
-export const simpleScalarSearchInputSchema = searchInputBase
+export const simpleScalarSearchInputSchema = visibleSearchInputBase
 	.extend({
 		...simpleSearchInputSlots,
 		type: z.enum(SCALAR_SEARCH_INPUT_TYPES),
@@ -1074,11 +1153,33 @@ export const simpleScalarSearchInputSchema = searchInputBase
 	})
 	.strict();
 
-export const simpleDateRangeSearchInputSchema = searchInputBase
+export const simpleDateRangeSearchInputSchema = visibleSearchInputBase
 	.extend({
 		...simpleSearchInputSlots,
 		type: z.literal("date-range"),
 		mode: rangeSearchInputModeSchema,
+	})
+	.strict();
+
+/** The sole mode a choice widget admits: its value IS the exact token. */
+const selectSearchInputModeSchema = z
+	.object({ kind: z.literal("exact") })
+	.strict();
+
+/**
+ * Simple choice input. `options` names the Project lookup table and the
+ * label / value columns the prompt's `<itemset>` reads, in the same
+ * vocabulary a lookup-backed form select uses. The stored answer is the
+ * value column's token (space-joined for `multi-select`), so the property
+ * it matches must hold plain text or single-select tokens.
+ */
+export const simpleSelectSearchInputSchema = visibleSearchInputBase
+	.extend({
+		...simpleSearchInputSlots,
+		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
+		options: lookupOptionsSourceSchema,
+		default: valueExpressionSchema.optional(),
+		mode: selectSearchInputModeSchema.optional(),
 	})
 	.strict();
 
@@ -1088,7 +1189,7 @@ export const simpleDateRangeSearchInputSchema = searchInputBase
  * predicate. The editor surfaces a `PredicateCardEditor` against
  * this slot.
  */
-export const advancedScalarSearchInputSchema = searchInputBase
+export const advancedScalarSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.enum(SCALAR_SEARCH_INPUT_TYPES),
@@ -1097,7 +1198,7 @@ export const advancedScalarSearchInputSchema = searchInputBase
 	})
 	.strict();
 
-export const advancedDateRangeSearchInputSchema = searchInputBase
+export const advancedDateRangeSearchInputSchema = visibleSearchInputBase
 	.extend({
 		kind: z.literal("advanced"),
 		type: z.literal("date-range"),
@@ -1105,21 +1206,55 @@ export const advancedDateRangeSearchInputSchema = searchInputBase
 	})
 	.strict();
 
+export const advancedSelectSearchInputSchema = visibleSearchInputBase
+	.extend({
+		kind: z.literal("advanced"),
+		type: z.enum(SELECT_SEARCH_INPUT_TYPES),
+		options: lookupOptionsSourceSchema,
+		default: valueExpressionSchema.optional(),
+		predicate: predicateSchema,
+	})
+	.strict();
+
 /**
- * Exact four-arm union over two authoring dimensions:
+ * Hidden search input — a value Nova computes when the Search screen opens
+ * and carries with the completed search, never shown and never a filter.
+ * Its purpose is provenance: a registration form offered after an empty
+ * search reads it (the search time, say) and saves it on the new case.
  *
- * - `kind`: simple or advanced;
- * - widget shape: scalar or date-range.
+ * `value` resolves in the global scope (session / current-user values,
+ * literals, `now`, `today`); it may not read case data or other inputs.
+ * On the wire this is `<prompt hidden="true" default="…" exclude="true()">`
+ * with a `<display>` label HQ still requires. The `default` attribute needs
+ * HQ's advanced case search on the target project space, the same
+ * requirement a visible prompt with a starting value already carries.
+ */
+export const hiddenSearchInputSchema = searchInputBase
+	.extend({
+		kind: z.literal("hidden"),
+		value: valueExpressionSchema,
+	})
+	.strict();
+
+/**
+ * Exact seven-arm union over two authoring dimensions:
  *
- * This cannot be a Zod `discriminatedUnion("kind", ...)`: each kind appears
- * in two arms. Keeping the scalar/date-range split structural is what makes a
- * range default or a scalar range mode unrepresentable.
+ * - `kind`: simple, advanced, or hidden;
+ * - widget shape: scalar, date-range, or select (the hidden arm has no widget).
+ *
+ * This cannot be a Zod `discriminatedUnion("kind", ...)`: simple and advanced
+ * each appear in three arms. Keeping the widget split structural is what makes
+ * a range default, a scalar range mode, a choice input without a table, or a
+ * required hidden value unrepresentable.
  */
 export const searchInputDefSchema = z.union([
 	simpleScalarSearchInputSchema,
 	simpleDateRangeSearchInputSchema,
+	simpleSelectSearchInputSchema,
 	advancedScalarSearchInputSchema,
 	advancedDateRangeSearchInputSchema,
+	advancedSelectSearchInputSchema,
+	hiddenSearchInputSchema,
 ]);
 export type SimpleScalarSearchInputDef = z.infer<
 	typeof simpleScalarSearchInputSchema
@@ -1127,25 +1262,158 @@ export type SimpleScalarSearchInputDef = z.infer<
 export type SimpleDateRangeSearchInputDef = z.infer<
 	typeof simpleDateRangeSearchInputSchema
 >;
+export type SimpleSelectSearchInputDef = z.infer<
+	typeof simpleSelectSearchInputSchema
+>;
 export type AdvancedScalarSearchInputDef = z.infer<
 	typeof advancedScalarSearchInputSchema
 >;
 export type AdvancedDateRangeSearchInputDef = z.infer<
 	typeof advancedDateRangeSearchInputSchema
 >;
+export type AdvancedSelectSearchInputDef = z.infer<
+	typeof advancedSelectSearchInputSchema
+>;
+export type HiddenSearchInputDef = z.infer<typeof hiddenSearchInputSchema>;
 export type SearchInputDef = z.infer<typeof searchInputDefSchema>;
 export type SimpleSearchInputDef =
 	| SimpleScalarSearchInputDef
-	| SimpleDateRangeSearchInputDef;
+	| SimpleDateRangeSearchInputDef
+	| SimpleSelectSearchInputDef;
 export type AdvancedSearchInputDef =
 	| AdvancedScalarSearchInputDef
-	| AdvancedDateRangeSearchInputDef;
+	| AdvancedDateRangeSearchInputDef
+	| AdvancedSelectSearchInputDef;
+/** Every arm a worker can see and answer. */
+export type VisibleSearchInputDef =
+	| SimpleSearchInputDef
+	| AdvancedSearchInputDef;
+/** Every arm that names a lookup table for its choices. */
+export type SelectSearchInputDef =
+	| SimpleSelectSearchInputDef
+	| AdvancedSelectSearchInputDef;
 
-/** Scalar prompt seed, absent by construction on both date-range arms. */
+export function isHiddenSearchInput(
+	input: SearchInputDef,
+): input is HiddenSearchInputDef {
+	return input.kind === "hidden";
+}
+
+export function isVisibleSearchInput(
+	input: SearchInputDef,
+): input is VisibleSearchInputDef {
+	return input.kind !== "hidden";
+}
+
+export function isSelectSearchInput(
+	input: SearchInputDef,
+): input is SelectSearchInputDef {
+	return "options" in input;
+}
+
+/** The inputs a worker sees on the Search screen, in authored order. */
+export function visibleSearchInputs(
+	inputs: readonly SearchInputDef[],
+): VisibleSearchInputDef[] {
+	return inputs.filter(isVisibleSearchInput);
+}
+
+/** Scalar prompt seed, absent by construction on the date-range and hidden arms. */
 export function searchInputDefault(
 	input: SearchInputDef,
 ): ValueExpression | undefined {
 	return "default" in input ? input.default : undefined;
+}
+
+/**
+ * The scalar type an `input(name)` read of this input produces at runtime.
+ * Widget-bearing arms read `SEARCH_INPUT_RUNTIME_VALUE_TYPES`; a hidden
+ * input binds whatever text its expression printed.
+ */
+export function searchInputRuntimeValueType(
+	input: SearchInputDef,
+): CasePropertyDataType {
+	return input.kind === "hidden"
+		? "text"
+		: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type];
+}
+
+/**
+ * The sentence every runtime shows when a required prompt is left blank and
+ * the author wrote no message of their own. Nova supplies it on every wire
+ * path so Preview, the local `.ccz`, and the HQ-regenerated suite agree; an
+ * absent wire message would fall back to each runtime's own default.
+ */
+export const SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE =
+	"Fill in this answer before searching.";
+
+/**
+ * The message shown when this input is required and left blank: the author's
+ * own sentence, else Nova's default. `undefined` when the input is never
+ * required.
+ */
+export function searchInputRequiredMessage(
+	input: SearchInputDef,
+): string | undefined {
+	if (input.kind === "hidden" || input.required === undefined) return undefined;
+	return input.required.message ?? SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE;
+}
+
+/** The lookup options source of a choice input; absent on every other arm. */
+export function searchInputOptions(
+	input: SearchInputDef,
+): LookupOptionsSource | undefined {
+	return isSelectSearchInput(input) ? input.options : undefined;
+}
+
+/**
+ * Which search-screen slot a predicate on this input occupies. The two slots
+ * evaluate in the same scope (globals plus the module's own answers), so
+ * every consumer that type-checks or emits one handles both through this
+ * list.
+ */
+export type SearchInputScreenPredicateSlot = "required" | "validation";
+
+/** Every predicate slot a visible search input can carry: the custom match
+ *  (the advanced arm's predicate) plus the two Search-screen predicates. */
+export type SearchInputConditionSlot = "match" | SearchInputScreenPredicateSlot;
+
+export interface SearchInputScreenPredicate {
+	readonly slot: SearchInputScreenPredicateSlot;
+	readonly predicate: Predicate;
+}
+
+/**
+ * The search-screen predicates a visible input carries: its conditional
+ * required test (an always-required input has none) and its validation rule.
+ * Hidden inputs carry neither.
+ */
+export function searchInputScreenPredicates(
+	input: SearchInputDef,
+): readonly SearchInputScreenPredicate[] {
+	if (input.kind === "hidden") return [];
+	const out: SearchInputScreenPredicate[] = [];
+	if (input.required?.when !== undefined) {
+		out.push({ slot: "required", predicate: input.required.when });
+	}
+	if (input.validation !== undefined) {
+		out.push({ slot: "validation", predicate: input.validation.rule });
+	}
+	return out;
+}
+
+/**
+ * Every value expression this input evaluates on the search screen: a
+ * visible input's seed, or a hidden input's system-generated value. The
+ * instance walkers and the type checkers consume both through this one
+ * list.
+ */
+export function searchInputExpressions(
+	input: SearchInputDef,
+): readonly ValueExpression[] {
+	if (input.kind === "hidden") return [input.value];
+	const seed = searchInputDefault(input);
+	return seed === undefined ? [] : [seed];
 }
 
 // ── SearchInputMode builders ──────────────────────────────────────
@@ -1212,8 +1480,15 @@ export function rangeMode(): Extract<SearchInputMode, { kind: "range" }> {
 // The builder treats both as omit so a saved doc that omitted the
 // slot round-trips equal to a freshly-built one.
 
+/** Slots every visible prompt may carry beside its widget-specific ones. */
+interface SearchInputVisibleSlots {
+	readonly hint?: string;
+	readonly required?: SearchInputRequired;
+	readonly validation?: SearchInputValidation;
+}
+
 /** Scalar-widget slot that seeds the input's initial state. */
-interface SearchInputCommonSlots {
+interface SearchInputCommonSlots extends SearchInputVisibleSlots {
 	readonly default?: ValueExpression;
 }
 
@@ -1226,14 +1501,22 @@ interface SimpleScalarSearchInputSlots extends SearchInputCommonSlots {
 	readonly mode?: ScalarSearchInputMode;
 }
 
-interface SimpleDateRangeSearchInputSlots {
+interface SimpleDateRangeSearchInputSlots extends SearchInputVisibleSlots {
 	readonly via?: RelationPath;
 	/** The builder writes the sole valid stored mode when omitted. */
 	readonly mode?: Extract<SearchInputMode, { kind: "range" }>;
 }
 
+interface SimpleSelectSearchInputSlots extends SearchInputCommonSlots {
+	readonly via?: RelationPath;
+	/** The lookup table and columns the prompt's choices come from. */
+	readonly options: LookupOptionsSource;
+	/** A choice widget admits only exact matching; omitted when absent. */
+	readonly mode?: Extract<SearchInputMode, { kind: "exact" }>;
+}
+
 /**
- * Spreads the shared `default` slot onto a search-input object only
+ * Spreads the shared optional slots onto a search-input object only
  * when present — mirrors `withCommonSlots` for columns. Avoids
  * leaking `default: undefined` shapes that would fail `toEqual`
  * round-trip assertions.
@@ -1242,8 +1525,16 @@ function withSearchInputCommonSlots<T extends Record<string, unknown>>(
 	base: T,
 	slots: SearchInputCommonSlots,
 ): T & SearchInputCommonSlots {
-	const out: T & { default?: ValueExpression } = { ...base };
+	const out: T & {
+		default?: ValueExpression;
+		hint?: string;
+		required?: SearchInputRequired;
+		validation?: SearchInputValidation;
+	} = { ...base };
 	if (slots.default !== undefined) out.default = slots.default;
+	if (slots.hint !== undefined) out.hint = slots.hint;
+	if (slots.required !== undefined) out.required = slots.required;
+	if (slots.validation !== undefined) out.validation = slots.validation;
 	return out;
 }
 
@@ -1279,9 +1570,20 @@ export function simpleSearchInputDef(
 	uuid: Uuid,
 	name: string,
 	label: string,
+	type: SelectSearchInputType,
+	property: string,
+	slots: SimpleSelectSearchInputSlots,
+): SimpleSelectSearchInputDef;
+export function simpleSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
 	type: SearchInputType,
 	property: string,
-	slots?: SimpleScalarSearchInputSlots | SimpleDateRangeSearchInputSlots,
+	slots?:
+		| SimpleScalarSearchInputSlots
+		| SimpleDateRangeSearchInputSlots
+		| SimpleSelectSearchInputSlots,
 ): SimpleSearchInputDef;
 export function simpleSearchInputDef(
 	uuid: Uuid,
@@ -1289,7 +1591,10 @@ export function simpleSearchInputDef(
 	label: string,
 	type: SearchInputType,
 	property: string,
-	slots: SimpleScalarSearchInputSlots | SimpleDateRangeSearchInputSlots = {},
+	slots:
+		| SimpleScalarSearchInputSlots
+		| SimpleDateRangeSearchInputSlots
+		| SimpleSelectSearchInputSlots = {},
 ): SimpleSearchInputDef {
 	const out = {
 		uuid,
@@ -1302,6 +1607,10 @@ export function simpleSearchInputDef(
 	const candidate: Record<string, unknown> = { ...out };
 	if ("default" in slots && slots.default !== undefined)
 		candidate.default = slots.default;
+	if (slots.hint !== undefined) candidate.hint = slots.hint;
+	if (slots.required !== undefined) candidate.required = slots.required;
+	if (slots.validation !== undefined) candidate.validation = slots.validation;
+	if ("options" in slots) candidate.options = slots.options;
 	if (slots.via !== undefined && slots.via.kind !== "self")
 		candidate.via = slots.via;
 	if (type === "date-range") {
@@ -1332,14 +1641,23 @@ export function advancedSearchInputDef(
 	label: string,
 	type: "date-range",
 	predicate: Predicate,
+	slots?: SearchInputVisibleSlots,
 ): AdvancedDateRangeSearchInputDef;
+export function advancedSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
+	type: SelectSearchInputType,
+	predicate: Predicate,
+	slots: SearchInputCommonSlots & { readonly options: LookupOptionsSource },
+): AdvancedSelectSearchInputDef;
 export function advancedSearchInputDef(
 	uuid: Uuid,
 	name: string,
 	label: string,
 	type: SearchInputType,
 	predicate: Predicate,
-	slots?: SearchInputCommonSlots,
+	slots?: SearchInputCommonSlots & { readonly options?: LookupOptionsSource },
 ): AdvancedSearchInputDef;
 export function advancedSearchInputDef(
 	uuid: Uuid,
@@ -1347,14 +1665,38 @@ export function advancedSearchInputDef(
 	label: string,
 	type: SearchInputType,
 	predicate: Predicate,
-	slots: SearchInputCommonSlots = {},
+	slots: SearchInputCommonSlots & {
+		readonly options?: LookupOptionsSource;
+	} = {},
 ): AdvancedSearchInputDef {
-	return searchInputDefSchema.parse(
-		withSearchInputCommonSlots(
+	const candidate: Record<string, unknown> = {
+		...withSearchInputCommonSlots(
 			{ uuid, kind: "advanced" as const, name, label, type, predicate },
 			slots,
 		),
-	) as AdvancedSearchInputDef;
+	};
+	if (slots.options !== undefined) candidate.options = slots.options;
+	return searchInputDefSchema.parse(candidate) as AdvancedSearchInputDef;
+}
+
+/**
+ * Constructs a hidden search input. `value` is the global-scope expression
+ * Nova evaluates when the Search screen opens; the input never shows and
+ * never filters.
+ */
+export function hiddenSearchInputDef(
+	uuid: Uuid,
+	name: string,
+	label: string,
+	value: ValueExpression,
+): HiddenSearchInputDef {
+	return hiddenSearchInputSchema.parse({
+		uuid,
+		kind: "hidden",
+		name,
+		label,
+		value,
+	});
 }
 
 // ── Per-type / per-mode applicability ─────────────────────────────
@@ -1382,6 +1724,8 @@ export const APPLICABLE_SEARCH_MODES: Readonly<
 	date: ["exact"],
 	"date-range": ["range"],
 	barcode: ["exact"],
+	select: ["exact"],
+	"multi-select": ["exact"],
 };
 
 /**
@@ -1461,6 +1805,11 @@ export const SEARCH_INPUT_TYPE_PROPERTY_TYPES: Readonly<
 	date: ["date", "datetime"],
 	"date-range": ["date", "datetime"],
 	barcode: ["text"],
+	// A choice answer is the value column's token. `multi_select` properties
+	// are excluded: the bare prompt compares whole stored values, and simple
+	// multi-select containment is not part of the stored Search union.
+	select: ["text", "single_select"],
+	"multi-select": ["text", "single_select"],
 };
 
 /**
@@ -1490,6 +1839,8 @@ export const SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES: Readonly<
 	text: "text",
 	date: "date",
 	barcode: "text",
+	select: "text",
+	"multi-select": "text",
 };
 
 /**
@@ -1519,6 +1870,9 @@ export const SEARCH_INPUT_RUNTIME_VALUE_TYPES: Readonly<
 	date: "date",
 	"date-range": "text",
 	barcode: "text",
+	// A choice binds its value token; several choices bind the space-joined tokens.
+	select: "text",
+	"multi-select": "text",
 };
 
 /**
@@ -1546,6 +1900,8 @@ export const DEFAULT_SEARCH_MODE_KIND: Readonly<
 	date: "exact",
 	"date-range": "range",
 	barcode: "exact",
+	select: "exact",
+	"multi-select": "exact",
 };
 
 /** The effective mode for a simple input after applying its widget default. */
@@ -1567,6 +1923,34 @@ export function simpleSearchInputHasCoherentRangeWidget(
 		(effectiveSimpleSearchModeKind(input) === "range") ===
 		(input.type === "date-range")
 	);
+}
+
+/**
+ * Whether a simple multiple-choice field can match at all. A multi-select
+ * answer is one space-separated string of chosen tokens, and CommCare splits
+ * it into an any-of match only on the BARE prompt route: the prompt key names
+ * the case property directly, on the case being searched, with no rewritten
+ * spelling. Anything else (a parent-case walk, a reference name that differs
+ * from the property, or metadata the device stores as a case attribute) needs
+ * the query route, which treats the string as one value and matches nothing.
+ *
+ * Returns the reason a shape is refused, or `undefined` when the field rides
+ * the bare prompt. Shared by the commit gate and the builder so a choice the
+ * gate refuses is never offered.
+ */
+export function multiSelectSearchInputRefusal(
+	input: Pick<SimpleSearchInputDef, "name" | "property" | "via">,
+): string | undefined {
+	if (input.via !== undefined && input.via.kind !== "self") {
+		return "A multiple-choice field can only search this case, not a linked case.";
+	}
+	if (input.name !== input.property) {
+		return "A multiple-choice field must keep the name used in other conditions equal to the property it searches.";
+	}
+	if (CASE_NODE_ATTRIBUTE_PROPERTIES.has(input.property)) {
+		return "A multiple-choice field can't search this case information, because the device stores it differently from ordinary properties.";
+	}
+	return undefined;
 }
 
 // ── CaseListConfig ───────────────────────────────────────────────

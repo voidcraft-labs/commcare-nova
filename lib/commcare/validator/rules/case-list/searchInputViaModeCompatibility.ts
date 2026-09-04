@@ -39,6 +39,7 @@ import {
 	type BlueprintDoc,
 	effectiveSimpleSearchModeKind,
 	type Module,
+	multiSelectSearchInputRefusal,
 	type SimpleSearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
@@ -73,6 +74,42 @@ export function searchInputViaModeCompatibility(
 		const via = input.via;
 		const viaIsCrossWalk = via !== undefined && via.kind !== "self";
 		const nameDiverges = input.name !== input.property;
+		// A `multi-select` prompt stores every chosen value in one
+		// space-separated answer. Only CCHQ's bare-prompt route splits
+		// that answer into repeated query parameters (an any-of match on
+		// the property named by the prompt key). The `_xpath_query`
+		// route compares one string, so every shape that would need it
+		// (a related case, a prompt named differently from its property,
+		// or an attribute-backed property such as `status`) has no
+		// faithful wire form. `multiSelectSearchInputRefusal` is the one home
+		// of that decision, so the builder withholds exactly these shapes.
+		if (
+			input.type === "multi-select" &&
+			multiSelectSearchInputRefusal(input) !== undefined
+		) {
+			errors.push(
+				validationError(
+					"CASE_LIST_MULTI_SELECT_INPUT_NEEDS_DIRECT_MATCH",
+					"module",
+					`Search input "${input.label || input.name}" (input #${i + 1}, name "${input.name}") on module "${mod.name}" lets workers pick several values, but it ${
+						viaIsCrossWalk
+							? `reads a related case's property "${input.property}"`
+							: nameDiverges
+								? `targets the case property "${input.property}" under a different name`
+								: `targets "${input.property}", which CommCare stores as case metadata rather than a case property`
+					}. CommCare matches a multiple-choice answer only when the prompt is named after a plain property on the searched case itself, so this shape has no search that honors every chosen value. Name the input "${input.property}" and search the current case, switch it to a single-choice \`select\`, or convert it to the advanced arm and author the predicate.`,
+					{ moduleUuid, moduleName: mod.name },
+					{
+						slot: `caseListConfig.searchInputs[${i}]`,
+						inputName: input.name,
+						inputUuid: input.uuid,
+						viaKind: via?.kind ?? "absent",
+						nameDiverges: nameDiverges ? "true" : "false",
+					},
+				),
+			);
+			continue;
+		}
 		if (modeKind === "range" && (viaIsCrossWalk || nameDiverges)) {
 			errors.push(
 				validationError(

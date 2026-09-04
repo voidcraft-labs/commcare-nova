@@ -18,7 +18,10 @@ import type { IconifyIcon } from "@iconify/react/offline";
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
 import tablerCalendarStats from "@iconify-icons/tabler/calendar-stats";
+import tablerCircleDot from "@iconify-icons/tabler/circle-dot";
+import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerSearch from "@iconify-icons/tabler/search";
+import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import { propertyDisplayLabel } from "@/components/builder/shared/primitives/propertyDisplay";
 import type { ProseProjector } from "@/lib/doc/hooks/useProseProjection";
 import {
@@ -33,13 +36,13 @@ import {
 	fuzzyMode,
 	phoneticMode,
 	rangeMode,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
 	type SimpleSearchInputDef,
+	searchInputRuntimeValueType,
 	startsWithMode,
 } from "@/lib/domain";
 import {
@@ -89,6 +92,8 @@ export const SEARCH_INPUT_TYPE_LABELS: Record<SearchInputType, string> = {
 	date: "Date picker",
 	"date-range": "Date range",
 	barcode: "Barcode",
+	select: "Single choice",
+	"multi-select": "Multiple choice",
 };
 
 export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
@@ -96,7 +101,17 @@ export const SEARCH_INPUT_TYPE_ICONS: Record<SearchInputType, IconifyIcon> = {
 	date: tablerCalendar,
 	"date-range": tablerCalendarStats,
 	barcode: tablerBarcode,
+	select: tablerCircleDot,
+	"multi-select": tablerSquareCheck,
 };
+
+/** The icon a row wears in the canvas and its drag preview. A hidden value
+ *  has no widget, so it carries the eye-off mark the canvas badge uses. */
+export function searchInputIcon(input: SearchInputDef): IconifyIcon {
+	return input.kind === "hidden"
+		? tablerEyeOff
+		: SEARCH_INPUT_TYPE_ICONS[input.type];
+}
 
 /** Plain-words explanation per field type: what the field looks
  *  like in the running app. Shown in the picker beside each label. */
@@ -105,6 +120,8 @@ export const SEARCH_INPUT_TYPE_DESCRIPTIONS: Record<SearchInputType, string> = {
 	date: "A calendar for one date",
 	"date-range": "Two calendars for a start and end date",
 	barcode: "A field for scanning a barcode",
+	select: "A list to pick one choice from a lookup table",
+	"multi-select": "Checkboxes to pick several choices from a lookup table",
 };
 
 /**
@@ -168,7 +185,7 @@ function friendlyPropertyTypes(types: readonly CasePropertyDataType[]): string {
 export function effectiveModeKind(
 	input: SearchInputDef,
 ): SearchInputMode["kind"] {
-	if (input.kind === "advanced") return "exact";
+	if (input.kind !== "simple") return "exact";
 	return effectiveSimpleSearchModeKind(input);
 }
 
@@ -417,7 +434,7 @@ export function deriveSearchInputDecl(
 		uuid: row.uuid,
 		name: row.name,
 		label: row.label,
-		data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[row.type],
+		data_type: searchInputRuntimeValueType(row),
 	};
 }
 
@@ -438,6 +455,9 @@ export function expectedTypeForDefault(
 			return "text";
 		case "date":
 			return "date";
+		case "select":
+		case "multi-select":
+			return "text";
 		case "date-range":
 			return undefined;
 	}
@@ -465,6 +485,8 @@ const CONSTRAINT_FOR_DEFAULT: Record<
 	text: { accepts: compatibleTypesFor("text") },
 	barcode: { accepts: compatibleTypesFor("text") },
 	date: { accepts: compatibleTypesFor("date") },
+	select: { accepts: compatibleTypesFor("text") },
+	"multi-select": { accepts: compatibleTypesFor("text") },
 };
 
 export function constraintForDefault(
@@ -481,6 +503,8 @@ export function seedDefaultExpression(
 			return today();
 		case "text":
 		case "barcode":
+		case "select":
+		case "multi-select":
 			return term(literal(""));
 	}
 }

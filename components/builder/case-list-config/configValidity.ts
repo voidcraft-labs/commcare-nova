@@ -215,6 +215,13 @@ export function caseListConfigVerdicts(
 			continue;
 		}
 
+		if (row.kind === "hidden") {
+			// A hidden value evaluates before the screen opens, like a default,
+			// and binds whatever text its expression prints; any scalar type
+			// is admissible, so only resolution is checked here.
+			if (!checkValueExpression(row.value, defaultCtx).ok) search = true;
+			continue;
+		}
 		const rowDefault = searchInputDefault(row);
 		if (rowDefault !== undefined) {
 			const verdict = checkValueExpression(
@@ -223,6 +230,21 @@ export function caseListConfigVerdicts(
 				expectedTypeForDefault(row.type),
 			);
 			if (!verdict.ok) search = true;
+		}
+		// The required condition and the check rule evaluate on the Search
+		// screen itself, where every sibling answer is readable: the same
+		// scope an advanced predicate resolves `input(...)` against.
+		if (
+			row.required?.when !== undefined &&
+			!checkPredicate(row.required.when, predicateCtx).ok
+		) {
+			search = true;
+		}
+		if (
+			row.validation !== undefined &&
+			!checkPredicate(row.validation.rule, predicateCtx).ok
+		) {
+			search = true;
 		}
 		if (row.kind === "advanced") {
 			if (

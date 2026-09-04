@@ -239,6 +239,15 @@ export function deriveSimpleArmPredicate(
 			`The wire emitter called \`deriveSimpleArmPredicate\` on a simple-arm input ("${authored.name}", property "${authored.property}", mode "${authored.mode?.kind ?? "default"}", via "${authored.via?.kind ?? "absent"}") that rides on the bare \`<prompt>\` slot, no \`_xpath_query\` predicate should be derived for it. The emission gate \`simpleArmNeedsXPathQueryEmission\` must be consulted first; check the call site for a missing gate or a stale cached result.`,
 		);
 	}
+	if (authored.type === "multi-select") {
+		// A multiple-choice answer is one space-separated string in the
+		// search-input instance; only the bare-prompt route splits it into
+		// an any-of match. `searchInputViaModeCompatibility` rejects every
+		// shape that would land here.
+		throw new Error(
+			`The wire emitter tried to derive an XPath predicate for the multiple-choice search input "${authored.name}", but a multiple-choice answer has no faithful form on the \`_xpath_query\` route. The validator rule \`searchInputViaModeCompatibility\` was meant to reject this shape at authoring time; run validation against the doc before wire emission. The input needs to be named after its property on the current case, or become a single-choice \`select\`.`,
+		);
+	}
 	const modeKind = authored.mode?.kind ?? defaultModeKind(authored.type);
 	// Self-walk / absent `via` produces an unqualified `prop(...)` so
 	// the on-device emitter reads the property directly off the

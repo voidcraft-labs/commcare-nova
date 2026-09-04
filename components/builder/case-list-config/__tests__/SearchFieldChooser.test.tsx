@@ -79,6 +79,7 @@ describe("AddSearchFieldControl", () => {
 			<AddSearchFieldControl
 				properties={[COMMUNITY, EXTERNAL_ID, CASE_NAME]}
 				onChoose={onChoose}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);
@@ -108,6 +109,7 @@ describe("AddSearchFieldControl", () => {
 			<AddSearchFieldControl
 				properties={[CASE_NAME, DATE_OF_BIRTH, COMMUNITY]}
 				onChoose={() => {}}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);
@@ -137,6 +139,7 @@ describe("AddSearchFieldControl", () => {
 			<AddSearchFieldControl
 				properties={[CASE_NAME, DATE_OF_BIRTH]}
 				onChoose={onChoose}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);
@@ -170,6 +173,7 @@ describe("AddSearchFieldControl", () => {
 					},
 				]}
 				onChoose={() => {}}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);
@@ -193,6 +197,7 @@ describe("AddSearchFieldControl", () => {
 			<AddSearchFieldControl
 				properties={[CASE_NAME]}
 				onChoose={() => {}}
+				onChooseHidden={() => {}}
 				disabledReason="Search already has the maximum number of fields"
 			/>,
 		);
@@ -206,6 +211,7 @@ describe("AddSearchFieldControl", () => {
 			<AddSearchFieldControl
 				properties={[]}
 				onChoose={() => {}}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);

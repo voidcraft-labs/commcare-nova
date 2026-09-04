@@ -110,6 +110,20 @@ export const STANDARD_CASE_LIST_PROPERTIES: ReadonlySet<StandardCaseListProperty
 	);
 
 /**
+ * Case metadata the device keeps as attributes of the case node rather than
+ * as child elements. A property name that a runtime reads by NAME alone, the
+ * way a bare search prompt key is read, cannot reach one of these: the wire
+ * spells them differently from every other property. Authoring surfaces
+ * consult this set to withhold shapes that depend on a direct name match.
+ */
+export const CASE_NODE_ATTRIBUTE_PROPERTIES: ReadonlySet<string> = new Set([
+	"case_id",
+	"case_type",
+	"owner_id",
+	"status",
+]);
+
+/**
  * Standard case values backed by first-class case-row columns rather than the
  * authored JSON property document. These values survive a case-type change as
  * row metadata and must never enter a JSON-property conversion/parking plan.

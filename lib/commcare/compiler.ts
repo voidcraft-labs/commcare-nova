@@ -90,9 +90,9 @@ import {
 	makeTranslationUnitId,
 	moduleParent,
 	projectedModulePreorder,
-	type TranslationUnitId,
 	type Uuid,
 	userPropertySlugsByUuid,
+	type WireStringSource,
 } from "@/lib/domain";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
 
@@ -181,13 +181,13 @@ export function compileCcz(
 		"homescreen.title": appName,
 		"app.display.name": appName,
 	};
-	const appStringUnits: Record<string, TranslationUnitId> = {
+	const appStringUnits: Record<string, WireStringSource> = {
 		"homescreen.title": makeTranslationUnitId("app", "name"),
 		"app.display.name": makeTranslationUnitId("app", "name"),
 	};
 	const mergeLocalizedStrings = (emission: {
 		readonly strings: Record<string, string>;
-		readonly translationUnits: Record<string, TranslationUnitId>;
+		readonly translationUnits: Record<string, WireStringSource>;
 	}): void => {
 		Object.assign(appStrings, emission.strings);
 		Object.assign(appStringUnits, emission.translationUnits);
@@ -905,9 +905,11 @@ export function compileCcz(
 	for (const [language, dir] of langDirs) {
 		const table: Record<string, string> = {};
 		for (const [localeId, source] of Object.entries(appStrings)) {
-			const unitId = appStringUnits[localeId];
+			const unitSource = appStringUnits[localeId];
 			table[localeId] =
-				unitId === undefined ? source : localization.wireText(language, unitId);
+				unitSource === undefined
+					? source
+					: localization.wireTextFor(language, unitSource);
 		}
 		for (const code of localization.languages) {
 			table[code] = localization.languageName(code);

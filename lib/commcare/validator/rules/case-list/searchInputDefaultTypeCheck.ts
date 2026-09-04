@@ -46,6 +46,7 @@
 
 import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
 import {
+	isHiddenSearchInput,
 	SEARCH_INPUT_TYPE_DEFAULT_EXPECTED_TYPES,
 	searchInputDefault,
 } from "@/lib/domain";
@@ -74,6 +75,9 @@ export function searchInputDefaultTypeCheck(
 
 	for (let index = 0; index < inputs.length; index++) {
 		const input = inputs[index];
+		// A hidden input has a `value`, not a seed; `searchInputHiddenValueTypeCheck`
+		// owns that slot.
+		if (isHiddenSearchInput(input)) continue;
 		const inputDefault = searchInputDefault(input);
 		if (inputDefault === undefined) continue;
 		if (expressionReadsCaseData(inputDefault)) {

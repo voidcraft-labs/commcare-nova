@@ -13,12 +13,13 @@
 // Cloud SQL graph through the client bundle.
 
 import {
+	type CasePropertyDataType,
 	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	type SearchInputDef,
 	type SearchInputMode,
 	type SearchInputType,
+	searchInputRuntimeValueType,
 	type Uuid,
 } from "@/lib/domain";
 import type {
@@ -31,6 +32,7 @@ import {
 	dateRangeSearchPredicate,
 	eq,
 	exactDateSearchPredicate,
+	isIn,
 	literal,
 	mapExpressionAst,
 	mapPredicateAst,
@@ -66,8 +68,7 @@ export { ISO_DATE_PATTERN };
  */
 export type SearchInputValues = ReadonlyMap<string, string>;
 
-type SearchInputRuntimeValueType =
-	(typeof SEARCH_INPUT_RUNTIME_VALUE_TYPES)[SearchInputDef["type"]];
+type SearchInputRuntimeValueType = CasePropertyDataType;
 
 interface RuntimeInputBinding {
 	readonly uuid: Uuid;
@@ -122,7 +123,7 @@ export function withSearchInputExpressionValues(
 ): SearchInputValues {
 	const expressionValues = new Map(inputValues);
 	for (const input of searchInputs) {
-		if (input.type !== "date-range") continue;
+		if (input.kind === "hidden" || input.type !== "date-range") continue;
 		expressionValues.delete(input.name);
 		const from = validDateBound(inputValues.get(`${input.name}:from`));
 		const to = validDateBound(inputValues.get(`${input.name}:to`));
@@ -264,6 +265,10 @@ function clauseForInput(
 	caseTypeSchemas?: ReadonlyMap<string, CaseType>,
 ): Predicate | undefined {
 	switch (input.kind) {
+		// A hidden input seeds the search-input instance for `input(...)`
+		// reads; it never matches a case property of its own.
+		case "hidden":
+			return undefined;
 		case "simple":
 			return buildSimpleArmClause(
 				input,
@@ -285,7 +290,7 @@ function clauseForInput(
 					where: "composeRuntimeFilter",
 					family: "SearchInputDef",
 					received: (_exhaustive as { kind?: unknown })?.kind ?? _exhaustive,
-					knownKinds: ["simple", "advanced"],
+					knownKinds: ["simple", "advanced", "hidden"],
 				}),
 			);
 		}
@@ -339,6 +344,19 @@ function buildSimpleArmClause(
 						knownInputs: [],
 					},
 				});
+			}
+			if (input.type === "multi-select") {
+				// CommCare stores several chosen values as one space-separated
+				// answer and splits it into repeated query parameters
+				// (`RemoteQuerySessionManager.extractMultipleChoices`), which
+				// the search endpoint matches as any-of. Preview mirrors that
+				// with one `in` over the chosen values.
+				const [first, ...rest] = value
+					.split(" ")
+					.filter((token) => token !== "")
+					.map((token) => literal(token));
+				if (first === undefined) return undefined;
+				return isIn(property, first, ...rest);
 			}
 			return eq(property, literal(value));
 		}
@@ -467,7 +485,7 @@ function searchInputRuntimeBindings(
 			{
 				uuid: input.uuid,
 				name: input.name,
-				runtimeValueType: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+				runtimeValueType: searchInputRuntimeValueType(input),
 			},
 		]),
 	);

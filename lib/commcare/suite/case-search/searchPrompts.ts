@@ -44,18 +44,31 @@ import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
+	type LookupOptionsSource,
 	makeTranslationUnitId,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	type SearchInputDef,
 	type SearchInputType,
-	type SimpleSearchInputDef,
 	searchInputDefault,
+	searchInputOptions,
+	searchInputRequiredMessage,
+	searchInputRuntimeValueType,
 	searchRuntimeValidationMessage,
 	type TranslationUnitId,
+	type WireStringSource,
 } from "@/lib/domain";
-import type { Predicate, ValueExpression } from "@/lib/domain/predicate";
+import {
+	isMatchAll,
+	type Predicate,
+	simplifyForEmission,
+	type ValueExpression,
+} from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import { emitOnDeviceExpression } from "../../expression/onDeviceEmitter";
+import {
+	collectExpressionInstances,
+	collectPredicateInstances,
+	emitCaseListFilter,
+} from "../../predicate";
 import type { CaseListEmission } from "../case-list/types";
 import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 
@@ -71,7 +84,14 @@ import { simpleArmNeedsXPathQueryEmission } from "./simpleArmDerivation";
 export interface SearchPromptsEmission {
 	readonly elements: readonly Element[];
 	readonly strings: Record<string, string>;
-	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly translationUnits: Record<string, WireStringSource>;
+	/**
+	 * Every instance id the prompt children reference: lookup fixtures
+	 * behind `<itemset>` nodesets and their row filters, plus whatever
+	 * the required / validation tests and hidden values read. The
+	 * `<remote-request>` orchestrator declares each one.
+	 */
+	readonly instances: ReadonlySet<string>;
 }
 
 export const RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE =
@@ -129,8 +149,9 @@ export function combineRuntimeCsqlPromptValidations(
  *   - `input` — the `<prompt input="...">` XML attribute (CCHQ's
  *     `QueryPrompt.input_` Python field name — the trailing
  *     underscore avoids the `input` builtin; the wire attribute is
- *     plain `@input`). Accepts `select1` / `date` / `daterange` and
- *     drives the widget kind.
+ *     plain `@input`). Accepts `select1` / `select` / `date` /
+ *     `daterange` and drives the widget kind
+ *     (`commcare-core .../util/screen/QueryScreen.java::getSupportedPrompts`).
  *   - `appearance` — the `<prompt appearance="...">` XML attribute
  *     (CCHQ's `QueryPrompt.appearance` field). CCHQ overlays a
  *     scanner UI on top of a default text input when this carries
@@ -157,7 +178,139 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
 	// CCHQ routes barcode through `@appearance` — the runtime overlays
 	// a scanner UI on top of an otherwise-text input.
 	barcode: { appearance: "barcode_scan" },
+	// One choice from the itemset; CommCare's XForms-derived token.
+	select: { input: "select1" },
+	// Several choices, stored as one space-separated answer.
+	"multi-select": { input: "select" },
 };
+
+// ── Shared prompt projection ─────────────────────────────────────
+//
+// Both wire surfaces (suite `<prompt>` and HQ `CaseSearchProperty`)
+// consume one derived description of a prompt so the two cannot
+// disagree about a test, a nodeset, or which message a worker sees.
+
+/** One localized wire string: its source-language text and the
+ *  translation unit(s) each language resolves it through. */
+export interface SearchPromptText {
+	readonly text: string;
+	readonly source: WireStringSource;
+}
+
+export interface SearchPromptAssertion {
+	readonly test: string;
+	readonly message: SearchPromptText;
+}
+
+export interface SearchPromptItemset {
+	/** The suite fixture id the nodeset reads (`item-list:<tag>`). */
+	readonly instanceId: string;
+	readonly nodeset: string;
+	/** Row-relative column wire names. */
+	readonly label: string;
+	readonly value: string;
+}
+
+/**
+ * Everything a `<prompt>` / `CaseSearchProperty` carries for one input,
+ * already lowered to wire vocabulary.
+ */
+export interface SearchPromptWire {
+	readonly key: string;
+	readonly label: SearchPromptText;
+	readonly hint?: SearchPromptText;
+	readonly appearance?: string;
+	readonly hidden: boolean;
+	readonly input?: string;
+	/** On-device XPath for `@default`: a visible seed or a hidden value. */
+	readonly defaultValue?: string;
+	readonly exclude: boolean;
+	readonly itemset?: SearchPromptItemset;
+	readonly required?: SearchPromptAssertion;
+	/** Core keeps only the last `<validation>`, so there is at most one. */
+	readonly validation?: SearchPromptAssertion;
+	/** Every instance id the prompt's children and attributes read. */
+	readonly instances: ReadonlySet<string>;
+}
+
+/**
+ * Lower one search input to its wire description. `relationContext`
+ * must already carry `knownInputs` for the whole module so `input(...)`
+ * reads resolve to their current names; `searchPromptRelationContext`
+ * derives it.
+ */
+export function searchPromptWire(
+	input: SearchInputDef,
+	runtimeValidation: RuntimeCsqlPromptValidation | undefined,
+	relationContext: RelationEvaluationScopeContext,
+	lookupNaming?: LookupWireNaming,
+): SearchPromptWire {
+	const instances = new Set<string>();
+	const emission: PromptEmissionContext = {
+		relationContext,
+		lookupNaming,
+		instances,
+	};
+	const mapping = promptAttributeMapping(input);
+	// When `input.label` is empty the locale registers `input.name`
+	// — gives the runtime something readable to render rather than
+	// the locale id itself.
+	const label: SearchPromptText = {
+		text: input.label !== "" ? input.label : input.name,
+		source: makeTranslationUnitId("search-input", input.uuid, "label"),
+	};
+	const hint =
+		input.kind !== "hidden" && input.hint !== undefined
+			? {
+					text: input.hint,
+					source: makeTranslationUnitId("search-input", input.uuid, "hint"),
+				}
+			: undefined;
+	const options = searchInputOptions(input);
+	const itemset =
+		options === undefined ? undefined : buildItemset(options, emission);
+	const required = buildRequired(input, emission);
+	const validation = buildValidation(input, runtimeValidation, emission);
+	const seed =
+		input.kind === "hidden" ? input.value : searchInputDefault(input);
+	const defaultValue =
+		seed === undefined ? undefined : compileDefaultExpression(seed, emission);
+	return {
+		key: input.name,
+		label,
+		...(hint === undefined ? {} : { hint }),
+		...(mapping.appearance === undefined
+			? {}
+			: { appearance: mapping.appearance }),
+		hidden: input.kind === "hidden",
+		...(mapping.input === undefined ? {} : { input: mapping.input }),
+		...(defaultValue === undefined ? {} : { defaultValue }),
+		exclude: searchInputSuppressesAutoMatch(input),
+		...(itemset === undefined ? {} : { itemset }),
+		...(required === undefined ? {} : { required }),
+		...(validation === undefined ? {} : { validation }),
+		instances,
+	};
+}
+
+/**
+ * The relation context every prompt expression is lowered under: the
+ * caller's context plus the module's complete input list, so `input(...)`
+ * reads print the current prompt keys.
+ */
+export function searchPromptRelationContext(
+	searchInputs: ReadonlyArray<SearchInputDef>,
+	relationContext: RelationEvaluationScopeContext = {},
+): RelationEvaluationScopeContext {
+	return {
+		...relationContext,
+		knownInputs: searchInputs.map((input) => ({
+			uuid: input.uuid,
+			name: input.name,
+			data_type: searchInputRuntimeValueType(input),
+		})),
+	};
+}
 
 // ── Public surface ───────────────────────────────────────────────
 
@@ -169,11 +322,20 @@ export const PROMPT_ATTRIBUTE_MAPPINGS: Readonly<
  * empty input array yields an empty emission; the orchestrator
  * handles the no-prompt branch without a sentinel.
  *
- * Every advanced input and every simple-arm input whose authored
- * shape rides on `_xpath_query` emits `exclude="true()"`. CommCare
- * Core still binds the prompt value into the search-input instance,
- * but it does not also auto-submit the prompt key as a separate case-
- * property filter.
+ * Every advanced input, every hidden input, and every simple-arm
+ * input whose authored shape rides on `_xpath_query` emits
+ * `exclude="true()"`. CommCare Core still binds the prompt value into
+ * the search-input instance, but it does not also auto-submit the
+ * prompt key as a separate case-property filter.
+ *
+ * Per prompt, the children follow CCHQ's `QueryPrompt` construction
+ * order (`remote_requests.py::RemoteRequestFactory.build_query_prompts`):
+ * `<display>` (with `<hint>` inside it), `<itemset>`, `<required>`,
+ * then the single `<validation>`. Core keeps only the LAST
+ * `<validation>` it parses (`xml/QueryPromptParser.java::parse`), so
+ * an authored rule and a compiler-derived CSQL guard compose into ONE
+ * element whose message is the authored sentence followed by the
+ * guard's.
  */
 export function buildSearchPrompts(
 	searchInputs: ReadonlyArray<SearchInputDef>,
@@ -187,54 +349,70 @@ export function buildSearchPrompts(
 ): SearchPromptsEmission {
 	const elements: Element[] = [];
 	const strings: Record<string, string> = {};
-	const translationUnits: Record<string, TranslationUnitId> = {};
-	const promptRelationContext: RelationEvaluationScopeContext = {
-		...relationContext,
-		knownInputs: searchInputs.map((input) => ({
-			uuid: input.uuid,
-			name: input.name,
-			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
-		})),
+	const translationUnits: Record<string, WireStringSource> = {};
+	const instances = new Set<string>();
+	const promptRelationContext = searchPromptRelationContext(
+		searchInputs,
+		relationContext,
+	);
+	const register = (localeId: string, value: SearchPromptText) => {
+		strings[localeId] = value.text;
+		translationUnits[localeId] = value.source;
+		return el("text", {}, [el("locale", { id: localeId })]);
 	};
 
 	for (const input of searchInputs) {
-		// When `input.label` is empty the locale registers `input.name`
-		// — gives the runtime something readable to render rather than
-		// the locale id itself.
-		const localeId = composeSearchPropertyLocaleId(moduleId, input.name);
-		strings[localeId] = input.label !== "" ? input.label : input.name;
-		translationUnits[localeId] = makeTranslationUnitId(
-			"search-input",
-			input.uuid,
-			"label",
+		const wire = searchPromptWire(
+			input,
+			runtimeValidations.get(input.name),
+			promptRelationContext,
+			lookupNaming,
 		);
-		const runtimeValidation = runtimeValidations.get(input.name);
-		const validationLocaleId = runtimeValidation
-			? composeRuntimeCsqlValidationLocaleId(moduleId, input.name)
-			: undefined;
-		if (validationLocaleId !== undefined && runtimeValidation !== undefined) {
-			strings[validationLocaleId] = runtimeValidation.message;
-			translationUnits[validationLocaleId] = makeTranslationUnitId(
-				"system",
-				"search-validation",
-				runtimeValidation.messageKey,
+		for (const id of wire.instances) instances.add(id);
+
+		const displayChildren = [
+			register(composeSearchPropertyLocaleId(moduleId, wire.key), wire.label),
+		];
+		if (wire.hint !== undefined) {
+			displayChildren.push(
+				el("hint", {}, [
+					register(composeHintLocaleId(moduleId, wire.key), wire.hint),
+				]),
 			);
 		}
-
-		elements.push(
-			buildPromptElement(
-				input,
-				localeId,
-				searchInputSuppressesAutoMatch(input),
-				validationLocaleId,
-				runtimeValidation?.test,
-				promptRelationContext,
-				lookupNaming,
-			),
-		);
+		const children = [el("display", {}, displayChildren)];
+		if (wire.itemset !== undefined) {
+			children.push(
+				el("itemset", { nodeset: wire.itemset.nodeset }, [
+					el("label", { ref: wire.itemset.label }),
+					el("value", { ref: wire.itemset.value }),
+				]),
+			);
+		}
+		if (wire.required !== undefined) {
+			children.push(
+				el("required", { test: wire.required.test }, [
+					register(
+						composeRequiredLocaleId(moduleId, wire.key),
+						wire.required.message,
+					),
+				]),
+			);
+		}
+		if (wire.validation !== undefined) {
+			children.push(
+				el("validation", { test: wire.validation.test }, [
+					register(
+						composeValidationLocaleId(moduleId, wire.key),
+						wire.validation.message,
+					),
+				]),
+			);
+		}
+		elements.push(el("prompt", composePromptAttributes(wire), children));
 	}
 
-	return { elements, strings, translationUnits };
+	return { elements, strings, translationUnits, instances };
 }
 
 /**
@@ -248,12 +426,14 @@ export function emitSearchPrompts(
 	moduleId: string,
 	runtimeValidations?: ReadonlyMap<string, RuntimeCsqlPromptValidation>,
 	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
 ): CaseListEmission {
 	const { elements, strings, translationUnits } = buildSearchPrompts(
 		searchInputs,
 		moduleId,
 		runtimeValidations,
 		relationContext,
+		lookupNaming,
 	);
 	if (elements.length === 0) return { xml: "", strings, translationUnits };
 	return {
@@ -278,10 +458,14 @@ export function emitSearchPrompts(
  * predicate owns the comparison. Without `exclude`, CommCare Core also
  * submits the prompt as a normal case-property query parameter and
  * silently ANDs that unintended auto-match with `_xpath_query`.
+ *
+ * Hidden inputs always carry it too: a system-generated value exists
+ * to be read through `input(name)` and carried into the search-input
+ * instance, never to match a case property named after it.
  */
 export function searchInputSuppressesAutoMatch(input: SearchInputDef): boolean {
-	if (input.kind === "advanced") return true;
-	return simpleArmNeedsXPathQueryEmission(input satisfies SimpleSearchInputDef);
+	if (input.kind !== "simple") return true;
+	return simpleArmNeedsXPathQueryEmission(input);
 }
 
 /**
@@ -312,63 +496,212 @@ export function getAdvancedArmPredicates(
 
 // ── Internal helpers ─────────────────────────────────────────────
 
+/** What one prompt's lowering reads, and where it records its instances. */
+interface PromptEmissionContext {
+	readonly relationContext: RelationEvaluationScopeContext;
+	readonly lookupNaming: LookupWireNaming | undefined;
+	readonly instances: Set<string>;
+}
+
+/**
+ * Attribute / child slots for a `<prompt>`: the per-`SearchInputType`
+ * widget mapping for a visible input, or the fixed hidden shape
+ * (`hidden="true"` and no widget) for a system-generated value.
+ */
+function promptAttributeMapping(input: SearchInputDef): PromptAttributeMapping {
+	return input.kind === "hidden" ? {} : PROMPT_ATTRIBUTE_MAPPINGS[input.type];
+}
+
 /**
  * Build the prompt's display-label locale id. Mirrors CCHQ's
  * `search_property_locale` pattern: `search_property.{moduleId}.{name}`.
+ * The three child locale ids follow CCHQ's `id_strings.py` siblings
+ * (`search_property_hint_locale`, `search_property_required_text`,
+ * `search_property_validation_text`).
  */
 function composeSearchPropertyLocaleId(moduleId: string, name: string): string {
 	return `search_property.${moduleId}.${name}`;
 }
 
-function composeRuntimeCsqlValidationLocaleId(
-	moduleId: string,
-	name: string,
-): string {
+function composeHintLocaleId(moduleId: string, name: string): string {
+	return `search_property.${moduleId}.${name}.hint`;
+}
+
+function composeRequiredLocaleId(moduleId: string, name: string): string {
+	return `search_property.${moduleId}.${name}.required.text`;
+}
+
+function composeValidationLocaleId(moduleId: string, name: string): string {
 	return `search_property.${moduleId}.${name}.validation.0.text`;
 }
 
 /**
- * Build one `<prompt>` Element. CCHQ always emits `<display>` on every
- * `QueryPrompt`, so this function does the same as a child.
- * `suppressAutoMatch` threads through to stamp `exclude="true()"` on
- * any prompt whose comparison is authored in `_xpath_query` rather
- * than CommCare Core's implicit prompt-key matcher.
+ * Lower a lookup-backed choice list to its `<itemset>`. The nodeset
+ * iterates the suite fixture's rows (`instance('item-list:<tag>')`, the
+ * suite-scope spelling CCHQ pins in
+ * `test_suite_remote_request.py::test_prompt_itemset`), `label` and
+ * `value` name the two columns' current wire names as row-relative
+ * steps, and an authored row filter becomes the nodeset predicate. The
+ * search screen has no case, so the filter's case anchor is
+ * unaddressable; the validator admits only table columns and globals
+ * there.
  */
-function buildPromptElement(
-	input: SearchInputDef,
-	localeId: string,
-	suppressAutoMatch: boolean,
-	validationLocaleId: string | undefined,
-	validationTest: string | undefined,
-	relationContext: RelationEvaluationScopeContext,
-	lookupNaming?: LookupWireNaming,
-): Element {
-	const children = [
-		el("display", {}, [el("text", {}, [el("locale", { id: localeId })])]),
-	];
-	if (validationLocaleId !== undefined && validationTest !== undefined) {
-		children.push(
-			el("validation", { test: validationTest }, [
-				el("text", {}, [el("locale", { id: validationLocaleId })]),
-			]),
+function buildItemset(
+	options: LookupOptionsSource,
+	emission: PromptEmissionContext,
+): SearchPromptItemset {
+	const { lookupNaming, relationContext, instances } = emission;
+	if (lookupNaming === undefined) {
+		throw new Error(
+			"searchPromptWire: a lookup-backed choice input reached wire emission with no lookup wire naming. The compile boundary supplies naming; every other surface should reject lookup carriers before emission.",
 		);
 	}
-	return el(
-		"prompt",
-		composePromptAttributes(
-			input,
-			suppressAutoMatch,
-			relationContext,
-			lookupNaming,
-		),
-		children,
+	const table = lookupNaming.tableFor(options.tableId);
+	instances.add(table.fixtureId);
+	let filterText = "";
+	if (options.filter !== undefined) {
+		const filter = simplifyForEmission(options.filter);
+		if (!isMatchAll(filter)) {
+			filterText = `[${emitCaseListFilter(
+				filter,
+				"casedb",
+				relationContext,
+				{ kind: "unaddressable" },
+				{
+					lookup: {
+						naming: lookupNaming,
+						instanceScope: "suite",
+						rowScope: {
+							tableId: options.tableId,
+							caseAnchor: { kind: "unaddressable" },
+						},
+					},
+				},
+			)}]`;
+			for (const id of collectPredicateInstances(filter, lookupNaming)) {
+				instances.add(id);
+			}
+		}
+	}
+	return {
+		instanceId: table.fixtureId,
+		nodeset: `instance('${table.fixtureId}')/${table.listElementName}/${table.rowElementName}${filterText}`,
+		label: table.wireNameFor(options.labelColumnId),
+		value: table.wireNameFor(options.valueColumnId),
+	};
+}
+
+/**
+ * Lower `required` for an input that is always or conditionally
+ * required. Core evaluates the test against the search-input instance
+ * and reports the message only when the answer is empty
+ * (`session/RemoteQuerySessionManager.java::validateUserAnswers`). An
+ * always-required input carries the literal `true()`; a conditional
+ * one carries its authored predicate lowered to on-device XPath. The
+ * message is the author's sentence or Nova's default, so every runtime
+ * shows the same words.
+ */
+function buildRequired(
+	input: SearchInputDef,
+	emission: PromptEmissionContext,
+): SearchPromptAssertion | undefined {
+	const message = searchInputRequiredMessage(input);
+	if (input.kind === "hidden" || message === undefined) return undefined;
+	const when = input.required?.when;
+	return {
+		test: when === undefined ? "true()" : emitScreenPredicate(when, emission),
+		message: {
+			text: message,
+			source:
+				input.required?.message === undefined
+					? makeTranslationUnitId("system", "search-required", "default")
+					: makeTranslationUnitId(
+							"search-input",
+							input.uuid,
+							"required-message",
+						),
+		},
+	};
+}
+
+/**
+ * Lower the prompt's single validation. Core keeps only the last
+ * `<validation>` it parses, so the authored rule and the compiler's
+ * CSQL guard share the slot: the test ANDs both (each parenthesized),
+ * and the message joins the authored sentence with the guard's. Each
+ * half keeps its own translation unit; the locale table joins them per
+ * language.
+ */
+function buildValidation(
+	input: SearchInputDef,
+	runtimeValidation: RuntimeCsqlPromptValidation | undefined,
+	emission: PromptEmissionContext,
+): SearchPromptAssertion | undefined {
+	const authored = input.kind === "hidden" ? undefined : input.validation;
+	if (authored === undefined && runtimeValidation === undefined) {
+		return undefined;
+	}
+	const tests: string[] = [];
+	const messages: string[] = [];
+	const units: TranslationUnitId[] = [];
+	if (authored !== undefined) {
+		tests.push(emitScreenPredicate(authored.rule, emission));
+		messages.push(authored.message);
+		units.push(
+			makeTranslationUnitId("search-input", input.uuid, "validation-message"),
+		);
+	}
+	if (runtimeValidation !== undefined) {
+		tests.push(runtimeValidation.test);
+		messages.push(runtimeValidation.message);
+		units.push(
+			makeTranslationUnitId(
+				"system",
+				"search-validation",
+				runtimeValidation.messageKey,
+			),
+		);
+	}
+	return {
+		test:
+			tests.length === 1 ? tests[0] : tests.map((t) => `(${t})`).join(" and "),
+		message: {
+			text: messages.join(" "),
+			source: units.length === 1 ? units[0] : units,
+		},
+	};
+}
+
+/**
+ * Lower a search-screen predicate (`required.when` / `validation.rule`)
+ * to the on-device XPath Core evaluates against the search-input
+ * instance. No case is selected on that screen, so the case anchor is
+ * unaddressable; the validator admits only globals and the module's
+ * own `input(...)` reads, which print as absolute instance paths.
+ */
+function emitScreenPredicate(
+	predicate: Predicate,
+	emission: PromptEmissionContext,
+): string {
+	const { lookupNaming, relationContext, instances } = emission;
+	for (const id of collectPredicateInstances(predicate, lookupNaming)) {
+		instances.add(id);
+	}
+	return emitCaseListFilter(
+		predicate,
+		"casedb",
+		relationContext,
+		{ kind: "unaddressable" },
+		lookupNaming === undefined
+			? {}
+			: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
 	);
 }
 
 /**
  * Compose the attribute map for a `<prompt>` element. Insertion order
  * follows `QueryPrompt`'s field declaration order: `key`, `appearance`,
- * `input`, `default`, `exclude`. Absent slots are skipped.
+ * `hidden`, `input`, `default`, `exclude`. Absent slots are skipped.
  *
  * `exclude="true()"` rides at the tail to match CCHQ's declaration
  * order on `QueryPrompt` (verified against
@@ -384,45 +717,29 @@ function buildPromptElement(
  * — `default`'s compiled XPath in particular may carry comparison
  * operators or string literals that the serializer handles by
  * construction.
+ *
+ * A hidden input is `hidden="true"` plus its value in `default`
+ * (`test_suite_remote_request.py::test_prompt_hidden`); Core re-evaluates
+ * that default at every query-screen construction
+ * (`util/screen/QueryScreen.java::init`) and seeds it into the answers
+ * even under `default_search`.
  */
 function composePromptAttributes(
-	input: SearchInputDef,
-	suppressAutoMatch: boolean,
-	relationContext: RelationEvaluationScopeContext,
-	lookupNaming?: LookupWireNaming,
+	wire: SearchPromptWire,
 ): Record<string, string> {
-	const mapping = PROMPT_ATTRIBUTE_MAPPINGS[input.type];
-
-	const attribs: Record<string, string> = { key: input.name };
-
-	if (mapping.appearance !== undefined) {
-		attribs.appearance = mapping.appearance;
-	}
-	if (mapping.input !== undefined) {
-		attribs.input = mapping.input;
-	}
-
+	const attribs: Record<string, string> = { key: wire.key };
+	if (wire.appearance !== undefined) attribs.appearance = wire.appearance;
+	if (wire.hidden) attribs.hidden = "true";
+	if (wire.input !== undefined) attribs.input = wire.input;
 	// `default` is the attribute form, not a child `<default>` element
 	// — see `QueryPrompt::default_value = StringField('@default', ...)`.
-	const inputDefault = searchInputDefault(input);
-	if (inputDefault !== undefined) {
-		attribs.default = compileDefaultExpression(
-			inputDefault,
-			relationContext,
-			lookupNaming,
-		);
-	}
-
+	if (wire.defaultValue !== undefined) attribs.default = wire.defaultValue;
 	// `exclude="true()"` is the structural mitigation for the
-	// explicit-predicate route. CCHQ's
-	// runtime skips the auto-match against the prompt key when the
-	// boolean XPath evaluates to true; the typed value remains bound
-	// to the search-input instance for the explicit `_xpath_query`
-	// predicate to reference.
-	if (suppressAutoMatch) {
-		attribs.exclude = "true()";
-	}
-
+	// explicit-predicate route. CCHQ's runtime skips the auto-match
+	// against the prompt key when the boolean XPath evaluates to true;
+	// the typed value remains bound to the search-input instance for
+	// the explicit `_xpath_query` predicate to reference.
+	if (wire.exclude) attribs.exclude = "true()";
 	return attribs;
 }
 
@@ -433,9 +750,12 @@ function composePromptAttributes(
  */
 function compileDefaultExpression(
 	expression: ValueExpression,
-	relationContext: RelationEvaluationScopeContext,
-	lookupNaming?: LookupWireNaming,
+	emission: PromptEmissionContext,
 ): string {
+	const { lookupNaming, relationContext, instances } = emission;
+	for (const id of collectExpressionInstances(expression, lookupNaming)) {
+		instances.add(id);
+	}
 	return emitOnDeviceExpression(
 		expression,
 		undefined,

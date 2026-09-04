@@ -20,7 +20,7 @@ import {
 	type Module,
 	makeTranslationUnitId,
 	type OrdinaryCaseSearchConfig,
-	type TranslationUnitId,
+	type WireStringSource,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { instanceSourceFor } from "../../predicate";
@@ -55,7 +55,7 @@ export const DEFAULT_PLATFORM_CONTEXT: PlatformContext = { platform: "web" };
 export interface RemoteRequestEmission {
 	readonly xml: string;
 	readonly strings: Record<string, string>;
-	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly translationUnits: Record<string, WireStringSource>;
 	readonly wire: WireShape;
 }
 
@@ -68,7 +68,7 @@ export interface RemoteRequestEmission {
 export interface RemoteRequestBuild {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
-	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly translationUnits: Record<string, WireStringSource>;
 	readonly wire: WireShape;
 }
 
@@ -187,7 +187,7 @@ export function buildRemoteRequest(args: {
 		[commandLocaleId]: commandLabel,
 		...sessionEmission.strings,
 	};
-	const translationUnits: Record<string, TranslationUnitId> = {
+	const translationUnits: Record<string, WireStringSource> = {
 		...sessionEmission.translationUnits,
 		[commandLocaleId]: makeTranslationUnitId(
 			"module",

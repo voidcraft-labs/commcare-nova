@@ -30,6 +30,8 @@ import {
 	dateColumn,
 	effectiveDataType,
 	fuzzyMode,
+	type HiddenSearchInputDef,
+	hiddenSearchInputDef,
 	plainColumn,
 	SEARCH_MODE_PROPERTY_TYPES,
 	type SearchInputDef,
@@ -37,7 +39,7 @@ import {
 	type SimpleSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import { literal, term } from "@/lib/domain/predicate";
+import { literal, now, term } from "@/lib/domain/predicate";
 import {
 	propertyDisplayLabel,
 	propertyFallbackDisplayLabel,
@@ -147,7 +149,7 @@ export function seedSearchInput(
 	config: CaseListConfig,
 	caseType: CaseType | undefined,
 	project: ProseProjector,
-): SearchInputDef | undefined {
+): SimpleSearchInputDef | undefined {
 	const used = new Set(
 		config.searchInputs.flatMap((s) =>
 			s.kind === "simple" ? [s.property] : [],
@@ -183,6 +185,23 @@ export function seedSearchInputForProperty(
 		type,
 		property.name,
 		type === "text" && fuzzyAdmitted ? { mode: fuzzyMode() } : {},
+	);
+}
+
+/**
+ * A working hidden value: named uniquely, labeled for the app strings the wire
+ * still requires, and seeded with the time the search runs. That is the value
+ * a registration offered after an empty search most often wants to keep as
+ * provenance, and it is a complete expression the gate accepts as it lands.
+ */
+export function seedHiddenSearchInput(
+	config: CaseListConfig,
+): HiddenSearchInputDef {
+	return hiddenSearchInputDef(
+		newUuid(),
+		uniqueInputName("search_time", config.searchInputs),
+		"Search time",
+		now(),
 	);
 }
 

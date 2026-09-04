@@ -333,20 +333,40 @@ export interface CaseSearchAssertion {
 	text: LocalizedString;
 }
 
+/**
+ * CCHQ's `Itemset` (`models/case_search.py`): the choice list behind a
+ * `select1` / `select` prompt. `nodeset` names the lookup fixture rows
+ * (`instance('item-list:<tag>')/<tag>_list/<tag>[…]`); `label` /
+ * `value` are row-relative column names. `instance_id` repeats the
+ * fixture id CCHQ's instance post-process resolves from the nodeset.
+ * `sort` is omitted: rows already ship in authored order.
+ */
+export interface CaseSearchItemset {
+	instance_id: string;
+	nodeset: string;
+	label: string;
+	value: string;
+}
+
 export interface CaseSearchProperty {
 	name: string;
 	label: LocalizedString;
 	hint?: LocalizedString;
 	/** CCHQ field name is `input_` (with trailing underscore) — CCHQ
 	 *  collides on `input` with Python's builtin, so the wire field is
-	 *  the underscore form. Values are `select1` / `date` / `daterange`. */
+	 *  the underscore form. Values are `select1` / `select` / `date` /
+	 *  `daterange`. */
 	input_?: string;
 	appearance?: string;
 	default_value?: string;
 	hidden?: boolean;
 	allow_blank_value?: boolean;
 	exclude?: boolean;
+	/** `<required test>`: the prompt must be answered when the test holds. */
+	required?: CaseSearchAssertion;
+	/** Core keeps only the last `<validation>`, so Nova emits at most one. */
 	validations?: CaseSearchAssertion[];
+	itemset?: CaseSearchItemset;
 	is_group?: boolean;
 	group_key?: string;
 }

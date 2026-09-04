@@ -43,7 +43,7 @@ export function dateRangeInputErrors(
 			errors.set(input.name, DATE_RANGE_CONFIGURATION_MESSAGE);
 			continue;
 		}
-		if (input.type !== "date-range") continue;
+		if (input.kind === "hidden" || input.type !== "date-range") continue;
 		const lower = values.get(`${input.name}:from`)?.trim() ?? "";
 		const upper = values.get(`${input.name}:to`)?.trim() ?? "";
 		if (lower === "" && upper === "") continue;

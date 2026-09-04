@@ -8,7 +8,11 @@
 // auto_launch>` attribute (see `types.ts` for the per-flag wire
 // landing).
 
-import type { CaseListConfig, OrdinaryCaseSearchConfig } from "@/lib/domain";
+import {
+	type CaseListConfig,
+	type OrdinaryCaseSearchConfig,
+	visibleSearchInputs,
+} from "@/lib/domain";
 import { effectiveFilterForEmission } from "@/lib/domain/predicate";
 import type { PlatformContext, WireShape } from "./types";
 
@@ -70,7 +74,13 @@ export function compileForPlatform(
 	// desync the flags from the emitted query.
 	const filterEffective =
 		effectiveFilterForEmission(caseListConfig.filter) !== undefined;
-	const noSearchInputs = caseListConfig.searchInputs.length === 0;
+	// Hidden inputs put nothing on the screen for a worker to answer, so a
+	// module whose only inputs are hidden has the same nothing-to-fill-in
+	// search screen as one with none. Core still seeds hidden defaults under
+	// `default_search` (`RemoteQuerySessionManager.initUserAnswers`), so the
+	// values reach the search-input instance either way.
+	const noSearchInputs =
+		visibleSearchInputs(caseListConfig.searchInputs).length === 0;
 	if (filterEffective && noSearchInputs) {
 		return {
 			autoLaunch: true,

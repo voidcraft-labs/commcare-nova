@@ -871,6 +871,7 @@ describe("SearchInputDef exact four-arm round-trip", () => {
 		expect(advanced.uuid).toBe(inputUuid);
 		expect(advanced.name).toBe("patient_name");
 		expect(advanced.label).toBe("Patient name");
+		if (advanced.kind === "hidden") throw new Error("expected a visible input");
 		expect(advanced.type).toBe("text");
 		if (advanced.type !== "date-range") {
 			expect(advanced.default).toEqual(term(literal("Alice")));
@@ -903,6 +904,7 @@ describe("SearchInputDef exact four-arm round-trip", () => {
 		expect(simple.uuid).toBe(inputUuid);
 		expect(simple.name).toBe("patient_name");
 		expect(simple.label).toBe("Patient name");
+		if (simple.kind === "hidden") throw new Error("expected a visible input");
 		expect(simple.type).toBe("text");
 		if (simple.type !== "date-range") {
 			expect(simple.default).toEqual(term(literal("Alice")));

@@ -386,8 +386,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(modName(e))} is set to Several cases, but it has no follow-up or close form that can use the complete selection and no compatible child workflow can receive it. Add one of those forms, carry the same case selection into a child that has one, or switch Selection to One case.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
 		`An image display in ${q(modName(e))} uses ${q(det(e, "value", "the same value"))} twice, so only the first image appears. Change or remove one of the rules.`,
-	CASE_LIST_SEARCH_INPUT_SELECT_WIDGET_NOT_SUPPORTED: (e) =>
-		`The search field ${q(det(e, "inputName", "in this module"))} uses a dropdown that isn't available here. Change its field type to Text.`,
+	CASE_LIST_MULTI_SELECT_INPUT_NEEDS_DIRECT_MATCH: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} lets people choose several values, so it needs to be named after the case information it searches on this case type. Rename it to match, or switch it to a single-choice field.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} has a condition that compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: (e) =>
