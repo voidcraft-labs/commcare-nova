@@ -3,6 +3,8 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
 	canonicalLookupReferenceSubpath,
+	collectLookupOptionsSourceCarriers,
+	describeLookupOptionsSourceOwner,
 	EMPTY_LOOKUP_REFERENCE_TARGETS,
 	extractLookupReferenceOccurrences,
 	extractLookupReferenceTargets,
@@ -15,6 +17,7 @@ import {
 import {
 	advancedSearchInputDef,
 	calculatedColumn,
+	hiddenSearchInputDef,
 	simpleSearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
@@ -122,9 +125,12 @@ describe("lookup reference extraction", () => {
 		const columnUuid = testUuid("column-lookup");
 		const simpleInputUuid = testUuid("search-simple");
 		const advancedInputUuid = testUuid("search-advanced");
+		const selectInputUuid = testUuid("search-select");
+		const hiddenInputUuid = testUuid("search-hidden");
 		const operationUuid = testUuid("operation-lookup");
 		const sourceTable = tableId("1");
 		const nestedTable = tableId("2");
+		const choiceTable = tableId("3");
 
 		const doc = buildDoc({
 			appName: "All lookup carriers",
@@ -153,7 +159,39 @@ describe("lookup reference extraction", () => {
 								"Advanced",
 								"text",
 								lookupPredicate(8),
-								{ default: lookupExpression(7) },
+								{
+									default: lookupExpression(7),
+									required: { when: lookupPredicate(20) },
+									validation: {
+										rule: lookupPredicate(21),
+										message: "Pick a listed value.",
+									},
+								},
+							),
+							simpleSearchInputDef(
+								selectInputUuid,
+								"region",
+								"Region",
+								"select",
+								"region",
+								{
+									options: {
+										kind: "lookup",
+										tableId: choiceTable,
+										valueColumnId: columnId("31"),
+										labelColumnId: columnId("32"),
+										filter: eq(
+											tableColumn(choiceTable, columnId("33")),
+											lookupExpression(22),
+										),
+									},
+								},
+							),
+							hiddenSearchInputDef(
+								hiddenInputUuid,
+								"site",
+								"Site",
+								lookupExpression(23),
 							),
 						],
 					},
@@ -260,11 +298,15 @@ describe("lookup reference extraction", () => {
 			`search_button_display_condition:${moduleUuid}`,
 			`search_input_default:${advancedInputUuid}`,
 			`search_input_default:${simpleInputUuid}`,
+			`search_input_hidden_value:${hiddenInputUuid}`,
+			`search_input_options:${selectInputUuid}`,
 			`search_input_predicate:${advancedInputUuid}`,
+			`search_input_required_when:${advancedInputUuid}`,
+			`search_input_validation_rule:${advancedInputUuid}`,
 		].sort();
 
 		expect(slotOwners).toEqual(expectedSlotOwners);
-		expect(occurrences).toHaveLength(39);
+		expect(occurrences).toHaveLength(50);
 		expect(
 			occurrences.every((occurrence) => occurrence.columnId !== undefined),
 		).toBe(true);
@@ -329,6 +371,48 @@ describe("lookup reference extraction", () => {
 				"search_input_predicate",
 				advancedInputUuid,
 				8,
+			),
+			[
+				"search_input_options",
+				selectInputUuid,
+				"/k:valueColumnId",
+				choiceTable,
+				columnId("31"),
+			],
+			[
+				"search_input_options",
+				selectInputUuid,
+				"/k:labelColumnId",
+				choiceTable,
+				columnId("32"),
+			],
+			[
+				"search_input_options",
+				selectInputUuid,
+				"/k:filter/k:left/k:term/k:columnId",
+				choiceTable,
+				columnId("33"),
+			],
+			...expectedExpressionOccurrences(
+				"search_input_options",
+				selectInputUuid,
+				22,
+				"/k:filter/k:right",
+			),
+			...expectedPredicateOccurrences(
+				"search_input_required_when",
+				advancedInputUuid,
+				20,
+			),
+			...expectedPredicateOccurrences(
+				"search_input_validation_rule",
+				advancedInputUuid,
+				21,
+			),
+			...expectedExpressionOccurrences(
+				"search_input_hidden_value",
+				hiddenInputUuid,
+				23,
 			),
 			...expectedExpressionOccurrences("excluded_owner_ids", moduleUuid, 9),
 			...expectedPredicateOccurrences(
@@ -457,6 +541,107 @@ describe("lookup reference extraction", () => {
 					occurrence.registrySlot === "case_operation_link_target_expression",
 			)?.subpath,
 		).toBe("/k:identifier/k:parent/k:resultColumnId");
+	});
+
+	it("lists a Search prompt's choice list beside select fields, owned by the input", () => {
+		// The compile boundary's row-dependent option validity walks this list
+		// against the same fixture snapshot the emitters use, so a prompt's
+		// choices must appear here with an owner a finding can name.
+		const moduleUuid = testUuid("module-choices");
+		const formUuid = testUuid("form-choices");
+		const fieldUuid = testUuid("field-choices");
+		const selectInputUuid = testUuid("search-select-choices");
+		const multiInputUuid = testUuid("search-multi-choices");
+		const table = tableId("40");
+		const options = {
+			kind: "lookup" as const,
+			tableId: table,
+			valueColumnId: columnId("41"),
+			labelColumnId: columnId("42"),
+		};
+		const doc = buildDoc({
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "Cases",
+					caseListConfig: {
+						columns: [],
+						searchInputs: [
+							simpleSearchInputDef(
+								selectInputUuid,
+								"region",
+								"Region",
+								"select",
+								"region",
+								{ options },
+							),
+							simpleSearchInputDef(
+								multiInputUuid,
+								"regions",
+								"",
+								"multi-select",
+								"region",
+								{ options },
+							),
+						],
+					},
+					forms: [
+						{
+							uuid: formUuid,
+							name: "Visit",
+							type: "survey",
+							fields: [
+								{
+									uuid: fieldUuid,
+									kind: "single_select",
+									id: "choice",
+									optionsSource: options,
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+
+		const carriers = collectLookupOptionsSourceCarriers(doc);
+		expect(carriers.map((carrier) => carrier.owner)).toEqual([
+			{ kind: "field", fieldUuid, fieldId: "choice" },
+			{
+				kind: "search-input",
+				moduleUuid,
+				inputUuid: selectInputUuid,
+				inputName: "region",
+				inputLabel: "Region",
+			},
+			{
+				kind: "search-input",
+				moduleUuid,
+				inputUuid: multiInputUuid,
+				inputName: "regions",
+				inputLabel: "",
+			},
+		]);
+		expect(carriers.map((carrier) => carrier.source)).toEqual([
+			options,
+			options,
+			options,
+		]);
+		expect(carriers[1].location).toEqual({
+			scope: "module",
+			moduleUuid,
+			moduleName: "Cases",
+			field: `caseListConfig.searchInputs[${selectInputUuid}].options`,
+		});
+		expect(
+			carriers.map((carrier) =>
+				describeLookupOptionsSourceOwner(carrier.owner),
+			),
+		).toEqual([
+			'Field "choice"',
+			'Search field "Region"',
+			'Search field "regions"',
+		]);
 	});
 
 	it("deduplicates production targets without collapsing exact occurrences", () => {

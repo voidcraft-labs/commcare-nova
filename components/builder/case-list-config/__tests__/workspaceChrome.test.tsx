@@ -1224,8 +1224,10 @@ describe("case workspace chrome", () => {
 		expect(
 			screen.queryByRole("button", { name: "Edit Search screen" }),
 		).toBeNull();
+		// A case type with no properties still opens the chooser, because a
+		// hidden value names no case information.
 		expect(
-			screen.getByRole("button", { name: "Add search field" }),
+			screen.getByRole("combobox", { name: "Add search field" }),
 		).toBeDefined();
 	});
 

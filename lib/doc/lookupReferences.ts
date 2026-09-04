@@ -575,6 +575,61 @@ function extractSearchInputPredicates(
 	);
 }
 
+/**
+ * A visible prompt's conditional required test. It runs on the Search
+ * screen, where the device may read a lookup row through `instance(...)`,
+ * so the compile boundary needs the table named here to ship the fixture.
+ */
+function extractSearchInputRequiredConditions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) =>
+		(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
+			input.kind === "hidden" || input.required?.when === undefined
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: input.uuid,
+						ast: input.required.when,
+						location: moduleLocation(module),
+					}),
+		),
+	);
+}
+
+/** A visible prompt's check rule: the same Search-screen scope as above. */
+function extractSearchInputValidationRules(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) =>
+		(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
+			input.kind === "hidden" || input.validation === undefined
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: input.uuid,
+						ast: input.validation.rule,
+						location: moduleLocation(module),
+					}),
+		),
+	);
+}
+
+/** A hidden prompt's system value, worked out when the Search screen opens. */
+function extractSearchInputHiddenValues(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	return sortedModules(doc).flatMap((module) =>
+		(module.caseListConfig?.searchInputs ?? []).flatMap((input) =>
+			input.kind !== "hidden"
+				? []
+				: extractAstLookupReferences({
+						carrierUuid: input.uuid,
+						ast: input.value,
+						location: moduleLocation(module),
+					}),
+		),
+	);
+}
+
 function extractSearchButtonDisplayConditions(
 	doc: BlueprintDoc,
 ): ExtractedLookupReference[] {
@@ -773,6 +828,18 @@ export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorReg
 		productionExtractor("search_input_default", extractSearchInputDefaults),
 		productionExtractor("search_input_predicate", extractSearchInputPredicates),
 		productionExtractor("search_input_options", extractSearchInputOptions),
+		productionExtractor(
+			"search_input_required_when",
+			extractSearchInputRequiredConditions,
+		),
+		productionExtractor(
+			"search_input_validation_rule",
+			extractSearchInputValidationRules,
+		),
+		productionExtractor(
+			"search_input_hidden_value",
+			extractSearchInputHiddenValues,
+		),
 		productionExtractor(
 			"search_button_display_condition",
 			extractSearchButtonDisplayConditions,

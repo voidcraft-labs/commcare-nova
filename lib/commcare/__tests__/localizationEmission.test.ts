@@ -1,16 +1,30 @@
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import {
+	advancedSearchInputDef,
 	makeTranslationUnitId,
+	plainColumn,
 	proseText,
+	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+	simpleSearchInputDef,
 	type TranslationEntry,
 	type TranslationUnitId,
 	translationUnitsById,
 } from "@/lib/domain";
+import {
+	eq,
+	input,
+	isBlank,
+	matchesPattern,
+	prop,
+	whenInput,
+} from "@/lib/domain/predicate";
+import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
 
 interface HealthDocFixture {
 	readonly doc: BlueprintDoc;
@@ -377,5 +391,249 @@ describe("multilingual CommCare emission", () => {
 		expect(() => compileCcz(expandDoc(doc), doc.appName, doc)).toThrow(
 			/literal sequence \\n/,
 		);
+	});
+});
+
+// ── Search prompt children ─────────────────────────────────────────
+//
+// A prompt's hint, required message, and check message are translation
+// units of their own (`search-input/<uuid>/hint`, `/required-message`,
+// `/validation-message`). The default required sentence is one app-wide
+// system unit (`system/search-required/default`), and the compiler's CSQL
+// guard message is another (`system/search-validation/<key>`); when an
+// authored check shares Core's one `<validation>` slot with the guard, the
+// locale table joins both units PER LANGUAGE, so a translated app never
+// mixes an English guard sentence into a Spanish message.
+
+describe("multilingual CommCare emission — search prompt children", () => {
+	const SI_NAME = testUuid("55555555-5555-4555-8555-eeeeeeee0001");
+	const SI_STATUS = testUuid("55555555-5555-4555-8555-eeeeeeee0002");
+	const SI_PHONE = testUuid("55555555-5555-4555-8555-eeeeeeee0003");
+
+	function promptDoc(): BlueprintDoc {
+		return buildDoc({
+			appName: "Health app",
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(
+								testUuid("55555555-5555-4555-8555-ffffffff0001"),
+								"case_name",
+								"Name",
+							),
+						],
+						searchInputs: [
+							simpleSearchInputDef(
+								SI_NAME,
+								"case_name",
+								"Name",
+								"text",
+								"case_name",
+								{ hint: "First and last name", required: {} },
+							),
+							simpleSearchInputDef(
+								SI_PHONE,
+								"phone",
+								"Phone",
+								"text",
+								"phone",
+								{
+									required: {
+										when: isBlank(input(SI_NAME)),
+										message: "Give a phone when the name is blank.",
+									},
+								},
+							),
+							advancedSearchInputDef(
+								SI_STATUS,
+								"status",
+								"Status",
+								"text",
+								whenInput(
+									input(SI_STATUS),
+									eq(prop("patient", "status"), input(SI_STATUS)),
+								),
+								{
+									validation: {
+										rule: matchesPattern(input(SI_STATUS), "^[a-z]+$"),
+										message: "Use lowercase letters only.",
+									},
+								},
+							),
+						],
+					},
+					caseSearchConfig: {},
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "phone", label: proseText("Phone"), data_type: "text" },
+						{ name: "status", label: proseText("Status"), data_type: "text" },
+					],
+				},
+			],
+		});
+	}
+
+	function quoteGuard() {
+		const message = searchRuntimeValidationMessage(new Set(["quote"]));
+		if (message === undefined) {
+			throw new Error("The compiler's quote guard message is not catalogued.");
+		}
+		return message;
+	}
+
+	function bilingualPromptDoc(): BlueprintDoc {
+		const doc = promptDoc();
+		const entries = entriesFor(
+			doc,
+			new Map<TranslationUnitId, string | ReturnType<typeof proseText>>([
+				[
+					makeTranslationUnitId("search-input", SI_NAME, "hint"),
+					"Nombre y apellido",
+				],
+				[
+					makeTranslationUnitId("search-input", SI_PHONE, "required-message"),
+					"Indique un teléfono cuando falte el nombre.",
+				],
+				[
+					makeTranslationUnitId(
+						"search-input",
+						SI_STATUS,
+						"validation-message",
+					),
+					"Use solo letras minúsculas.",
+				],
+				[
+					makeTranslationUnitId("system", "search-required", "default"),
+					"Complete esta respuesta antes de buscar.",
+				],
+				[
+					makeTranslationUnitId(
+						"system",
+						"search-validation",
+						quoteGuard().key,
+					),
+					"Quite las comillas.",
+				],
+			]),
+		);
+		doc.localization = {
+			sourceLanguage: "eng",
+			defaultLanguage: "spa",
+			languageOrder: ["spa", "eng"],
+			translations: { spa: entries },
+		};
+		return doc;
+	}
+
+	it("inventories the three prompt units plus the default required sentence", () => {
+		const units = translationUnitsById(promptDoc());
+		expect(
+			units.get(makeTranslationUnitId("search-input", SI_NAME, "hint")),
+		).toMatchObject({
+			role: "search-input-hint",
+			source: "First and last name",
+		});
+		expect(
+			units.get(
+				makeTranslationUnitId("search-input", SI_PHONE, "required-message"),
+			),
+		).toMatchObject({
+			role: "search-input-required-message",
+			source: "Give a phone when the name is blank.",
+		});
+		expect(
+			units.get(
+				makeTranslationUnitId("search-input", SI_STATUS, "validation-message"),
+			),
+		).toMatchObject({
+			role: "search-input-validation-message",
+			source: "Use lowercase letters only.",
+		});
+		expect(
+			units.get(makeTranslationUnitId("system", "search-required", "default")),
+		).toMatchObject({ source: SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE });
+		// The name input uses the default sentence, so it owns no message unit.
+		expect(
+			units.get(
+				makeTranslationUnitId("search-input", SI_NAME, "required-message"),
+			),
+		).toBeUndefined();
+	});
+
+	it("writes the three locale ids per language and joins a composed validation per language", () => {
+		const doc = bilingualPromptDoc();
+		const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
+		const spanish = zip.readAsText("es/app_strings.txt");
+		const english = zip.readAsText("en/app_strings.txt");
+		const guard = quoteGuard().message;
+
+		expect(spanish).toContain(
+			"search_property.m0.case_name.hint=Nombre y apellido",
+		);
+		expect(english).toContain(
+			"search_property.m0.case_name.hint=First and last name",
+		);
+		expect(spanish).toContain(
+			"search_property.m0.case_name.required.text=Complete esta respuesta antes de buscar.",
+		);
+		expect(english).toContain(
+			`search_property.m0.case_name.required.text=${SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE}`,
+		);
+		expect(spanish).toContain(
+			"search_property.m0.phone.required.text=Indique un teléfono cuando falte el nombre.",
+		);
+		expect(english).toContain(
+			"search_property.m0.phone.required.text=Give a phone when the name is blank.",
+		);
+		expect(spanish).toContain(
+			"search_property.m0.status.validation.0.text=Use solo letras minúsculas. Quite las comillas.",
+		);
+		expect(english).toContain(
+			`search_property.m0.status.validation.0.text=Use lowercase letters only. ${guard}`,
+		);
+	});
+
+	it("projects the same per-language maps into HQ JSON", () => {
+		const hq = expandDoc(bilingualPromptDoc());
+		const [name, phone, status] = hq.modules[0].search_config.properties;
+
+		expect(name?.hint).toEqual({
+			es: "Nombre y apellido",
+			en: "First and last name",
+		});
+		expect(name?.required?.text).toEqual({
+			es: "Complete esta respuesta antes de buscar.",
+			en: SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+		});
+		expect(phone?.required?.text).toEqual({
+			es: "Indique un teléfono cuando falte el nombre.",
+			en: "Give a phone when the name is blank.",
+		});
+		expect(status?.validations?.[0]?.text).toEqual({
+			es: "Use solo letras minúsculas. Quite las comillas.",
+			en: `Use lowercase letters only. ${quoteGuard().message}`,
+		});
 	});
 });

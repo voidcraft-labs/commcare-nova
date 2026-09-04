@@ -39,15 +39,33 @@ import {
 	type OpenSubCaseAction,
 } from "@/lib/commcare";
 import { expandDoc } from "@/lib/commcare/expander";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
 import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
 import {
 	calculatedColumn,
 	emptyCaseListConfig,
+	hiddenSearchInputDef,
 	plainColumn,
+	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+	type SearchInputDef,
+	simpleSearchInputDef,
 } from "@/lib/domain";
-import { prop, toValueExpression } from "@/lib/domain/predicate";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	eq,
+	input,
+	isBlank,
+	literal,
+	matchesPattern,
+	now,
+	prop,
+	sessionUser,
+	term,
+	toValueExpression,
+} from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import type { LookupRevision } from "@/lib/lookup/types";
 
 // ── Fixture builders ───────────────────────────────────────────────
 
@@ -704,5 +722,247 @@ describe("HQ-JSON oracle — logo_refs shape", () => {
 		const app = baselineApp();
 		expect(app.logo_refs).toBeUndefined();
 		expect(validateHqJson(app)).toEqual([]);
+	});
+});
+
+// ── Search prompt children ─────────────────────────────────────────
+//
+// `CaseSearchProperty` (`commcare-hq/corehq/apps/app_manager/models/case_search.py`)
+// stores each prompt child beside the prompt: `hint` as a language map,
+// `hidden` / `exclude` as booleans, `default_value` and `input_` as strings,
+// `itemset` as `{instance_id, nodeset, label, value}`, and `required` plus
+// `validations[]` as `Assertion {test, text}` (`models/base.py::Assertion`).
+// These tests run a real `expandDoc` over each authored shape and pin the
+// projected slots, then prove the oracle accepts the result.
+
+describe("HQ-JSON oracle — search prompt children", () => {
+	const SI_NAME = testUuid("44444444-4444-4444-4444-cccccccc0001");
+	const SI_EMAIL = testUuid("44444444-4444-4444-4444-cccccccc0002");
+	const SI_TIME = testUuid("44444444-4444-4444-4444-cccccccc0003");
+	const SI_REGION = testUuid("44444444-4444-4444-4444-cccccccc0004");
+	const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
+	const REGIONS_VALUE =
+		"018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
+	const REGIONS_LABEL =
+		"018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
+	const REGIONS_NAMING = lookupWireNaming([
+		{
+			id: REGIONS,
+			name: "Regions",
+			tag: "regions",
+			definitionRevision: "1" as LookupRevision,
+			columns: [
+				{
+					id: REGIONS_VALUE,
+					wireName: "value",
+					label: "Value",
+					dataType: "text",
+				},
+				{
+					id: REGIONS_LABEL,
+					wireName: "label",
+					label: "Label",
+					dataType: "text",
+				},
+			],
+		},
+	]);
+
+	function promptDoc(searchInputs: SearchInputDef[]) {
+		return buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "email", label: proseText("Email"), data_type: "text" },
+						{ name: "region", label: proseText("Region"), data_type: "text" },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(
+								testUuid("44444444-4444-4444-4444-dddddddd0001"),
+								"case_name",
+								"Name",
+							),
+						],
+						searchInputs,
+					},
+					caseSearchConfig: {},
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								{
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								},
+							],
+						},
+					],
+				},
+			],
+		});
+	}
+
+	function propertiesOf(app: HqApplication) {
+		return app.modules[0].search_config.properties;
+	}
+
+	it("projects hint, required, and one validation as language-mapped Assertions", () => {
+		const doc = promptDoc([
+			simpleSearchInputDef(SI_NAME, "case_name", "Name", "text", "case_name", {
+				hint: "First and last name",
+				required: {},
+			}),
+			simpleSearchInputDef(SI_EMAIL, "email", "Email", "text", "email", {
+				required: {
+					when: isBlank(input(SI_NAME)),
+					message: "Give an email when the name is blank.",
+				},
+				validation: {
+					rule: matchesPattern(input(SI_EMAIL), "@"),
+					message: "Enter an email address.",
+				},
+			}),
+		]);
+		const app = expandDoc(doc);
+		const [name, email] = propertiesOf(app);
+
+		expect(name).toMatchObject({
+			name: "case_name",
+			hint: { en: "First and last name" },
+			required: {
+				test: "true()",
+				text: { en: SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE },
+			},
+		});
+		expect(name?.validations).toBeUndefined();
+		expect(name?.hidden).toBeUndefined();
+		expect(email).toMatchObject({
+			name: "email",
+			required: {
+				test: "instance('search-input:results')/input/field[@name='case_name'] = ''",
+				text: { en: "Give an email when the name is blank." },
+			},
+			validations: [
+				{
+					test: "regex(instance('search-input:results')/input/field[@name='email'], '@')",
+					text: { en: "Enter an email address." },
+				},
+			],
+		});
+		expect(email?.hint).toBeUndefined();
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("projects a hidden input as hidden + default_value + exclude with no children", () => {
+		const doc = promptDoc([
+			simpleSearchInputDef(SI_NAME, "case_name", "Name", "text", "case_name"),
+			hiddenSearchInputDef(SI_TIME, "search_time", "Search time", now()),
+		]);
+		const app = expandDoc(doc);
+		const hidden = propertiesOf(app).find((p) => p.name === "search_time");
+
+		expect(hidden).toEqual({
+			name: "search_time",
+			label: { en: "Search time" },
+			default_value: "now()",
+			hidden: true,
+			exclude: true,
+		});
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("projects a visible seed to default_value and a session-gated requirement", () => {
+		const doc = promptDoc([
+			simpleSearchInputDef(SI_NAME, "case_name", "Name", "text", "case_name", {
+				default: term(literal("foo")),
+				required: { when: eq(sessionUser("is_supervisor"), literal("n")) },
+			}),
+		]);
+		const app = expandDoc(doc);
+		const [name] = propertiesOf(app);
+
+		expect(name?.default_value).toBe("'foo'");
+		expect(name?.hidden).toBeUndefined();
+		expect(name?.required?.test).toBe(
+			"instance('commcaresession')/session/user/data/is_supervisor = 'n'",
+		);
+		expect(validateHqJson(app)).toEqual([]);
+	});
+
+	it("projects lookup-backed select and multi-select prompts as input_ + itemset", () => {
+		const options = {
+			kind: "lookup" as const,
+			tableId: REGIONS,
+			valueColumnId: REGIONS_VALUE,
+			labelColumnId: REGIONS_LABEL,
+		};
+		// A multiple-choice prompt must be named after its property (its
+		// any-of match rides CCHQ's auto-match, never `_xpath_query`), so the
+		// two widgets live in two docs rather than colliding on one key.
+		const singleApp = expandDoc(
+			promptDoc([
+				simpleSearchInputDef(
+					SI_REGION,
+					"region",
+					"Region",
+					"select",
+					"region",
+					{
+						options,
+					},
+				),
+			]),
+			{ lookupNaming: REGIONS_NAMING },
+		);
+		const multiApp = expandDoc(
+			promptDoc([
+				simpleSearchInputDef(
+					SI_REGION,
+					"region",
+					"Regions",
+					"multi-select",
+					"region",
+					{ options },
+				),
+			]),
+			{ lookupNaming: REGIONS_NAMING },
+		);
+		const [single] = propertiesOf(singleApp);
+		const [multi] = propertiesOf(multiApp);
+
+		expect(single).toMatchObject({
+			name: "region",
+			input_: "select1",
+			itemset: {
+				instance_id: "item-list:regions",
+				nodeset: "instance('item-list:regions')/regions_list/regions",
+				label: "label",
+				value: "value",
+			},
+		});
+		expect(single?.exclude).toBeUndefined();
+		expect(multi).toMatchObject({
+			name: "region",
+			input_: "select",
+			itemset: {
+				instance_id: "item-list:regions",
+				nodeset: "instance('item-list:regions')/regions_list/regions",
+			},
+		});
+		expect(multi?.exclude).toBeUndefined();
+		expect(validateHqJson(singleApp)).toEqual([]);
+		expect(validateHqJson(multiApp)).toEqual([]);
 	});
 });

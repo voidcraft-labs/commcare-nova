@@ -22,12 +22,23 @@ import {
 	planCaseTypeRetirementOnRemove,
 	planCaseTypeRetirementOnRetype,
 } from "@/lib/doc/caseTypeRetirement";
-import type { BlueprintDoc, ProseTemplate, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	hiddenSearchInputDef,
+	type ProseTemplate,
+	type SearchInputDef,
+	simpleSearchInputDef,
+	type Uuid,
+} from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	eq,
 	literal,
+	matchesPattern,
+	now,
 	ownerLocationAtLevel,
 	prop,
+	subcasePath,
 	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
@@ -54,6 +65,7 @@ function twoModuleDoc(overrides?: {
 	visitParent?: string;
 	patientExtraFields?: ReturnType<typeof f>[];
 	patientFilter?: boolean;
+	patientSearchInputs?: readonly SearchInputDef[];
 	patientAssignedCasesReference?: boolean;
 	patientModuleDisplayReference?: boolean;
 	patientFormDisplayReference?: boolean;
@@ -77,6 +89,9 @@ function twoModuleDoc(overrides?: {
 					...caseListConfig([{ field: "case_name", header: "Name" }]),
 					...(overrides?.patientFilter && {
 						filter: eq(prop("visit", "case_name"), literal("x")),
+					}),
+					...(overrides?.patientSearchInputs && {
+						searchInputs: [...overrides.patientSearchInputs],
 					}),
 				},
 				...(overrides?.patientModuleDisplayReference && {
@@ -444,6 +459,137 @@ describe("planCaseTypeRetirementOnRemove", () => {
 		);
 		expect(plan.userMessage).not.toContain("case-list filter");
 		expect(plan.userMessage).not.toContain('a "visit" property');
+	});
+
+	it("blocks on the Search prompt slots that name the type, in the search field's voice", () => {
+		// The choice list's row rule, a required condition, a check, and a
+		// hidden value are each a registry slot the walk visits. The gate
+		// refuses a case read in the Search-screen slots, so the fixture
+		// reaches them through a relation walk and a `prop` leaf directly to
+		// prove the walk is total over the registry rather than trusting that.
+		const tableId = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
+		const doc = twoModuleDoc({
+			patientSearchInputs: [
+				simpleSearchInputDef(
+					testUuid("search-region"),
+					"region",
+					"Region",
+					"select",
+					"village",
+					{
+						via: subcasePath("parent", "visit"),
+						options: {
+							kind: "lookup",
+							tableId,
+							valueColumnId:
+								"018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId,
+							labelColumnId:
+								"018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId,
+							filter: eq(prop("visit", "case_name"), literal("x")),
+						},
+					},
+				),
+				simpleSearchInputDef(
+					testUuid("search-name"),
+					"full_name",
+					"",
+					"text",
+					"case_name",
+					{
+						required: { when: eq(prop("visit", "case_name"), literal("x")) },
+						validation: {
+							rule: eq(prop("visit", "case_name"), literal("x")),
+							message: "No.",
+						},
+					},
+				),
+				hiddenSearchInputDef(
+					testUuid("search-site"),
+					"site",
+					"Site",
+					term(prop("visit", "case_name")),
+				),
+			],
+		});
+		const plan = planCaseTypeRetirementOnRemove(
+			doc,
+			moduleUuidByName(doc, "Visits"),
+		);
+
+		expect(plan.kind).toBe("blocked");
+		if (plan.kind !== "blocked") return;
+		expect(plan.references).toEqual([
+			'search input "region" on module "Patients" walks through "visit"',
+			'search input "region" on module "Patients" narrows its choices with a "visit" property',
+			'search input "full_name" on module "Patients" is required under a "visit" property',
+			'search input "full_name" on module "Patients" is checked against a "visit" property',
+			'search input "site" on module "Patients" is worked out from a "visit" property',
+		]);
+		expect(plan.userMessage).toContain(
+			'the row rule for search field "Region" on module "Patients" uses "visit" information',
+		);
+		expect(plan.userMessage).toContain(
+			'the required condition for search field "full_name" on module "Patients" uses "visit" information',
+		);
+		expect(plan.userMessage).toContain(
+			'the check on search field "full_name" on module "Patients" uses "visit" information',
+		);
+		expect(plan.userMessage).toContain(
+			'the hidden value search field "Site" on module "Patients" uses "visit" information',
+		);
+		expect(plan.userMessage).not.toContain("search_input");
+	});
+
+	it("retires the record past a choice prompt and a hidden value that name nothing", () => {
+		// A select prompt's property is contextual (it follows its own
+		// module's type), and a hidden input carries no property at all, so
+		// neither holds the retiring record.
+		const tableId = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
+		const doc = twoModuleDoc({
+			patientSearchInputs: [
+				simpleSearchInputDef(
+					testUuid("search-village"),
+					"village",
+					"Village",
+					"multi-select",
+					"village",
+					{
+						options: {
+							kind: "lookup",
+							tableId,
+							valueColumnId:
+								"018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId,
+							labelColumnId:
+								"018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId,
+						},
+						required: {},
+						validation: {
+							rule: matchesPattern(
+								{ kind: "input", searchInputUuid: testUuid("search-village") },
+								"^[a-z_]+$",
+							),
+							message: "Pick a village.",
+						},
+					},
+				),
+				hiddenSearchInputDef(
+					testUuid("search-time"),
+					"search_time",
+					"Search time",
+					now(),
+				),
+			],
+		});
+		const plan = planCaseTypeRetirementOnRemove(
+			doc,
+			moduleUuidByName(doc, "Visits"),
+		);
+
+		expect(plan).toMatchObject({
+			kind: "retire",
+			caseType: "visit",
+			mutations: [{ kind: "retireCaseType", caseType: "visit" }],
+		});
 	});
 
 	it("describes the assigned cases setting without exposing its stored slot name", () => {

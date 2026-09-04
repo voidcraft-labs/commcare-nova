@@ -781,7 +781,25 @@ never leaves the center canvas and no horizontal table geometry leaks into
 authoring. **Add search field is chooser-first**: it asks which canonical case
 property people should search, places Case name first as guidance rather than
 silently choosing it, and applies the working widget/match defaults only after
-that choice. **Add information is always chooser-first on both display
+that choice. The same menu's **Hidden value** entry adds a system value the
+Search screen works out once when it opens (a search time, the worker's id);
+it draws on the canvas as a quiet row, never as an input, and its inspector
+(`HiddenSearchValueEditor`) is Label, Value, and the name other conditions read
+it by. A visible field's inspector (`SearchInputEditor`) stacks Label, Hint,
+Case information, Field type, Choices (a lookup table plus value and label
+columns through `SearchChoiceSourceEditor`; the widget is `select` or
+`multi-select`, and Nova never offers an inline choice list here), How it
+matches, then **Required** (optional / always / under a condition, with an
+optional message) and **Check on the answer** (one rule plus its message). Both
+say "Checked in the browser app. On a phone the search runs either way" because
+Android never enforces prompt validation. A required condition and a check are
+`search-condition` selections with a `slot` (`required` / `validation`; absent
+means the custom match), so all three open the same full-width
+`SearchConditionCanvas` workbench (`searchInputConditions.ts` is the one
+read/write pair per slot). That canvas passes `patternMatching` for the two
+device-evaluated slots, which is the only place the **matches a pattern** verb
+(`MatchesPatternCard`, Java regex, unanchored) is offered; everywhere else the
+verb menu shows it disabled with the reason. **Add information is always chooser-first on both display
 screens**: it semantically mixes saved display setups absent from this screen
 with case properties that have no display definition, never exposes “hidden”
 as a category, and never guesses the next property. App-authored information

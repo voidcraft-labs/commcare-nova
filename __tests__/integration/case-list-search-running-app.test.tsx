@@ -445,9 +445,11 @@ function renderCaseListScreen(doc: BlueprintDoc) {
 						canEdit: true,
 					}}
 				>
-					<CaseListScreen
-						screen={{ type: "caseList", moduleUuid: MODULE_UUID }}
-					/>
+					<BuilderFormEngineProvider>
+						<CaseListScreen
+							screen={{ type: "caseList", moduleUuid: MODULE_UUID }}
+						/>
+					</BuilderFormEngineProvider>
 				</BuilderSessionProvider>
 			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>,

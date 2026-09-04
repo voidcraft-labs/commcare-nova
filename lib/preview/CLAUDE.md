@@ -38,6 +38,25 @@ the one-way terminal `dispose`: React Strict Mode replays cleanup and setup on
 the same state-created controller in development, so the second setup must be
 able to open a fresh generation.
 
+The Search screen has its OWN worker runtime beside the form's. A runtime
+admits one active worker scope `(entryKey, profile)` and retires the active
+scope when a different one arrives, so routing a Search prompt's `required` /
+`validation` evaluation through the form runtime would retire a form's world
+every time a worker typed on the Search screen. The provider therefore creates
+a second `createBrowserXPathRuntime` and hands it to the controller as
+`searchXPathRuntime`; `engineController.ts::evaluateSearchScreenXPath` requests
+under `search:<moduleUuid>` with the `search` profile and only the
+`commcaresession` secondary instance. It is needed because a user-authored
+`matches-pattern` runs ONLY in the worker (the JDK `Pattern` runtime is
+worker-only; the synchronous JavaRosa function table returns `unsupported` for
+a user pattern). `engine/searchInputConstraints.ts` is the split:
+`searchInputConstraintErrors` is synchronous and leaves a pattern-bearing
+constraint unjudged (the server action does the same, so the sync path never
+guesses), and `searchInputConstraintErrorsOnDevice` awaits the worker for those
+constraints through the `evaluateOnDevice` callback `CaseListScreen` supplies.
+Both judge `required.when` and `validation.rule` with the sibling answers
+bound, blank for the unanswered, exactly as Core does.
+
 The device-casedb readiness gate is committed in a layout effect. Descendant
 form activation runs in passive effects, so the gate still arrives first, but
 an interrupted or discarded render can never mutate the long-lived controller

@@ -24,7 +24,9 @@
  *     priorities — exercises `<sort>` order/direction/type emission (the
  *     silently-tolerated category) across the multi-key path.
  *   - **Optional `caseSearchConfig`** with a mix of simple-arm and advanced-arm
- *     search inputs spanning all five `SearchInputType` widget kinds, an
+ *     search inputs spanning the lookup-free `SearchInputType` widget kinds
+ *     (each optionally carrying a hint, a required condition, and a check)
+ *     plus hidden system values, an
  *     optional filter, and the `defaultSearch` shape (filter present, zero
  *     inputs) — exercises `<remote-request>` / `<query>` / `<prompt>` /
  *     instance accumulation / `<stack>` rewind.
@@ -59,6 +61,7 @@ import {
 	dateColumn,
 	type Field,
 	type Form,
+	hiddenSearchInputDef,
 	idMappingColumn,
 	idMappingEntry,
 	imageMapColumn,
@@ -84,8 +87,13 @@ import {
 	concat,
 	eq,
 	input,
+	isBlank,
 	literal,
+	matchesPattern,
+	now,
+	type Predicate,
 	prop,
+	sessionContext,
 	sessionUser,
 	term,
 	whenInput,
@@ -296,9 +304,42 @@ function lowerColumn(
  * `searchInputRefUsesWhenInputPresent` rule requires the envelope).
  */
 type SearchInputGenSpec =
-	| { arm: "simple"; type: SearchInputType; property: string }
-	| { arm: "simple-startswith"; property: string }
-	| { arm: "advanced" };
+	| {
+			arm: "simple";
+			type: SearchInputType;
+			property: string;
+			prompt: PromptSlotsSpec;
+	  }
+	| { arm: "simple-startswith"; property: string; prompt: PromptSlotsSpec }
+	| { arm: "advanced"; prompt: PromptSlotsSpec }
+	| { arm: "hidden"; value: "now" | "username" };
+
+/**
+ * The Search-screen slots a visible prompt may carry beside its match:
+ * helper text, a required condition (always, gated on a sibling being
+ * unanswered, or gated on a session value) with or without an authored
+ * message, and one check. Each is independent so the fuzz meets every
+ * combination of `<hint>`, `<required>`, and `<validation>` children,
+ * including the composed validation when the CSQL quote guard also fires.
+ */
+interface PromptSlotsSpec {
+	readonly hint: boolean;
+	readonly required: "none" | "always" | "sibling" | "session";
+	readonly requiredMessage: boolean;
+	readonly validation: boolean;
+}
+
+const promptSlotsSpecArb: fc.Arbitrary<PromptSlotsSpec> = fc.record({
+	hint: fc.boolean(),
+	required: fc.constantFrom<PromptSlotsSpec["required"]>(
+		"none",
+		"always",
+		"sibling",
+		"session",
+	),
+	requiredMessage: fc.boolean(),
+	validation: fc.boolean(),
+});
 
 /**
  * Generate one search-input spec. The simple arm spans every `SearchInputType`
@@ -309,48 +350,102 @@ type SearchInputGenSpec =
  * predicate path with an `input(...)` reference.
  */
 const searchInputSpecArb: fc.Arbitrary<SearchInputGenSpec> = fc.oneof(
-	fc.constantFrom(...TEXT_PROPS).map(
-		(property): SearchInputGenSpec => ({
+	fc.tuple(fc.constantFrom(...TEXT_PROPS), promptSlotsSpecArb).map(
+		([property, prompt]): SearchInputGenSpec => ({
 			arm: "simple",
 			type: "text",
 			property,
+			prompt,
 		}),
 	),
-	// The `select` widget type is intentionally absent: the validator's
-	// `searchInputSelectWidgetNotSupported` rule rejects it because Nova's wire
-	// `<prompt>` has no `<itemset>` slot, so CCHQ-core's `QueryPrompt.isSelect()`
-	// would fall back to a text input. A `select`-typed search input is not a
-	// schema-valid shape today; generating one would only trip the generator's
-	// own validity guard, not exercise the suite emitter.
-	fc.constantFrom(...DATE_PROPS).map(
-		(property): SearchInputGenSpec => ({
+	// The `select` / `multi-select` widget types are intentionally absent:
+	// their choices come from a Project lookup table, and the fuzz compiles
+	// under `LOOKUP_CONTEXT_UNAVAILABLE`, so a lookup carrier would trip the
+	// generator's own validity guard rather than exercise the emitter. The
+	// `<itemset>` partial is pinned by `searchPrompts.test.ts` and
+	// `caseSearch.integration.test.ts` with explicit lookup naming.
+	fc.tuple(fc.constantFrom(...DATE_PROPS), promptSlotsSpecArb).map(
+		([property, prompt]): SearchInputGenSpec => ({
 			arm: "simple",
 			type: "date",
 			property,
+			prompt,
 		}),
 	),
-	fc.constantFrom(...DATE_PROPS).map(
-		(property): SearchInputGenSpec => ({
+	fc.tuple(fc.constantFrom(...DATE_PROPS), promptSlotsSpecArb).map(
+		([property, prompt]): SearchInputGenSpec => ({
 			arm: "simple",
 			type: "date-range",
 			property,
+			prompt,
 		}),
 	),
-	fc.constantFrom(...TEXT_PROPS).map(
-		(property): SearchInputGenSpec => ({
+	fc.tuple(fc.constantFrom(...TEXT_PROPS), promptSlotsSpecArb).map(
+		([property, prompt]): SearchInputGenSpec => ({
 			arm: "simple",
 			type: "barcode",
 			property,
+			prompt,
 		}),
 	),
-	fc.constantFrom(...TEXT_PROPS).map(
-		(property): SearchInputGenSpec => ({
+	fc.tuple(fc.constantFrom(...TEXT_PROPS), promptSlotsSpecArb).map(
+		([property, prompt]): SearchInputGenSpec => ({
 			arm: "simple-startswith",
 			property,
+			prompt,
 		}),
 	),
-	fc.constant<SearchInputGenSpec>({ arm: "advanced" }),
+	promptSlotsSpecArb.map(
+		(prompt): SearchInputGenSpec => ({ arm: "advanced", prompt }),
+	),
+	// A hidden system value: `now()` (a search time) or the worker's
+	// username. Never shown, never a filter; `hidden="true"` + `default` +
+	// `exclude="true()"` on the wire.
+	fc
+		.constantFrom<"now" | "username">("now", "username")
+		.map((value): SearchInputGenSpec => ({ arm: "hidden", value })),
 );
+
+/**
+ * Lower a prompt's Search-screen slots. `sibling` is another input of the
+ * same module (any arm; the search-input instance carries every prompt's
+ * value on that screen, a hidden one included), or absent when the input
+ * stands alone, in which case the sibling-gated requirement falls back to
+ * an unconditional one. The check is a `matches-pattern` over the input's
+ * own answer: the one leaf admitted only on this screen, so the fuzz
+ * proves its `regex()` lowering on every visible widget kind.
+ */
+function lowerPromptSlots(
+	spec: PromptSlotsSpec,
+	self: Uuid,
+	sibling: Uuid | undefined,
+): {
+	hint?: string;
+	required?: { when?: Predicate; message?: string };
+	validation?: { rule: Predicate; message: string };
+} {
+	const out: ReturnType<typeof lowerPromptSlots> = {};
+	if (spec.hint) out.hint = "Helper text for this field";
+	if (spec.required !== "none") {
+		const required: { when?: Predicate; message?: string } = {};
+		if (spec.required === "sibling" && sibling !== undefined) {
+			required.when = isBlank(input(sibling));
+		} else if (spec.required === "session") {
+			required.when = eq(sessionUser("is_supervisor"), literal("n"));
+		}
+		if (spec.requiredMessage) {
+			required.message = "Fill this in before searching.";
+		}
+		out.required = required;
+	}
+	if (spec.validation) {
+		out.validation = {
+			rule: matchesPattern(input(self), "^[A-Za-z0-9 -]*$"),
+			message: "Letters, digits, spaces, and dashes only.",
+		};
+	}
+	return out;
+}
 
 /**
  * Lower a search-input spec to a `SearchInputDef`, minting its uuid. Simple-arm
@@ -363,12 +458,12 @@ const searchInputSpecArb: fc.Arbitrary<SearchInputGenSpec> = fc.oneof(
  * simple-arm specs by property so two prompt keys never collide.
  */
 function lowerSearchInput(
-	minter: IdMinter,
+	uuid: Uuid,
 	spec: SearchInputGenSpec,
 	index: number,
 	caseType: string,
+	sibling: Uuid | undefined,
 ): SearchInputDef {
-	const uuid = minter.uuid("si");
 	switch (spec.arm) {
 		case "simple":
 			// Prompt key === targeted property: the only simple-arm shape `range`
@@ -380,6 +475,7 @@ function lowerSearchInput(
 				spec.property,
 				spec.type,
 				spec.property,
+				lowerPromptSlots(spec.prompt, uuid, sibling),
 			);
 		case "simple-startswith":
 			// `starts-with` is a text-only mode that routes through `_xpath_query`
@@ -392,8 +488,20 @@ function lowerSearchInput(
 				spec.property,
 				"text",
 				spec.property,
-				{ mode: startsWithMode() },
+				{
+					mode: startsWithMode(),
+					...lowerPromptSlots(spec.prompt, uuid, sibling),
+				},
 			);
+		case "hidden": {
+			const name = `hidden_${index}`;
+			return hiddenSearchInputDef(
+				uuid,
+				name,
+				name,
+				spec.value === "now" ? now() : term(sessionContext("username")),
+			);
+		}
 		case "advanced": {
 			// A `when-input-present`-wrapped equality against a text property: the
 			// canonical advanced shape the validator accepts (the bare `input(...)`
@@ -413,6 +521,7 @@ function lowerSearchInput(
 					input(uuid),
 					eq(term(prop(caseType, "full_name")), term(input(uuid))),
 				),
+				lowerPromptSlots(spec.prompt, uuid, sibling),
 			);
 		}
 	}
@@ -602,12 +711,27 @@ function lowerToDoc(spec: DocGenSpec): BlueprintDoc {
 		const searchInputs: SearchInputDef[] = [];
 		if (modSpec.searchConfig.present && !modSpec.searchConfig.defaultSearch) {
 			const seenProperties = new Set<string>();
+			const kept: Array<{ spec: SearchInputGenSpec; index: number }> = [];
 			modSpec.searchConfig.inputs.forEach((si, i) => {
 				if (si.arm === "simple" || si.arm === "simple-startswith") {
 					if (seenProperties.has(si.property)) return;
 					seenProperties.add(si.property);
 				}
-				searchInputs.push(lowerSearchInput(minter, si, i, caseTypeName));
+				kept.push({ spec: si, index: i });
+			});
+			// Mint every uuid first so a sibling-gated requirement can name
+			// the input before it in the same module.
+			const uuids = kept.map(() => minter.uuid("si"));
+			kept.forEach(({ spec: si, index }, position) => {
+				searchInputs.push(
+					lowerSearchInput(
+						uuids[position] as Uuid,
+						si,
+						index,
+						caseTypeName,
+						position > 0 ? uuids[position - 1] : undefined,
+					),
+				);
 			});
 		}
 

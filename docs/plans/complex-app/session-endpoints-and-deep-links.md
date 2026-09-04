@@ -37,6 +37,12 @@ cluster.
 
 ## Binding facts
 
+- Nova never emits an endpoint for a
+  [no-matches registration form](search-before-register.md) and never offers
+  `respect_relevancy=false` toward one: that form is reachable only through the
+  Register action after a completed empty search, and a link that replays it
+  without the search-input instance would open it with every carried answer
+  blank.
 - HQ's authoring fields are `ModuleBase.session_endpoint_id`,
   `ModuleBase.case_list_session_endpoint_id`, `FormBase.session_endpoint_id`,
   `FormBase.respect_relevancy` (default True), and

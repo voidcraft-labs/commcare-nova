@@ -53,6 +53,8 @@ import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import {
 	advancedSearchInputDef,
 	type CaseListConfig,
+	hiddenSearchInputDef,
+	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	type SearchInputDef,
 	type SearchInputType,
 	simpleSearchInputDef,
@@ -69,9 +71,13 @@ import {
 	eq,
 	gt,
 	input,
+	isBlank,
 	literal,
+	matchesPattern,
+	now,
 	prop,
 	relationStep,
+	sessionUser,
 	subcasePath,
 	tableColumn,
 	tableLookup,
@@ -81,6 +87,7 @@ import {
 	within,
 } from "@/lib/domain/predicate/builders";
 import {
+	buildSearchPrompts,
 	emitSearchPrompts,
 	getAdvancedArmPredicates,
 	RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE,
@@ -1066,5 +1073,427 @@ describe("emitSearchPrompts — golden-file vs CCHQ remote_request.xml", () => {
 			"search_property.m0.full_name": "Name",
 			"search_property.m0.dob": "Date of birth",
 		});
+	});
+});
+
+// ============================================================
+// Prompt children — one `it` per CCHQ partial
+// ============================================================
+//
+// Each test pins the exact bytes CCHQ's own suite emitter produces for
+// one prompt feature, taken from the inline partials in
+// `commcare-hq/corehq/apps/app_manager/tests/test_suite_remote_request.py`
+// (`test_prompt_hint`, `test_prompt_hidden`, `test_prompt_itemset`,
+// `test_prompt_default_value`, `test_exclude_from_search`,
+// `test_required`, `test_case_search_validation_conditions`). Nova's
+// authored shapes differ from HQ's (a hidden input is one arm rather
+// than a flag, a choice list is a lookup table), so each test states
+// the Nova input that lowers to that partial.
+
+describe("emitSearchPrompts — CCHQ prompt children partials", () => {
+	/** The serializer escapes `'` and `"` inside a double-quoted attribute. */
+	const attr = (xpath: string) =>
+		xpath.replaceAll("'", "&apos;").replaceAll('"', "&quot;");
+	const SESSION_INSTANCE = "instance('commcaresession')/session";
+	const INPUT_FIELD = (name: string) =>
+		`instance('search-input:results')/input/field[@name='${name}']`;
+
+	it("test_prompt_hint: nests <hint> inside <display> after the label", () => {
+		const { xml, strings } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"full_name",
+					"Name",
+					"text",
+					"full_name",
+					{
+						hint: "First and last name",
+					},
+				),
+			],
+			MODULE_ID,
+		);
+
+		expect(xml).toBe(
+			`<prompt key="full_name">` +
+				`<display>` +
+				`<text><locale id="search_property.m0.full_name"/></text>` +
+				`<hint><text><locale id="search_property.m0.full_name.hint"/></text></hint>` +
+				`</display>` +
+				`</prompt>`,
+		);
+		expect(strings).toEqual({
+			"search_property.m0.full_name": "Name",
+			"search_property.m0.full_name.hint": "First and last name",
+		});
+	});
+
+	it('test_prompt_hidden: a hidden input is hidden="true" with its value in @default and exclude', () => {
+		// HQ's partial is `<prompt key="name" hidden="true">` with a display
+		// only; Nova's hidden arm always carries a value, so `@default` and
+		// `exclude="true()"` (the `test_prompt_default_value` and
+		// `test_exclude_from_search` partials) ride on the same prompt. The
+		// attribute order is `QueryPrompt`'s declaration order.
+		const { xml, strings } = emitSearchPrompts(
+			[
+				hiddenSearchInputDef(
+					INPUT_UUIDS.a,
+					"search_time",
+					"Search time",
+					now(),
+				),
+			],
+			MODULE_ID,
+		);
+
+		expect(xml).toBe(
+			`<prompt key="search_time" hidden="true" default="now()" exclude="true()">` +
+				`<display><text><locale id="search_property.m0.search_time"/></text></display>` +
+				`</prompt>`,
+		);
+		expect(strings).toEqual({
+			"search_property.m0.search_time": "Search time",
+		});
+	});
+
+	it("test_prompt_default_value: a visible seed is the @default attribute, not a child", () => {
+		const { xml } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"full_name",
+					"Name",
+					"text",
+					"full_name",
+					{
+						default: term(literal("foo")),
+					},
+				),
+			],
+			MODULE_ID,
+		);
+
+		expect(xml).toBe(
+			`<prompt key="full_name" default="${attr("'foo'")}">` +
+				`<display><text><locale id="search_property.m0.full_name"/></text></display>` +
+				`</prompt>`,
+		);
+	});
+
+	it('test_prompt_itemset: a lookup-backed select is input="select1" with an <itemset> over the item-list fixture', () => {
+		const { elements, instances } = buildSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"region",
+					"Region",
+					"select",
+					"region",
+					{
+						options: {
+							kind: "lookup",
+							tableId: LOOKUP_TABLE,
+							valueColumnId: LOOKUP_VALUE,
+							labelColumnId: LOOKUP_NAME,
+						},
+					},
+				),
+			],
+			MODULE_ID,
+			undefined,
+			{},
+			LOOKUP_NAMING,
+		);
+		const { xml } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"region",
+					"Region",
+					"select",
+					"region",
+					{
+						options: {
+							kind: "lookup",
+							tableId: LOOKUP_TABLE,
+							valueColumnId: LOOKUP_VALUE,
+							labelColumnId: LOOKUP_NAME,
+						},
+					},
+				),
+			],
+			MODULE_ID,
+			undefined,
+			{},
+			LOOKUP_NAMING,
+		);
+
+		expect(elements).toHaveLength(1);
+		expect(xml).toBe(
+			`<prompt key="region" input="select1">` +
+				`<display><text><locale id="search_property.m0.region"/></text></display>` +
+				`<itemset nodeset="${attr("instance('item-list:regions')/regions_list/regions")}">` +
+				`<label ref="name"/>` +
+				`<value ref="value"/>` +
+				`</itemset>` +
+				`</prompt>`,
+		);
+		// The fixture instance is accumulated for the remote-request's
+		// `<instance id="item-list:regions" src="jr://fixture/item-list:regions"/>`.
+		expect([...instances]).toEqual(["item-list:regions"]);
+	});
+
+	it("test_prompt_itemset: a row filter narrows the itemset nodeset in row scope", () => {
+		const { xml } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"region",
+					"Region",
+					"select",
+					"region",
+					{
+						options: {
+							kind: "lookup",
+							tableId: LOOKUP_TABLE,
+							valueColumnId: LOOKUP_VALUE,
+							labelColumnId: LOOKUP_NAME,
+							filter: eq(
+								tableColumn(LOOKUP_TABLE, LOOKUP_NAME),
+								literal("Uttar Pradesh"),
+							),
+						},
+					},
+				),
+			],
+			MODULE_ID,
+			undefined,
+			{},
+			LOOKUP_NAMING,
+		);
+
+		expect(xml).toContain(
+			`<itemset nodeset="${attr("instance('item-list:regions')/regions_list/regions[name = 'Uttar Pradesh']")}">`,
+		);
+	});
+
+	it('multi-select lowers to input="select" with the same itemset', () => {
+		const { xml } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"region",
+					"Regions",
+					"multi-select",
+					"region",
+					{
+						options: {
+							kind: "lookup",
+							tableId: LOOKUP_TABLE,
+							valueColumnId: LOOKUP_VALUE,
+							labelColumnId: LOOKUP_NAME,
+						},
+					},
+				),
+			],
+			MODULE_ID,
+			undefined,
+			{},
+			LOOKUP_NAMING,
+		);
+
+		expect(xml).toMatch(/^<prompt key="region" input="select">/);
+		expect(xml).toContain(
+			`<itemset nodeset="${attr("instance('item-list:regions')/regions_list/regions")}">`,
+		);
+	});
+
+	it('test_required: an always-required input carries <required test="true()"> with Nova\'s default message', () => {
+		const { xml, strings } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"full_name",
+					"Name",
+					"text",
+					"full_name",
+					{
+						required: {},
+					},
+				),
+			],
+			MODULE_ID,
+		);
+
+		expect(xml).toBe(
+			`<prompt key="full_name">` +
+				`<display><text><locale id="search_property.m0.full_name"/></text></display>` +
+				`<required test="true()">` +
+				`<text><locale id="search_property.m0.full_name.required.text"/></text>` +
+				`</required>` +
+				`</prompt>`,
+		);
+		expect(strings["search_property.m0.full_name.required.text"]).toBe(
+			SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+		);
+	});
+
+	it("test_required: a conditional requirement lowers its predicate against the session and carries the authored message", () => {
+		// HQ's partial: `<required test="instance('commcaresession')/session/user/data/is_supervisor = 'n'">`.
+		const { xml, strings } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"full_name",
+					"Name",
+					"text",
+					"full_name",
+					{
+						required: {
+							when: eq(sessionUser("is_supervisor"), literal("n")),
+							message: "Supervisors may search without a name.",
+						},
+					},
+				),
+			],
+			MODULE_ID,
+		);
+
+		expect(xml).toContain(
+			`<required test="${attr(`${SESSION_INSTANCE}/user/data/is_supervisor = 'n'`)}">` +
+				`<text><locale id="search_property.m0.full_name.required.text"/></text>` +
+				`</required>`,
+		);
+		expect(strings["search_property.m0.full_name.required.text"]).toBe(
+			"Supervisors may search without a name.",
+		);
+	});
+
+	it("test_required: a sibling-answered condition prints the sibling's search-input field", () => {
+		const { xml } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"full_name",
+					"Name",
+					"text",
+					"full_name",
+					{
+						required: {
+							when: isBlank(input(INPUT_UUIDS.b)),
+						},
+					},
+				),
+				simpleSearchInputDef(
+					INPUT_UUIDS.b,
+					"dob",
+					"Date of birth",
+					"date",
+					"dob",
+				),
+			],
+			MODULE_ID,
+		);
+
+		expect(xml).toContain(
+			`<required test="${attr(`${INPUT_FIELD("dob")} = ''`)}">`,
+		);
+	});
+
+	it("test_case_search_validation_conditions: the authored rule is the single <validation> with its message", () => {
+		// HQ's partial: `<validation test="contains(instance('search-input:results')/input/field[@name='email'], '@')">`.
+		const { xml, strings } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(INPUT_UUIDS.a, "email", "Email", "text", "email", {
+					validation: {
+						rule: matchesPattern(input(INPUT_UUIDS.a), "@"),
+						message: "Enter an email address.",
+					},
+				}),
+			],
+			MODULE_ID,
+		);
+
+		expect(xml).toBe(
+			`<prompt key="email">` +
+				`<display><text><locale id="search_property.m0.email"/></text></display>` +
+				`<validation test="${attr(`regex(${INPUT_FIELD("email")}, '@')`)}">` +
+				`<text><locale id="search_property.m0.email.validation.0.text"/></text>` +
+				`</validation>` +
+				`</prompt>`,
+		);
+		expect(strings["search_property.m0.email.validation.0.text"]).toBe(
+			"Enter an email address.",
+		);
+	});
+
+	it("composes the authored rule and the CSQL guard into Core's one <validation> slot", () => {
+		// Core keeps only the last `<validation>` it parses, so the
+		// authored check and the compiler's quote guard share one element:
+		// each test parenthesized and ANDed, the messages joined by a space.
+		const guard = {
+			test: `not(contains(${INPUT_FIELD("email")}, "'"))`,
+			message: RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE,
+			messageKey: "quote",
+		};
+		const { xml, strings } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(INPUT_UUIDS.a, "email", "Email", "text", "email", {
+					validation: {
+						rule: matchesPattern(input(INPUT_UUIDS.a), "@"),
+						message: "Enter an email address.",
+					},
+				}),
+			],
+			MODULE_ID,
+			new Map([["email", guard]]),
+		);
+
+		expect(xml).toContain(
+			`<validation test="${attr(`(regex(${INPUT_FIELD("email")}, '@')) and (${guard.test})`)}">`,
+		);
+		expect(xml.match(/<validation /g)).toHaveLength(1);
+		expect(strings["search_property.m0.email.validation.0.text"]).toBe(
+			`Enter an email address. ${RUNTIME_CSQL_QUOTE_VALIDATION_MESSAGE}`,
+		);
+	});
+
+	it("orders the children display, itemset, required, validation", () => {
+		const { xml } = emitSearchPrompts(
+			[
+				simpleSearchInputDef(
+					INPUT_UUIDS.a,
+					"region",
+					"Region",
+					"select",
+					"region",
+					{
+						hint: "Where the client lives",
+						required: {},
+						validation: {
+							rule: matchesPattern(input(INPUT_UUIDS.a), "^[a-z]+$"),
+							message: "Pick a region.",
+						},
+						options: {
+							kind: "lookup",
+							tableId: LOOKUP_TABLE,
+							valueColumnId: LOOKUP_VALUE,
+							labelColumnId: LOOKUP_NAME,
+						},
+					},
+				),
+			],
+			MODULE_ID,
+			undefined,
+			{},
+			LOOKUP_NAMING,
+		);
+
+		const order = ["<display>", "<itemset ", "<required ", "<validation "].map(
+			(marker) => xml.indexOf(marker),
+		);
+		expect(order.every((index) => index >= 0)).toBe(true);
+		expect(order).toEqual([...order].sort((a, b) => a - b));
 	});
 });
