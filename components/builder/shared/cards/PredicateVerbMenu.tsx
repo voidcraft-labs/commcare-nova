@@ -88,13 +88,15 @@ import {
 	useResolvedType,
 } from "../editorContext";
 import {
-	PATTERN_MATCH_UNAVAILABLE_REASON,
 	type PredicateEditContext,
-	patternMatchingInScope,
 	predicateCardSchemas,
 	predicateUnavailableReason,
 } from "../editorSchemas";
 import { MATCH_MODE_VOCABULARY } from "../matchModeVocabulary";
+import {
+	PATTERN_MATCH_UNAVAILABLE_REASON,
+	patternMatchingInScope,
+} from "../patternMatchingScope";
 import { useRuleFocusContext } from "../RuleFocusContext";
 import {
 	PredicateTransitionAlert,

@@ -96,6 +96,10 @@ import type {
 	EditorLookupTableDecl,
 	EditorLookupTableScope,
 } from "./lookupTablePresentation";
+import {
+	PATTERN_MATCH_UNAVAILABLE_REASON,
+	patternMatchingInScope,
+} from "./patternMatchingScope";
 import { hasRelatedCaseType } from "./relationSeed";
 import type { EditorSearchInputDecl } from "./searchInputPresentation";
 
@@ -248,18 +252,6 @@ export function caseDataInScope(ctx: PredicateEditContext): boolean {
 export function tableRowInScope(ctx: PredicateEditContext): boolean {
 	return ctx.caseDataScope === "table-row";
 }
-
-/** Whether a pattern match can run in this slot: only where the device's
- *  Pattern engine evaluates the rule. */
-export function patternMatchingInScope(ctx: PredicateEditContext): boolean {
-	return ctx.patternMatching === true;
-}
-
-/** Why a pattern match is withheld everywhere else. Shared by the verb
- *  menu's disabled state and the add-condition menu so both surfaces say
- *  the same thing. */
-export const PATTERN_MATCH_UNAVAILABLE_REASON =
-	"Only available in a Search field's required condition or check, which run on the device";
 
 /** Whether a never-matching rule is meaningful in this slot. */
 export function neverMatchInScope(ctx: PredicateEditContext): boolean {
