@@ -132,6 +132,13 @@ interface SearchInputFormProps {
 	/** Session-backed values used by computed search expressions in the exact
 	 * exported runtime validation condition. */
 	readonly session?: PreviewSearchSessionValues;
+	/**
+	 * Runs one emitted on-device XPath where a Java Pattern engine is
+	 * available (the running app hands it the Search screen's XPath worker).
+	 * It judges a pattern-bearing required condition or check; without it
+	 * such a constraint is left unjudged, as the server leaves it.
+	 */
+	readonly evaluateOnDevice?: (source: string) => Promise<boolean>;
 	/** Full schema context keeps date/datetime expression emission identical to
 	 * the compiler when the search predicate crosses case relations. */
 	readonly typeContext?: TypeContext;
@@ -169,6 +176,7 @@ export function SearchInputForm({
 	filter,
 	caseType,
 	session,
+	evaluateOnDevice,
 	typeContext,
 	lookupData,
 	value,
@@ -201,21 +209,32 @@ export function SearchInputForm({
 	const validateSubmission = useCallback(
 		async (candidate: SearchInputValues) => {
 			const request = ++validationRequestRef.current;
-			const { searchInputSubmissionErrors } = await loadSearchInputValidation();
-			const errors = searchInputSubmissionErrors(
-				{
-					columns: [],
-					listColumnOrder: [],
-					detailColumnOrder: [],
-					searchInputs: [...searchInputs],
-					...(filter !== undefined ? { filter } : {}),
-				},
-				caseType?.name,
-				candidate,
-				session,
-				typeContext,
-				{ lookupData },
-			);
+			const validation = await loadSearchInputValidation();
+			const caseListConfig = {
+				columns: [],
+				listColumnOrder: [],
+				detailColumnOrder: [],
+				searchInputs: [...searchInputs],
+				...(filter !== undefined ? { filter } : {}),
+			};
+			const errors =
+				evaluateOnDevice === undefined
+					? validation.searchInputSubmissionErrors(
+							caseListConfig,
+							caseType?.name,
+							candidate,
+							session,
+							typeContext,
+							{ lookupData },
+						)
+					: await validation.searchInputSubmissionErrorsOnDevice(
+							caseListConfig,
+							caseType?.name,
+							candidate,
+							session,
+							typeContext,
+							{ lookupData, evaluateOnDevice },
+						);
 			if (request !== validationRequestRef.current) return undefined;
 			lastValidatedDraftRef.current = candidate;
 			setValidationState({
@@ -227,6 +246,7 @@ export function SearchInputForm({
 		},
 		[
 			caseType?.name,
+			evaluateOnDevice,
 			filter,
 			lookupData,
 			scopeKey,

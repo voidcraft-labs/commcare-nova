@@ -366,6 +366,7 @@ function visitPredicate(
 			// No input refs reachable.
 			return;
 		case "is-blank":
+		case "matches-pattern":
 			visitExpression(predicate.left, joinPath(path, "left"), gated, mode, out);
 			return;
 		case "between":

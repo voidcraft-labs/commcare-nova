@@ -155,6 +155,14 @@ export type TypeContext = {
 		readonly tableId: LookupTableId;
 		readonly columns: ReadonlyMap<LookupColumnId, CasePropertyDataType>;
 	};
+	/**
+	 * Whether this slot runs on the device's Java `Pattern` engine, the one
+	 * place `matches-pattern` (JavaRosa `regex()`) can execute. Absent means
+	 * no: the strict default, so a slot that forgets to say so cannot offer
+	 * a leaf its wire cannot lower. Only a Search prompt's required condition
+	 * and check set it.
+	 */
+	patternMatching?: true;
 };
 
 /**
@@ -224,6 +232,7 @@ export type CheckErrorCode =
 	| "match-value-empty"
 	| "multi-select-property"
 	| "runtime-value"
+	| "pattern-match-unavailable"
 	| "range-order"
 	| "relation-origin"
 	| "relation-self"
@@ -490,6 +499,9 @@ function walk(
 			// value itself; "is the literal 5 absent" / "is the literal
 			// 5 blank" is ill-formed, not a runtime question.
 			checkAbsenceOperator(p, ctx, errors, path);
+			return;
+		case "matches-pattern":
+			checkPatternMatch(p, ctx, errors, path);
 			return;
 		case "between":
 			checkBetween(p, ctx, errors, path);
@@ -1020,6 +1032,37 @@ function checkAbsenceOperator(
 			path: [...path, "left"],
 			code: "runtime-value",
 			message: `Operator '${p.kind}' cannot be applied to a literal, a literal is the value itself, not a runtime read whose presence is in question. Use a property / input / session reference in 'left'.`,
+		});
+		return;
+	}
+	checkExpression(p.left, ctx, errors, [...path, "left"]);
+}
+
+/**
+ * `matches-pattern` rules. The slot must run on the device's Pattern engine
+ * (`ctx.patternMatching`), and `left` follows the absence operator's shape
+ * rule: any runtime read is a text to test, a literal is not a question.
+ * The pattern's Java syntax is not checked here; the schema pins it nonblank.
+ */
+function checkPatternMatch(
+	p: Extract<Predicate, { kind: "matches-pattern" }>,
+	ctx: TypeContext,
+	errors: CheckError[],
+	path: CheckPath,
+): void {
+	if (ctx.patternMatching !== true) {
+		errors.push({
+			path,
+			code: "pattern-match-unavailable",
+			message:
+				"Operator 'matches-pattern' can only run where the device evaluates the rule with its Java Pattern engine: a Search field's required condition or check. This setting is evaluated elsewhere (the server's search language, the case store, or a device surface without a pattern engine), so use a comparison or a text match instead.",
+		});
+	}
+	if (p.left.kind === "term" && p.left.term.kind === "literal") {
+		errors.push({
+			path: [...path, "left"],
+			code: "runtime-value",
+			message: `Operator '${p.kind}' cannot be applied to a literal, a literal is the value itself, not a runtime read to test against a pattern. Use a property / input / session reference in 'left'.`,
 		});
 		return;
 	}

@@ -1166,6 +1166,7 @@ function RequiredSlot({
 				const when = firstComparisonDefault({
 					...summaryContextToEditContext(summaryContext),
 					caseDataScope: "global",
+					patternMatching: true,
 				});
 				onChange({
 					...(value?.message === undefined ? {} : { message: value.message }),
@@ -1317,6 +1318,7 @@ function CheckSlot({
 							rule: firstComparisonDefault({
 								...summaryContextToEditContext(summaryContext),
 								caseDataScope: "global",
+								patternMatching: true,
 							}),
 							message: SEARCH_INPUT_CHECK_SEED_MESSAGE,
 						});
@@ -1382,10 +1384,11 @@ function CheckSlot({
 }
 
 /** The seed context for a Search-screen condition: every named sibling is
- *  readable, case data is not (nothing has been selected yet). */
+ *  readable, case data is not (nothing has been selected yet). The caller
+ *  adds the scope and, for the device-evaluated slots, pattern matching. */
 function summaryContextToEditContext(
 	context: PredicateSummaryContext,
-): Omit<PredicateEditContext, "caseDataScope"> {
+): Omit<PredicateEditContext, "caseDataScope" | "patternMatching"> {
 	return {
 		caseTypes: context.caseTypes ?? [],
 		currentCaseType: context.currentCaseType ?? "",

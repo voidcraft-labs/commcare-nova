@@ -28,6 +28,7 @@ import {
 	literal,
 	match,
 	matchAll,
+	matchesPattern,
 	matchNone,
 	missing,
 	multiSelectAny,
@@ -491,6 +492,13 @@ describe("checkCsqlRepresentability", () => {
 			name: "self related-case envelope",
 			predicate: exists(selfPath(), eq(field("status"), literal("active"))),
 			reason: "self-relation-not-queryable",
+		},
+		{
+			// CommCare's server-side search language registers no regex
+			// function (`case_search/xpath_functions/__init__.py`).
+			name: "pattern match, which only the device's Pattern engine runs",
+			predicate: matchesPattern(field("name"), "^[A-Z]"),
+			reason: "pattern-match-not-csql",
 		},
 	] as const)("rejects $name", ({ predicate, reason }) => {
 		expect(checkCsqlRepresentability(predicate)).toEqual(

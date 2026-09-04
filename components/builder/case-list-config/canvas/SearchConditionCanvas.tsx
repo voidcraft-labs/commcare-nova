@@ -67,6 +67,8 @@ interface CanvasCopy {
 	readonly sectionTitle: string;
 	readonly evaluationTarget: "case-search" | "on-device";
 	readonly caseDataScope: CaseDataScope;
+	/** Set for the two slots the device evaluates with its Pattern engine. */
+	readonly patternMatching?: true;
 }
 
 /** Every word and scope axis the canvas shows, derived from the context alone
@@ -101,6 +103,7 @@ export function searchConditionCanvasCopy(
 				sectionTitle: "An answer is required when",
 				evaluationTarget: "on-device",
 				caseDataScope: "global",
+				patternMatching: true,
 			};
 		case "validation":
 			return {
@@ -110,6 +113,7 @@ export function searchConditionCanvasCopy(
 				sectionTitle: "The answer passes when",
 				evaluationTarget: "on-device",
 				caseDataScope: "global",
+				patternMatching: true,
 			};
 	}
 }
@@ -191,6 +195,7 @@ export function SearchConditionCanvas({
 					userProperties={userProperties}
 					evaluationTarget={copy.evaluationTarget}
 					caseDataScope={copy.caseDataScope}
+					patternMatching={copy.patternMatching}
 					focusRequest={dependencyReview ?? focusRequest}
 				/>
 			</section>

@@ -260,6 +260,7 @@ function walkPredicateNodes(
 		case "in":
 		case "within-distance":
 		case "is-blank":
+		case "matches-pattern":
 		case "between":
 			return;
 		default: {

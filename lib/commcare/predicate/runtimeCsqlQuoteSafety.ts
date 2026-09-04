@@ -86,6 +86,7 @@ function collectPredicateRuntimeStringInputs(
 			return;
 		case "in":
 		case "is-blank":
+		case "matches-pattern":
 			collectServerOperandRuntimeStringInputs(
 				predicate.left,
 				"comparison-operand",

@@ -213,6 +213,7 @@ export function normalizeRelationPredicateSubjects(
 		case "in":
 		case "between":
 		case "is-blank":
+		case "matches-pattern":
 			return predicate;
 		default: {
 			const _exhaustive: never = predicate;
@@ -251,6 +252,10 @@ function normalizePredicate(
 			return liftBetweenVias(p, context);
 		case "is-blank":
 			return liftAbsenceVias(p, context);
+		case "matches-pattern":
+			// Never reaches a CSQL surface: the type checker admits the leaf only
+			// on the device's query screen, where no via lift applies.
+			return p;
 		case "match":
 			return liftMatchVias(p, context);
 		case "multi-select-contains":

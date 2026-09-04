@@ -58,6 +58,7 @@ function walkServerPredicate(
 			return;
 		case "in":
 		case "is-blank":
+		case "matches-pattern":
 			walkServerOperand(predicate.left, "comparison-operand", visitor);
 			return;
 		case "between":

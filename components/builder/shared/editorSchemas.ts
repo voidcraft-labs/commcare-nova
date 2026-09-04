@@ -35,6 +35,7 @@ import tablerLogicOr from "@iconify-icons/tabler/logic-or";
 import tablerMapPin from "@iconify-icons/tabler/map-pin";
 import tablerMathGreater from "@iconify-icons/tabler/math-greater";
 import tablerMathLower from "@iconify-icons/tabler/math-lower";
+import tablerRegex from "@iconify-icons/tabler/regex";
 import tablerSlash from "@iconify-icons/tabler/slash";
 import tablerTextRecognition from "@iconify-icons/tabler/text-recognition";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
@@ -71,6 +72,10 @@ import {
 	orDefault,
 } from "./cards/LogicalGroupCard";
 import { MatchCard, matchDefault } from "./cards/MatchCard";
+import {
+	MatchesPatternCard,
+	matchesPatternDefault,
+} from "./cards/MatchesPatternCard";
 import {
 	MultiSelectContainsCard,
 	multiSelectContainsDefault,
@@ -217,6 +222,15 @@ export interface PredicateEditContext {
 	 * both runtimes. Its authoring choices must satisfy both oracles.
 	 */
 	readonly evaluationTarget?: EvaluationTarget;
+	/**
+	 * Whether this slot runs on the device's Java `Pattern` engine, the
+	 * one place a pattern match (`matches-pattern`, JavaRosa `regex()`)
+	 * can execute. Absent means no, the strict default, mirroring
+	 * `TypeContext.patternMatching`: a surface that forgets it offers one
+	 * verb fewer, never a verb the gate refuses. Only a Search field's
+	 * required condition and check set it.
+	 */
+	readonly patternMatching?: true;
 }
 
 /** The runtime a rule is evaluated by. See
@@ -234,6 +248,18 @@ export function caseDataInScope(ctx: PredicateEditContext): boolean {
 export function tableRowInScope(ctx: PredicateEditContext): boolean {
 	return ctx.caseDataScope === "table-row";
 }
+
+/** Whether a pattern match can run in this slot: only where the device's
+ *  Pattern engine evaluates the rule. */
+export function patternMatchingInScope(ctx: PredicateEditContext): boolean {
+	return ctx.patternMatching === true;
+}
+
+/** Why a pattern match is withheld everywhere else. Shared by the verb
+ *  menu's disabled state and the add-condition menu so both surfaces say
+ *  the same thing. */
+export const PATTERN_MATCH_UNAVAILABLE_REASON =
+	"Only available in a Search field's required condition or check, which run on the device";
 
 /** Whether a never-matching rule is meaningful in this slot. */
 export function neverMatchInScope(ctx: PredicateEditContext): boolean {
@@ -425,6 +451,9 @@ export function predicateUnavailableReason(
 ): string {
 	if (kind === "match-none" && !neverMatchInScope(ctx)) {
 		return NEVER_MATCH_UNAVAILABLE_REASON;
+	}
+	if (kind === "matches-pattern" && !patternMatchingInScope(ctx)) {
+		return PATTERN_MATCH_UNAVAILABLE_REASON;
 	}
 	if (tableRowInScope(ctx)) {
 		switch (kind) {
@@ -630,6 +659,21 @@ export const predicateCardSchemas: {
 		component: IsBlankCard,
 		defaultValue: isBlankDefault,
 		applicable: hasComparableSubject,
+	},
+
+	// ── Pattern ──────────────────────────────────────────────────────
+	"matches-pattern": {
+		kind: "matches-pattern",
+		label: "Matches a pattern",
+		icon: tablerRegex,
+		description: "Fits a regular expression, checked on the device",
+		component: MatchesPatternCard,
+		defaultValue: matchesPatternDefault,
+		/* Only where the slot runs on the device's Pattern engine. A SAVED
+		 * pattern match still renders and re-emits wherever it sits;
+		 * `applicable` governs the add/replace menus, never round-tripping. */
+		applicable: (ctx) =>
+			patternMatchingInScope(ctx) && hasComparableSubject(ctx),
 	},
 
 	// ── Sentinels ────────────────────────────────────────────────────

@@ -333,6 +333,10 @@ export async function loadCasesAction(args: {
 			}
 		}
 		if (inputValues !== undefined && args.caseListConfig !== undefined) {
+			/* The full pass with the resolved worker. A pattern-bearing required
+			 * condition or check stays unjudged here: the server holds no Java
+			 * Pattern engine, so Preview's Search screen enforces those in its
+			 * XPath worker, the way it alone enforces lookup-bearing ones. */
 			const runtimeErrors = searchInputSubmissionErrors(
 				args.caseListConfig,
 				args.caseType,

@@ -382,6 +382,7 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 			if (p.upper !== undefined) visitExpression(p.upper, gated);
 			return;
 		case "is-blank":
+		case "matches-pattern":
 			visitExpression(p.left, gated);
 			return;
 		case "match":

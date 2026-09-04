@@ -114,6 +114,7 @@ export function simplifyForEmission(predicate: Predicate): Predicate {
 				}),
 			};
 		case "is-blank":
+		case "matches-pattern":
 			return { ...predicate, left: simplifyExpression(predicate.left) };
 		case "match":
 			return { ...predicate, value: simplifyExpression(predicate.value) };

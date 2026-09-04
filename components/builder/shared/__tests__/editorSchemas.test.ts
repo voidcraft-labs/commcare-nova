@@ -122,6 +122,7 @@ describe("predicateCardSchemas — registry exhaustivity", () => {
 				"match",
 				"match-all",
 				"match-none",
+				"matches-pattern",
 				"missing",
 				"multi-select-contains",
 				"neq",

@@ -45,6 +45,7 @@ import {
 	lte,
 	match,
 	matchAll,
+	matchesPattern,
 	matchNone,
 	missing,
 	multiSelectAll,
@@ -379,6 +380,35 @@ describe("emitCaseListFilter — when-input-present", () => {
 		);
 		expect(emitCaseListFilter(p)).toBe(
 			"if(count(instance('search-input:results')/input/field[@name='region']), region = instance('search-input:results')/input/field[@name='region'] and age > 18, true())",
+		);
+	});
+});
+
+describe("emitCaseListFilter — matches-pattern", () => {
+	// JavaRosa `regex(str, re)` is `Pattern.compile(re).matcher(str).find()`
+	// (`commcare-core .../xpath/expr/XPathRegexFunc.java`): the pattern is an
+	// ordinary XPath string literal handed to Java's Pattern, unanchored.
+	it("emits regex(<subject>, '<pattern>') against a search answer", () => {
+		const p = matchesPattern(
+			input(testUuid("phone_query")),
+			"^[0-9]{3}-[0-9]{2}-[0-9]{4}$",
+		);
+		expect(emitCaseListFilter(p)).toBe(
+			"regex(instance('search-input:results')/input/field[@name='phone_query'], '^[0-9]{3}-[0-9]{2}-[0-9]{4}$')",
+		);
+	});
+
+	it("keeps a backslash escape verbatim: the XPath literal is not a Java string", () => {
+		const p = matchesPattern(sessionContext("username"), "^\\w+\\.\\d$");
+		expect(emitCaseListFilter(p)).toBe(
+			"regex(instance('commcaresession')/session/context/username, '^\\w+\\.\\d$')",
+		);
+	});
+
+	it("splits a pattern containing an apostrophe the way every on-device literal splits", () => {
+		const p = matchesPattern(input(testUuid("name_query")), "^[A-Za-z' ]+$");
+		expect(emitCaseListFilter(p)).toBe(
+			"regex(instance('search-input:results')/input/field[@name='name_query'], concat('^[A-Za-z', \"'\", ' ]+$'))",
 		);
 	});
 });

@@ -122,6 +122,7 @@ const SENTENCE_KINDS: ReadonlySet<Predicate["kind"]> = new Set([
 	"multi-select-contains",
 	"within-distance",
 	"is-blank",
+	"matches-pattern",
 	"match-all",
 	"match-none",
 ]);
@@ -272,7 +273,7 @@ function subjectNodes(
 	value: Extract<
 		Predicate,
 		{
-			kind: ComparisonKind | "in" | "between" | "is-blank";
+			kind: ComparisonKind | "in" | "between" | "is-blank" | "matches-pattern";
 		}
 	>["left"],
 ): readonly object[] {
@@ -372,6 +373,10 @@ function preservationGroups(value: Predicate): readonly PreservationGroup[] {
 				{ values: valueNodes(value.center), allLost: "the center point" },
 			];
 		case "is-blank":
+			return [{ values: subjectNodes(value.left), allLost: "the subject" }];
+		case "matches-pattern":
+			// The pattern is typed text, not an AST node another shape could
+			// carry: only the subject can survive a verb change.
 			return [{ values: subjectNodes(value.left), allLost: "the subject" }];
 		case "and":
 		case "or":

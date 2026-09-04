@@ -113,7 +113,7 @@ import {
 	ROOT_ON_DEVICE_CASE_ANCHOR,
 	relationPresenceOrigin,
 } from "./relationPresenceEmitter";
-import { formatNumeric } from "./stringQuoting";
+import { formatNumeric, quoteLiteral } from "./stringQuoting";
 import {
 	clearLookupRowScope,
 	DEFAULT_INSTANCE_ROOT,
@@ -311,6 +311,13 @@ function emitPredicate(
 			return emitWhenInputPresent(p, root, context, anchor, termContext);
 		case "is-blank":
 			return `${emitOnDeviceExpression(p.left, root, context, anchor, termContext)} = ''`;
+		case "matches-pattern":
+			// JavaRosa `regex(value, pattern)` is `Pattern.compile(pattern)
+			// .matcher(value).find()` (`XPathRegexFunc.java`): unanchored, Java
+			// syntax, the value read as text. The pattern is an ordinary XPath
+			// string literal, so a quote inside it takes the `concat()` split
+			// every other on-device literal takes.
+			return `regex(${emitOnDeviceExpression(p.left, root, context, anchor, termContext)}, ${quoteLiteral(p.pattern, "case-list-filter")})`;
 		case "within-distance":
 			return emitOnDeviceWithinDistance(p, root, context, anchor, termContext);
 		default: {

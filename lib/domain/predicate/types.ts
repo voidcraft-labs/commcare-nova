@@ -1570,6 +1570,42 @@ const isBlankSchema = z
 	})
 	.strict();
 
+// ---------- Pattern predicate ----------
+//
+// `matches-pattern` — `left`, read as text, contains a match for a
+// regular expression. It is JavaRosa's `regex(value, pattern)` and nothing
+// else: `commcare-core .../xpath/expr/XPathRegexFunc.java` evaluates
+// `Pattern.compile(re).matcher(str).find()`, so the pattern is Java
+// `Pattern` syntax, the match is UNANCHORED (anchor with `^` / `$` to test
+// the whole answer), and a blank answer is the empty string.
+//
+// The leaf has exactly one home: the slots CommCare's query screen
+// evaluates on the device, a Search prompt's required condition and check
+// (`RemoteQuerySessionManager.validateUserAnswers`). Nothing else lowers it:
+// CommCare's server-side search language has no regex, the case store is
+// PostgreSQL (whose regex dialect is not Java's), and Nova has no second
+// Pattern engine. The type checker refuses the leaf unless its
+// `TypeContext.patternMatching` says the slot runs on the device's Pattern
+// engine, so a filter, calculated value, advanced search condition,
+// display condition, or case operation cannot author one. Preview evaluates
+// the emitted `regex()` with the same pinned OpenJDK `Pattern` the form
+// engine uses (`lib/preview/xpath/javaPatternRuntime.ts`), never a
+// JavaScript `RegExp`.
+//
+// `pattern` is nonblank text. Its Java syntax is not checked here (the
+// schema is structural); the running query screen reports an unparseable
+// pattern when the check first runs, and Preview shows the same failure.
+
+export const PATTERN_MAX_LENGTH = 1000;
+
+const matchesPatternSchema = z
+	.object({
+		kind: z.literal("matches-pattern"),
+		left: z.lazy(() => valueExpressionSchema),
+		pattern: z.string().min(1).max(PATTERN_MAX_LENGTH),
+	})
+	.strict();
+
 // ---------- Range predicate ----------
 //
 // `between` is the structural range predicate — bounded interval on
@@ -1863,6 +1899,7 @@ export type Predicate =
 			unit: DistanceUnit;
 	  }
 	| { kind: "is-blank"; left: ValueExpression }
+	| { kind: "matches-pattern"; left: ValueExpression; pattern: string }
 	| {
 			kind: "between";
 			left: ValueExpression;
@@ -1913,6 +1950,7 @@ export const predicateSchema: z.ZodType<Predicate> = z.discriminatedUnion(
 		matchAllSchema,
 		matchNoneSchema,
 		isBlankSchema,
+		matchesPatternSchema,
 		betweenSchema,
 		andSchema,
 		orSchema,
@@ -2128,6 +2166,10 @@ type _WithinDistanceArm = Omit<
 	"center"
 >;
 type _IsBlankArm = Omit<Extract<Predicate, { kind: "is-blank" }>, "left">;
+type _MatchesPatternArm = Omit<
+	Extract<Predicate, { kind: "matches-pattern" }>,
+	"left"
+>;
 type _BetweenArm = Omit<
 	Extract<Predicate, { kind: "between" }>,
 	"left" | "lower" | "upper"
@@ -2143,6 +2185,10 @@ type _WithinDistanceInferred = Omit<
 	"center"
 >;
 type _IsBlankInferred = Omit<z.infer<typeof isBlankSchema>, "left">;
+type _MatchesPatternInferred = Omit<
+	z.infer<typeof matchesPatternSchema>,
+	"left"
+>;
 type _BetweenInferred = Omit<
 	z.infer<typeof betweenSchema>,
 	"left" | "lower" | "upper"
@@ -2260,6 +2306,7 @@ const _driftGuard: {
 	in: _TypesEqual<_InArm, _InInferred>;
 	withinDistance: _TypesEqual<_WithinDistanceArm, _WithinDistanceInferred>;
 	isBlank: _TypesEqual<_IsBlankArm, _IsBlankInferred>;
+	matchesPattern: _TypesEqual<_MatchesPatternArm, _MatchesPatternInferred>;
 	between: _TypesEqual<_BetweenArm, _BetweenInferred>;
 	// ValueExpression side — every value-bearing arm.
 	valueExpressionTerm: _TypesEqual<
@@ -2294,6 +2341,7 @@ const _driftGuard: {
 	in: true,
 	withinDistance: true,
 	isBlank: true,
+	matchesPattern: true,
 	between: true,
 	valueExpressionTerm: true,
 	today: true,

@@ -588,6 +588,14 @@ function emitPredicateSegments(
 			// `commcare-hq/corehq/apps/es/case_search.py::case_property_query`,
 			// matching absent / cleared / empty alike.
 			return emitAbsenceSegments(p, typeContext);
+		case "matches-pattern":
+			// CommCare's server-side search language registers no regex
+			// function (`case_search/xpath_functions/__init__.py`). The type
+			// checker admits the leaf only on the device's query screen, so
+			// reaching it here is a bypassed gate, not an authoring state.
+			throw new Error(
+				"csqlEmitter: 'matches-pattern' has no server-side search form; the type checker admits it only in a Search field's required condition or check.",
+			);
 		case "match":
 			return emitMatchSegments(p, typeContext);
 		case "multi-select-contains":

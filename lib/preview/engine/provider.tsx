@@ -113,7 +113,13 @@ export function BuilderFormEngineProvider({
 		const runtime = createBrowserXPathRuntime({
 			requestTimeoutMilliseconds: 30_000,
 		});
-		const c = new EngineController(runtime);
+		/* A second host for the running Search screen's pattern checks. It
+		 * starts no worker until the first pattern-bearing constraint is
+		 * judged, so an app without one pays nothing for it. */
+		const searchRuntime = createBrowserXPathRuntime({
+			requestTimeoutMilliseconds: 30_000,
+		});
+		const c = new EngineController(runtime, searchRuntime);
 		c.setFaultReporter((fault, thrown) => {
 			const safeError = sanitizedEngineFaultError(fault, thrown);
 			reportClientError(

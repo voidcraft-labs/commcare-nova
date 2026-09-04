@@ -89,6 +89,11 @@ export function searchInputScreenPredicateTypeCheck(
 	if (inputs.length === 0) return [];
 
 	const ctx = moduleTypeContext(mod, doc, lookupTables);
+	// The required condition and the check run on the device's query screen
+	// with its Java Pattern engine, the one place `matches-pattern` executes.
+	// The hidden value and the options filter do not: the hidden value is a
+	// value, and the filter runs over lookup rows on both runtimes.
+	const screenCtx: TypeContext = { ...ctx, patternMatching: true };
 	const errors: ValidationError[] = [];
 
 	for (let index = 0; index < inputs.length; index++) {
@@ -135,7 +140,7 @@ export function searchInputScreenPredicateTypeCheck(
 			errors.push(
 				...screenPredicateFindings({
 					predicate: input.required.when,
-					ctx,
+					ctx: screenCtx,
 					mod,
 					moduleUuid,
 					who,
@@ -152,7 +157,7 @@ export function searchInputScreenPredicateTypeCheck(
 			errors.push(
 				...screenPredicateFindings({
 					predicate: input.validation.rule,
-					ctx,
+					ctx: screenCtx,
 					mod,
 					moduleUuid,
 					who,

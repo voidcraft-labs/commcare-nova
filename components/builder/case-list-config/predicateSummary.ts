@@ -132,6 +132,8 @@ function summarizePredicate(
 		}
 		case "is-blank":
 			return `${operand(p.left, context)} is blank`;
+		case "matches-pattern":
+			return `${operand(p.left, context)} matches the pattern ${quotePattern(p.pattern)}`;
 		case "match": {
 			const subject = propertySentenceLabel(p.property, context);
 			const value = operand(p.value, context);
@@ -186,6 +188,18 @@ function summarizePredicate(
 	}
 }
 
+/** A pattern is shown verbatim in quotation marks, shortened when it would
+ *  crowd the sentence; the card shows the whole thing. */
+function quotePattern(pattern: string): string {
+	const shown =
+		pattern.length > PATTERN_SUMMARY_LENGTH
+			? `${pattern.slice(0, PATTERN_SUMMARY_LENGTH - 1)}…`
+			: pattern;
+	return `“${shown}”`;
+}
+
+const PATTERN_SUMMARY_LENGTH = 40;
+
 /**
  * Render a nested negation as an ordinary sentence fragment. Top-level
  * negation is phrased as an author-facing action ("Exclude cases when …");
@@ -237,6 +251,8 @@ function summarizeNegatedPredicate(
 		}
 		case "is-blank":
 			return `${operand(p.left, context)} isn't blank`;
+		case "matches-pattern":
+			return `${operand(p.left, context)} doesn't match the pattern ${quotePattern(p.pattern)}`;
 		case "match":
 			return `${propertySentenceLabel(p.property, context)} doesn't ${matchVerb(
 				p.mode,

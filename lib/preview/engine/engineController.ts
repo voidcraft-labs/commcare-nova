@@ -65,7 +65,10 @@ import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { ProseTemplate } from "@/lib/domain/prose";
 import type { XPathValue } from "../xpath/types";
 import type { XPathRuntime } from "../xpath/workerClient";
-import { deserializeXPathWorkerValue } from "../xpath/workerProjection";
+import {
+	deserializeXPathWorkerValue,
+	snapshotXPathWorkerInstance,
+} from "../xpath/workerProjection";
 import type {
 	XPathRuntimeError,
 	XPathWorkerInstances,
@@ -82,10 +85,17 @@ import {
 	type SectionPage,
 } from "./formEngine";
 import type { FormLinkAsyncEvaluator } from "./formLinkEvaluation";
-import { type ResolvedPreviewIdentity, samePreviewIdentity } from "./identity";
+import {
+	type PreviewSearchSessionValues,
+	type ResolvedPreviewIdentity,
+	samePreviewIdentity,
+} from "./identity";
 import type { PreviewLookupData } from "./lookupEvaluation";
 import { type FieldState, fieldStatesEqual } from "./types";
-import type { CaseDatabaseSnapshot } from "./xpathInstances";
+import {
+	type CaseDatabaseSnapshot,
+	commcareSessionXPathInstance,
+} from "./xpathInstances";
 
 // ── Runtime store types ─────────────────────────────────────────────────
 
@@ -654,6 +664,12 @@ export class EngineController {
 	 * `null` keeps standalone/non-Builder controller consumers canonical. */
 	private presentationLanguage: LanguageTag | null = null;
 	private readonly xpathRuntime: XPathRuntime | undefined;
+	/** The Search screen's own worker host. A running Search screen and a
+	 * form entry can be live at once (the case list with a search pane keeps
+	 * no form active, but the runtime admits one scope at a time and would
+	 * retire an in-flight form revision as stale), so the Search screen's
+	 * pattern checks never share the form's runtime. */
+	private readonly searchXPathRuntime: XPathRuntime | undefined;
 	private runtimeRevision = 0;
 	private lifecycleGeneration = 0;
 	private currentAbort: AbortController | undefined;
@@ -674,8 +690,9 @@ export class EngineController {
 	private entryReady = false;
 	private settling = false;
 
-	constructor(xpathRuntime?: XPathRuntime) {
+	constructor(xpathRuntime?: XPathRuntime, searchXPathRuntime?: XPathRuntime) {
 		this.xpathRuntime = xpathRuntime;
+		this.searchXPathRuntime = searchXPathRuntime;
 		this.store = createStore<RuntimeStoreState>(() => ({}));
 		this.entryStore = createStore<EngineEntryState>(() => ({
 			entryKey: undefined,
@@ -1612,6 +1629,7 @@ export class EngineController {
 	/** Re-arm the provider-owned worker runtime after an effect replay. */
 	resume(): void {
 		this.xpathRuntime?.resume();
+		this.searchXPathRuntime?.resume();
 	}
 
 	/**
@@ -1621,12 +1639,60 @@ export class EngineController {
 	suspend(): void {
 		this.deactivate();
 		this.xpathRuntime?.suspend();
+		this.searchXPathRuntime?.suspend();
 	}
 
 	/** Terminal boundary for non-React owners that will never reuse this object. */
 	dispose(): void {
 		this.deactivate();
 		this.xpathRuntime?.dispose();
+		this.searchXPathRuntime?.dispose();
+	}
+
+	/** Whether a running Search screen can judge a pattern-bearing required
+	 *  condition or check here. Without the worker host the constraint stays
+	 *  unjudged, as it does on the server. */
+	get searchScreenPatternsAvailable(): boolean {
+		return this.searchXPathRuntime !== undefined;
+	}
+
+	/**
+	 * Evaluate one emitted Search-screen XPath in the worker, where the
+	 * device's Java Pattern engine runs. The draft's answers are already bound
+	 * into `source` (`emitPreviewSearchPredicate`); only the session instance
+	 * is supplied. `scopeKey` names the module's Search screen, so repeated
+	 * submissions reuse one loaded worker and a module switch starts a fresh
+	 * one. There is no revision: every request carries its complete input.
+	 */
+	async evaluateSearchScreenXPath(
+		scopeKey: string,
+		source: string,
+		session: PreviewSearchSessionValues,
+		signal?: AbortSignal,
+	): Promise<XPathValue> {
+		if (this.searchXPathRuntime === undefined) {
+			throw new Error(
+				"The Search screen's XPath runtime is unavailable, so a pattern check cannot be judged here.",
+			);
+		}
+		const result = await this.searchXPathRuntime.request(
+			{
+				entryKey: `search:${scopeKey}`,
+				revision: 0,
+				profile: "search",
+				source,
+				instances: {
+					secondary: [
+						snapshotXPathWorkerInstance(commcareSessionXPathInstance(session)),
+					],
+					contextPath: "",
+					position: 1,
+				},
+			},
+			signal === undefined ? {} : { signal },
+		);
+		if (!result.ok) throw new PreviewXPathRuntimeError(result.error);
+		return deserializeXPathWorkerValue(result.value);
 	}
 
 	/** This form entry's attachment scope, or `undefined` when no form is

@@ -42,7 +42,8 @@ export type CsqlRepresentabilityReason =
 	| "calendar-date-add-needs-whole-number"
 	| "subcase-count-needs-nonnegative-whole-number"
 	| "multiple-property-scopes"
-	| "form-context-value-not-csql";
+	| "form-context-value-not-csql"
+	| "pattern-match-not-csql";
 
 type RuntimeValueDialect = "csql" | "on-device";
 
@@ -123,6 +124,8 @@ export function normalizeCsqlPredicate(predicate: Predicate): Predicate {
 				kind: predicate.kind,
 				left: normalizeExpression(predicate.left),
 			};
+		case "matches-pattern":
+			return { ...predicate, left: normalizeExpression(predicate.left) };
 		case "match":
 			return {
 				...predicate,
@@ -182,6 +185,7 @@ export function normalizeCsqlPredicate(predicate: Predicate): Predicate {
 						"in",
 						"between",
 						"is-blank",
+						"matches-pattern",
 						"match",
 						"within-distance",
 						"multi-select-contains",
@@ -431,6 +435,14 @@ function checkQueryPredicate(
 		case "is-blank":
 			checkPropertyOnlyLeft(predicate.left, [...path, "left"], issues);
 			return;
+		case "matches-pattern":
+			issues.push({
+				reason: "pattern-match-not-csql",
+				path,
+				message:
+					"A pattern match can only run on the device, in a Search field's required condition or check. Search itself has no pattern matching. Use a text match or a comparison here.",
+			});
+			return;
 		case "match":
 			checkRuntimeValue(predicate.value, [...path, "value"], issues, "csql");
 			return;
@@ -503,6 +515,7 @@ function checkQueryPredicate(
 						"in",
 						"between",
 						"is-blank",
+						"matches-pattern",
 						"match",
 						"within-distance",
 						"multi-select-contains",
@@ -1184,6 +1197,9 @@ function staticallyKnownPredicateBoolean(
 				? undefined
 				: value.value === null || value.value === "";
 		}
+		case "matches-pattern":
+			// Deciding a Java regex statically would need the Pattern engine.
+			return undefined;
 		case "gt":
 		case "gte":
 		case "lt":
@@ -1329,6 +1345,7 @@ function checkRuntimePredicate(
 			}
 			return;
 		case "is-blank":
+		case "matches-pattern":
 			checkRuntimeValue(predicate.left, [...path, "left"], issues, "on-device");
 			return;
 		case "and":
@@ -1386,6 +1403,7 @@ function checkRuntimePredicate(
 						"in",
 						"between",
 						"is-blank",
+						"matches-pattern",
 						"and",
 						"or",
 						"not",
@@ -1527,6 +1545,7 @@ function collectPropertyScopesFromPredicate(
 			return;
 		case "in":
 		case "is-blank":
+		case "matches-pattern":
 			collectPropertyScopesFromExpression(predicate.left, out);
 			return;
 		case "between":

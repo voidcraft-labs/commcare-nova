@@ -99,6 +99,7 @@ export function normalizeRelationEvaluationScopes(
 		case "lte":
 		case "in":
 		case "is-blank":
+		case "matches-pattern":
 		case "match":
 		case "multi-select-contains":
 		case "within-distance":
@@ -263,7 +264,8 @@ function normalizeNestedBoundaryScopes(
 				: { ...predicate, left, right };
 		}
 		case "in":
-		case "is-blank": {
+		case "is-blank":
+		case "matches-pattern": {
 			const left = normalizeExpressionBoundaryScopes(predicate.left, context);
 			return left === predicate.left ? predicate : { ...predicate, left };
 		}
@@ -523,6 +525,7 @@ function inspectPredicate(
 				inspectExpression(predicate.upper, inspection, context);
 			return;
 		case "is-blank":
+		case "matches-pattern":
 			inspectExpression(predicate.left, inspection, context);
 			return;
 		case "match":
@@ -888,6 +891,7 @@ function rebasePredicate(
 					: { upper: rebaseExpression(predicate.upper, scopeKey, context) }),
 			};
 		case "is-blank":
+		case "matches-pattern":
 			return {
 				...predicate,
 				left: rebaseExpression(predicate.left, scopeKey, context),

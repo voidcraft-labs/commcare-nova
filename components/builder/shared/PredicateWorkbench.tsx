@@ -376,6 +376,9 @@ export interface PredicateWorkbenchProps {
 	 *  reading of `caseDataScope`: the Search action's condition and a
 	 *  module's display condition are both `global` and disagree. */
 	readonly allowsNeverMatch?: boolean;
+	/** See `PredicateEditContext.patternMatching`. Set only by the two
+	 *  Search-screen slots the device evaluates with its Pattern engine. */
+	readonly patternMatching?: true;
 	/** A semantic navigation request from another surface. The token makes a
 	 * repeat request for the same AST path observable after the author returns
 	 * to a dependency review. */
@@ -403,6 +406,7 @@ export function PredicateWorkbench({
 	caseDataScope = "per-case",
 	rootLabel = DEFAULT_RULE_ROOT_LABEL,
 	allowsNeverMatch = true,
+	patternMatching,
 	focusRequest,
 }: PredicateWorkbenchProps) {
 	const lookupCatalog = useBuilderLookupCatalog();
@@ -445,6 +449,7 @@ export function PredicateWorkbench({
 				lookupTables: effectiveLookupTables,
 				tableScope,
 				operationScope,
+				...(patternMatching && { patternMatching }),
 			}),
 		[
 			caseTypes,
@@ -455,6 +460,7 @@ export function PredicateWorkbench({
 			effectiveLookupTables,
 			tableScope,
 			operationScope,
+			patternMatching,
 		],
 	);
 	const validity = useMemo(
@@ -484,6 +490,7 @@ export function PredicateWorkbench({
 			allowsNeverMatch,
 			userProperties,
 			evaluationTarget,
+			...(patternMatching && { patternMatching }),
 		}),
 		[
 			caseTypes,
@@ -497,6 +504,7 @@ export function PredicateWorkbench({
 			allowsNeverMatch,
 			userProperties,
 			evaluationTarget,
+			patternMatching,
 		],
 	);
 	const admitRuntimeExpression = useCallback(
@@ -662,6 +670,7 @@ export function PredicateWorkbench({
 			caseDataScope={caseDataScope}
 			allowsNeverMatch={allowsNeverMatch}
 			evaluationTarget={evaluationTarget}
+			patternMatching={patternMatching}
 			validityIndex={validityIndex}
 			admitExpressionChange={admitRuntimeExpression}
 		>

@@ -104,6 +104,34 @@ export function evaluatePreviewSearchPredicate(
 	inputValues: SearchInputValues = new Map(),
 	lookupData?: PreviewLookupData,
 ): boolean {
+	return toBoolean(
+		evaluatePreviewSearchXPath(
+			emitPreviewSearchPredicate(
+				predicate,
+				searchInputs,
+				session,
+				inputValues,
+				lookupData,
+			),
+			session,
+		),
+	);
+}
+
+/**
+ * The exact on-device XPath a search-screen predicate evaluates as, with
+ * the draft's answers bound in and lookup carriers folded, so that a caller
+ * with a different evaluator (the XPath worker, for a pattern-bearing
+ * constraint) runs the same bytes the scalar path does. Only the session
+ * instance remains to be resolved.
+ */
+export function emitPreviewSearchPredicate(
+	predicate: Predicate,
+	searchInputs: readonly SearchInputDef[],
+	session: PreviewSearchSessionValues,
+	inputValues: SearchInputValues = new Map(),
+	lookupData?: PreviewLookupData,
+): string {
 	const expressionValues = withSearchInputExpressionValues(
 		searchInputs,
 		inputValues,
@@ -121,14 +149,9 @@ export function evaluatePreviewSearchPredicate(
 					outer: searchSessionEvalContext(session),
 					userPropertySlugs: previewUserPropertySlugMap(session),
 				});
-	return toBoolean(
-		evaluatePreviewSearchXPath(
-			emitCaseListFilter(folded, "casedb", {
-				userPropertySlugs: previewUserPropertySlugMap(session),
-			}),
-			session,
-		),
-	);
+	return emitCaseListFilter(folded, "casedb", {
+		userPropertySlugs: previewUserPropertySlugMap(session),
+	});
 }
 
 function evaluatePreviewSearchXPath(

@@ -137,6 +137,7 @@ import type {
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
+import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -162,6 +163,7 @@ import {
 	reconcilePreviewCaseChoices,
 	togglePreviewCaseChoice,
 } from "@/lib/preview/orderedCaseSelection";
+import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -315,6 +317,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const searchSession = useMemo(
 		() => previewSessionValues(identity),
 		[identity],
+	);
+	/* A pattern-bearing required condition or check on the Search screen is
+	 * judged in the Search screen's XPath worker, where the device's Java
+	 * Pattern engine runs; the module keys the worker so a module switch
+	 * starts a fresh one. */
+	const engine = useBuilderFormEngine();
+	const evaluateSearchScreenXPath = useCallback(
+		async (source: string) =>
+			toBoolean(
+				await engine.evaluateSearchScreenXPath(
+					moduleUuid,
+					source,
+					searchSession,
+				),
+			),
+		[engine, moduleUuid, searchSession],
 	);
 	const lookupStatus = usePreviewLookupStatus();
 	/* Case-first form conditions evaluate at THIS screen, against the
@@ -1515,6 +1533,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						filter={config?.filter}
 						caseType={caseType}
 						session={searchSession}
+						evaluateOnDevice={evaluateSearchScreenXPath}
 						typeContext={searchTypeContext}
 						{...(lookupStatus.kind === "data" && {
 							lookupData: lookupStatus.data,

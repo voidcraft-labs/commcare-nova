@@ -23,7 +23,11 @@ import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
-import { searchInputConstraintErrors } from "./searchInputConstraints";
+import {
+	type SearchInputConstraintDeviceOptions,
+	searchInputConstraintErrors,
+	searchInputConstraintErrorsOnDevice,
+} from "./searchInputConstraints";
 
 const EMPTY_SEARCH_SESSION: PreviewSearchSessionValues = {
 	context: {},
@@ -254,6 +258,50 @@ export function searchInputSubmissionErrors(
 		values,
 		session,
 		options?.lookupData,
+		options,
+	)) {
+		errors.set(name, message);
+	}
+	return errors;
+}
+
+/**
+ * The same gate for the running Search screen, which can reach the XPath
+ * worker: a pattern-bearing required condition or check is judged there
+ * instead of being left unjudged. Every other constraint is decided exactly
+ * as in `searchInputSubmissionErrors`, so the two gates differ only in what
+ * a Pattern engine adds.
+ */
+export async function searchInputSubmissionErrorsOnDevice(
+	caseListConfig: CaseListConfig,
+	caseType: string | undefined,
+	values: SearchInputValues,
+	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
+	typeContext: TypeContext | undefined,
+	options: RuntimeValidationOptions &
+		Pick<SearchInputConstraintDeviceOptions, "evaluateOnDevice">,
+): Promise<ReadonlyMap<string, string>> {
+	const errors = new Map(
+		searchInputRuntimeQuoteErrors(
+			caseListConfig,
+			caseType,
+			values,
+			session,
+			typeContext,
+			options,
+		),
+	);
+	for (const [name, message] of dateRangeInputErrors(
+		caseListConfig.searchInputs,
+		values,
+	)) {
+		errors.set(name, message);
+	}
+	for (const [name, message] of await searchInputConstraintErrorsOnDevice(
+		caseListConfig.searchInputs,
+		values,
+		session,
+		options.lookupData,
 		options,
 	)) {
 		errors.set(name, message);

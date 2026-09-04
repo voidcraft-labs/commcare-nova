@@ -959,6 +959,19 @@ export function isBlank(
 }
 
 /**
+ * `left`, read as text, contains a match for the Java `Pattern` source
+ * `pattern` (JavaRosa `regex()`; unanchored, so anchor with `^` / `$` to
+ * test the whole value). Authorable only where `TypeContext.patternMatching`
+ * admits it: a Search prompt's required condition and check.
+ */
+export function matchesPattern(
+	left: Term | ValueExpression,
+	pattern: string,
+): Extract<Predicate, { kind: "matches-pattern" }> {
+	return { kind: "matches-pattern", left: toValueExpression(left), pattern };
+}
+
+/**
  * Options for the `between` builder. Both bounds are optional but at
  * least one must be present (the schema's `.refine(...)` rejects the
  * all-absent shape — TS can't structurally encode "at least one of

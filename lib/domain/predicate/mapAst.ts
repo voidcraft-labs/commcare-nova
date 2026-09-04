@@ -128,6 +128,11 @@ export function mapPredicateAst(
 			if (left === predicate.left) return predicate;
 			return { kind: predicate.kind, left };
 		}
+		case "matches-pattern": {
+			const left = mapExpr(predicate.left);
+			if (left === predicate.left) return predicate;
+			return { kind: predicate.kind, left, pattern: predicate.pattern };
+		}
 		case "and":
 		case "or": {
 			const clauses = mapShared(predicate.clauses, mapPred);
@@ -176,6 +181,7 @@ export function mapPredicateAst(
 						"match",
 						"within-distance",
 						"is-blank",
+						"matches-pattern",
 						"when-input-present",
 						"exists",
 						"missing",

@@ -94,6 +94,8 @@ const PRESENT_BY_CODE: Record<CheckErrorCode, DiagnosticPresenter> = {
 		"Choose multiple-choice information that allows more than one answer",
 	"runtime-value": () =>
 		"Choose case information, a search answer, or another value that can change",
+	"pattern-match-unavailable": () =>
+		"Use a pattern match only in a Search field's required condition or check",
 	"range-order": () => "Set the starting value before the ending value",
 	"relation-origin": () => "Choose the kind of case this condition starts from",
 	"relation-self": () => "Choose a related case instead of the current case",

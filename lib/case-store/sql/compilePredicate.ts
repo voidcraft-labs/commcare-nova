@@ -158,6 +158,14 @@ export function compilePredicate(
 			return compileWhenInputPresent(pred, ctx);
 		case "is-blank":
 			return compileAbsenceCheck(pred.left, ctx);
+		case "matches-pattern":
+			// The pattern is Java `Pattern` syntax and PostgreSQL's dialect is
+			// not; Nova has one Pattern engine and it is not in the case store.
+			// The type checker admits the leaf only on the device's Search
+			// screen, so no compiled slot can carry it.
+			throw new Error(
+				"compilePredicate: 'matches-pattern' cannot be evaluated by the case store; it is admitted only in a Search field's required condition or check.",
+			);
 		default: {
 			const _exhaustive: never = pred;
 			throw new Error(
@@ -186,6 +194,7 @@ export function compilePredicate(
 						"missing",
 						"when-input-present",
 						"is-blank",
+						"matches-pattern",
 					],
 				}),
 			);
