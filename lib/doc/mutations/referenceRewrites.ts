@@ -28,6 +28,7 @@ import {
 	mapCasePropertiesInXPath,
 	type ProseTemplate,
 	readSlotValues,
+	searchInputOptions,
 } from "@/lib/domain";
 import {
 	type CasePropertyNameResolver,
@@ -366,6 +367,54 @@ export function rewriteModuleCaseRefs(
 					if (inputDef.kind === "advanced") {
 						astRefsRewritten += mapCasePropertiesInPredicate(
 							inputDef.predicate,
+							resolveCaseProperty,
+						);
+					}
+				}
+				break;
+			}
+			// The four Search-screen slots evaluate before any case exists, so
+			// the gate refuses a case read in them; the walk still runs so the
+			// rewrite stays total over the registry rather than trusting that.
+			case "search_input_options": {
+				for (const inputDef of mod.caseListConfig?.searchInputs ?? []) {
+					const filter = searchInputOptions(inputDef)?.filter;
+					if (filter !== undefined) {
+						astRefsRewritten += mapCasePropertiesInPredicate(
+							filter,
+							resolveCaseProperty,
+						);
+					}
+				}
+				break;
+			}
+			case "search_input_required_when": {
+				for (const inputDef of mod.caseListConfig?.searchInputs ?? []) {
+					if (inputDef.kind !== "hidden" && inputDef.required?.when) {
+						astRefsRewritten += mapCasePropertiesInPredicate(
+							inputDef.required.when,
+							resolveCaseProperty,
+						);
+					}
+				}
+				break;
+			}
+			case "search_input_validation_rule": {
+				for (const inputDef of mod.caseListConfig?.searchInputs ?? []) {
+					if (inputDef.kind !== "hidden" && inputDef.validation) {
+						astRefsRewritten += mapCasePropertiesInPredicate(
+							inputDef.validation.rule,
+							resolveCaseProperty,
+						);
+					}
+				}
+				break;
+			}
+			case "search_input_hidden_value": {
+				for (const inputDef of mod.caseListConfig?.searchInputs ?? []) {
+					if (inputDef.kind === "hidden") {
+						astRefsRewritten += mapCasePropertiesInExpression(
+							inputDef.value,
 							resolveCaseProperty,
 						);
 					}

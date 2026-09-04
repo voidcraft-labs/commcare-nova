@@ -63,6 +63,7 @@ import {
 	type ColumnKind,
 	columnSchema,
 	moduleSchema,
+	SELECT_SEARCH_INPUT_TYPES,
 	type SearchInputDef,
 	searchInputDefSchema,
 } from "../modules";
@@ -452,12 +453,16 @@ describe("module slots — paths resolve with the promised shape", () => {
 		}
 	});
 
-	it("search-input-arm applicability is exact across the four slots", () => {
+	it("search-input-arm applicability is exact across the eight slots", () => {
 		const expectations = [
 			["search_input_property", "property"],
 			["search_input_via", "via"],
 			["search_input_default", "default"],
 			["search_input_predicate", "predicate"],
+			["search_input_options", "options"],
+			["search_input_required_when", "required"],
+			["search_input_validation_rule", "validation"],
+			["search_input_hidden_value", "value"],
 		] as const;
 		for (const [slotId, key] of expectations) {
 			const slot = moduleSlots.find((s) => s.slot === slotId);
@@ -466,16 +471,28 @@ describe("module slots — paths resolve with the promised shape", () => {
 				const armKind = (arm.shape.kind as z.ZodLiteral)
 					.value as SearchInputDef["kind"];
 				// The union's second axis: an arm whose `type` is the
-				// `date-range` literal is the range widget; the scalar arms
-				// enumerate `SCALAR_SEARCH_INPUT_TYPES`.
+				// `date-range` literal is the range widget; an arm whose `type`
+				// enumerates the select types is the choice widget; the other
+				// visible arms enumerate `SCALAR_SEARCH_INPUT_TYPES`. The hidden
+				// arm has no `type` at all and no widget, so no widget-narrowed
+				// slot can apply to it.
 				const armWidget =
-					arm.shape.type instanceof z.ZodLiteral &&
-					arm.shape.type.value === "date-range"
-						? "date-range"
-						: "scalar";
+					arm.shape.type === undefined
+						? undefined
+						: arm.shape.type instanceof z.ZodLiteral &&
+								arm.shape.type.value === "date-range"
+							? "date-range"
+							: arm.shape.type instanceof z.ZodEnum &&
+									SELECT_SEARCH_INPUT_TYPES.every((type) =>
+										(arm.shape.type as z.ZodEnum).options.includes(type),
+									)
+								? "select"
+								: "scalar";
 				const applies =
 					(slot?.searchInputKinds?.includes(armKind) ?? false) &&
-					(slot?.searchInputWidgets?.includes(armWidget) ?? true);
+					(slot?.searchInputWidgets === undefined ||
+						(armWidget !== undefined &&
+							slot.searchInputWidgets.includes(armWidget)));
 				expect(key in arm.shape).toBe(applies);
 			}
 		}
@@ -693,9 +710,12 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"caseListConfig.columns[].uuid",
 			"caseListConfig.detailColumnOrder[]",
 			"caseListConfig.listColumnOrder[]",
+			"caseListConfig.searchInputs[].hint",
 			"caseListConfig.searchInputs[].label",
 			"caseListConfig.searchInputs[].name",
+			"caseListConfig.searchInputs[].required.message",
 			"caseListConfig.searchInputs[].uuid",
+			"caseListConfig.searchInputs[].validation.message",
 			"caseListConfig.tile.grouping.identifier",
 			"caseSearchConfig.searchButtonLabel",
 			"caseSearchConfig.searchScreenSubtitle",

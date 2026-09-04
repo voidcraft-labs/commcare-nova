@@ -9,6 +9,9 @@
  *   - the effective case-list filter (after wire simplification),
  *   - every saved calculated-column expression,
  *   - every search-input default,
+ *   - every visible search input's required condition and check rule (the
+ *     `<required test>` / `<validation test>` on its prompt),
+ *   - every hidden search input's value (its prompt `default`),
  *   - each advanced search-input's effective predicate,
  *   - the assigned-cases / excluded-owner expression, and
  *   - the simplified search-button display condition.
@@ -17,8 +20,9 @@
  * used in messages, the `surface` tag stamped into finding details, and the
  * owning input/column identity — so consumers only supply per-slot judgment.
  *
- * The predicate dialect is per-rule: the filter and search-button display
- *     condition lower through on-device JavaRosa XPath (`judgePredicate`),
+ * The predicate dialect is per-rule: the filter, the search-button display
+ *     condition, and a prompt's required condition and check rule lower
+ *     through on-device JavaRosa XPath (`judgePredicate`),
  *     while an advanced input's predicate lowers through the mixed-dialect
  *     CSQL emitter (`judgeCsqlPredicate`). A rule whose judgment is
  *     dialect-independent passes the same function for both.
@@ -52,6 +56,9 @@ export type ModuleWireSlotSurface =
 	| "filter"
 	| "calculated-column"
 	| "search-input-default"
+	| "search-input-required"
+	| "search-input-validation"
+	| "search-input-hidden-value"
 	| "advanced-input"
 	| "excluded-owner-ids"
 	| "search-button";
@@ -74,9 +81,9 @@ export interface ModuleWireSlotIdentity {
 }
 
 export interface ModuleWireSlotJudge {
-	/** On-device predicate slots: the effective case-list filter and the
-	 * simplified search-button display condition. At most one finding per
-	 * slot. */
+	/** On-device predicate slots: the effective case-list filter, the
+	 * simplified search-button display condition, and a prompt's required
+	 * condition and check rule. At most one finding per slot. */
 	judgePredicate(
 		predicate: Predicate,
 		slot: ModuleWireSlotIdentity,
@@ -87,8 +94,8 @@ export interface ModuleWireSlotJudge {
 		predicate: Predicate,
 		slot: ModuleWireSlotIdentity,
 	): ValidationError | undefined;
-	/** ValueExpression slots: calculated columns, search-input defaults, and
-	 * the excluded-owner expression. */
+	/** ValueExpression slots: calculated columns, search-input defaults, hidden
+	 * search-input values, and the excluded-owner expression. */
 	judgeExpression(
 		expression: ValueExpression,
 		slot: ModuleWireSlotIdentity,
@@ -154,6 +161,43 @@ export function collectModuleWireSlotFindings(
 					slot: `caseListConfig.searchInputs[${index}].default`,
 					slotLabel: `the default for search field "${inputIdentity.label}"`,
 					surface: "search-input-default",
+					input: inputIdentity,
+				}),
+			);
+		}
+		if (input.kind === "hidden") {
+			collect(
+				judge.judgeExpression(input.value, {
+					mod,
+					moduleUuid,
+					slot: `caseListConfig.searchInputs[${index}].value`,
+					slotLabel: `the value of hidden search field "${inputIdentity.label}"`,
+					surface: "search-input-hidden-value",
+					input: inputIdentity,
+				}),
+			);
+			continue;
+		}
+		if (input.required?.when !== undefined) {
+			collect(
+				judge.judgePredicate(simplifyForEmission(input.required.when), {
+					mod,
+					moduleUuid,
+					slot: `caseListConfig.searchInputs[${index}].required.when`,
+					slotLabel: `the required condition for search field "${inputIdentity.label}"`,
+					surface: "search-input-required",
+					input: inputIdentity,
+				}),
+			);
+		}
+		if (input.validation !== undefined) {
+			collect(
+				judge.judgePredicate(simplifyForEmission(input.validation.rule), {
+					mod,
+					moduleUuid,
+					slot: `caseListConfig.searchInputs[${index}].validation.rule`,
+					slotLabel: `the check for search field "${inputIdentity.label}"`,
+					surface: "search-input-validation",
 					input: inputIdentity,
 				}),
 			);

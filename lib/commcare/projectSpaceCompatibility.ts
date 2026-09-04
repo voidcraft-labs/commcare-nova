@@ -67,11 +67,18 @@ export interface HqProjectSpaceCompatibilityProbePlan {
  * setting. The setting gates only `properties[].default_value` when HQ
  * regenerates `<prompt default>`, so no other Search behavior belongs here.
  */
+/**
+ * HQ writes `<prompt default>` only under its advanced case search setting
+ * (`feature_support.py::enable_default_value_expression`). Two authored
+ * shapes need that attribute: a visible Search field with a starting value,
+ * and a hidden Search value, whose whole content IS the `default`.
+ */
 function moduleRequiresAdvancedCaseSearch(module: Module): boolean {
 	if (effectiveCaseSearchConfig(module) === undefined) return false;
 	return (
 		module.caseListConfig?.searchInputs.some(
-			(input) => searchInputDefault(input) !== undefined,
+			(input) =>
+				input.kind === "hidden" || searchInputDefault(input) !== undefined,
 		) ?? false
 	);
 }
@@ -80,11 +87,18 @@ function advancedCaseSearchReasons(module: Module): string[] {
 	if (!moduleRequiresAdvancedCaseSearch(module)) return [];
 	const list = module.caseListConfig;
 	if (!list) return [];
-	return list.searchInputs.some(
-		(input) => searchInputDefault(input) !== undefined,
-	)
-		? ["A Search field starts with a suggested value."]
-		: [];
+	const reasons: string[] = [];
+	if (
+		list.searchInputs.some((input) => searchInputDefault(input) !== undefined)
+	) {
+		reasons.push("A Search field starts with a suggested value.");
+	}
+	if (list.searchInputs.some((input) => input.kind === "hidden")) {
+		reasons.push(
+			"A Search screen carries a hidden value worked out when it opens.",
+		);
+	}
+	return reasons;
 }
 
 /** Semantic capabilities and private proof inputs required by this app. */

@@ -214,6 +214,7 @@ export function SearchInputForm({
 				candidate,
 				session,
 				typeContext,
+				{ lookupData },
 			);
 			if (request !== validationRequestRef.current) return undefined;
 			lastValidatedDraftRef.current = candidate;
@@ -224,7 +225,15 @@ export function SearchInputForm({
 			});
 			return errors;
 		},
-		[caseType?.name, filter, scopeKey, searchInputs, session, typeContext],
+		[
+			caseType?.name,
+			filter,
+			lookupData,
+			scopeKey,
+			searchInputs,
+			session,
+			typeContext,
+		],
 	);
 
 	useEffect(

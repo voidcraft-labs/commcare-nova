@@ -46,8 +46,23 @@
  *     the ref would error the whole screen. Either way the only fix
  *     is to remove the ref. Covers
  *     `caseListConfig.searchInputs[i].default`,
+ *     `caseListConfig.searchInputs[i].value` (a hidden input's value,
+ *     which re-evaluates at every query-screen construction before
+ *     answers exist — `QueryScreen.init`),
  *     `caseSearchConfig.searchButtonDisplayCondition`, and
  *     `caseListConfig.columns[i].expression` (calculated columns).
+ *
+ * **Two slots are in neither mode on purpose.** A visible input's
+ * `required.when` and `validation.rule` evaluate ON the Search screen with
+ * the search-input instance loaded
+ * (`RemoteQuerySessionManager.validateUserAnswers` builds the evaluation
+ * context over `search-input:<storage>`), so a bare `input(...)` of any
+ * sibling is exactly right there: an unanswered sibling reads blank and
+ * `is-blank(input(...))` is the honest "not answered" test. Requiring the
+ * envelope would refuse the one place it is not needed. A choice input's
+ * `options.filter` is refused any input ref by
+ * `searchInputScreenPredicateTypeCheck` (its choices are built before
+ * anyone answers), with that rule's own repair.
  *
  * `caseSearchConfig.excludedOwnerIds` is intentionally in neither mode. The
  * expression resolves at Search fire time and blank is its identity value:
@@ -139,6 +154,26 @@ export function searchInputRefUsesWhenInputPresent(
 					}),
 				);
 			}
+		}
+
+		// A hidden input's value — re-evaluated at every query-screen
+		// construction, before any answer exists, so an input ref reads
+		// blank whatever envelope surrounds it.
+		if (input.kind === "hidden") {
+			const refs = findExpressionInputRefs(input.value, "forbids-input-ref");
+			for (const ref of refs) {
+				errors.push(
+					buildError({
+						mod,
+						moduleUuid,
+						ref,
+						mode: "forbids-input-ref",
+						slot: `caseListConfig.searchInputs[${i}].value`,
+						adviceSlotName: `${inputLabel}'s hidden value`,
+					}),
+				);
+			}
+			continue;
 		}
 
 		// Default value expression — fires before any input is bound,

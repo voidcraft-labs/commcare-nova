@@ -62,6 +62,7 @@ import {
 	readSlotStrings,
 	readSlotValues,
 	searchInputDefault,
+	searchInputOptions,
 	uuidSchema,
 	xpathRefParts,
 } from "@/lib/domain";
@@ -778,6 +779,65 @@ function collectModuleConfigReferences(
 						out.push({
 							verbose: `${inputName(input.name)} reads a "${caseType}" property`,
 							concise: `the condition for ${searchField(input)} uses "${caseType}" information`,
+						});
+					}
+				}
+				break;
+			}
+			// The Search-screen slots evaluate before any case exists, so the
+			// gate refuses a case read in them; the walk still runs so retirement
+			// stays total over the registry rather than trusting that.
+			case "search_input_options": {
+				for (const input of list?.searchInputs ?? []) {
+					const filter = searchInputOptions(input)?.filter;
+					if (filter !== undefined && predicateRefsCaseType(filter, caseType)) {
+						out.push({
+							verbose: `${inputName(input.name)} narrows its choices with a "${caseType}" property`,
+							concise: `the row rule for ${searchField(input)} uses "${caseType}" information`,
+						});
+					}
+				}
+				break;
+			}
+			case "search_input_required_when": {
+				for (const input of list?.searchInputs ?? []) {
+					if (
+						input.kind !== "hidden" &&
+						input.required?.when !== undefined &&
+						predicateRefsCaseType(input.required.when, caseType)
+					) {
+						out.push({
+							verbose: `${inputName(input.name)} is required under a "${caseType}" property`,
+							concise: `the required condition for ${searchField(input)} uses "${caseType}" information`,
+						});
+					}
+				}
+				break;
+			}
+			case "search_input_validation_rule": {
+				for (const input of list?.searchInputs ?? []) {
+					if (
+						input.kind !== "hidden" &&
+						input.validation !== undefined &&
+						predicateRefsCaseType(input.validation.rule, caseType)
+					) {
+						out.push({
+							verbose: `${inputName(input.name)} is checked against a "${caseType}" property`,
+							concise: `the check on ${searchField(input)} uses "${caseType}" information`,
+						});
+					}
+				}
+				break;
+			}
+			case "search_input_hidden_value": {
+				for (const input of list?.searchInputs ?? []) {
+					if (
+						input.kind === "hidden" &&
+						expressionRefsCaseType(input.value, caseType)
+					) {
+						out.push({
+							verbose: `${inputName(input.name)} is worked out from a "${caseType}" property`,
+							concise: `the hidden value ${searchField(input)} uses "${caseType}" information`,
 						});
 					}
 				}

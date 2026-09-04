@@ -20,7 +20,9 @@ import {
 	type Form,
 	isOwnerOnlyCaseSearchConfig,
 	type Module,
+	type SearchInputDef,
 	searchInputDefault,
+	searchInputOptions,
 	type Uuid,
 } from "@/lib/domain";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
@@ -306,19 +308,47 @@ function fieldLocation(
 	};
 }
 
-/** One persisted lookup-backed select with its extraction-time provenance. */
+/**
+ * What owns one persisted lookup-backed choice list: a select question, or a
+ * Search prompt whose `select` / `multi-select` widget reads its choices from
+ * the same kind of source.
+ */
+export type LookupOptionsSourceOwner =
+	| {
+			readonly kind: "field";
+			readonly fieldUuid: Uuid;
+			readonly fieldId: string;
+	  }
+	| {
+			readonly kind: "search-input";
+			readonly moduleUuid: Uuid;
+			readonly inputUuid: Uuid;
+			readonly inputName: string;
+			readonly inputLabel: string;
+	  };
+
+/** One persisted lookup-backed choice list with its extraction-time provenance. */
 export interface LookupOptionsSourceCarrier {
-	readonly fieldUuid: Uuid;
-	readonly fieldId: string;
+	readonly owner: LookupOptionsSourceOwner;
 	readonly source: LookupOptionsSource;
 	readonly location: LookupReferenceValidationLocation;
 }
 
+/** The owner as a finding names it: `Field "status"` or `Search field "Status"`. */
+export function describeLookupOptionsSourceOwner(
+	owner: LookupOptionsSourceOwner,
+): string {
+	return owner.kind === "field"
+		? `Field "${owner.fieldId}"`
+		: `Search field "${owner.inputLabel || owner.inputName}"`;
+}
+
 /**
- * Enumerate every persisted lookup-backed select in extraction order —
- * complete normalized maps, so a detached carrier cannot hide. The compile
- * boundary's row-dependent option validity consumes this list against the
- * same fixture snapshot the emitters use.
+ * Enumerate every persisted lookup-backed choice list in extraction order —
+ * complete normalized maps, so a detached carrier cannot hide. Select fields
+ * come first, then Search prompts by module. The compile boundary's
+ * row-dependent option validity consumes this list against the same fixture
+ * snapshot the emitters use.
  */
 export function collectLookupOptionsSourceCarriers(
 	doc: BlueprintDoc,
@@ -331,13 +361,84 @@ export function collectLookupOptionsSourceCarriers(
 		}
 		if (field.optionsSource.kind !== "lookup") continue;
 		carriers.push({
-			fieldUuid: field.uuid,
-			fieldId: field.id,
+			owner: { kind: "field", fieldUuid: field.uuid, fieldId: field.id },
 			source: field.optionsSource,
 			location: fieldLocation(doc, field, parents),
 		});
 	}
+	for (const module of sortedModules(doc)) {
+		for (const input of module.caseListConfig?.searchInputs ?? []) {
+			const options = searchInputOptions(input);
+			if (options === undefined) continue;
+			carriers.push({
+				owner: {
+					kind: "search-input",
+					moduleUuid: module.uuid,
+					inputUuid: input.uuid,
+					inputName: input.name,
+					inputLabel: input.label,
+				},
+				source: options,
+				location: searchInputOptionsLocation(module, input),
+			});
+		}
+	}
 	return carriers;
+}
+
+function searchInputOptionsLocation(
+	module: Module,
+	input: SearchInputDef,
+): LookupReferenceValidationLocation {
+	return {
+		...moduleLocation(module),
+		field: `caseListConfig.searchInputs[${input.uuid}].options`,
+	};
+}
+
+/**
+ * A `select` / `multi-select` Search prompt's choice list: the same three
+ * identities a select field's source carries (value column, label column, and
+ * the row filter's table-column leaves), owned by the search input's uuid.
+ */
+function extractSearchInputOptions(
+	doc: BlueprintDoc,
+): ExtractedLookupReference[] {
+	const references: ExtractedLookupReference[] = [];
+	for (const module of sortedModules(doc)) {
+		for (const input of module.caseListConfig?.searchInputs ?? []) {
+			const source = searchInputOptions(input);
+			if (source === undefined) continue;
+			const location = searchInputOptionsLocation(module, input);
+			references.push(
+				{
+					carrierUuid: input.uuid,
+					subpath: ["valueColumnId"],
+					tableId: source.tableId,
+					columnId: source.valueColumnId,
+					location,
+				},
+				{
+					carrierUuid: input.uuid,
+					subpath: ["labelColumnId"],
+					tableId: source.tableId,
+					columnId: source.labelColumnId,
+					location,
+				},
+			);
+			if (source.filter !== undefined) {
+				references.push(
+					...extractAstLookupReferences({
+						carrierUuid: input.uuid,
+						ast: source.filter,
+						subpath: ["filter"],
+						location,
+					}),
+				);
+			}
+		}
+	}
+	return references;
 }
 
 function extractLookupOptionsSources(
@@ -671,6 +772,7 @@ export const PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS: LookupReferenceExtractorReg
 		productionExtractor("case_list_filter", extractCaseListFilters),
 		productionExtractor("search_input_default", extractSearchInputDefaults),
 		productionExtractor("search_input_predicate", extractSearchInputPredicates),
+		productionExtractor("search_input_options", extractSearchInputOptions),
 		productionExtractor(
 			"search_button_display_condition",
 			extractSearchButtonDisplayConditions,

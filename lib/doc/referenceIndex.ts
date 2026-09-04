@@ -87,6 +87,7 @@ import {
 	readSlotValues,
 	recordFromEntries,
 	searchInputDefault,
+	searchInputOptions,
 	USER_PROPERTY_TARGET_PREFIX,
 	type Uuid,
 	userPropertyTargetKey,
@@ -846,6 +847,38 @@ function extractModuleEdges(sink: EdgeSink, mod: Module): void {
 				for (const input of list?.searchInputs ?? []) {
 					if (input.kind === "advanced") {
 						predicateEdges(sink, slot.slot, input.predicate);
+					}
+				}
+				break;
+			case "search_input_options":
+				// The table and column identities belong to the lookup-reference
+				// registry (`lookupReferences.ts`); only the row filter can name
+				// form or case entities.
+				for (const input of list?.searchInputs ?? []) {
+					const options = searchInputOptions(input);
+					if (options?.filter !== undefined) {
+						predicateEdges(sink, slot.slot, options.filter);
+					}
+				}
+				break;
+			case "search_input_required_when":
+				for (const input of list?.searchInputs ?? []) {
+					if (input.kind !== "hidden" && input.required?.when !== undefined) {
+						predicateEdges(sink, slot.slot, input.required.when);
+					}
+				}
+				break;
+			case "search_input_validation_rule":
+				for (const input of list?.searchInputs ?? []) {
+					if (input.kind !== "hidden" && input.validation !== undefined) {
+						predicateEdges(sink, slot.slot, input.validation.rule);
+					}
+				}
+				break;
+			case "search_input_hidden_value":
+				for (const input of list?.searchInputs ?? []) {
+					if (input.kind === "hidden") {
+						expressionEdges(sink, slot.slot, input.value);
 					}
 				}
 				break;
