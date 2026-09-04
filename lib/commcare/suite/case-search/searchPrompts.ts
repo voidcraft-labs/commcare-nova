@@ -684,7 +684,12 @@ function emitScreenPredicate(
 	emission: PromptEmissionContext,
 ): string {
 	const { lookupNaming, relationContext, instances } = emission;
-	for (const id of collectPredicateInstances(predicate, lookupNaming)) {
+	for (const id of collectPredicateInstances(
+		predicate,
+		lookupNaming,
+		"suite",
+		relationContext.searchInputInstanceId,
+	)) {
 		instances.add(id);
 	}
 	return emitCaseListFilter(
@@ -753,7 +758,12 @@ function compileDefaultExpression(
 	emission: PromptEmissionContext,
 ): string {
 	const { lookupNaming, relationContext, instances } = emission;
-	for (const id of collectExpressionInstances(expression, lookupNaming)) {
+	for (const id of collectExpressionInstances(
+		expression,
+		lookupNaming,
+		"suite",
+		relationContext.searchInputInstanceId,
+	)) {
 		instances.add(id);
 	}
 	return emitOnDeviceExpression(

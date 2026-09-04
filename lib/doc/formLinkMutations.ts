@@ -30,6 +30,8 @@ import {
 	asUuid,
 	type BlueprintDoc,
 	defaultPostSubmit,
+	defaultPostSubmitOf,
+	effectivePostSubmit,
 	type FormLink,
 	type FormLinkTarget,
 	type PostSubmitDestination,
@@ -100,7 +102,8 @@ export function afterSubmitPlan(
 			? { kind: "else-link", link: elseLink }
 			: {
 					kind: "post-submit",
-					destination: form.postSubmit ?? defaultPostSubmit(form.type),
+					destination:
+						effectivePostSubmit(doc, formUuid) ?? defaultPostSubmit(form.type),
 					explicit: form.postSubmit !== undefined,
 				};
 	return {
@@ -164,7 +167,8 @@ function fallbackPin(
 	if (!resultingLinks.every((link) => formLinkIsConditionalIn(doc, link))) {
 		return undefined;
 	}
-	const destination = defaultPostSubmit(form.type);
+	const destination =
+		defaultPostSubmitOf(doc, formUuid) ?? defaultPostSubmit(form.type);
 	return {
 		mutation: {
 			kind: "updateForm",
@@ -495,7 +499,9 @@ export function planSetFallback(
 			});
 		}
 		const stored =
-			remaining.length > 0 || next !== defaultPostSubmit(form.type)
+			remaining.length > 0 ||
+			next !==
+				(defaultPostSubmitOf(doc, formUuid) ?? defaultPostSubmit(form.type))
 				? next
 				: null;
 		if ((form.postSubmit ?? null) !== stored) {

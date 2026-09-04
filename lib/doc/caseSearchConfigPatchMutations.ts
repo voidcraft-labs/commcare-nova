@@ -25,6 +25,7 @@ const SETTINGS = [
 	"searchScreenSubtitle",
 	"searchButtonLabel",
 	"searchButtonDisplayCondition",
+	"searchFirst",
 ] as const satisfies readonly (keyof CaseSearchConfigPatch)[];
 
 /** Plan one whole editor projection as independent setting writes. */

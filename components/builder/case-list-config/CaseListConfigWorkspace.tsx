@@ -82,7 +82,10 @@ import {
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWorkspaceBoundaryVerdicts } from "@/lib/doc/hooks/useCaseWorkspaceVerdicts";
 import { useModule } from "@/lib/doc/hooks/useEntity";
-import { useIsBareCaseListModule } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useIsBareCaseListModule,
+	useIsCaseFirstModule,
+} from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { searchInputUpdateMutation } from "@/lib/doc/searchInputMutations";
@@ -503,6 +506,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 
 	const mod = useModule(moduleUuid);
 	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
+	const isCaseFirst = useIsCaseFirstModule(moduleUuid);
 	/* The EFFECTIVE view: the same property admission set + types the
 	 * commit gate validates against (see the hook doc). */
 	const caseTypes = useEffectiveCaseTypes();
@@ -1895,6 +1899,7 @@ function useController(target: CaseListWorkspaceTarget | null) {
 				openSearchCondition({ kind: "input", uuid, slot }),
 			onEditSearchButtonCondition: editSearchButtonCondition,
 			searchSettingsHasError: searchButtonConditionBroken,
+			canOpenOnSearch: isCaseFirst || isBareCaseList,
 			onHideColumn: hideColumnFromSurface,
 			onDeleteColumn: deleteColumn,
 			onRemoveInput: removeInput,
@@ -2366,6 +2371,7 @@ export function CaseListWorkspaceCanvas() {
 								hasSearchSurface={config.searchInputs.length > 0}
 								hasSearchAction={effectiveSearchConfig !== undefined}
 								opensResultsAutomatically={opensResultsAutomatically}
+								searchFirst={effectiveSearchConfig?.searchFirst === true}
 								onMoveInput={moveInput}
 								searchSettingsHasError={searchButtonConditionBroken}
 							/>
@@ -2484,6 +2490,8 @@ interface ResolveInspectorArgs {
 	) => void;
 	readonly onEditSearchButtonCondition: (focusNewCondition?: boolean) => void;
 	readonly searchSettingsHasError: boolean;
+	/** The module's first screen selects a case, so it may open on Search. */
+	readonly canOpenOnSearch: boolean;
 	readonly onHideColumn: (surface: CaseDisplaySurface, column: Column) => void;
 	readonly onDeleteColumn: (
 		surface: CaseDisplaySurface,
@@ -2660,6 +2668,7 @@ function resolveInspector(args: ResolveInspectorArgs): {
 						opensResultsAutomatically={opensResultsAutomatically}
 						onEditDisplayCondition={args.onEditSearchButtonCondition}
 						searchSettingsHasError={args.searchSettingsHasError}
+						canOpenOnSearch={args.canOpenOnSearch}
 					/>
 				),
 			};

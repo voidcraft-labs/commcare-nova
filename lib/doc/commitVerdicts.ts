@@ -84,7 +84,12 @@ import {
 import { applyMutations } from "@/lib/doc/mutations";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { MutationResult } from "@/lib/doc/types";
-import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	MODULE_REFERENCE_SLOTS,
+	type Uuid,
+	uuidSchema,
+} from "@/lib/domain";
 import type {
 	MatchMode,
 	Predicate,
@@ -234,6 +239,20 @@ export function caseSearchPredicateVerdict(
  * actual module rules keeps that status aligned
  * with every type, wire, and on-device constraint without recreating their
  * private walkers in React code. */
+/**
+ * Every registry slot that lives on a search input, so a lookup or
+ * expression finding on any of them marks Search broken. Read from the
+ * registry rather than spelled by hand: the registry grows (options,
+ * required conditions, validation rules, hidden values) and a hand-written
+ * set silently misses the new ones, leaving the workspace clean while the
+ * export boundary refuses.
+ */
+const SEARCH_INPUT_REGISTRY_SLOTS: ReadonlySet<string> = new Set(
+	MODULE_REFERENCE_SLOTS.filter((entry) =>
+		entry.path.startsWith("caseListConfig.searchInputs["),
+	).map((entry) => entry.slot),
+);
+
 export interface CaseWorkspaceBoundaryVerdicts {
 	readonly filterBroken: boolean;
 	readonly searchInputsBroken: boolean;
@@ -315,8 +334,8 @@ export function caseWorkspaceBoundaryVerdicts(
 		}
 		if (
 			slot?.startsWith("caseListConfig.searchInputs[") === true ||
-			registrySlot === "search_input_default" ||
-			registrySlot === "search_input_predicate"
+			(registrySlot !== undefined &&
+				SEARCH_INPUT_REGISTRY_SLOTS.has(registrySlot))
 		) {
 			searchInputsBroken = true;
 			continue;

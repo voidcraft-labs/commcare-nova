@@ -50,6 +50,7 @@ import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
 	defaultPostSubmit,
+	effectivePostSubmit,
 	makeTranslationUnitId,
 	moduleParent,
 	projectedModulePreorder,
@@ -317,7 +318,7 @@ export function expandDoc(
 			// else, and HQ's `_get_fallback_frame` is skipped with a `null`.
 			// Without links, `postSubmit` is the workflow itself, as before.
 			const workflow = toHqWorkflow(
-				form.postSubmit ?? defaultPostSubmit(form.type),
+				effectivePostSubmit(doc, formUuid) ?? defaultPostSubmit(form.type),
 			);
 			const projectedLinks = projectFormLinks(doc, linkContext, formUuid);
 			const hqFormLinks =

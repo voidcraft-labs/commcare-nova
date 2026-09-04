@@ -42,7 +42,9 @@ import {
 	caseListSessionDatums,
 	entrySessionDatums,
 	formLinkProjectionContext,
+	inlineSearchFor,
 	moduleDestinationFrameChildren,
+	parentSelectModuleUuid,
 	previousFrameChildren,
 	projectFormLinks,
 	selectedCaseSessionDatum,
@@ -65,6 +67,8 @@ import {
 } from "@/lib/commcare/session";
 import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
 import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
+import { buildInlineClaimPost } from "@/lib/commcare/suite/case-search/claim";
+import { moduleIsSearchFirst } from "@/lib/commcare/suite/case-search/inlineSearch";
 import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import {
 	emitFormDisplayConditionForSuite,
@@ -258,8 +262,15 @@ export function compileCcz(
 		// module still narrows its ordinary `casedb` list even when
 		// `effectiveCaseSearchConfig` intentionally disables remote Search.
 		const excludedOwnerIds = mod.caseSearchConfig?.excludedOwnerIds;
-		const searchButtonDisplayCondition =
-			caseSearchConfig?.searchButtonDisplayCondition;
+		// A search-first module runs its search inside each entry: no
+		// `<remote-request>`, no Search action on the list (so no display
+		// condition to emit), no `m{N}_search_*` details, and every
+		// case-loading datum reads `results:inline`.
+		const searchFirst = moduleIsSearchFirst(mod);
+		const searchButtonDisplayCondition = searchFirst
+			? undefined
+			: caseSearchConfig?.searchButtonDisplayCondition;
+		const caseSource = searchFirst ? ("results:inline" as const) : undefined;
 		const effectiveModuleDisplayCondition =
 			effectiveDisplayConditionForEmission(mod.displayCondition);
 		const moduleRelevant = emitModuleDisplayCondition(
@@ -378,23 +389,30 @@ export function compileCcz(
 			// an `<action>` child. The two paths compose without
 			// branch-doubling at the detail emitter — `searchAction`
 			// is `undefined` when no case-search config is present.
-			const remoteRequestEmission = caseSearchConfig
-				? buildRemoteRequest({
-						module: { ...mod, caseSearchConfig },
-						moduleIndex: mIdx,
-						typeContext: moduleTypeContext(mod, doc),
-						lookupNaming,
-					})
-				: undefined;
+			const remoteRequestEmission =
+				caseSearchConfig && !searchFirst
+					? buildRemoteRequest({
+							module: { ...mod, caseSearchConfig },
+							moduleIndex: mIdx,
+							typeContext: moduleTypeContext(mod, doc),
+							lookupNaming,
+						})
+					: undefined;
 			if (remoteRequestEmission !== undefined) {
 				suiteRemoteRequests.push(remoteRequestEmission.element);
 				mergeLocalizedStrings(remoteRequestEmission);
 			}
+			// The inline `<query>` sits in each entry's session (placed by
+			// the datum projection); its title, description, and prompt
+			// labels still need their app strings.
+			const inlineSearch = inlineSearchFor(doc, linkContext, moduleUuid);
+			if (inlineSearch !== undefined) mergeLocalizedStrings(inlineSearch);
 
 			const shortEmission = buildShortDetail({
 				module: mod,
 				moduleIndex: mIdx,
 				doc,
+				...(caseSource !== undefined && { caseSource }),
 				...(assets && { assets }),
 				...(lookupNaming && { lookupNaming }),
 				...(remoteRequestEmission !== undefined && {
@@ -413,6 +431,7 @@ export function compileCcz(
 				module: mod,
 				moduleIndex: mIdx,
 				doc,
+				...(caseSource !== undefined && { caseSource }),
 				...(assets && { assets }),
 				...(lookupNaming && { lookupNaming }),
 			});
@@ -427,8 +446,9 @@ export function compileCcz(
 			// `commcare-hq/corehq/apps/app_manager/tests/data/suite/search_command_detail.xml`.
 			// The search-target short detail does NOT carry an
 			// `<action>` element — the search results screen IS the
-			// action's destination.
-			if (caseSearchConfig !== undefined) {
+			// action's destination. A search-first module has no separate
+			// results screen: its case details ARE the results.
+			if (caseSearchConfig !== undefined && !searchFirst) {
 				const searchShort = buildShortDetail({
 					module: mod,
 					moduleIndex: mIdx,
@@ -467,7 +487,8 @@ export function compileCcz(
 			// applies when emitting the wire payload.
 			const form = doc.forms[formUuid];
 			const formType = form.type;
-			const postSubmit = form.postSubmit ?? defaultPostSubmit(formType);
+			const postSubmit =
+				form.postSubmit ?? defaultPostSubmit(formType, { searchFirst });
 			const ownCaseDatum = selectedCaseSessionDatum(
 				doc,
 				linkContext,
@@ -566,6 +587,36 @@ export function compileCcz(
 			// references against. `caseListColumnExpressions` is the
 			// module-scoped accumulation hoisted above the form loop.
 			const projectedLinks = projectFormLinks(doc, linkContext, formUuid);
+			const projectedSessionDatums = entrySessionDatums(
+				doc,
+				linkContext,
+				moduleUuid,
+				formUuid,
+			);
+			// The claim `<post>` of a search-first module's case-requiring
+			// entry (`EntriesHelper.include_post_in_entry`): a picked case
+			// the device does not hold yet is claimed before the form opens.
+			// Under a selected parent every other case datum is offered too.
+			const post =
+				searchFirst && ownCaseDatumId !== undefined
+					? buildInlineClaimPost({
+							sessionVar: ownCaseDatumId,
+							collection: ownCaseDatum?.maxSelectValue !== undefined,
+							...(parentSelectModuleUuid(doc, linkContext, moduleUuid) !==
+								undefined && {
+								parentSelect: {
+									otherSessionVars: projectedSessionDatums
+										.filter(
+											(datum) =>
+												datum.query === undefined &&
+												datum.id !== ownCaseDatumId &&
+												!datum.id.startsWith("case_id_new_"),
+										)
+										.map((datum) => datum.id),
+								},
+							}),
+						})
+					: undefined;
 			const entryDef = deriveEntryDefinition({
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
@@ -573,6 +624,7 @@ export function compileCcz(
 				formType,
 				postSubmit,
 				caseType: caseType || undefined,
+				...(post !== undefined && { post }),
 				...(projectedLinks !== undefined && { formLinks: projectedLinks }),
 				/* The previous frame is read only when `previous` is the
 				 * destination (plain, or as the guarded fallback). */
@@ -585,12 +637,7 @@ export function compileCcz(
 					linkContext,
 					moduleUuid,
 				),
-				projectedSessionDatums: entrySessionDatums(
-					doc,
-					linkContext,
-					moduleUuid,
-					formUuid,
-				),
+				projectedSessionDatums,
 				caseListFilter: mod.caseListConfig?.filter,
 				searchButtonDisplayCondition,
 				caseListColumnExpressions:

@@ -18,7 +18,7 @@ import type { CaseType } from "../blueprint";
 import type { OrganizationLevel } from "../organization";
 import type { Uuid } from "../uuid";
 import { relationPropertyDestinationCaseType } from "./normalizeRelationReads";
-import type { SearchInputDecl } from "./typeChecker";
+import type { SearchInputDecl, SearchInputInstanceId } from "./typeChecker";
 import type {
 	ComparisonKind,
 	Predicate,
@@ -52,6 +52,8 @@ export interface RelationEvaluationScopeContext {
 	readonly knownInputs?: ReadonlyArray<SearchInputDecl>;
 	/** Organization topology for identity-backed location terms. */
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
+	/** The wire instance `input(...)` reads print through; see `TypeContext`. */
+	readonly searchInputInstanceId?: SearchInputInstanceId;
 }
 
 /** Normalize every predicate leaf reachable through structural boolean slots. */

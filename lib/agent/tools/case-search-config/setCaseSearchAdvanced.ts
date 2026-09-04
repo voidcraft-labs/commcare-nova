@@ -101,10 +101,24 @@ export const setCaseSearchAdvancedTool = {
 				existing === undefined &&
 				(mod.caseListConfig?.searchInputs.length ?? 0) === 0 &&
 				advancedPatch.excludedOwnerIds !== undefined;
+			const ownerOnlyModule =
+				addingFirstOwnerRule ||
+				(existing !== undefined && isOwnerOnlyCaseSearchConfig(existing));
 			const keepOwnerOnly =
-				advancedPatch.excludedOwnerIds !== undefined &&
-				(addingFirstOwnerRule ||
-					(existing !== undefined && isOwnerOnlyCaseSearchConfig(existing)));
+				advancedPatch.excludedOwnerIds !== undefined && ownerOnlyModule;
+			// An owner-only module has no Search action to open on, whether the
+			// call keeps its owner rule or clears it in the same breath: clearing
+			// leaves no config at all, so a `searchFirst` riding along would be
+			// dropped while the result still named it as set.
+			if (ownerOnlyModule && advancedPatch.searchFirst === true) {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: {
+						error: `Module "${mod.name}" only limits which cases are available and has no Search action, so it cannot open on Search. Add a search input first, then turn Search first on.`,
+					},
+				};
+			}
 			const nextExcludedOwnerIds = advancedPatch.excludedOwnerIds;
 			const nextConfigCandidate: CaseSearchConfig = keepOwnerOnly
 				? {

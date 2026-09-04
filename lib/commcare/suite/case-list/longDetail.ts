@@ -121,6 +121,8 @@ export function buildLongDetail(args: {
 	readonly moduleIndex: number;
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
+	/** The case-target rows' source; see `CaseListEmitContext.caseSource`. */
+	readonly caseSource?: "casedb" | "results:inline";
 	readonly assets?: AssetManifest;
 	readonly lookupNaming?: LookupWireNaming;
 }): {
@@ -154,6 +156,7 @@ export function buildLongDetail(args: {
 		sortByUuid: EMPTY_SORT_DIRECTIVES,
 		detailKind: "long",
 		target,
+		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
 		caseProperties,
 		proseDoc: args.doc,
 		caseTypes: effectiveCaseTypes(args.doc),

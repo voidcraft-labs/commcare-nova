@@ -301,6 +301,7 @@ function emitPresenceGatedClause(
 		searchInputNames: new Map(
 			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
 		),
+		searchInputInstanceId: typeContext?.searchInputInstanceId,
 	});
 	const inner =
 		p.clause.kind === "when-input-present"
@@ -655,6 +656,7 @@ function emitWhenInputPresentSegments(
 		searchInputNames: new Map(
 			(typeContext?.knownInputs ?? []).map((input) => [input.uuid, input.name]),
 		),
+		searchInputInstanceId: typeContext?.searchInputInstanceId,
 	});
 	const innerSegments = emitPredicateSegments(p.clause, 0, typeContext);
 	const inner = buildConcatExpression(innerSegments);
@@ -724,6 +726,7 @@ function emitSubcaseCountBoundSegments(
 	const classification = classifySubcaseCountBound(
 		expression,
 		typeContext?.knownInputs,
+		typeContext?.searchInputInstanceId,
 	);
 	if (classification.kind === "static-valid") {
 		return [{ kind: "constant", text: formatNumeric(classification.value) }];

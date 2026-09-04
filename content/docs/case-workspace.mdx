@@ -267,6 +267,31 @@ A hidden value works with fixed values, the current date and time, and
 current-user information, and cannot read case information or another search
 field.
 
+### Search first
+
+Some workflows should never show a list before anyone has searched: a
+registry too large to scroll, or a program where finding the right person
+comes first. Turn on **Search first** in the Search panel and the module
+opens on its Search screen instead of Results. Nothing is listed until a
+search completes, and Results then shows only what that search found, with
+**Search again** at the top to start over. A search-first module with no
+visible search fields runs its search on its own, so it lands on Results
+immediately.
+
+**Search first** is offered when every form in the module works on an
+existing case, or when the module is a case list with no forms. A module
+that also registers cases keeps browse-then-search, because there is no
+Search screen to open on before a registration form. Two Search settings
+go away with the list: there is no Search button to show or hide, so **When
+Search is available** has no effect, and **Previous screen** is not an
+after-submit destination for the module's forms, because the previous
+screen was the search itself. After submitting, those forms return to the
+module by default, which reopens Search.
+
+A search-first module does not share its search results with a submenu or
+with a module that selects a parent case from it. Give such a module its
+own ordinary case list instead.
+
 Results owns **Cases available**, the rules that always decide which cases can
 appear before anyone searches. The conditions are listed and edited together
 in the canvas, above Default order. Choose **Add condition** for another rule,

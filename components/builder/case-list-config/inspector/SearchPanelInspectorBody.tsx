@@ -10,6 +10,10 @@
 //      button's visibility at runtime. This rail only summarizes it
 //      (through the shared `ConditionSlotSetting`); the center Search
 //      workbench is its one editing surface.
+//   5. `searchFirst`: the module opens on its Search screen; the browse
+//      list goes away and Results exist only after a search. Offered only
+//      where the commit gate would admit it (a case-first module or a bare
+//      case list), so the switch never invites a refusal.
 // Assigned-case availability is edited only in Results beside the other
 // Cases available rules. This inspector owns Search-screen behavior only.
 //
@@ -26,6 +30,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import { type ReactNode, useEffect, useState } from "react";
+import { ToggleRow } from "@/components/builder/inspector/inspectorChrome";
 import { OptionalMarkdownRow } from "@/components/builder/inspector/OptionalMarkdownRow";
 import { OptionalTextRow } from "@/components/builder/inspector/OptionalTextRow";
 import { ConditionSlotSetting } from "@/components/builder/shared/ConditionSlotSetting";
@@ -67,6 +72,10 @@ export interface SearchPanelInspectorBodyProps {
 	readonly onEditDisplayCondition: (focusNewCondition?: boolean) => void;
 	/** The Search-action condition is invalid and needs repair. */
 	readonly searchSettingsHasError?: boolean;
+	/** Whether the module's first screen selects a case (every form works on
+	 *  an existing case, or a case list with no forms), which is what Search
+	 *  first needs. Absent means the switch is withheld. */
+	readonly canOpenOnSearch?: boolean;
 }
 
 export function SearchPanelInspectorBody({
@@ -80,6 +89,7 @@ export function SearchPanelInspectorBody({
 	opensResultsAutomatically = false,
 	onEditDisplayCondition,
 	searchSettingsHasError = false,
+	canOpenOnSearch = false,
 }: SearchPanelInspectorBodyProps) {
 	const setTitle = (next: string | undefined) => {
 		const authored = next === DEFAULT_CASE_SEARCH_TITLE ? undefined : next;
@@ -100,6 +110,9 @@ export function SearchPanelInspectorBody({
 	};
 	const setDisplayCondition = (next: Predicate | undefined) =>
 		onChange(setOptionalSlot(value, "searchButtonDisplayCondition", next));
+	const searchFirst = value?.searchFirst === true;
+	const setSearchFirst = (next: boolean) =>
+		onChange(setOptionalSlot(value, "searchFirst", next ? true : undefined));
 	const searchActionIsActive = hasSearchAction ?? value !== undefined;
 	const advancedIsActive =
 		value?.searchButtonDisplayCondition !== undefined ||
@@ -144,6 +157,27 @@ export function SearchPanelInspectorBody({
 				</p>
 			)}
 
+			{searchActionIsActive && (canOpenOnSearch || searchFirst) && (
+				<div data-search-first-setting>
+					<ToggleRow
+						label="Search first"
+						description={
+							searchFirst
+								? "People search before they see any cases. Results shows only what a search finds."
+								: "Open this module on Search instead of a list. Results shows only what a search finds, and its forms return here after submit."
+						}
+						checked={searchFirst}
+						onChange={setSearchFirst}
+					/>
+					{searchFirst && hasVisibleSearchScreen && (
+						<p className="mt-2 px-1 text-[13px] leading-relaxed text-nova-text-muted">
+							After a form, people return to Search. A search with nothing to
+							fill in runs on its own.
+						</p>
+					)}
+				</div>
+			)}
+
 			<AdvancedSearchSettings
 				active={advancedIsActive}
 				attention={searchSettingsHasError}
@@ -159,23 +193,30 @@ export function SearchPanelInspectorBody({
 						maxGraphemes={32}
 					/>
 				)}
-				<ConditionSlotSetting
-					title="When Search is available"
-					description="Offer the Search action only when a condition matches"
-					value={value?.searchButtonDisplayCondition}
-					onChange={setDisplayCondition}
-					onEdit={onEditDisplayCondition}
-					alwaysSummary="Search is always available"
-					clearLabel="Always allow Search"
-					clearTitle="Always allow Search?"
-					clearConsequence="The current condition will be removed, and Search will be available whenever this case list can search. You can undo this change."
-					caseTypes={caseTypes}
-					currentCaseType={currentCaseType}
-					knownInputs={knownInputs}
-					// The Search action's relevance resolves before any case is
-					// selected, so the seed compares a session value.
-					caseDataScope="global"
-				/>
+				{searchFirst && value?.searchButtonDisplayCondition === undefined ? (
+					<p className="rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-3 text-[13px] leading-relaxed text-nova-text-secondary">
+						This module opens on Search, so there is no Search button to show or
+						hide.
+					</p>
+				) : (
+					<ConditionSlotSetting
+						title="When Search is available"
+						description="Offer the Search action only when a condition matches"
+						value={value?.searchButtonDisplayCondition}
+						onChange={setDisplayCondition}
+						onEdit={onEditDisplayCondition}
+						alwaysSummary="Search is always available"
+						clearLabel="Always allow Search"
+						clearTitle="Always allow Search?"
+						clearConsequence="The current condition will be removed, and Search will be available whenever this case list can search. You can undo this change."
+						caseTypes={caseTypes}
+						currentCaseType={currentCaseType}
+						knownInputs={knownInputs}
+						// The Search action's relevance resolves before any case is
+						// selected, so the seed compares a session value.
+						caseDataScope="global"
+					/>
+				)}
 			</AdvancedSearchSettings>
 		</>
 	);

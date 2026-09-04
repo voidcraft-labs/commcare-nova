@@ -563,7 +563,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 
 | Tool | What it does |
 |---|---|
-| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. |
+| `configure_case_list` | Configure a known case-list refinement in one call: add columns and search inputs, set or clear the filter, compose the search-screen display, open the module on Search with `searchFirst`, and arrange Results, Details, and search-input order. Omitted parts stay unchanged; the result returns created UUIDs. |
 | `add_case_list_columns` | Add one or more columns to the case list (plain / date / phone / id-mapping / image-map / interval / link / calculated). Each may predeclare `columnUuid`; the result returns the final UUIDs. |
 | `update_case_list_column` | Replace a column's body, addressed by `moduleUuid` and `columnUuid`. |
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
@@ -598,7 +598,7 @@ Case search is the search experience that surrounds the case list: the screen ti
 | Tool | What it does |
 |---|---|
 | `set_case_search_display` | Set the search-screen title, subtitle, search button label, and the predicate that decides when to show the search button. |
-| `set_case_search_advanced` | Set the advanced cluster: an expression naming owner ids whose cases are excluded from search results. |
+| `set_case_search_advanced` | Set the advanced cluster: an expression naming owner ids whose cases are excluded from search results, and `searchFirst`, which opens the module on its Search screen with no browse list. |
 
 ## Working on forms
 

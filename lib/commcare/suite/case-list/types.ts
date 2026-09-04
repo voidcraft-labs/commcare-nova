@@ -158,6 +158,15 @@ export interface CaseListEmitContext {
 	readonly sortByUuid: ReadonlyMap<Uuid, ResolvedSortDirective>;
 	readonly detailKind: DetailKind;
 	readonly target: DetailTarget;
+	/**
+	 * Where the case-target detail's rows come from. A search-first module
+	 * lists the results of its own search (`results:inline`) rather than
+	 * the device casedb, so its relation walks root there too
+	 * (`test_suite_inline_search.py::test_inline_search_multi_select`
+	 * pins `instance('results:inline')/results/case[...]`). Absent means
+	 * the device casedb.
+	 */
+	readonly caseSource?: "casedb" | "results:inline";
 	/** Effective property catalog for the module's case type. Plain select
 	 * columns derive worker-facing option labels from this metadata; other plain
 	 * fields remain raw. */

@@ -182,6 +182,10 @@ export function emitOnDeviceExpression(
 								]),
 							),
 						}),
+					...(termContext.searchInputInstanceId === undefined &&
+						relationContext.searchInputInstanceId !== undefined && {
+							searchInputInstanceId: relationContext.searchInputInstanceId,
+						}),
 					...(termContext.organizationLevels === undefined &&
 						relationContext.organizationLevels !== undefined && {
 							organizationLevels: relationContext.organizationLevels,

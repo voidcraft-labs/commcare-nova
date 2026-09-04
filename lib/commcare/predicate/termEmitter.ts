@@ -33,7 +33,10 @@
 
 import type { OrganizationLevel } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
-import type { SearchInputDecl } from "@/lib/domain/predicate/typeChecker";
+import type {
+	SearchInputDecl,
+	SearchInputInstanceId,
+} from "@/lib/domain/predicate/typeChecker";
 import type {
 	PropertyRef,
 	RelationStep,
@@ -116,7 +119,17 @@ export interface OnDeviceExpressionBindings {
  * `/results/case`) — CCHQ's wire grammar binds both segments to the
  * surrounding instance id.
  */
-export type InstanceRoot = "casedb" | "results";
+export type InstanceRoot = "casedb" | "results" | "results:inline";
+
+/**
+ * The path segment under an instance root. A search-first module's
+ * results instance is named `results:inline` but its document root is
+ * still `<results>` (`CaseSelectionXPath.get_instance_root`), so
+ * `instance('results:inline')/results/case[...]`.
+ */
+export function instanceRootPath(root: InstanceRoot): string {
+	return root === "results:inline" ? "results" : root;
+}
 
 /**
  * Lookup wire vocabulary available to one emission run, plus the innermost
@@ -155,6 +168,10 @@ export interface OnDeviceTermEmissionContext
 	readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 	/** Current runtime names for identity-backed search inputs. */
 	readonly searchInputNames?: ReadonlyMap<Uuid, string>;
+	/** The instance `input(...)` reads print through (`search-input:results`
+	 *  for the standalone search, `search-input:results:inline` for the
+	 *  inline shape). Absent means the standalone spelling. */
+	readonly searchInputInstanceId?: SearchInputInstanceId;
 	/** Organization topology for identity-backed location terms. */
 	readonly organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 }
@@ -243,7 +260,7 @@ function buildCaseByIdNodeset(
 		caseType === undefined
 			? ""
 			: ` and @case_type=${quoteLiteral(caseType, "case-list-filter")}`;
-	return `instance('${root}')/${root}/case[@case_id=${caseId}${typeFilter}]`;
+	return `instance('${root}')/${instanceRootPath(root)}/case[@case_id=${caseId}${typeFilter}]`;
 }
 
 /**
@@ -278,7 +295,7 @@ export function buildSubcaseJoinNodeset(
 		ofCaseType === undefined
 			? ""
 			: ` and @case_type=${quoteLiteral(ofCaseType, "case-list-filter")}`;
-	return `instance('${root}')/${root}/case[index/${identifier}=${anchorCaseId}${typeFilter}]`;
+	return `instance('${root}')/${instanceRootPath(root)}/case[index/${identifier}=${anchorCaseId}${typeFilter}]`;
 }
 
 // ============================================================
@@ -631,6 +648,7 @@ export function emitTermSegment(
 	context: {
 		readonly userPropertySlugs?: ReadonlyMap<Uuid, string>;
 		readonly knownInputs?: ReadonlyArray<SearchInputDecl>;
+		readonly searchInputInstanceId?: SearchInputInstanceId;
 	} = {},
 ): TermEmission {
 	switch (t.kind) {
@@ -645,7 +663,10 @@ export function emitTermSegment(
 			)?.data_type;
 			return {
 				kind: "runtime",
-				xpath: emitSearchInputXPath(t, { searchInputNames }),
+				xpath: emitSearchInputXPath(t, {
+					searchInputNames,
+					searchInputInstanceId: context.searchInputInstanceId,
+				}),
 				inputNames: [resolveSearchInputName(t, { searchInputNames })],
 				// A `date`-widget input's runtime value is picker-formatted
 				// `yyyy-MM-dd` text on every runtime that binds it — see the
@@ -745,10 +766,16 @@ export function emitCsqlPropertyRefSegment(
  */
 export function emitSearchInputXPath(
 	t: SearchInputRef,
-	context: Pick<OnDeviceTermEmissionContext, "searchInputNames"> = {},
+	context: Pick<
+		OnDeviceTermEmissionContext,
+		"searchInputNames" | "searchInputInstanceId"
+	> = {},
 ): string {
-	return `instance('search-input:results')/input/field[@name='${resolveSearchInputName(t, context)}']`;
+	return `instance('${context.searchInputInstanceId ?? STANDALONE_SEARCH_INPUT_INSTANCE_ID}')/input/field[@name='${resolveSearchInputName(t, context)}']`;
 }
+
+/** The answer instance of a standalone `<remote-request>` search. */
+export const STANDALONE_SEARCH_INPUT_INSTANCE_ID = "search-input:results";
 
 function resolveSearchInputName(
 	t: SearchInputRef,

@@ -4,6 +4,7 @@ import {
 	buildAncestorJoinNodeset,
 	DEFAULT_INSTANCE_ROOT,
 	type InstanceRoot,
+	instanceRootPath,
 	type OnDeviceTermEmissionContext,
 } from "./termEmitter";
 
@@ -185,7 +186,7 @@ function emitSubcasePresence(
 }
 
 function caseById(caseId: string, root: InstanceRoot): string {
-	return `instance('${root}')/${root}/case[@case_id=${caseId}]`;
+	return `instance('${root}')/${instanceRootPath(root)}/case[@case_id=${caseId}]`;
 }
 
 function candidateCases(
@@ -197,7 +198,7 @@ function candidateCases(
 		caseType === undefined
 			? ""
 			: `@case_type=${quoteLiteral(caseType, "case-list-filter")} and `;
-	return `instance('${root}')/${root}/case[${typeFilter}${
+	return `instance('${root}')/${instanceRootPath(root)}/case[${typeFilter}${
 		caseType === undefined ? where : `(${where})`
 	}]`;
 }

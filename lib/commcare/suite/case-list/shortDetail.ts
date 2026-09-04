@@ -173,6 +173,8 @@ export function buildShortDetail(args: {
 	readonly doc: BlueprintDoc;
 	readonly target?: DetailTarget;
 	readonly searchAction?: SearchActionContext;
+	/** The case-target rows' source; see `CaseListEmitContext.caseSource`. */
+	readonly caseSource?: "casedb" | "results:inline";
 	readonly assets?: AssetManifest;
 	readonly lookupNaming?: LookupWireNaming;
 }): {
@@ -225,6 +227,7 @@ export function buildShortDetail(args: {
 		sortByUuid: buildSortDirectives(mod, doc, args.lookupNaming),
 		detailKind: "short",
 		target,
+		...(args.caseSource !== undefined && { caseSource: args.caseSource }),
 		caseProperties,
 		proseDoc: doc,
 		caseTypes: relationContext.caseTypes,

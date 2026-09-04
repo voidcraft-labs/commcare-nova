@@ -160,6 +160,34 @@ describe("userFacingError — voice", () => {
 		expect(line).toMatch(/remove the repeated/i);
 	});
 
+	it("names a search field's required condition, check, and hidden value rather than the module's Cases available rule", () => {
+		const subjects = [
+			["search-input-required", /required condition for search field "Region"/],
+			["search-input-validation", /check on search field "Region"/],
+			["search-input-hidden-value", /hidden search value "Region"/],
+		] as const;
+		for (const code of [
+			"CASE_LIST_DATE_ADD_NOT_ON_DEVICE",
+			"CASE_LIST_MATCH_MODE_NOT_ON_DEVICE",
+			"CASE_LIST_EXPRESSION_NOT_ON_DEVICE",
+			"CASE_LIST_STRICT_NULL_NOT_PORTABLE",
+		] as const) {
+			for (const [surface, expected] of subjects) {
+				const line = userFacingError(
+					validationError(
+						code,
+						"module",
+						"verbose internal message",
+						{ moduleName: "Clients" },
+						{ surface, inputLabel: "Region", interval: "months" },
+					),
+				);
+				expect(line, `${code} on ${surface}`).toMatch(expected);
+				expect(line).not.toContain("Cases available rule");
+			}
+		}
+	});
+
 	it("explains a changed several-case selection without hiding the repair", () => {
 		const line = userFacingError(
 			validationError(

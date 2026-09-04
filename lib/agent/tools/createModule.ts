@@ -117,7 +117,7 @@ const createModuleFormSchema = z
 			.nullable()
 			.optional()
 			.describe(
-				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Pass null to use the default; set a value only to override.',
+				'Where the user goes after submitting. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Pass null to use the default; set a value only to override.',
 			),
 		close_condition: closeConditionInputSchema
 			.nullable()

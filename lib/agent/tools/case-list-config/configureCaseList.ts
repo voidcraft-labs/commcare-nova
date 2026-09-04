@@ -12,6 +12,7 @@ import {
 	asUuid,
 	type CaseSearchConfig,
 	findAuthoredBlueprintIdentity,
+	isOwnerOnlyCaseSearchConfig,
 	type Module,
 	type Uuid,
 } from "@/lib/domain";
@@ -81,6 +82,13 @@ export const configureCaseListInputSchema = z
 				"Replacement always-on case-list filter. null clears it; omission leaves it unchanged. Ordinary case lists already omit closed cases.",
 			),
 		...configureSearchDisplaySchema.shape,
+		searchFirst: z
+			.literal(true)
+			.nullable()
+			.optional()
+			.describe(
+				"`true` makes the module open on its Search screen with no browse list (Results exist only after a completed search); `null` returns it to browse-then-search; omission leaves it unchanged. Same rules as setCaseSearchAdvanced.searchFirst.",
+			),
 		resultsColumnOrder: z
 			.array(uuidInputSchema)
 			.optional()
@@ -179,6 +187,29 @@ function displayMutations(mod: Module, input: SearchDisplayInput): Mutation[] {
 	});
 }
 
+/** Turn Search first on or off, keeping every other Search setting. */
+function searchFirstMutations(
+	mod: Module,
+	searchFirst: true | null,
+): { readonly mutations: Mutation[] } | { readonly error: string } {
+	const existing = snapshotCaseSearchConfig(mod);
+	if (existing !== undefined && isOwnerOnlyCaseSearchConfig(existing)) {
+		if (searchFirst === null) return { mutations: [] };
+		return {
+			error: `Module "${mod.name}" only limits which cases are available and has no Search action, so it cannot open on Search. Add a search input first, then turn Search first on.`,
+		};
+	}
+	const { searchFirst: _current, ...rest } = existing ?? {};
+	const candidate: CaseSearchConfig =
+		searchFirst === true ? { ...rest, searchFirst: true } : rest;
+	return {
+		mutations: updateModuleMutations(mod, {
+			caseSearchConfig:
+				collapseUnauthoredCaseSearchConfig(existing, candidate) ?? null,
+		}),
+	};
+}
+
 export const configureCaseListTool = {
 	description:
 		"Configure a module's case list as one coherent resource: add known columns and search inputs, set or clear its filter, compose the search screen, and arrange Results, Details, and search-input order. Search display uses the four root fields searchScreenTitle, searchScreenSubtitle, searchButtonLabel, and searchButtonDisplayCondition, matching setCaseSearchDisplay; provide all four together and use null to clear a slot. Omit any other part that should stay unchanged. Returns created UUIDs.",
@@ -260,6 +291,20 @@ export const configureCaseListTool = {
 			}
 			if (hasCompleteSearchDisplay(input)) {
 				append(displayMutations(workingModule, input));
+			}
+			if (input.searchFirst !== undefined) {
+				const searchFirst = searchFirstMutations(
+					workingModule,
+					input.searchFirst,
+				);
+				if ("error" in searchFirst) {
+					return {
+						kind: "mutate",
+						mutations: [],
+						result: { error: searchFirst.error },
+					};
+				}
+				append(searchFirst.mutations);
 			}
 
 			for (const [order, surface] of [

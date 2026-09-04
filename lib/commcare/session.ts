@@ -48,6 +48,7 @@ import {
 	substituteUnansweredSearchInputsInPredicate,
 } from "@/lib/domain/predicate";
 import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+import type { SearchInputInstanceId } from "@/lib/domain/predicate/typeChecker";
 import type { Predicate, ValueExpression } from "@/lib/domain/predicate/types";
 import type { MatchedChild, ProjectedFormLinks } from "./formLinkProjection";
 import { validateCaseType } from "./identifierValidation";
@@ -159,12 +160,46 @@ export interface SessionDatum {
 	renderNodeset?: (parentSelection?: SessionDatum) => string;
 	/** The immediately preceding selection in a parent-select chain. */
 	parentSelection?: SessionDatum;
+	/**
+	 * Present on the `<query>` session child of a search-first module. The
+	 * datum's `id` is the storage instance the search fills
+	 * (`results:inline`), which is also the id HQ's end-of-form workflow
+	 * gives the frame child it derives from it (`workflow.py::WorkflowQueryMeta`).
+	 * No nodeset, value, or detail: the element is rendered as is.
+	 */
+	query?: SessionQuery;
+}
+
+/**
+ * The search a search-first module runs inside its entries, immediately
+ * before the case datum that reads its results (CCHQ's
+ * `EntriesHelper.add_remote_query_datums`).
+ */
+export interface SessionQuery {
+	/** The rendered `<query>` element. */
+	readonly element: Element;
+	readonly storageInstance: "results:inline";
+	/** The module's case type, the query's first `<data key="case_type">`. */
+	readonly caseType: string;
+	/** Whether the worker answers anything. With no visible prompt the
+	 *  search runs on its own (`default_search`), and HQ then treats the
+	 *  query as a selecting step in frames (`WorkflowQueryMeta.requires_selection`). */
+	readonly hasPrompts: boolean;
+	readonly defaultSearch: boolean;
+	/** Instances the query body reads, declared on the surrounding entry. */
+	readonly instances: readonly string[];
 }
 
 /** A secondary instance required by a form entry. */
 export interface EntryInstance {
 	id: string;
 	src: string;
+}
+
+/** A rendered claim `<post>` and the instances its XPath reads. */
+export interface EntryPost {
+	readonly element: Element;
+	readonly instances: readonly string[];
 }
 
 // ── Stack Operations ───────────────────────────────────────────────────
@@ -188,10 +223,27 @@ export interface EntryInstance {
 //   - <create/>: empty frame pushed, resolves to home (no command = no entry)
 //   - <clear/>: stack is wiped, session ends, user goes home
 
+/** One `<data>` of a stack `<query>` child. */
+export interface StackQueryData {
+	readonly key: string;
+	readonly ref: string;
+	readonly nodeset?: string;
+	readonly exclude?: string;
+}
+
 /** A child element of a <create> or <push> operation. */
 export type StackChild =
 	| { type: "command"; value: string }
-	| { type: "datum"; id: string; value: string };
+	| { type: "datum"; id: string; value: string }
+	/** A frame step that fetches cases into a search-first module's
+	 *  results instance before the datum that selects one (HQ
+	 *  `WorkflowQueryMeta.to_stack_datum`). */
+	| {
+			type: "query";
+			id: string;
+			value: string;
+			data: readonly StackQueryData[];
+	  };
 
 /**
  * A single stack operation in suite.xml.
@@ -235,6 +287,13 @@ export interface StackOperation {
 export interface EntryDefinition {
 	/** The XForm xmlns the entry launches. Omitted for the case-list-browse entry, which loads a case but launches no form. */
 	formXmlns?: string;
+	/**
+	 * The claim `<post>` of a search-first module's case-requiring entry:
+	 * fires when the worker picks a result the device does not yet hold
+	 * (`EntriesHelper.add_post_to_entry`). Sits between `<form>` and
+	 * `<command>` on the wire.
+	 */
+	post?: EntryPost;
 	commandId: string;
 	localeId: string;
 	instances: EntryInstance[];
@@ -288,6 +347,35 @@ export function caseLoadingNodeset(
 	return `instance('casedb')/casedb/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}${ownerFragment}`;
 }
 
+/**
+ * The case datum's nodeset when the cases come from a search-first
+ * module's own search rather than the device's casedb: CCHQ's
+ * `EntriesHelper.get_datum_meta_module` reads `instance('results:inline')/results/case`
+ * and appends `EXCLUDE_RELATED_CASES_FILTER` after the list rule. No
+ * owner fragment: the query already sends `commcare_blacklisted_owner_ids`,
+ * so the server never returns those cases.
+ */
+export function inlineSearchNodeset(
+	caseType: string,
+	caseListFilter: Predicate | undefined,
+	relationContext: RelationEvaluationScopeContext = {},
+	lookupNaming?: LookupWireNaming,
+): string {
+	const filterFragment = emitNodesetFilter(
+		caseListFilter,
+		relationContext,
+		lookupNaming,
+	);
+	return `instance('${INLINE_SEARCH_RESULTS_INSTANCE}')/results/case[@case_type='${validateCaseType(caseType)}'][@status='open']${filterFragment}${EXCLUDE_RELATED_CASES_FILTER}`;
+}
+
+/** CCHQ's `RESULTS_INSTANCE_INLINE` and its `jr://` source. */
+export const INLINE_SEARCH_RESULTS_INSTANCE = "results:inline";
+export const INLINE_SEARCH_RESULTS_SRC = "jr://instance/remote/results:inline";
+/** CCHQ's `EXCLUDE_RELATED_CASES_FILTER`, verbatim. */
+export const EXCLUDE_RELATED_CASES_FILTER =
+	"[not(commcare_is_related_case=true())]";
+
 /** Build one selectable case datum. Nested-menu projection uses this for
  * every step in a parent-select chain, while the flat helper below keeps the
  * historical single-`case_id` default. */
@@ -303,7 +391,11 @@ export function deriveCaseSelectionDatum(args: {
 	readonly parentSelection?: SessionDatum;
 	readonly detailConfirm?: boolean;
 	readonly maxSelectValue?: number;
+	/** Where the selectable cases come from: the device's casedb, or the
+	 *  results of a search-first module's own search. */
+	readonly caseSource?: "casedb" | "results:inline";
 }): SessionDatum {
+	const inline = args.caseSource === "results:inline";
 	const secondaryInstances = new Set<string>();
 	if (args.caseListFilter !== undefined) {
 		const unanswered = substituteUnansweredSearchInputsInPredicate(
@@ -313,7 +405,7 @@ export function deriveCaseSelectionDatum(args: {
 			if (id !== "casedb") secondaryInstances.add(id);
 		}
 	}
-	if (args.excludedOwnerIds !== undefined) {
+	if (args.excludedOwnerIds !== undefined && !inline) {
 		const unanswered = substituteUnansweredSearchInputsInExpression(
 			args.excludedOwnerIds,
 		);
@@ -329,13 +421,20 @@ export function deriveCaseSelectionDatum(args: {
 		args.parentSelection.maxSelectValue === undefined
 	)
 		secondaryInstances.add("commcaresession");
-	const base = caseLoadingNodeset(
-		args.caseType,
-		args.caseListFilter,
-		args.excludedOwnerIds,
-		args.relationContext,
-		args.lookupNaming,
-	);
+	const base = inline
+		? inlineSearchNodeset(
+				args.caseType,
+				args.caseListFilter,
+				args.relationContext,
+				args.lookupNaming,
+			)
+		: caseLoadingNodeset(
+				args.caseType,
+				args.caseListFilter,
+				args.excludedOwnerIds,
+				args.relationContext,
+				args.lookupNaming,
+			);
 	const renderNodeset = (parentSelection?: SessionDatum): string => {
 		const parentFilter =
 			parentSelection === undefined
@@ -347,8 +446,8 @@ export function deriveCaseSelectionDatum(args: {
 	};
 	return {
 		id: args.id,
-		instanceId: "casedb",
-		instanceSrc: "jr://instance/casedb",
+		instanceId: inline ? INLINE_SEARCH_RESULTS_INSTANCE : "casedb",
+		instanceSrc: inline ? INLINE_SEARCH_RESULTS_SRC : "jr://instance/casedb",
 		...(secondaryInstances.size > 0 && {
 			instanceIds: [...secondaryInstances],
 		}),
@@ -409,6 +508,7 @@ function accumulateCaseLoadingInstances(
 	instances: EntryInstance[],
 	seen: Set<string>,
 	lookupNaming?: LookupWireNaming,
+	searchInputInstanceId?: SearchInputInstanceId,
 ): void {
 	// Predicate-derived instances. Every predicate whose XPath fragment
 	// lives inside an `<entry>`-scoped slot contributes its instance set
@@ -451,6 +551,8 @@ function accumulateCaseLoadingInstances(
 		for (const id of collectPredicateInstances(
 			searchButtonDisplayCondition,
 			lookupNaming,
+			"suite",
+			searchInputInstanceId,
 		)) {
 			if (seen.has(id)) continue;
 			seen.add(id);
@@ -486,7 +588,12 @@ function accumulateCaseLoadingInstances(
 	// post-process would add on a regenerated suite.
 	if (caseListColumnExpressions !== undefined) {
 		for (const expression of caseListColumnExpressions) {
-			for (const id of collectExpressionInstances(expression, lookupNaming)) {
+			for (const id of collectExpressionInstances(
+				expression,
+				lookupNaming,
+				"suite",
+				searchInputInstanceId,
+			)) {
 				if (seen.has(id)) continue;
 				seen.add(id);
 				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
@@ -714,9 +821,19 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 
 /** A projected frame child as the suite's `<create>` child. */
 export function toStackChild(child: MatchedChild): StackChild {
-	return child.type === "command"
-		? { type: "command", value: `'${child.id}'` }
-		: { type: "datum", id: child.id, value: child.value };
+	switch (child.type) {
+		case "command":
+			return { type: "command", value: `'${child.id}'` };
+		case "datum":
+			return { type: "datum", id: child.id, value: child.value };
+		case "query":
+			return {
+				type: "query",
+				id: child.id,
+				value: child.value,
+				data: child.data,
+			};
+	}
 }
 
 /**
@@ -861,6 +978,8 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	 * source and `commcaresession`'s `case_id` anchor.
 	 */
 	readonly formDisplayCondition?: Predicate;
+	/** The claim post of a search-first module's case-requiring entry. */
+	readonly post?: EntryPost;
 }
 
 export function deriveEntryDefinition(
@@ -899,10 +1018,16 @@ export function deriveEntryDefinition(
 		for (const d of datums) {
 			// A nodeset datum reads exactly one instance and names it in
 			// `instanceId`. A function datum reads none (case-create's `uuid()`)
-			// or several, and says so in `instanceIds`.
+			// or several, and says so in `instanceIds`. A query reads what its
+			// data and prompts reach.
 			if (d.instanceId && !seen.has(d.instanceId)) {
 				seen.add(d.instanceId);
 				instances.push({ id: d.instanceId, src: d.instanceSrc ?? "" });
+			}
+			for (const id of d.query?.instances ?? []) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 			}
 			if (d.maxSelectValue !== undefined && !seen.has(d.id)) {
 				seen.add(d.id);
@@ -917,6 +1042,12 @@ export function deriveEntryDefinition(
 				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 			}
 		}
+	}
+
+	for (const id of args.post?.instances ?? []) {
+		if (seen.has(id)) continue;
+		seen.add(id);
+		instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 	}
 
 	// Accumulate the `<instance>` declarations the entry's body reaches —
@@ -935,6 +1066,7 @@ export function deriveEntryDefinition(
 		instances,
 		seen,
 		lookupNaming,
+		args.relationContext?.searchInputInstanceId,
 	);
 
 	// Post-form stack guards, frame datum values, and manual datum XPath all
@@ -945,9 +1077,7 @@ export function deriveEntryDefinition(
 	for (const link of formLinks?.links ?? []) {
 		const expressions = [
 			...(link.guard === undefined ? [] : [link.guard]),
-			...link.children.flatMap((child) =>
-				child.type === "datum" ? [child.value] : [],
-			),
+			...link.children.flatMap(stackChildExpressions),
 			...link.datums.map((datum) => datum.xpath),
 		];
 		for (const expression of expressions) {
@@ -972,11 +1102,12 @@ export function deriveEntryDefinition(
 	// every stack frame; Nova's local suite declares them at the source.
 	if (postSubmit === "previous") {
 		for (const child of previousFrame) {
-			if (child.type !== "datum") continue;
-			for (const id of collectInstanceRefs(child.value)) {
-				if (seen.has(id)) continue;
-				seen.add(id);
-				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+			for (const expression of stackChildExpressions(child)) {
+				for (const id of collectInstanceRefs(expression)) {
+					if (seen.has(id)) continue;
+					seen.add(id);
+					instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+				}
 			}
 		}
 	}
@@ -1003,17 +1134,19 @@ export function deriveEntryDefinition(
 				);
 	for (const operation of operations) {
 		for (const child of operation.children) {
-			if (child.type !== "datum") continue;
-			for (const id of collectInstanceRefs(child.value)) {
-				if (seen.has(id)) continue;
-				seen.add(id);
-				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+			for (const expression of stackChildExpressions(child)) {
+				for (const id of collectInstanceRefs(expression)) {
+					if (seen.has(id)) continue;
+					seen.add(id);
+					instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+				}
 			}
 		}
 	}
 
 	return {
 		formXmlns,
+		...(args.post !== undefined && { post: args.post }),
 		commandId,
 		localeId,
 		instances,
@@ -1114,6 +1247,11 @@ export function deriveCaseListEntryDefinition(
 			seen.add(datum.instanceId);
 			instances.push({ id: datum.instanceId, src: datum.instanceSrc ?? "" });
 		}
+		for (const id of datum.query?.instances ?? []) {
+			if (seen.has(id)) continue;
+			seen.add(id);
+			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
+		}
 		if (datum.maxSelectValue !== undefined && !seen.has(datum.id)) {
 			seen.add(datum.id);
 			instances.push({
@@ -1136,6 +1274,7 @@ export function deriveCaseListEntryDefinition(
 		instances,
 		seen,
 		lookupNaming,
+		relationContext.searchInputInstanceId,
 	);
 
 	return {
@@ -1160,6 +1299,7 @@ export function deriveCaseListEntryDefinition(
  * value, detail-select?, detail-confirm?`.
  */
 function buildDatumElement(d: SessionDatum): Element {
+	if (d.query !== undefined) return d.query.element;
 	if (d.function !== undefined) {
 		// Function datum — CommCare evaluates the function once at entry;
 		// there is no nodeset, value, or detail to wire up.
@@ -1207,12 +1347,51 @@ function buildStackOperationElement(op: StackOperation): Element {
 		return el(op.op, attribs);
 	}
 
-	const children: Element[] = op.children.map((child) =>
-		child.type === "command"
-			? el("command", { value: child.value })
-			: el("datum", { id: child.id, value: child.value }),
-	);
+	const children: Element[] = op.children.map(buildStackChildElement);
 	return el(op.op, attribs, children);
+}
+
+function buildStackChildElement(child: StackChild): Element {
+	switch (child.type) {
+		case "command":
+			return el("command", { value: child.value });
+		case "datum":
+			return el("datum", { id: child.id, value: child.value });
+		case "query":
+			// Attribute order `id, value` on `<query>` and `key, ref, nodeset,
+			// exclude` on `<data>` follows `xml_models.py::StackQuery` /
+			// `QueryData` so the bytes diff cleanly against HQ's frame.
+			return el(
+				"query",
+				{ id: child.id, value: child.value },
+				child.data.map((data) =>
+					el("data", {
+						key: data.key,
+						ref: data.ref,
+						...(data.nodeset !== undefined && { nodeset: data.nodeset }),
+						...(data.exclude !== undefined && { exclude: data.exclude }),
+					}),
+				),
+			);
+	}
+}
+
+/** The XPath a stack child carries, for instance accumulation. */
+function stackChildExpressions(
+	child: StackChild | MatchedChild,
+): readonly string[] {
+	switch (child.type) {
+		case "command":
+			return [];
+		case "datum":
+			return [child.value];
+		case "query":
+			return child.data.flatMap((data) => [
+				data.ref,
+				...(data.nodeset === undefined ? [] : [data.nodeset]),
+				...(data.exclude === undefined ? [] : [data.exclude]),
+			]);
+	}
 }
 
 /**
@@ -1270,13 +1449,21 @@ export function buildEntryElement(
 		children.push(el("form", {}, [text(entry.formXmlns)]));
 	}
 
+	// `<post>` precedes `<command>` (`xml_models.py::Entry.ORDER`).
+	if (entry.post !== undefined) {
+		children.push(entry.post.element);
+	}
+
 	children.push(
 		el("command", { id: entry.commandId }, [
 			commandDisplay ?? el("text", {}, [el("locale", { id: entry.localeId })]),
 		]),
 	);
 
-	for (const inst of entry.instances) {
+	// HQ's regenerated suite sorts every entry's instances by id
+	// (`post_process/instances.py::InstancesHelper.require_instances`);
+	// emitting them in the same order keeps the local `.ccz` diffable.
+	for (const inst of sortInstancesById(entry.instances)) {
 		children.push(el("instance", { id: inst.id, src: inst.src }));
 	}
 
@@ -1321,6 +1508,15 @@ export function buildEntryElement(
 // surface) see the same bytes `compileCcz` splices into the assembled
 // suite tree. The compiler itself calls `buildEntryElement` /
 // `buildStackElement` directly.
+
+/** Python's plain string sort: by code unit, never locale-aware. */
+function sortInstancesById(
+	instances: readonly EntryInstance[],
+): EntryInstance[] {
+	return [...instances].sort((left, right) =>
+		left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
+	);
+}
 
 /** Render an EntryDefinition to a suite.xml `<entry>` string. */
 export function renderEntryXml(entry: EntryDefinition): string {

@@ -374,6 +374,28 @@ describe("incrementalValidationScope", () => {
 				},
 			]),
 		).toBeUndefined();
+		/* Opening a module on Search hands its search instance to a submenu or
+		 * a parent-select child, whose own rules must run. */
+		expect(
+			incrementalValidationScope(doc, [
+				{
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {},
+					caseSearchConfigPatch: { searchFirst: true },
+				},
+			]),
+		).toBeUndefined();
+		expect(
+			incrementalValidationScope(doc, [
+				{
+					kind: "updateModule",
+					uuid: moduleUuid,
+					patch: {},
+					caseSearchConfigPatch: { searchFirst: null },
+				},
+			]),
+		).toEqual({ moduleUuids: new Set([moduleUuid]) });
 	});
 
 	it("falls back to the absolute gate for structural or cross-scope work", () => {

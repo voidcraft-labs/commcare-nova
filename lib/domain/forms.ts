@@ -86,9 +86,20 @@ export type PostSubmitDestination = (typeof POST_SUBMIT_DESTINATIONS)[number];
  * Form-type-aware default for post_submit when the field is absent.
  * Case-loading forms (followup, close) return to the previous screen
  * (the case list they came from); registration and survey go home.
+ *
+ * In a module that opens on Search (`searchFirst`), a case-loading form
+ * returns to the module instead, so the worker searches again. CommCare
+ * refuses to build "previous" for such a form (its build validator's
+ * `workflow previous inline search`), so the default cannot be the one
+ * value the module cannot carry; an explicit `previous` there is a
+ * validator finding.
  */
-export function defaultPostSubmit(formType: FormType): PostSubmitDestination {
-	return CASE_LOADING_FORM_TYPES.has(formType) ? "previous" : "app_home";
+export function defaultPostSubmit(
+	formType: FormType,
+	options: { readonly searchFirst?: boolean } = {},
+): PostSubmitDestination {
+	if (!CASE_LOADING_FORM_TYPES.has(formType)) return "app_home";
+	return options.searchFirst === true ? "module" : "previous";
 }
 
 const closeConditionSchema = z

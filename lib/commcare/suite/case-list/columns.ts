@@ -194,8 +194,11 @@ const DETAIL_LOCALE_TYPE: Readonly<
  * a no-op for them — same as the calc-column emission when the
  * expression contains no relation walk.
  */
-function instanceRootFor(target: DetailTarget): InstanceRoot {
-	return target === "search" ? "results" : "casedb";
+function instanceRootFor(
+	ctx: Pick<CaseListEmitContext, "target" | "caseSource">,
+): InstanceRoot {
+	if (ctx.target === "search") return "results";
+	return ctx.caseSource ?? "casedb";
 }
 
 /** Preserve both graph and root-scope identity whenever a calculated value is
@@ -1025,7 +1028,7 @@ function retargetSortDirective(
 		...directive,
 		calcXpath: emitOnDeviceExpression(
 			column.expression,
-			instanceRootFor(ctx.target),
+			instanceRootFor(ctx),
 			relationContextFor(ctx),
 			undefined,
 			lookupTermContext(ctx),
@@ -1171,7 +1174,7 @@ function buildCalculatedField(args: {
 	// builders in `lib/commcare/predicate/termEmitter.ts`.
 	const calcXpath = emitOnDeviceExpression(
 		column.expression,
-		instanceRootFor(ctx.target),
+		instanceRootFor(ctx),
 		relationContextFor(ctx),
 		undefined,
 		lookupTermContext(ctx),

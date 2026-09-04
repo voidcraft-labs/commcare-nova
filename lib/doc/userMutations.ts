@@ -259,21 +259,20 @@ function describeUserPropertyReference(
 	}
 	const module = ownRecordValue(doc.modules, carrierUuid);
 	if (module !== undefined) {
-		const setting =
-			slot === "case_list_column_expression"
-				? "calculated value"
-				: slot === "search_input_default"
-					? "search field starting value"
-					: slot === "case_list_filter"
-						? "Cases available condition"
-						: slot === "search_input_predicate"
-							? "search field condition"
-							: slot === "search_button_display_condition"
-								? "Search button condition"
-								: slot === "excluded_owner_ids"
-									? "Assigned cases setting"
-									: "condition";
-		return `${setting} in module “${module.name}”`;
+		const setting: Partial<Record<string, string>> = {
+			case_list_column_expression: "calculated value",
+			case_list_filter: "Cases available condition",
+			search_input_default: "search field starting value",
+			search_input_predicate: "search field condition",
+			search_input_options: "search field choice filter",
+			search_input_required_when: "search field required condition",
+			search_input_validation_rule: "search field check",
+			search_input_hidden_value: "hidden search value",
+			search_button_display_condition: "Search button condition",
+			excluded_owner_ids: "Assigned cases setting",
+			module_display_condition: "display condition",
+		};
+		return `${setting[slot] ?? "condition"} in module “${module.name}”`;
 	}
 	return `saved ${slot.replaceAll("_", " ")}`;
 }

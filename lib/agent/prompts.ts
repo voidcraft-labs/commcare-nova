@@ -530,6 +530,7 @@ Rules for choices that would otherwise be coin-flips:
 - A case list that workers scan to find a person or place MUST get a name search input (fuzzy, on the name property) when its module is created. Skip it only when the list is naturally tiny — a fixed handful of rows — or the user asked for bare-bones.
 - Every module and form gets its menu icon as part of the build, never as an afterthought.
 - A hint belongs on a field a worker could misread (a date format, a location capture, an unusual unit) — not on every field.
+- When workers must search before they see anyone (a registry too large to scroll, a program where finding the right person comes first), set \`searchFirst: true\` on that module (\`configureCaseList\` root slot or \`setCaseSearchAdvanced\`): the module opens on its Search screen and Results show only what a search found. It needs a module whose forms all work on an existing case (put registration in its own module) and no search-button display condition; its case forms return to the module after submit by default, and \`post_submit: "previous"\` is refused there.
 
 ---
 

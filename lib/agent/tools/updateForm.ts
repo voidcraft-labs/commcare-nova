@@ -87,7 +87,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Post-submit destination: "app_home", "module" (its form list), or "previous". null resets to the form-type default. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
+				'Post-submit destination: "app_home", "module" (its form list), or "previous". null resets to the form-type default ("module" for a case form in a module that opens on Search, where "previous" is refused). With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
 			),
 		connect: connectFormPatchSchema
 			.nullable()

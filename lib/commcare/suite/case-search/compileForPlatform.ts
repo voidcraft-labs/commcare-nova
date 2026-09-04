@@ -21,7 +21,8 @@ import type { PlatformContext, WireShape } from "./types";
  * given platform context. Total over the input domain — every
  * combination produces a valid `WireShape`, never throws.
  *
- * Three branches:
+ * Search first comes before the platform split (below); then three
+ * branches:
  *
  *   1. **Android** — always list-first. All three flags emit as
  *      `false`. The list-first shape is structurally identical to
@@ -41,9 +42,25 @@ import type { PlatformContext, WireShape } from "./types";
  */
 export function compileForPlatform(
 	caseListConfig: CaseListConfig,
-	_caseSearchConfig: OrdinaryCaseSearchConfig,
+	caseSearchConfig: OrdinaryCaseSearchConfig,
 	ctx: PlatformContext,
 ): WireShape {
+	// Search first is CommCare's inline shape on EVERY platform: the query
+	// and the claim post live inside each case-requiring entry, there is no
+	// `<remote-request>` and no browse list to land on
+	// (`app_manager/util.py::module_uses_inline_search` requires both
+	// `inline_search` and `auto_launch`). With nothing visible to answer,
+	// the search runs on its own the moment the screen opens
+	// (`default_search`); Core still seeds hidden defaults on that path.
+	if (caseSearchConfig.searchFirst === true) {
+		return {
+			autoLaunch: true,
+			defaultSearch:
+				visibleSearchInputs(caseListConfig.searchInputs).length === 0,
+			inlineSearch: true,
+		};
+	}
+
 	if (ctx.platform === "android") {
 		// Android always shows the case list first regardless of any
 		// search-side flag. CCHQ's `module_uses_inline_search` at

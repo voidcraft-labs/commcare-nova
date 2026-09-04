@@ -97,7 +97,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Where the user goes after submitting. Defaults to "previous" for followup/close, "app_home" for registration/survey. Only set to override.',
+				'Where the user goes after submitting. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Only set to override.',
 			),
 		close_condition: closeConditionInputSchema
 			.nullable()

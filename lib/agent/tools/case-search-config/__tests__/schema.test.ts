@@ -97,16 +97,27 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 				kind: "term",
 				term: { kind: "literal", value: "owner-a owner-b" },
 			},
+			searchFirst: true,
 		});
 		expect(result.success).toBe(true);
 	});
 
-	it("setCaseSearchAdvanced: parses with the slot cleared via null", () => {
+	it("setCaseSearchAdvanced: parses with the slots cleared via null", () => {
 		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
 			moduleUuid: MODULE_UUID,
 			excludedOwnerIds: null,
+			searchFirst: null,
 		});
 		expect(result.success).toBe(true);
+	});
+
+	it("setCaseSearchAdvanced: searchFirst admits only true or null", () => {
+		const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
+			moduleUuid: MODULE_UUID,
+			excludedOwnerIds: null,
+			searchFirst: false,
+		});
+		expect(result.success).toBe(false);
 	});
 
 	it.each([
@@ -128,6 +139,7 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 			const result = setCaseSearchAdvancedTool.inputSchema.safeParse({
 				moduleUuid: MODULE_UUID,
 				excludedOwnerIds: expression,
+				searchFirst: null,
 			});
 			expect(result.success).toBe(false);
 			if (result.success) return;
@@ -145,6 +157,7 @@ describe("case-search-config tool schemas — 8-optional ceiling contract", () =
 				term(literal(" ")),
 				term(input(testUuid("owner_ids"))),
 			),
+			searchFirst: null,
 		});
 		expect(result.success).toBe(true);
 	});

@@ -61,7 +61,7 @@ export const DISPLAY_SLOT_NAMES = [
 	"searchButtonDisplayCondition",
 ] as const;
 
-export const ADVANCED_SLOT_NAMES = ["excludedOwnerIds"] as const;
+export const ADVANCED_SLOT_NAMES = ["excludedOwnerIds", "searchFirst"] as const;
 
 /** Nova-only provenance; intentionally absent from both SA-authored clusters. */
 export const INTERNAL_SLOT_NAMES = ["searchActionEnabled"] as const;
@@ -111,9 +111,11 @@ void _disjoint;
 export function pickAdvancedCluster(
 	config: CaseSearchConfig | undefined,
 ): Partial<Pick<OrdinaryCaseSearchConfig, AdvancedSlotName>> {
-	return config?.excludedOwnerIds === undefined
-		? {}
-		: { excludedOwnerIds: config.excludedOwnerIds };
+	if (config === undefined) return {};
+	if (isOwnerOnlyCaseSearchConfig(config)) {
+		return { excludedOwnerIds: config.excludedOwnerIds };
+	}
+	return pickClusterSlots(config, ADVANCED_SLOT_NAMES);
 }
 
 /**
@@ -246,6 +248,12 @@ export const setCaseSearchAdvancedBodySchema = z
 			.nullable()
 			.describe(
 				"Globally evaluated ValueExpression producing a space-separated list of owner ids whose cases are excluded from Results on every list path, or `null` to clear. It may use fixed values, current-user/session values, Search answers, and pure calculations over those values; it cannot read a case property or relationship because it resolves before a case is selected. Rare in practice; pass `null` unless the author has a known set of owner ids to exclude.",
+			),
+		searchFirst: z
+			.literal(true)
+			.nullable()
+			.describe(
+				"`true` makes the module open on its Search screen: the browse list goes away and Results exist only after a completed search (a search with no visible inputs runs on its own). Requires a module whose forms all work on an existing case, or a case list with no forms; refuses a search-button display condition and `previous` after-submit on its case forms. `null` returns the module to browse-then-search.",
 			),
 	})
 	.strict();
