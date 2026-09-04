@@ -51,6 +51,8 @@ export interface SearchInputRunState {
 	 *  with every prompt blank. Distinct from `queryActive`, which only reflects
 	 *  non-empty criteria. */
 	readonly hasSubmitted: boolean;
+	/** The hidden inputs' values a search pressed now would carry. */
+	readonly resolveHidden: () => SearchInputValues;
 	readonly changeDraft: (next: SearchInputValues) => void;
 	readonly submit: (next: SearchInputValues) => void;
 	readonly clear: () => void;
@@ -124,6 +126,7 @@ export function useSearchInputRunState(args: {
 		draftActive: hasNonEmptyValue(current.draft),
 		queryActive: hasNonEmptyValue(current.submitted),
 		hasSubmitted: current.hasSubmitted,
+		resolveHidden: current.resolveHidden,
 		changeDraft: (next) => commitDraft(next, false),
 		submit: (next) => commitDraft(next, true),
 		clear: () => {

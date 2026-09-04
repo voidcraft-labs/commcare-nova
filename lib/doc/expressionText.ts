@@ -19,6 +19,7 @@ import {
 	fieldPathResolver,
 	printXPath,
 	type ResolveUserPropertySlug,
+	searchInputNameResolver,
 	userPropertySlugResolver,
 	type XPathExpression,
 	type XPathPrintableDoc,
@@ -57,6 +58,7 @@ export function parseXPathForField(
 		text,
 		fieldPathResolver(doc, formUuid),
 		resolvableUserPropertySlug(doc),
+		searchInputNameResolver(doc, formUuid),
 	);
 }
 
@@ -73,6 +75,7 @@ export function parseXPathForForm(
 		text,
 		fieldPathResolver(doc, formUuid),
 		resolvableUserPropertySlug(doc),
+		searchInputNameResolver(doc, formUuid),
 	);
 }
 

@@ -1131,6 +1131,80 @@ function staticFrameChild(child: FrameChild): PendingChild {
 		: functionChild(datum);
 }
 
+/**
+ * HQ's `CaseListFormWorkflow` frame for a no-matches registration form
+ * returning to its host module under `post_form_workflow: case_list`: the
+ * host's `_frame_children_for_module` plus the common datum prefix of its
+ * menu forms (`get_frame_children(target_module)`), matched to the source
+ * form's datums (`_get_datums_matched_to_source`) and cut at the datum the
+ * form's new case satisfies (`CaseListFormStackFrames.add_children` breaks
+ * at `source_session_var`). For a search-first host that is the module
+ * command plus the results query re-keyed to the new case id, so the
+ * worker lands on Results showing the case they just registered.
+ *
+ * `sourceSessionVar` is the form's own new-case datum (`case_id_new_<t>_0`).
+ */
+export function caseListFormReturnFrame(
+	doc: BlueprintDoc,
+	ctx: FormLinkProjectionContext,
+	hostModuleUuid: Uuid,
+	sourceSessionVar: string,
+	caseType: string,
+): { readonly ifClause: string; readonly children: MatchedChild[] } {
+	const hostForms = ctx.formOrder[hostModuleUuid] ?? [];
+	const common = commonPrefixById(
+		hostForms.map((uuid) => entryFrameDatums(doc, ctx, hostModuleUuid, uuid)),
+	);
+	const target: FrameChild[] = [
+		...moduleFrameChildren(doc, ctx, hostModuleUuid),
+		...common.map((datum) => ({ type: "datum" as const, datum })),
+	];
+	const pending: PendingChild[] = [];
+	for (const [index, child] of target.entries()) {
+		if (child.type === "command") {
+			pending.push(child);
+			continue;
+		}
+		const { datum } = child;
+		if (datum.query !== undefined) {
+			const next = target[index + 1];
+			const nextMatches =
+				next?.type === "datum" &&
+				next.datum.requiresSelection &&
+				next.datum.caseType === caseType;
+			pending.push(
+				queryChild(
+					datum,
+					nextMatches ? sourceSessionVar : datum.query.nextDatumId,
+				),
+			);
+			continue;
+		}
+		if (!datum.requiresSelection) {
+			pending.push(functionChild(datum));
+			continue;
+		}
+		// The datum the new case satisfies ends the frame; any other
+		// selection reads its own session value, as HQ's unmatched target.
+		if (datum.caseType === caseType) break;
+		pending.push({
+			type: "datum",
+			id: datum.id,
+			value: sessionDataRef(datum.id),
+		});
+	}
+	const returnTo = sessionDataRef(RETURN_TO_DATUM_ID);
+	const command = `m${moduleIndexOf(ctx, hostModuleUuid)}`;
+	return {
+		ifClause: `count(${returnTo}) = 1 and ${returnTo} = '${command}'`,
+		children: replaceSessionReferences(pending, new Set([sourceSessionVar])),
+	};
+}
+
+/** HQ `const.RETURN_TO`: the datum the Register action pushes so the
+ *  form's return frame knows which module offered it. */
+export const RETURN_TO_DATUM_ID = "return_to";
+
 /** Parent-aware static `module` destination for post-submit workflows. */
 export function moduleDestinationFrameChildren(
 	doc: BlueprintDoc,

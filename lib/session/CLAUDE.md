@@ -44,6 +44,17 @@ They are session-only and never enter the document, undo history, or persisted
 app state; the locations are navigation return intents, not durable routing
 state.
 
+`previewSearchStates` is the fourth running fact, keyed by module UUID: the
+completed-search context of a search-first module (`previewSearchState.ts`,
+reducers only; `setPreviewSearchState(moduleUuid, state | undefined)` stores
+it and clears the entry on `undefined` or `not-searched`). It is written by
+the case-list screen as its query settles and read by the form screen to admit
+the no-matches registration form. `previewCaseTarget.searchLaunch
+{ moduleUuid, attempt }` is the launch that opened that form from Results;
+the attempt pins the form to the search it was offered on. Both clear with the
+case facts: entering or leaving Preview, a persona change, `reset()`, and a
+confirmed Project boundary.
+
 Every collection is ordered and duplicate-free. Continue copies the exact set
 into the Form target; same-type inheritance may reuse it only when the
 destination has the same scalar/collection cardinality and its authored maximum

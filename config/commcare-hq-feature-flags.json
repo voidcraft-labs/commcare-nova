@@ -122,6 +122,21 @@
 			]
 		},
 		{
+			"id": "no-matches-registration",
+			"capability": "registration-after-empty-search",
+			"role": "required",
+			"slug": "followup_forms_as_case_list_form",
+			"symbol": "FOLLOWUP_FORMS_AS_CASE_LIST_FORM",
+			"expectedTag": "TAG_FROZEN",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/app_manager/suite_xml/sections/details.py",
+					"contains": "if toggles.FOLLOWUP_FORMS_AS_CASE_LIST_FORM.enabled(app.domain) and action_relevant:"
+				}
+			]
+		},
+		{
 			"id": "large-search-performance",
 			"capability": "large-search-performance",
 			"role": "advisory",

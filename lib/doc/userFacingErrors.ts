@@ -567,6 +567,14 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))} in ${q(modName(e))} goes back to the previous screen after submit, which CommCare can't do in a module that opens on Search. Send it to the module or to the app home instead.`,
 	SEARCH_FIRST_UNIQUE_INSTANCE: (e) =>
 		`${q(modName(e))} shares its search results with a module that opens on Search, and CommCare can't tell the two apart. Keep a search-first module without submenus, and don't select a parent case from one.`,
+	SEARCH_NO_MATCHES_DUPLICATE: (e) =>
+		`${q(modName(e))} has more than one form set to open when a search finds nothing, and Results can offer only one. Keep one and change the others back to menu forms.`,
+	SEARCH_NO_MATCHES_ENTRY_REQUIRES_SEARCH_FIRST: (e) =>
+		`${q(formName(e))} opens when a search finds nothing, but ${q(modName(e))} doesn't open on Search. Turn Search first on for the module, or make this a menu form again.`,
+	SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION: (e) =>
+		`${q(formName(e))} opens when a search finds nothing, so it needs to register a new case. Make it a registration form, or make it a menu form again.`,
+	SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION: (e) =>
+		`${q(formName(e))} opens when a search finds nothing and always returns to Results, so it can't have after-submit links, an after-submit choice, or a display condition. Clear those, or make it a menu form again.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
@@ -613,6 +621,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(formName(e))}'s after-submit links all have conditions, so it needs an otherwise. Choose where people go when none of them match, or add a link without a condition at the end.`,
 	FORM_LINK_TARGET_NOT_FOUND: (e) =>
 		`An after-submit link in ${q(formName(e))} points to a form or module that's gone. Point it somewhere else, or remove it.`,
+	FORM_LINK_TARGET_NO_MATCHES_FORM: (e) =>
+		`An after-submit link in ${q(formName(e))} points to a form that only opens when a search finds nothing. Point it at the module instead, or remove it.`,
 	FORM_LINK_SELF_REFERENCE: (e) =>
 		`An after-submit link in ${q(formName(e))} points back to the same form. Send it somewhere else.`,
 	FORM_LINK_UNREACHABLE: (e) =>
@@ -764,6 +774,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`A formula on ${q(fieldName(e))} in ${q(formName(e))} points to a field that isn't here. Check for a typo, or a field that was renamed or removed.`,
 	INVALID_CASE_REF: (e) =>
 		`${q(fieldName(e))} in ${q(formName(e))} reads a case value this form can't get to. Check the spelling, or make sure a field actually saves it.`,
+	INVALID_SEARCH_REF: (e) =>
+		`${q(fieldName(e))} in ${q(formName(e))} reads a search answer this form can't get to. Only a form that opens after a search finds no matches can read its module's Search prompts.`,
 	PROSE_EDITOR_ROUND_TRIP_LOSS: (e) =>
 		`The text on ${q(fieldName(e))} in ${q(formName(e))} contains something the editor can't safely preserve. Re-enter its text and references.`,
 	CYCLE: (e) => {

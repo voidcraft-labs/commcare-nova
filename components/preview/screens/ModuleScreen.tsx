@@ -26,7 +26,7 @@ import {
 	useCaseFirstModuleUuids,
 	useIsBareCaseListModule,
 	useIsCaseFirstModule,
-	useOrderedForms,
+	useOrderedMenuForms,
 } from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import type { Uuid } from "@/lib/doc/types";
@@ -101,7 +101,9 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	const moduleUuid = screen.moduleUuid;
 
 	const mod = useModuleEntity(moduleUuid);
-	const forms = useOrderedForms(moduleUuid);
+	/* The menu lists menu forms only: a no-matches registration form opens
+	 * from Results after an empty search, never from here. */
+	const forms = useOrderedMenuForms(moduleUuid);
 	const language = useBuilderLanguage();
 	const localizedValues = useLocalizedValues();
 	const moduleNameUnitId = makeTranslationUnitId(

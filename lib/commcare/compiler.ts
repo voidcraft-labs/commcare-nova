@@ -39,8 +39,10 @@ import type { FormActions, HqApplication } from "@/lib/commcare";
 import { derivedProfileProperties } from "@/lib/commcare/derivedProfile";
 import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
 import {
+	caseListFormReturnFrame,
 	caseListSessionDatums,
 	entrySessionDatums,
+	type FormLinkProjectionContext,
 	formLinkProjectionContext,
 	inlineSearchFor,
 	moduleDestinationFrameChildren,
@@ -64,11 +66,19 @@ import {
 	buildEntryElement,
 	deriveCaseListEntryDefinition,
 	deriveEntryDefinition,
+	type SessionDatum,
 } from "@/lib/commcare/session";
 import { buildLongDetail } from "@/lib/commcare/suite/case-list/longDetail";
-import { buildShortDetail } from "@/lib/commcare/suite/case-list/shortDetail";
+import {
+	buildShortDetail,
+	type RegisterActionContext,
+} from "@/lib/commcare/suite/case-list/shortDetail";
 import { buildInlineClaimPost } from "@/lib/commcare/suite/case-search/claim";
 import { moduleIsSearchFirst } from "@/lib/commcare/suite/case-search/inlineSearch";
+import {
+	NEVER_RELEVANT,
+	NO_MATCHES_RELEVANCY,
+} from "@/lib/commcare/suite/case-search/noMatches";
 import { buildRemoteRequest } from "@/lib/commcare/suite/case-search/remoteRequest";
 import {
 	emitFormDisplayConditionForSuite,
@@ -99,6 +109,11 @@ import {
 	type WireStringSource,
 } from "@/lib/domain";
 import { effectiveDisplayConditionForEmission } from "@/lib/domain/predicate";
+import {
+	caseListFormLabelUnit,
+	emissionPlan,
+	type SyntheticModule,
+} from "./emissionPlan";
 
 /** Compile-time options. `assets` is the resolved media manifest; when
  *  present the archive bundles the referenced files + media_suite.xml +
@@ -125,6 +140,55 @@ export interface CompileOptions {
 	compiledAtSeq?: number;
 }
 
+/** The entry's new-case datum for `caseType` (`case_id_new_<type>_0`). */
+function newCaseDatumId(
+	datums: readonly SessionDatum[],
+	caseType: string,
+): string {
+	const datum = datums.find(
+		(candidate) =>
+			candidate.nodeset === undefined &&
+			candidate.caseType === caseType &&
+			candidate.id.startsWith("case_id_new_"),
+	);
+	if (datum === undefined) {
+		throw new Error(
+			`Cannot build the no-matches return frame: the registration entry has no new-case datum for "${caseType}"`,
+		);
+	}
+	return datum.id;
+}
+
+/**
+ * The Register action of a host module: HQ's
+ * `DetailContributor.get_datums_for_action` yields the target entry's
+ * non-selection datums as `<datum id value=function>`; the selection datums
+ * a registration form under a parent select would need are not offered by
+ * Nova (a no-matches form's module has no parent select).
+ */
+function registerActionFor(
+	doc: BlueprintDoc,
+	linkContext: FormLinkProjectionContext,
+	noMatches: SyntheticModule,
+): RegisterActionContext {
+	const mIdx = projectedModulePreorder(doc).indexOf(noMatches.moduleUuid);
+	const datums = entrySessionDatums(
+		doc,
+		linkContext,
+		noMatches.moduleUuid,
+		noMatches.formUuid,
+	);
+	return {
+		commandId: `m${mIdx}-f0`,
+		datums: datums.flatMap((datum) =>
+			datum.nodeset === undefined && datum.function !== undefined
+				? [{ id: datum.id, value: datum.function }]
+				: [],
+		),
+		relevant: NO_MATCHES_RELEVANCY,
+	};
+}
+
 /**
  * Compile an HQ application JSON (already expanded from a domain doc)
  * into a .ccz archive `Buffer`.
@@ -142,15 +206,20 @@ export interface CompileOptions {
 export function compileCcz(
 	hqJson: HqApplication,
 	appName: string,
-	doc: BlueprintDoc,
+	authoredDoc: BlueprintDoc,
 	opts: CompileOptions = {},
 ): Buffer {
+	// The same derived module sequence the expander walked
+	// (`emissionPlan.ts`): authored modules with their menu forms, then the
+	// hidden module of each no-matches registration form.
+	const plan = emissionPlan(authoredDoc);
+	const doc = plan.doc;
 	const hqModules = hqJson.modules;
 	const attachments = hqJson._attachments;
 	const assets = opts.assets;
 	const lookupNaming = opts.lookup?.naming;
 	const userPropertySlugs = userPropertySlugsByUuid(doc);
-	const localization = commCareLocalization(doc);
+	const localization = commCareLocalization(authoredDoc);
 
 	// Output file map — each entry becomes a zip entry at the end.
 	const files: Record<string, string> = {};
@@ -257,6 +326,9 @@ export function compileCcz(
 		const caseType = hqMod.case_type;
 		const hqForms = hqMod.forms;
 		const caseSearchConfig = effectiveCaseSearchConfig(mod);
+		// The hidden module of a no-matches form, or the host that offers one.
+		const synthetic = plan.synthetic.get(moduleUuid);
+		const noMatches = plan.noMatchesFormOf.get(moduleUuid);
 		// Owner exclusion belongs to case availability, not to the presence of
 		// a remote Search action. Read the raw authored slot so an owner-only
 		// module still narrows its ordinary `casedb` list even when
@@ -273,12 +345,17 @@ export function compileCcz(
 		const caseSource = searchFirst ? ("results:inline" as const) : undefined;
 		const effectiveModuleDisplayCondition =
 			effectiveDisplayConditionForEmission(mod.displayCondition);
-		const moduleRelevant = emitModuleDisplayCondition(
-			effectiveModuleDisplayCondition,
-			mod.caseType,
-			lookupNaming,
-			userPropertySlugs,
-		);
+		// A hidden module's menu is never relevant; the Register action's
+		// push reaches its entry regardless (`CommCareSession.performPushInner`).
+		const moduleRelevant =
+			synthetic !== undefined
+				? NEVER_RELEVANT
+				: emitModuleDisplayCondition(
+						effectiveModuleDisplayCondition,
+						mod.caseType,
+						lookupNaming,
+						userPropertySlugs,
+					);
 		const moduleConditionInstances =
 			effectiveModuleDisplayCondition === undefined
 				? []
@@ -292,11 +369,11 @@ export function compileCcz(
 					);
 
 		appStrings[`modules.m${mIdx}`] = modName;
-		appStringUnits[`modules.m${mIdx}`] = makeTranslationUnitId(
-			"module",
-			moduleUuid,
-			"name",
-		);
+		// A hidden module is named for its one form; it has no unit of its own.
+		appStringUnits[`modules.m${mIdx}`] =
+			synthetic === undefined
+				? makeTranslationUnitId("module", moduleUuid, "name")
+				: makeTranslationUnitId("form", synthetic.formUuid, "name");
 
 		// The persistent case tile. When the case list's tile layout asks to
 		// stay on screen above the module's forms, every case-loading datum in
@@ -372,7 +449,28 @@ export function compileCcz(
 		// the runtime falls back to "Case" until an author overrides
 		// `cchq.case` at the app-strings layer (Nova has no such
 		// authoring surface today).
-		if (caseType) {
+		// The Register action a search-first host mounts on its case list
+		// (`DetailContributor.add_register_action`): the no-matches form's
+		// command in its hidden module, the target entry's computed datums,
+		// and `return_to`, relevant only when the inline search found nothing.
+		const registerAction =
+			noMatches === undefined
+				? undefined
+				: registerActionFor(doc, linkContext, noMatches);
+		if (noMatches !== undefined) {
+			const label = doc.forms[noMatches.formUuid];
+			appStrings[`case_list_form.m${mIdx}`] =
+				label?.entry?.label ?? label?.name ?? "";
+			appStringUnits[`case_list_form.m${mIdx}`] = caseListFormLabelUnit(
+				authoredDoc,
+				noMatches.formUuid,
+			);
+		}
+
+		// A hidden module has no case list: its one entry is reached by the
+		// Register action, and HQ regenerates no detail for a module whose
+		// forms never select a case.
+		if (caseType && synthetic === undefined) {
 			// `<remote-request>` orchestrator. Computes the
 			// `WireShape` for this module via `compileForPlatform`
 			// (default platform context: web) and emits the full
@@ -415,6 +513,7 @@ export function compileCcz(
 				...(caseSource !== undefined && { caseSource }),
 				...(assets && { assets }),
 				...(lookupNaming && { lookupNaming }),
+				...(registerAction !== undefined && { registerAction }),
 				...(remoteRequestEmission !== undefined && {
 					searchAction: {
 						autoLaunch: remoteRequestEmission.wire.autoLaunch,
@@ -617,6 +716,18 @@ export function compileCcz(
 							}),
 						})
 					: undefined;
+			// The no-matches form's return frame: after submit, back to the
+			// host's Results showing the case it registered.
+			const returnFrame =
+				synthetic === undefined
+					? undefined
+					: caseListFormReturnFrame(
+							doc,
+							linkContext,
+							synthetic.hostModuleUuid,
+							newCaseDatumId(projectedSessionDatums, synthetic.caseType),
+							synthetic.caseType,
+						);
 			const entryDef = deriveEntryDefinition({
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
@@ -625,6 +736,7 @@ export function compileCcz(
 				postSubmit,
 				caseType: caseType || undefined,
 				...(post !== undefined && { post }),
+				...(returnFrame !== undefined && { returnFrame }),
 				...(projectedLinks !== undefined && { formLinks: projectedLinks }),
 				/* The previous frame is read only when `previous` is the
 				 * destination (plain, or as the guarded fallback). */

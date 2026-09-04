@@ -26,6 +26,9 @@ export function useFormEngine(
 	formUuid: Uuid | undefined,
 	caseData?: CaseDataByType,
 	caseDatabase?: CaseDatabaseSnapshot,
+	/** An admitted no-matches launch's search answers; fixed for the entry,
+	 * like `caseDatabase`. */
+	searchAnswers?: ReadonlyMap<string, string>,
 ): EngineController {
 	const controller = useBuilderFormEngine();
 	const accessPhase = useAccessPhase();
@@ -38,7 +41,7 @@ export function useFormEngine(
 	 * its entry key, answers, and attachment coordinator state throughout that
 	 * window. The app/provider and preview-identity lifecycles own their own
 	 * terminal boundaries. */
-	// biome-ignore lint/correctness/useExhaustiveDependencies: caseData cold arrivals rebuild the same entry in the authorized effect below; caseDatabase is an explicit navigation snapshot captured only for the initial activation
+	// biome-ignore lint/correctness/useExhaustiveDependencies: caseData cold arrivals rebuild the same entry in the authorized effect below; caseDatabase and searchAnswers are explicit navigation snapshots captured only for the initial activation
 	useEffect(() => {
 		if (!formUuid) {
 			controller.deactivate();
@@ -49,6 +52,7 @@ export function useFormEngine(
 			formUuid,
 			caseData,
 			caseDatabase,
+			searchAnswers,
 		);
 		activation.catch(() => undefined);
 		return () => controller.deactivate();
@@ -77,7 +81,7 @@ export function useFormEngine(
 		if (controller.entryStore.getState().fault?.formUuid === formUuid) return;
 		if (controller.formUuid !== formUuid) {
 			controller
-				.activateFormAsync(formUuid, caseData, caseDatabase)
+				.activateFormAsync(formUuid, caseData, caseDatabase, searchAnswers)
 				.catch(() => undefined);
 			return;
 		}
@@ -90,6 +94,7 @@ export function useFormEngine(
 		formUuid,
 		caseData,
 		caseDatabase,
+		searchAnswers,
 		accessPhase,
 		appId,
 		projectId,

@@ -278,6 +278,23 @@ describe("afterSubmitRoute", () => {
 		});
 	});
 
+	it("lands a no-matches registration on Results showing the new case, before any link", () => {
+		expect(
+			afterSubmitRoute({
+				choice: fired({ type: "form", moduleUuid: CARE, formUuid: VISIT }),
+				doc,
+				caseFirstModules,
+				caseSelections: noCaseSelections,
+				carriedCase: neverCarries,
+				noMatchesRegistration: { moduleUuid: MENU, caseId: "case-new" },
+			}),
+		).toEqual({
+			kind: "results-with-registered-case",
+			moduleUuid: MENU,
+			caseId: "case-new",
+		});
+	});
+
 	it("reports a target module that is not in the document", () => {
 		const route = afterSubmitRoute({
 			choice: fired({ type: "module", moduleUuid: MISSING_MODULE }),

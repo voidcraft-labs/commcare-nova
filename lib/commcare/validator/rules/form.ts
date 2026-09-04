@@ -39,6 +39,7 @@ import {
 	formExpressionValue,
 	formLinkDestination,
 	isConnectLearnConfig,
+	isNoMatchesForm,
 	type Module,
 	POST_SUBMIT_DESTINATIONS,
 	type ProseTemplate,
@@ -51,6 +52,7 @@ import {
 } from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
+import { searchNoMatchesEntry } from "./case-search/searchNoMatches";
 import { validateCaseOperations } from "./caseOperations";
 import { formDisplayCondition } from "./displayConditions";
 import { validateLookupOptionsSources } from "./lookupOptionsSource";
@@ -757,6 +759,19 @@ function formLinkValidation(
 					details,
 				),
 			);
+		} else if (isNoMatchesForm(targetForm)) {
+			// The form lives only behind the Register action on Results; the
+			// wire has no menu command for it, so a link cannot open it.
+			targetsResolve = false;
+			errors.push(
+				validationError(
+					"FORM_LINK_TARGET_NO_MATCHES_FORM",
+					"form",
+					`"${ctx.formName}" ${label} targets "${targetForm.name}" in "${targetMod.name}", which opens only after a search finds no matches and is on no menu. Target the module instead so the worker searches, or another form.`,
+					loc,
+					details,
+				),
+			);
 		}
 		if (
 			link.target.moduleUuid === ctx.moduleUuid &&
@@ -1269,6 +1284,7 @@ export function runFormRules(
 	errors.push(...casePropertyBadFormat(ctx, caseWriteInventory));
 	errors.push(...casePropertyTooLong(ctx, caseWriteInventory));
 	errors.push(...postSubmitValidation(form, ctx, mod));
+	errors.push(...searchNoMatchesEntry(doc, form, formUuid, moduleUuid));
 	errors.push(
 		...formLinkSelectionCardinality(doc, form, mod, ctx, caseWriteInventory),
 	);

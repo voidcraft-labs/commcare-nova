@@ -74,6 +74,11 @@ export interface GetModuleFormSummary {
 	fieldCount: number;
 	icon: FormIconSlug | MediaAssetId | null;
 	audio_label: MediaAssetId | null;
+	/**
+	 * How the form is reached. `null` is a menu form; `search-no-matches`
+	 * is offered on Results only after a search finds nothing.
+	 */
+	entry: { kind: "search-no-matches"; label?: string } | null;
 }
 
 /**
@@ -164,6 +169,7 @@ export const getModuleTool = {
 						fieldCount: countFieldsUnder(doc, fUuid),
 						icon: projectFormIcon(f?.icon),
 						audio_label: f?.audioLabel ?? null,
+						entry: f?.entry ?? null,
 					};
 				}),
 			},

@@ -16,6 +16,7 @@
 export const RESOLVED_REFERENCE_NAMESPACES: ReadonlySet<string> = new Set([
 	"form",
 	"user",
+	"search",
 ]);
 
 /**

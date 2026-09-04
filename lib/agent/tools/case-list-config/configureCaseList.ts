@@ -7,9 +7,11 @@
  */
 
 import { z } from "zod";
+import { planSearchTakeawayDependents } from "@/lib/doc/searchNoMatchesDependents";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	asUuid,
+	type BlueprintDoc,
 	type CaseSearchConfig,
 	findAuthoredBlueprintIdentity,
 	isOwnerOnlyCaseSearchConfig,
@@ -189,6 +191,8 @@ function displayMutations(mod: Module, input: SearchDisplayInput): Mutation[] {
 
 /** Turn Search first on or off, keeping every other Search setting. */
 function searchFirstMutations(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
 	mod: Module,
 	searchFirst: true | null,
 ): { readonly mutations: Mutation[] } | { readonly error: string } {
@@ -198,6 +202,14 @@ function searchFirstMutations(
 		return {
 			error: `Module "${mod.name}" only limits which cases are available and has no Search action, so it cannot open on Search. Add a search input first, then turn Search first on.`,
 		};
+	}
+	if (searchFirst === null && existing?.searchFirst === true) {
+		const dependents = planSearchTakeawayDependents(
+			doc,
+			moduleUuid,
+			"search-first",
+		);
+		if (dependents.kind === "blocked") return { error: dependents.message };
 	}
 	const { searchFirst: _current, ...rest } = existing ?? {};
 	const candidate: CaseSearchConfig =
@@ -294,6 +306,8 @@ export const configureCaseListTool = {
 			}
 			if (input.searchFirst !== undefined) {
 				const searchFirst = searchFirstMutations(
+					doc,
+					moduleUuid,
 					workingModule,
 					input.searchFirst,
 				);

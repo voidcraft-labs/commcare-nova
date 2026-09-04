@@ -158,6 +158,11 @@ type LoadingState<T extends { kind: string }> =
 export function useCases(args: {
 	appId: string | undefined;
 	caseType: string | undefined;
+	/** Exact case identities to read, inside every other constraint. The
+	 * running list uses it after a no-matches registration: the wire's
+	 * return frame re-keys the inline search to the new case, so Results
+	 * shows that one case. */
+	caseIds?: readonly string[];
 	caseListConfig?: CaseListConfig;
 	inputValues?: SearchInputValues;
 	excludedOwnerIdsExpression?: ValueExpression;
@@ -189,6 +194,7 @@ export function useCases(args: {
 	const {
 		appId,
 		caseType,
+		caseIds,
 		caseListConfig,
 		inputValues,
 		excludedOwnerIdsExpression,
@@ -197,6 +203,7 @@ export function useCases(args: {
 		page,
 		requestScopeKey = "",
 	} = args;
+	const caseIdsKey = caseIds === undefined ? "all" : caseIds.join("\u0001");
 	const pageOffset = page?.offset;
 	const pageLimit = page?.limit;
 	const scopeEpoch = useProjectScopeEpoch();
@@ -217,7 +224,7 @@ export function useCases(args: {
 	 * beside the result so the render that precedes the refetch effect can never
 	 * project old rows through the new module's columns or row actions. */
 	const requestIdentity = ready
-		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}`
+		? `${runtimeScopeId}\u0000${scopeEpoch}\u0000${appId}\u0000${caseType}\u0000${requestScopeKey}\u0000${replacementRevision}\u0000${pageOffset ?? "default"}\u0000${pageLimit ?? "default"}\u0000${personaUuid ?? "me"}\u0000${parentCaseSelectionKey(parentCase)}\u0000${caseIdsKey}`
 		: "";
 	const reloadToken = useMemo(
 		() => [
@@ -261,6 +268,7 @@ export function useCases(args: {
 							value: await loadCasesAction({
 								appId,
 								caseType,
+								...(caseIds === undefined ? {} : { caseIds }),
 								caseListConfig,
 								caseTypes,
 								inputValues: inputValues

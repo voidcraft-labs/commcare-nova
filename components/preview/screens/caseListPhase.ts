@@ -23,7 +23,10 @@ export function caseListStep(args: {
 	readonly searchFirst: boolean;
 	/** Whether the module has a visible prompt for a worker to answer. */
 	readonly hasVisibleInputs: boolean;
-	/** Whether a search has been submitted in this module's run. */
+	/** Whether a search has been submitted in this module's run: the
+	 * screen's own submission, or a completed search the session holds for
+	 * the module (a no-matches registration returns here after the screen
+	 * may have been rebuilt). */
 	readonly hasSubmitted: boolean;
 }): CaseListStep {
 	if (!args.searchFirst) return "browse";

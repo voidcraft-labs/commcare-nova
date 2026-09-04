@@ -525,8 +525,10 @@ export function secondaryXPathInstances(args: {
 	readonly caseDatabase: CaseDatabaseSnapshot | null;
 	readonly caseTypes?: readonly CaseType[];
 	readonly sessionData?: Readonly<Record<string, string>>;
+	/** Present only for an admitted no-matches registration form. */
+	readonly searchAnswers?: ReadonlyMap<string, string>;
 }): ReadonlyMap<string, XPathInstance> {
-	return new Map([
+	return new Map<string, XPathInstance>([
 		[
 			"commcaresession",
 			commcareSessionXPathInstance(args.identity, args.sessionData),
@@ -536,7 +538,40 @@ export function secondaryXPathInstances(args: {
 			caseDatabaseXPathInstance(args.caseDatabase, args.caseTypes ?? []),
 		],
 		...lookupXPathInstances(args.lookupData),
+		...(args.searchAnswers === undefined
+			? []
+			: [
+					[
+						INLINE_SEARCH_INPUT_INSTANCE_ID,
+						searchInputXPathInstance(args.searchAnswers),
+					] as const,
+				]),
 	]);
+}
+
+/** The inline search's answers instance, `search-input:results:inline`. */
+export const INLINE_SEARCH_INPUT_INSTANCE_ID = "search-input:results:inline";
+
+/**
+ * The device's search-input instance for a completed inline search
+ * (`RemoteQuerySessionManager.getEvaluationContextWithUserInputInstance`):
+ * `<input><field name="<prompt>">value</field>…</input>`, one field per
+ * answered prompt. A no-matches form's `#search/<name>` reads print as
+ * `instance('search-input:results:inline')/input/field[@name='<name>']` on
+ * the wire, so the same path resolves here.
+ */
+export function searchInputXPathInstance(
+	answers: ReadonlyMap<string, string>,
+): XPathInstance {
+	return new StaticXPathInstance(INLINE_SEARCH_INPUT_INSTANCE_ID, {
+		name: "input",
+		childTemplates: ["field"],
+		children: [...answers].map(([name, value]) => ({
+			name: "field",
+			value,
+			attributes: { name },
+		})),
+	});
 }
 
 /**
@@ -578,7 +613,14 @@ export function previewHashtagNodeSet(
 	}
 
 	const match = /^#([^/]+)\/(.+)$/.exec(reference);
-	if (match === null || match[1] === "form" || match[1] === "case") {
+	if (
+		match === null ||
+		match[1] === "form" ||
+		match[1] === "case" ||
+		/* A search answer is a scalar from the search-input instance, never a
+		 * casedb selection; the engine's scalar resolver owns it. */
+		match[1] === "search"
+	) {
 		return undefined;
 	}
 	const namespace = match[1] ?? "";

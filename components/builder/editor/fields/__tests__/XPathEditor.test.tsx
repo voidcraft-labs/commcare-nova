@@ -137,6 +137,7 @@ describe("XPathEditor — validate_msg clear-arm split", () => {
 						: printXPath(expr, {
 								fieldPathSegments: () => undefined,
 								userPropertySlug: () => undefined,
+								searchInputName: () => undefined,
 							}),
 			}),
 		);

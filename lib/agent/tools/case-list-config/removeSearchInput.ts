@@ -15,6 +15,7 @@
  */
 
 import type { z } from "zod";
+import { planSearchInputRemovalFieldDependents } from "@/lib/doc/searchNoMatchesDependents";
 import { asUuid, type Uuid } from "@/lib/domain";
 import { removeSearchInputMutation } from "../../blueprintHelpers";
 import type { ToolInvocationContext } from "../../workspace/types";
@@ -74,6 +75,22 @@ export const removeSearchInputTool = {
 				};
 			}
 			const { moduleUuid, module: mod } = address;
+
+			/* A no-matches registration form may read this prompt's answer
+			 * (`#search/<name>`); the shared planner refuses and names every
+			 * field so the repair is addressable (`searchNoMatchesDependents.ts`). */
+			const dependents = planSearchInputRemovalFieldDependents(
+				doc,
+				moduleUuid,
+				searchInputUuid,
+			);
+			if (dependents.kind === "blocked") {
+				return {
+					kind: "mutate" as const,
+					mutations: [],
+					result: { error: dependents.message },
+				};
+			}
 
 			const result = removeSearchInputMutation(mod, searchInputUuid);
 			if ("error" in result) {

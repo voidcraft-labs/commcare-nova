@@ -7,6 +7,7 @@ const LOCALE_FILE_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set(
 		"app-name",
 		"module-name",
 		"form-name",
+		"form-entry-label",
 		"case-list-header",
 		"case-list-mapping-label",
 		"case-list-interval-text",

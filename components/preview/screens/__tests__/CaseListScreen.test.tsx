@@ -458,6 +458,8 @@ describe("CaseListScreen — several-case selection", () => {
 	});
 });
 
+const setPreviewSearchStateMock = vi.fn();
+
 vi.mock("@/lib/session/hooks", async () => {
 	const actual = await vi.importActual<typeof import("@/lib/session/hooks")>(
 		"@/lib/session/hooks",
@@ -474,6 +476,8 @@ vi.mock("@/lib/session/hooks", async () => {
 		usePreviewParentCaseRequest: () => previewParentCaseRequestMock,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 		useSetPreviewMenuCaseSelection: () => setPreviewMenuCaseSelectionMock,
+		usePreviewSearchState: () => undefined,
+		useSetPreviewSearchState: () => setPreviewSearchStateMock,
 		useSetPreviewParentCaseRequest: () => setPreviewParentCaseRequestMock,
 		useSetPreviewSelectedCase: () => setPreviewSelectedCaseMock,
 	};

@@ -265,6 +265,41 @@ describe("FormEngine", () => {
 		expect(engine.getState("/data/name").value).toBe("Alice");
 	});
 
+	describe("search answers", () => {
+		const NAME_INPUT = testUuid("search-input-patient-name");
+		const seeded = () => ({
+			...dTree([
+				{
+					id: "name",
+					kind: "text",
+					label: proseText("Name"),
+					default_value: {
+						parts: [{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT }],
+					},
+				},
+			]),
+			searchInputs: [{ uuid: NAME_INPUT, name: "patient_name" }],
+		});
+
+		it("seeds #search/<name> from the completed search's answers", () => {
+			const engine = new FormEngine(
+				seeded(),
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				undefined,
+				{ searchAnswers: new Map([["patient_name", "Zzz"]]) },
+			);
+			expect(engine.getState("/data/name").value).toBe("Zzz");
+		});
+
+		it("reads blank when the form opened with no search context", () => {
+			const engine = new FormEngine(seeded());
+			expect(engine.getState("/data/name").value).toBe("");
+		});
+	});
+
 	describe("relevant (visibility)", () => {
 		it("cascades container relevance into descendant nodeset readers", () => {
 			const engine = new FormEngine(

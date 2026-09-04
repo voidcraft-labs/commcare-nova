@@ -44,6 +44,7 @@ describe("XPath identity projection", () => {
 		const context = {
 			fieldPathSegments: () => undefined,
 			userPropertySlug: () => undefined,
+			searchInputName: () => undefined,
 		};
 
 		const projected = projectXPath(expression, context);

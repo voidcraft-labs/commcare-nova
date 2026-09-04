@@ -326,6 +326,81 @@ describe("resolve at print", () => {
 	});
 });
 
+describe("#search/ answers", () => {
+	const MODULE = testUuid("mod-patients");
+	const NAME_INPUT = testUuid("input-patient-name");
+
+	function docWithSearch(): XPathPrintableDoc {
+		return {
+			...makeDoc(),
+			modules: {
+				[MODULE]: {
+					caseListConfig: {
+						searchInputs: [{ uuid: NAME_INPUT, name: "patient_name" }],
+					},
+				},
+			},
+		};
+	}
+
+	it("binds #search/<name> to a search-answer-ref only through the resolver", () => {
+		const doc = docWithSearch();
+		const bound = parseXPathExpression(
+			"#search/patient_name",
+			fieldPathResolver(doc, FORM),
+			resolvableUserPropertySlug(doc),
+			(name) => (name === "patient_name" ? NAME_INPUT : undefined),
+		);
+		expect(bound.parts).toEqual([
+			{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT },
+		]);
+		expect(printXPath(bound, xpathPrintContext(doc))).toBe(
+			"#search/patient_name",
+		);
+
+		// Without a resolver (every form but a no-matches one) the text stays
+		// inert and the parse reports the unresolved reference.
+		const unbound = parseXPathExpressionWithIssues(
+			"#search/patient_name",
+			fieldPathResolver(doc, FORM),
+			resolvableUserPropertySlug(doc),
+		);
+		expect(unbound.expression.parts).toEqual([
+			{ kind: "text", text: "#search/patient_name" },
+		]);
+		expect(unbound.issues).toEqual([
+			{
+				kind: "unresolved-reference",
+				source: "#search/patient_name",
+				from: 0,
+				to: 20,
+			},
+		]);
+	});
+
+	it("prints the prompt's CURRENT name and repairs a removed prompt", () => {
+		const doc = docWithSearch();
+		const expr: XPathExpression = {
+			parts: [{ kind: "search-answer-ref", searchInputUuid: NAME_INPUT }],
+		};
+		const modules = doc.modules as Record<
+			string,
+			{ caseListConfig: { searchInputs: { uuid: string; name: string }[] } }
+		>;
+		modules[MODULE].caseListConfig.searchInputs[0].name = "client_name";
+		expect(printXPath(expr, xpathPrintContext(doc))).toBe(
+			"#search/client_name",
+		);
+
+		modules[MODULE].caseListConfig.searchInputs = [];
+		expect(projectXPath(expr, xpathPrintContext(doc))).toEqual({
+			ok: false,
+			text: "#search/[reference needs repair]",
+			unresolved: [{ kind: "search-answer-ref", identity: NAME_INPUT }],
+		});
+	});
+});
+
 describe("structural case-property rename", () => {
 	it("renames only the explicit identity and never rejected raw #case text", () => {
 		const doc = makeDoc();

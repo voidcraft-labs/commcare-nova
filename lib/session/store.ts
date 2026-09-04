@@ -51,6 +51,7 @@ import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
 	PreviewParentCaseRequest,
+	PreviewSearchState,
 	PreviewSelectedCase,
 	StagedUpload,
 } from "./types";
@@ -257,6 +258,11 @@ export interface BuilderSessionState {
 
 	/** Pending case-type parent selection, independent of menu ancestry. */
 	previewParentCaseRequest: PreviewParentCaseRequest | undefined;
+
+	/** Each module's search context in the running app, keyed by module
+	 * uuid; an absent entry is "not searched". Cleared with the other
+	 * navigation facts: a search belongs to one Preview run of one worker. */
+	previewSearchStates: Readonly<Record<string, PreviewSearchState>>;
 
 	/** Which persona Preview runs as, by uuid — `undefined` means the
 	 *  signed-in member ("Preview as me"). Ephemeral like every other
@@ -649,6 +655,12 @@ export interface BuilderSessionState {
 	setPreviewParentCaseRequest: (
 		request: PreviewParentCaseRequest | undefined,
 	) => void;
+	/** Set or clear one module's search context. `undefined` and
+	 * `not-searched` both clear the entry. */
+	setPreviewSearchState: (
+		moduleUuid: string,
+		state: PreviewSearchState | undefined,
+	) => void;
 
 	/** Set one sidebar's visibility. Preserves the other sidebar + all stash
 	 *  values. No-ops when the value is unchanged. */
@@ -793,6 +805,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewParentCaseRequest: undefined as
 					| PreviewParentCaseRequest
 					| undefined,
+				previewSearchStates: {} as Readonly<Record<string, PreviewSearchState>>,
 				previewPersonaUuid: undefined as string | undefined,
 
 				/* Chrome */
@@ -986,6 +999,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 										previewSelectedCase: undefined,
 										previewMenuCaseSelections: {},
 										previewParentCaseRequest: undefined,
+										previewSearchStates: {},
 										previewPersonaUuid: undefined,
 									}
 								: {}),
@@ -1169,6 +1183,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							previewSelectedCase: undefined,
 							previewMenuCaseSelections: {},
 							previewParentCaseRequest: undefined,
+							previewSearchStates: {},
 							sidebars: {
 								chat: {
 									open: false,
@@ -1195,6 +1210,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewParentCaseRequest: undefined,
+						previewSearchStates: {},
 						sidebars: {
 							chat: {
 								open: chatStashed ?? s.sidebars.chat.open,
@@ -1219,6 +1235,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewParentCaseRequest: undefined,
+						previewSearchStates: {},
 					});
 				},
 
@@ -1236,11 +1253,34 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						current?.formUuid === target?.formUuid &&
 						previewCaseChoicesEqual(current?.cases, target?.cases) &&
 						current?.caseData === target?.caseData &&
-						current?.caseDatabase === target?.caseDatabase
+						current?.caseDatabase === target?.caseDatabase &&
+						current?.searchLaunch?.moduleUuid ===
+							target?.searchLaunch?.moduleUuid &&
+						current?.searchLaunch?.attempt === target?.searchLaunch?.attempt
 					) {
 						return;
 					}
 					set({ previewCaseTarget: target });
+				},
+
+				setPreviewSearchState(
+					moduleUuid: string,
+					state: PreviewSearchState | undefined,
+				) {
+					const states = get().previewSearchStates;
+					const current = states[moduleUuid];
+					const next =
+						state === undefined || state.kind === "not-searched"
+							? undefined
+							: state;
+					if (next === undefined) {
+						if (current === undefined) return;
+						const { [moduleUuid]: _removed, ...remaining } = states;
+						set({ previewSearchStates: remaining });
+						return;
+					}
+					if (current === next) return;
+					set({ previewSearchStates: { ...states, [moduleUuid]: next } });
 				},
 
 				setPreviewSelectedCase(selected: PreviewSelectedCase | undefined) {
@@ -1575,6 +1615,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewParentCaseRequest: undefined,
+						previewSearchStates: {},
 						previewPersonaUuid: undefined,
 
 						/* Chrome */

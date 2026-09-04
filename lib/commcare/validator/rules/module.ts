@@ -7,7 +7,12 @@
  */
 
 import { CASE_TYPE_REGEX, MAX_CASE_TYPE_LENGTH } from "@/lib/commcare";
-import type { BlueprintDoc, Module, Uuid } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Module,
+	menuFormUuidsOf,
+	type Uuid,
+} from "@/lib/domain";
 import { type ValidationError, validationError } from "../errors";
 import type { LookupTypeIndex } from "../lookupTypeContext";
 import { ancestorExistsCannotNestSubcase } from "./case-list/ancestorExistsCannotNestSubcase";
@@ -41,6 +46,7 @@ import {
 	searchFirstRequiresCaseFirstModule,
 	searchFirstUniqueInstance,
 } from "./case-search/searchFirst";
+import { searchNoMatchesFormUnique } from "./case-search/searchNoMatches";
 import { searchRelatedCalculationCompatibility } from "./case-search/searchRelatedCalculationCompatibility";
 import { moduleDisplayCondition } from "./displayConditions";
 import { imageMapValueUnique } from "./media/imageMapValueUnique";
@@ -48,6 +54,16 @@ import { multiSelectTopology } from "./multiSelect";
 
 function formsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
 	return (doc.formOrder[moduleUuid] ?? []).map((uuid) => doc.forms[uuid]);
+}
+
+/**
+ * The forms the wire lists on the module's menu. A no-matches registration
+ * form lowers into its own hidden module, so the structural shapes CommCare
+ * checks on a module (formless, case-list-only, cross-type root) see only
+ * the menu forms.
+ */
+function menuFormsOf(doc: BlueprintDoc, moduleUuid: Uuid) {
+	return menuFormUuidsOf(doc, moduleUuid).map((uuid) => doc.forms[uuid]);
 }
 
 function caseFormsNoCaseType(
@@ -73,7 +89,7 @@ function caseListOnlyHasForms(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	const forms = formsOf(doc, moduleUuid);
+	const forms = menuFormsOf(doc, moduleUuid);
 	if (!mod.caseListOnly || forms.length === 0) return [];
 	return [
 		validationError(
@@ -106,7 +122,7 @@ function noFormsOrCaseList(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	const forms = formsOf(doc, moduleUuid);
+	const forms = menuFormsOf(doc, moduleUuid);
 	// A `caseListOnly` viewer is the ONLY valid formless shape (it maps to
 	// CommCare's case-list menu item). Every other module — case-typed OR a
 	// plain survey menu — needs at least one form: CommCare rejects a menu with
@@ -148,7 +164,7 @@ function nestedMenuCrossTypeRootRequiresForm(
 	if (
 		parent === undefined ||
 		parent.caseListOnly !== true ||
-		(doc.formOrder[parentUuid] ?? []).length > 0 ||
+		menuFormUuidsOf(doc, parentUuid).length > 0 ||
 		!parent.caseType ||
 		!mod.caseType ||
 		parent.caseType === mod.caseType
@@ -216,7 +232,7 @@ function missingCaseListColumns(
 	moduleUuid: Uuid,
 	doc: BlueprintDoc,
 ): ValidationError[] {
-	const forms = formsOf(doc, moduleUuid);
+	const forms = menuFormsOf(doc, moduleUuid);
 	const columns = mod.caseListConfig?.columns ?? [];
 	const hasVisibleResult = columns.some(
 		(column) => column.visibleInList !== false,
@@ -293,4 +309,5 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	searchFirstNoButtonDisplayCondition,
 	searchFirstNoPreviousWorkflow,
 	searchFirstUniqueInstance,
+	searchNoMatchesFormUnique,
 ];

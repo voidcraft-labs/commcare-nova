@@ -681,6 +681,7 @@ describe("string-typed non-reference keys (reviewed: none carries an expression)
 			"connect.task.description",
 			"connect.task.id",
 			"connect.task.name",
+			"entry.label",
 			"formLinks[].datums[].name",
 			"formLinks[].uuid",
 			"id",

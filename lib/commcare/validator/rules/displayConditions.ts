@@ -26,8 +26,13 @@ import {
 } from "@/lib/commcare/expression/onDeviceCompatibility";
 import { isValidStaticGeopointCenter } from "@/lib/commcare/predicate/geopoint";
 import { matchModeRunsOnDevice } from "@/lib/commcare/predicate/matchModes";
-import type { BlueprintDoc, Form, Module, Uuid } from "@/lib/domain";
-import { isCaseFirstModule } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type Form,
+	type Module,
+	moduleIsCaseFirst,
+	type Uuid,
+} from "@/lib/domain";
 import {
 	checkPredicate,
 	isMatchNone,
@@ -298,9 +303,6 @@ export function formDisplayCondition(
 	const form = doc.forms[formUuid];
 	if (form.displayCondition === undefined) return [];
 	const mod = doc.modules[moduleUuid];
-	const formTypes = (doc.formOrder[moduleUuid] ?? [])
-		.map((uuid) => doc.forms[uuid]?.type)
-		.filter((type): type is Form["type"] => type !== undefined);
 	return validateCarrier(
 		{
 			kind: "form",
@@ -309,7 +311,7 @@ export function formDisplayCondition(
 			formUuid,
 			form,
 			condition: form.displayCondition,
-			caseFirst: isCaseFirstModule(formTypes, mod.caseType !== undefined),
+			caseFirst: moduleIsCaseFirst(doc, moduleUuid),
 		},
 		doc,
 		lookupTables,

@@ -11,7 +11,7 @@
 
 import { findContainingForm } from "@/lib/doc/mutations/helpers";
 import type { BlueprintDoc, Mutation, Uuid } from "@/lib/doc/types";
-import { orderedCaseOperations } from "@/lib/domain";
+import { noMatchesFormOf, orderedCaseOperations } from "@/lib/domain";
 
 /** Structural twin of the validator scope kept on the domain side of the
  * CommCare boundary. `commitVerdicts` is the allowlisted adapter that passes
@@ -144,10 +144,19 @@ export function incrementalValidationScope(
 			case "moveColumn":
 			case "addSearchInput":
 			case "updateSearchInput":
-			case "removeSearchInput":
 			case "moveSearchInput":
 				scope.moduleUuids.add(mutation.moduleUuid);
 				break;
+			/* A no-matches registration form reads the module's Search prompts
+			 * by identity, so removing one can leave a dangling read on that
+			 * form. */
+			case "removeSearchInput": {
+				scope.moduleUuids.add(mutation.moduleUuid);
+				const noMatchesForm = noMatchesFormOf(doc, mutation.moduleUuid);
+				if (noMatchesForm !== undefined)
+					scope.formUuids.add(noMatchesForm.uuid);
+				break;
+			}
 			case "setCaseListMeta":
 				if (
 					Object.hasOwn(mutation.patch, "selection") &&
@@ -180,6 +189,14 @@ export function incrementalValidationScope(
 					return undefined;
 				}
 				scope.moduleUuids.add(mutation.uuid);
+				/* Any other search-config change can take away the search the
+				 * module's no-matches form depends on; its own rule must run. */
+				if (mutation.caseSearchConfigPatch !== undefined) {
+					const noMatchesForm = noMatchesFormOf(doc, mutation.uuid);
+					if (noMatchesForm !== undefined) {
+						scope.formUuids.add(noMatchesForm.uuid);
+					}
+				}
 				break;
 			}
 
@@ -193,12 +210,15 @@ export function incrementalValidationScope(
 				break;
 			case "updateForm": {
 				/* Type and case-action changes alter the action inventory consumed by
-				 * links whose findings are anchored on other forms. Other form
-				 * settings are confined to this form. */
+				 * links whose findings are anchored on other forms. An entry change
+				 * moves the form on or off the module menu, which the module's
+				 * structural rules and every link targeting the form read. Other
+				 * form settings are confined to this form. */
 				if (
 					mutation.caseOperationChange !== undefined ||
 					mutation.caseOperationPatch !== undefined ||
-					Object.hasOwn(mutation.patch, "type")
+					Object.hasOwn(mutation.patch, "type") ||
+					Object.hasOwn(mutation.patch, "entry")
 				) {
 					return undefined;
 				}

@@ -219,10 +219,28 @@ export function expandFlatHashtags(expr: string): string {
  * Extract every case-bound hashtag reference from XPath expressions: `#case/…`,
  * `#user/…`, and every `#<case_type>/…` per-type ref — i.e. every namespace
  * EXCEPT `#form/`, which resolves to a plain in-form `/data/` path that carries
- * no HQ-side hashtag metadata or `case_references_data.load` entry. Feeds both
+ * no HQ-side hashtag metadata or `case_references_data.load` entry, and
+ * `#search/`, which reads the search-input instance. Feeds both
  * the head-level `<vellum:hashtags>` map and `formActions.ts`'s load map (each
  * translating the raw refs into HQ vocabulary before emission).
  */
+/** Whether the expression reads a search answer (`#search/<name>`). */
+export function referencesSearchAnswer(expr: string): boolean {
+	if (!expr) return false;
+	let found = false;
+	parser.parse(expr).iterate({
+		enter(node) {
+			if (found) return false;
+			if (node.type === T.HashtagRef) {
+				const type = node.node.getChild(T.HashtagType.id);
+				if (type && expr.slice(type.from, type.to) === "search") found = true;
+				return false;
+			}
+		},
+	});
+	return found;
+}
+
 export function extractHashtags(exprs: string[]): string[] {
 	const hashtags = new Set<string>();
 	for (const expr of exprs) {
@@ -233,7 +251,9 @@ export function extractHashtags(exprs: string[]): string[] {
 					const type = node.node.getChild(T.HashtagType.id);
 					if (!type) return false;
 					const typeName = expr.slice(type.from, type.to);
-					if (typeName !== "form") {
+					// `#search/` reads the search-input instance, not a case:
+					// no load entry, no editor metadata.
+					if (typeName !== "form" && typeName !== "search") {
 						hashtags.add(expr.slice(node.from, node.to));
 					}
 					return false;
@@ -274,6 +294,11 @@ export function hqLoadReference(
 ): string {
 	const ns = hashtagNamespace(ref);
 	if (ns === undefined) return ref;
+	if (ns === "search") {
+		throw new Error(
+			"A #search/ reference reads the search-input instance, not a case; it has no HQ load entry",
+		);
+	}
 	if (ns === "case") {
 		throw new Error(
 			'Authored "#case/..." is not a Nova reference; HQ case vocabulary is generated only from an explicit case-type namespace',

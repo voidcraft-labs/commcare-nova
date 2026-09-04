@@ -40,6 +40,7 @@ import tablerChevronLeft from "@iconify-icons/tabler/chevron-left";
 import tablerChevronRight from "@iconify-icons/tabler/chevron-right";
 import tablerLoader2 from "@iconify-icons/tabler/loader-2";
 import tablerLogin2 from "@iconify-icons/tabler/login-2";
+import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerRefresh from "@iconify-icons/tabler/refresh";
 import tablerSearch from "@iconify-icons/tabler/search";
 import tablerX from "@iconify-icons/tabler/x";
@@ -88,7 +89,10 @@ import {
 	useEffectiveCaseTypes,
 	useMaterializableCaseTypes,
 } from "@/lib/doc/hooks/useCaseTypes";
-import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
+import {
+	useOrderedForms,
+	useOrderedMenuForms,
+} from "@/lib/doc/hooks/useModuleIds";
 import { useProseProjection } from "@/lib/doc/hooks/useProseProjection";
 import { usePersonas } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
@@ -100,6 +104,7 @@ import {
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
+	isNoMatchesForm,
 	makeTranslationUnitId,
 	orderedColumns,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
@@ -139,6 +144,7 @@ import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
 import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
+import { searchOutcomeFromLoad } from "@/lib/preview/engine/searchPhase";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
 import { useCaseDataReplacementRevision } from "@/lib/preview/hooks/caseDataInvalidation";
@@ -174,12 +180,19 @@ import {
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
 	usePreviewPersonaUuid,
+	usePreviewSearchState,
 	useProjectScopeEpoch,
 	useSetPreviewCaseTarget,
 	useSetPreviewMenuCaseSelection,
 	useSetPreviewParentCaseRequest,
+	useSetPreviewSearchState,
 	useSetPreviewSelectedCase,
 } from "@/lib/session/hooks";
+import {
+	beginSearch,
+	noMatchesActionAvailable,
+	settleSearch,
+} from "@/lib/session/previewSearchState";
 import type { PreviewCaseChoice } from "@/lib/session/types";
 import { caseListStep, resultsConstraintContext } from "./caseListPhase";
 
@@ -250,12 +263,26 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * A module with no case-loading form has nowhere to continue, so the
 	 * list reads as informational. */
 	const orderedForms = useOrderedForms(moduleUuid);
+	/* Only a MENU form can continue from Results: the no-matches
+	 * registration form is reached from the empty-search notice instead. */
+	const menuForms = useOrderedMenuForms(moduleUuid);
 	const previewCaseTarget = usePreviewCaseTarget();
 	const setPreviewCaseTarget = useSetPreviewCaseTarget();
 	const caseLoadingForms = useMemo(
-		() => orderedForms.filter((f) => CASE_LOADING_FORM_TYPES.has(f.type)),
+		() => menuForms.filter((f) => CASE_LOADING_FORM_TYPES.has(f.type)),
+		[menuForms],
+	);
+	/** The form Results offers when a search finds nothing, if the module
+	 * has one. It is not a menu form: `orderedForms`, not `menuForms`. */
+	const noMatchesForm = useMemo(
+		() => orderedForms.find(isNoMatchesForm),
 		[orderedForms],
 	);
+	/* The module's search context in this Preview run. The screen writes it
+	 * as the worker searches and the query settles; the no-matches form
+	 * reads it to admit or refuse itself (`noMatchesForm.ts`). */
+	const searchState = usePreviewSearchState(moduleUuid);
+	const setPreviewSearchState = useSetPreviewSearchState();
 	/** The form a forms-first entry tapped to get here, when it's a real
 	 *  case-loading form in this module: otherwise undefined (case-first). */
 	const seededFormUuid = useMemo(() => {
@@ -458,8 +485,38 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	const step = caseListStep({
 		searchFirst,
 		hasVisibleInputs: hasSearchInputs,
-		hasSubmitted: searchRun.hasSubmitted,
+		hasSubmitted: searchRun.hasSubmitted || searchState?.kind === "completed",
 	});
+	/* Whether a Search has been pressed whose query has not yet been seen to
+	 * start and end; read by the settlement effect below. */
+	const awaitingSearchFetchRef = useRef(false);
+	const sawSearchFetchRef = useRef(false);
+	/* The worker pressed Search (or a search-first module with nothing to
+	 * answer launched its own): the module's search is now running with
+	 * these answers, until the Results query settles below. Only a
+	 * search-first module keeps this context; it is what admits the
+	 * no-matches registration form, which only such a module can carry. */
+	const submitSearch = useCallback(
+		(next: ReadonlyMap<string, string>) => {
+			searchRun.submit(next);
+			if (moduleUuid === undefined || !searchFirst) return;
+			awaitingSearchFetchRef.current = true;
+			setPreviewSearchState(
+				moduleUuid,
+				beginSearch(searchState, {
+					...Object.fromEntries(next),
+					...Object.fromEntries(searchRun.resolveHidden()),
+				}),
+			);
+		},
+		[searchRun, moduleUuid, searchFirst, searchState, setPreviewSearchState],
+	);
+	/* Search again, and the clear button, retire the completed search so a
+	 * later Results is a new attempt and the no-matches form closes its door. */
+	const resetSearch = useCallback(() => {
+		searchRun.clear();
+		if (moduleUuid !== undefined) setPreviewSearchState(moduleUuid, undefined);
+	}, [searchRun, moduleUuid, setPreviewSearchState]);
 	/* A retained flipbook submission belongs to the Search action. If a live
 	 * session/config edit makes that action irrelevant, show the ordinary case
 	 * list instead of silently keeping an inaccessible remote-search query. The
@@ -774,6 +831,17 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					},
 		[selectedParentCases],
 	);
+	/* After the no-matches form registers a case, Results shows exactly that
+	 * case: the wire's return frame re-keys the inline search to the new
+	 * case id (`CaseListFormWorkflow`), and Search again starts over. */
+	const registeredCaseIds = useMemo(
+		() =>
+			searchState?.kind === "completed" &&
+			searchState.registeredCaseId !== undefined
+				? [searchState.registeredCaseId]
+				: undefined,
+		[searchState],
+	);
 	const {
 		state,
 		fetching,
@@ -784,6 +852,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		/* On the Search step no results query runs: the list does not exist
 		 * until the worker's search completes. */
 		caseType: step === "search" ? undefined : caseType?.name,
+		...(registeredCaseIds === undefined ? {} : { caseIds: registeredCaseIds }),
 		caseListConfig: config,
 		inputValues: activeSearchInputValues,
 		excludedOwnerIdsExpression,
@@ -796,6 +865,28 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		page: casePage,
 		requestScopeKey: `${stateScopeKey}\u0000${restoreScopeKey}`,
 	});
+	/* Settle the module's search once the query the worker's Search fired has
+	 * come back. `awaitingSearchFetchRef` is what makes "come back" exact: the
+	 * submit commits before the query effect fires, so the first render after
+	 * it still shows the previous settled result with `fetching` false, and
+	 * settling there would grade the old answer. The search is running until
+	 * a fetch has been seen to start and then end. */
+	useEffect(() => {
+		if (moduleUuid === undefined || searchState?.kind !== "running") return;
+		if (fetching) {
+			if (awaitingSearchFetchRef.current) sawSearchFetchRef.current = true;
+			return;
+		}
+		if (!sawSearchFetchRef.current) return;
+		const outcome = searchOutcomeFromLoad(state);
+		if (outcome === undefined) return;
+		awaitingSearchFetchRef.current = false;
+		sawSearchFetchRef.current = false;
+		setPreviewSearchState(
+			moduleUuid,
+			settleSearch(searchState, searchState.attempt, outcome),
+		);
+	}, [moduleUuid, fetching, state, searchState, setPreviewSearchState]);
 	/* The Results query can be empty because there is no reachable data OR
 	 * because the authored/search conditions exclude an existing population.
 	 * Keep those states distinct: only the first should invite an author to
@@ -895,7 +986,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 	 * two distant-looking ways to clear one filter and made the surfaces feel
 	 * interchangeable when they are not. */
 	const clearSearch = () => {
-		searchRun.clear();
+		resetSearch();
 		focusFirstSearchControl();
 	};
 
@@ -1144,8 +1235,50 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				hidden: hiddenInputIdentity,
 			})
 		: undefined;
+	/* The Register action on an empty search: the no-matches form opens
+	 * carrying this search's attempt, which is what admits it there. Offered
+	 * only in the running app, on a completed search that found nothing. */
+	const noMatchesAction = useMemo(() => {
+		if (
+			!previewing ||
+			moduleUuid === undefined ||
+			noMatchesForm === undefined ||
+			!noMatchesActionAvailable(searchState)
+		) {
+			return undefined;
+		}
+		const attempt = searchState.attempt;
+		const label =
+			noMatchesForm.entry?.label !== undefined
+				? ((localizedValues.get(
+						makeTranslationUnitId("form", noMatchesForm.uuid, "entry-label"),
+					) as string | undefined) ?? noMatchesForm.entry.label)
+				: ((localizedValues.get(
+						makeTranslationUnitId("form", noMatchesForm.uuid, "name"),
+					) as string | undefined) ?? noMatchesForm.name);
+		return {
+			label,
+			onClick: () => {
+				setOpenCase(null);
+				setFormMenuCase(null);
+				setMultiFormMenuOpen(false);
+				setPreviewCaseTarget({
+					formUuid: noMatchesForm.uuid,
+					searchLaunch: { moduleUuid, attempt },
+				});
+				navigate.openForm(moduleUuid, noMatchesForm.uuid);
+			},
+		};
+	}, [
+		previewing,
+		moduleUuid,
+		noMatchesForm,
+		searchState,
+		localizedValues,
+		setPreviewCaseTarget,
+		navigate,
+	]);
 	const launchedAutomaticSearchRef = useRef<string | undefined>(undefined);
-	const submitSearch = searchRun.submit;
 	useEffect(() => {
 		if (
 			automaticSearchToken === undefined ||
@@ -1573,7 +1706,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						})}
 						value={searchRun.draft}
 						onChange={searchRun.changeDraft}
-						onSubmit={searchRun.submit}
+						onSubmit={submitSearch}
 						submitLabel={searchButtonLabel}
 						localizeValidationMessage={localizeSearchValidationMessage}
 					/>
@@ -1934,7 +2067,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 					variant="ghost"
 					data-search-again
 					onClick={() => {
-						searchRun.clear();
+						resetSearch();
 						focusFirstSearchControl();
 					}}
 					className="-ml-2 mb-4 gap-1.5 rounded-md px-2 py-1.5 text-[14px] text-nova-violet-bright not-disabled:hover:bg-nova-violet/[0.08] not-disabled:hover:text-nova-violet-bright"
@@ -2017,6 +2150,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 				parentScoped={menuCaseContext?.parentCase !== undefined}
 				canEdit={canEdit}
 				searchErrorShown={hasSearchInputs && searchActionIsRelevant}
+				noMatchesAction={noMatchesAction}
 				rowAction={rowAction}
 				onOpenCase={handleOpenCase}
 				selection={
@@ -2186,6 +2320,7 @@ function ResultsBody({
 	parentScoped,
 	canEdit,
 	searchErrorShown,
+	noMatchesAction,
 	rowAction,
 	onOpenCase,
 	selection,
@@ -2220,6 +2355,9 @@ function ResultsBody({
 	readonly parentScoped: boolean;
 	readonly canEdit: boolean;
 	readonly searchErrorShown: boolean;
+	/** The Register action an empty search offers, when the module has a
+	 * no-matches registration form and this search found nothing. */
+	readonly noMatchesAction: NoMatchesAction | undefined;
 	readonly rowAction: "detail" | "form" | "none";
 	readonly onOpenCase: (
 		row: CaseRowWithCalculated,
@@ -2309,7 +2447,7 @@ function ResultsBody({
 			authoredMatchingCount !== undefined &&
 			authoredMatchingCount > 0
 		) {
-			return <NoMatchNotice />;
+			return <NoMatchNotice action={noMatchesAction} />;
 		}
 		if (
 			unfilteredCountState.kind === "idle" ||
@@ -2342,6 +2480,15 @@ function ResultsBody({
 							? "Try different Search information or review Cases available in Results"
 							: "Try different Search information or ask an app editor to review Cases available"
 					}
+					{...(noMatchesAction === undefined
+						? {}
+						: {
+								action: {
+									label: noMatchesAction.label,
+									onClick: noMatchesAction.onClick,
+									icon: tablerPlus,
+								},
+							})}
 				/>
 			);
 		}
@@ -2369,7 +2516,7 @@ function ResultsBody({
 			);
 		}
 		if (emptyResultContext === "worker-search") {
-			return <NoMatchNotice />;
+			return <NoMatchNotice action={noMatchesAction} />;
 		}
 		if (emptyResultContext === "authored-rules") {
 			return <AvailabilityConditionsEmptyNotice canEdit={canEdit} />;
@@ -2616,11 +2763,34 @@ function NoCaseDataNotice({
 }
 
 /** Worker-facing zero-results guidance for a submitted search. */
-function NoMatchNotice() {
+/** The Register action an empty search offers (`noMatchesForm.ts`). */
+interface NoMatchesAction {
+	readonly label: string;
+	readonly onClick: () => void;
+}
+
+function NoMatchNotice({
+	action,
+}: {
+	readonly action: NoMatchesAction | undefined;
+}) {
 	return (
 		<CaseListEmptyNotice
 			title="No cases match your search"
-			description="Check your spelling, clear a field, or try a broader search"
+			description={
+				action === undefined
+					? "Check your spelling, clear a field, or try a broader search"
+					: "Check your spelling, try a broader search, or register a new case"
+			}
+			{...(action === undefined
+				? {}
+				: {
+						action: {
+							label: action.label,
+							onClick: action.onClick,
+							icon: tablerPlus,
+						},
+					})}
 		/>
 	);
 }

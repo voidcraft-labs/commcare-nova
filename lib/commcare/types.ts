@@ -529,10 +529,18 @@ export interface HqModule {
 		media_audio: Record<string, string>;
 		custom_icons: unknown[];
 	};
+	/**
+	 * HQ `CaseListForm` (`models/modules.py`): the registration form the
+	 * Register action on the case list opens. Nova emits it only for a
+	 * search-first host with a no-matches form; every other module keeps
+	 * the null shell.
+	 */
 	case_list_form: {
 		doc_type: "CaseListForm";
-		form_id: null;
-		label: Record<string, never>;
+		form_id: string | null;
+		label: Record<string, string> | Record<string, never>;
+		post_form_workflow?: "default" | "case_list";
+		relevancy_expression?: string;
 	};
 	search_config: CaseSearchConfig;
 	display_style: string;

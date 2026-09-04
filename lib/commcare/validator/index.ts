@@ -30,12 +30,16 @@ import {
 	formExpressionSourceEntries,
 	formExpressionValue,
 	isConnectLearnConfig,
+	isNoMatchesForm,
+	owningModuleOfForm,
 	type ProseTemplate,
 	projectXPath,
 	reachableCaseTypes,
+	searchInputNameResolver,
 	toReachableIndex,
 	type Uuid,
 	type XPathExpression,
+	type XPathSearchAnswerRefPart,
 	xpathPrintContext,
 } from "@/lib/domain";
 import {
@@ -230,6 +234,48 @@ function withStoredRef(
 /** A session-scoped slot (an after-submit link) has no form paths to read. */
 const SESSION_VALID_PATHS: Set<string> = new Set();
 
+/**
+ * A `search-answer-ref` is readable in exactly one place: a no-matches
+ * registration form, naming a Search prompt of its own module. Anywhere
+ * else the running app has no search-input instance to read, so the leaf
+ * is refused before the round-trip check (whose generic message would
+ * otherwise name the wrong cause).
+ */
+function searchAnswerRefError(
+	doc: BlueprintDoc,
+	formUuid: Uuid,
+	expr: XPathExpression,
+): XPathError | undefined {
+	const refs = expr.parts.filter(
+		(part): part is XPathSearchAnswerRefPart =>
+			part.kind === "search-answer-ref",
+	);
+	if (refs.length === 0) return undefined;
+	const form = doc.forms[formUuid];
+	if (form === undefined || !isNoMatchesForm(form)) {
+		return {
+			code: "INVALID_SEARCH_REF",
+			message:
+				"reads a search answer, but only a form that opens after a search finds no matches can read one. Set this form's entry to search-no-matches, or drop the #search/ reference.",
+		};
+	}
+	const moduleUuid = owningModuleOfForm(doc, formUuid);
+	const inputs =
+		moduleUuid === undefined
+			? []
+			: (doc.modules[moduleUuid]?.caseListConfig?.searchInputs ?? []);
+	for (const ref of refs) {
+		if (inputs.some((input) => input.uuid === ref.searchInputUuid)) continue;
+		return {
+			code: "INVALID_SEARCH_REF",
+			message:
+				"reads a Search prompt this module no longer has. Point it at one of the module's current Search prompts, or drop the #search/ reference.",
+			storedRef: "dangling-identity",
+		};
+	}
+	return undefined;
+}
+
 function canonicalXPathError(
 	doc: BlueprintDoc,
 	formUuid: Uuid,
@@ -243,6 +289,8 @@ function canonicalXPathError(
 			message: "This expression is not stored as Nova's canonical XPath AST.",
 		};
 	}
+	const searchRefError = searchAnswerRefError(doc, formUuid, expr);
+	if (searchRefError !== undefined) return searchRefError;
 	const projection = projectXPath(expr, xpathPrintContext(doc));
 	if (!projection.ok) {
 		const danglingField = projection.unresolved.some(
@@ -264,6 +312,7 @@ function canonicalXPathError(
 			);
 			return matches.length === 1 ? matches[0]?.uuid : undefined;
 		},
+		searchInputNameResolver(doc, formUuid),
 	);
 	/**
 	 * Connect injects wrapper/session nodes that are real `/data/...` paths on

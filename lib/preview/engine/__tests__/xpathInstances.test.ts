@@ -9,8 +9,10 @@ import { previewLookupData } from "../lookupEvaluation";
 import {
 	caseDatabaseXPathInstance,
 	commcareSessionXPathInstance,
+	INLINE_SEARCH_INPUT_INSTANCE_ID,
 	lookupXPathInstances,
 	previewHashtagNodeSet,
+	searchInputXPathInstance,
 } from "../xpathInstances";
 
 function row(overrides: Partial<CaseRow> = {}): CaseRow {
@@ -374,6 +376,45 @@ describe("Preview structural XPath instances", () => {
 				),
 			).toBe(0);
 		}
+	});
+
+	it("projects a completed search's answers as the inline search-input instance", () => {
+		const instance = searchInputXPathInstance(
+			new Map([
+				["patient_name", "Zzz"],
+				["search_time", "2026-09-04T10:00:00Z"],
+			]),
+		);
+		const ctx = context(new Map([[INLINE_SEARCH_INPUT_INSTANCE_ID, instance]]));
+
+		expect(
+			evaluate(
+				"instance('search-input:results:inline')/input/field[@name='patient_name']",
+				ctx,
+			),
+		).toBe("Zzz");
+		expect(
+			evaluate(
+				"count(instance('search-input:results:inline')/input/field)",
+				ctx,
+			),
+		).toBe(2);
+		expect(
+			evaluate(
+				"count(instance('search-input:results:inline')/input/field[@name='missing'])",
+				ctx,
+			),
+		).toBe(0);
+	});
+
+	it("leaves the #search namespace to the engine's scalar resolver", () => {
+		expect(
+			previewHashtagNodeSet("#search/patient_name", {
+				casedb: undefined,
+				caseData: new Map(),
+				userId: "worker-1",
+			}),
+		).toBeUndefined();
 	});
 
 	it("projects lookup fixtures under their XForm-local table tag", () => {

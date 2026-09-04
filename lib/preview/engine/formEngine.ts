@@ -282,6 +282,12 @@ export interface FormEngineInput {
 	 * as undeclared to admission.
 	 */
 	userProperties?: BlueprintDoc["userProperties"];
+	/**
+	 * The owning module's Search prompts, so a `search-answer-ref` prints as
+	 * `#search/<name>`. Only a no-matches registration form carries one, but
+	 * the print surface needs the names wherever the form sits.
+	 */
+	searchInputs?: readonly { readonly uuid: Uuid; readonly name: string }[];
 }
 
 export type FormEngineAsyncResultMode = "scalar" | "nodeset-values-or-scalar";
@@ -310,6 +316,11 @@ export interface FormEngineRuntimeOptions {
 	/** Construct only the immutable form world. `initializeAsync` performs the
 	 * structural/default/cascade stages before the controller publishes it. */
 	readonly stagedAsync?: boolean;
+	/** The completed search's answers a no-matches registration form reads
+	 * through `#search/<name>`: prompt name → value, as the device's
+	 * `search-input:results:inline` instance holds them. Absent (every other
+	 * form, and a no-matches form previewed without a search) reads blank. */
+	readonly searchAnswers?: ReadonlyMap<string, string>;
 }
 
 export interface FormEngineWorkerWorld {
@@ -343,6 +354,13 @@ function printableDocOf(input: FormEngineInput): XPathPrintableDoc {
 		fields: input.fields,
 		fieldOrder: input.fieldOrder,
 		userProperties: input.userProperties,
+		...(input.searchInputs === undefined
+			? {}
+			: {
+					modules: {
+						host: { caseListConfig: { searchInputs: input.searchInputs } },
+					},
+				}),
 	};
 }
 
@@ -487,6 +505,8 @@ export class FormEngine {
 	private repeatInstanceKeys = new Map<string, string[]>();
 	private readonly asyncRuntime: boolean;
 	private readonly presentationLanguage: LanguageTag | undefined;
+	/** `#search/<name>` reads; empty outside an admitted no-matches launch. */
+	private readonly searchAnswers: ReadonlyMap<string, string>;
 
 	constructor(
 		input: FormEngineInput,
@@ -506,11 +526,15 @@ export class FormEngine {
 		this.formType = input.form.type;
 		this.formRootAttributes = xformDataRootRuntimeAttributes(input.form.name);
 		this.caseData = caseData ?? new Map();
+		this.searchAnswers = runtimeOptions.searchAnswers ?? new Map();
 		this.secondaryInstances = secondaryXPathInstances({
 			identity: this.previewIdentity,
 			lookupData: this.lookupData,
 			caseDatabase: caseDatabase ?? null,
 			caseTypes: input.caseTypes,
+			...(runtimeOptions.searchAnswers === undefined
+				? {}
+				: { searchAnswers: runtimeOptions.searchAnswers }),
 		});
 		this.secondaryWorkerSnapshots = [...this.secondaryInstances.values()].map(
 			snapshotXPathWorkerInstance,
@@ -3668,6 +3692,13 @@ export class FormEngine {
 				if (ref.startsWith("#user/")) {
 					const prop = ref.slice(6);
 					return ownRecordValue(this.previewIdentity?.usercase, prop) ?? "";
+				}
+				/* `#search/<name>` is the completed search's answer, what the
+				 * wire reads from `instance('search-input:results:inline')`. A
+				 * prompt the search left blank, or a form running without an
+				 * admitted launch, reads blank. */
+				if (ref.startsWith("#search/")) {
+					return this.searchAnswers.get(ref.slice("#search/".length)) ?? "";
 				}
 				// Case references. The authoring vocabulary is per-case-type —
 				// `#<case_type>/<prop>` (printXPath's `case-ref` spelling) —

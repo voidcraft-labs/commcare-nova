@@ -26,8 +26,8 @@ import {
 	type BlueprintDoc,
 	childModuleUuids,
 	effectiveCaseSearchConfig,
-	isCaseFirstModule,
 	type Module,
+	moduleIsCaseFirst,
 	moduleOpensOnSearch,
 	moduleParent,
 	type Uuid,
@@ -44,13 +44,9 @@ export function searchFirstRequiresCaseFirstModule(
 	doc: BlueprintDoc,
 ): ValidationError[] {
 	if (!moduleOpensOnSearch(mod)) return [];
-	const formTypes = (doc.formOrder[moduleUuid] ?? []).flatMap((uuid) => {
-		const form = doc.forms[uuid];
-		return form === undefined ? [] : [form.type];
-	});
 	const hasCaseType = mod.caseType !== undefined && mod.caseType !== "";
 	if (mod.caseListOnly === true && hasCaseType) return [];
-	if (isCaseFirstModule(formTypes, hasCaseType)) return [];
+	if (moduleIsCaseFirst(doc, moduleUuid)) return [];
 	return [
 		validationError(
 			"SEARCH_FIRST_REQUIRES_CASE_FIRST_MODULE",
