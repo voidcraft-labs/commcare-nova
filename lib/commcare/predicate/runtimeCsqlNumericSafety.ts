@@ -165,6 +165,7 @@ function walkQueryPredicate(
 			return;
 		case "in":
 		case "is-blank":
+		case "matches-pattern":
 			return;
 		case "between":
 			if (isSubcaseCount(predicate.left)) {

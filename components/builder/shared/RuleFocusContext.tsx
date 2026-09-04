@@ -213,6 +213,8 @@ export function predicateFocusTitle(value: Predicate): string {
 			return "Is between";
 		case "is-blank":
 			return "Is blank";
+		case "matches-pattern":
+			return "Matches a pattern";
 		case "match":
 			return "Matches text";
 		case "multi-select-contains":
@@ -263,6 +265,8 @@ export function predicateFocusDescription(
 			return "Checks whether a value falls inside a range";
 		case "is-blank":
 			return "Checks whether a value is empty or missing";
+		case "matches-pattern":
+			return "Checks whether a value fits a regular expression";
 		case "match":
 			return "Looks for a flexible text or date match";
 		case "multi-select-contains":

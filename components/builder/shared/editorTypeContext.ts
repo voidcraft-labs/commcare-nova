@@ -51,6 +51,8 @@ export interface EditorTypeVocabulary {
 	readonly ownerValues?: boolean;
 	readonly lookupTables?: readonly EditorLookupTableDecl[];
 	readonly tableScope?: EditorLookupTableScope;
+	/** See `PredicateEditContext.patternMatching`. */
+	readonly patternMatching?: true;
 }
 
 /**
@@ -68,6 +70,7 @@ export function buildEditorTypeContext(
 		ownerValues = false,
 		lookupTables = [],
 		tableScope,
+		patternMatching,
 	} = args;
 	return {
 		caseTypes: [...args.caseTypes],
@@ -99,5 +102,6 @@ export function buildEditorTypeContext(
 			),
 		}),
 		...(ownerValues && { ownerValues: true }),
+		...(patternMatching === true && { patternMatching: true }),
 	};
 }

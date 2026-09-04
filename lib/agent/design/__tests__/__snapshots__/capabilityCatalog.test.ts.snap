@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "04e3064ceaf08d867539d8a36ac5d8d10867f6c481b3c9a9ac885a70d00bb34e",
+  "catalogDigest": "b352dd446114dd0ba07b971c57319b912fbad79644225045d220ceab53b5154d",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "AUTOMATION_HQ_MANUAL_SETUP",
@@ -35,6 +35,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
     "ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
     "GAP_SESSION_ENDPOINTS_DEEP_LINKS",
+    "GAP_SEARCH_BEFORE_REGISTER",
   ],
   "fieldKinds": [
     "text",

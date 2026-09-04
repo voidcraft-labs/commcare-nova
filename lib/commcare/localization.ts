@@ -16,6 +16,7 @@ import {
 	printProseTemplate,
 	type TranslationUnitId,
 	translationUnitsById,
+	type WireStringSource,
 } from "@/lib/domain";
 import { planLanguageWire } from "./languageWire";
 
@@ -28,9 +29,13 @@ export interface CommCareLocalization {
 	/** The device language picker's label row for one wire code. */
 	languageName(wireCode: string): string;
 	wireText(wireCode: string, unitId: TranslationUnitId): string;
+	/** `wireText` over a source that may join several units with one space. */
+	wireTextFor(wireCode: string, source: WireStringSource): string;
 	text(wireCode: string, unitId: TranslationUnitId): string;
 	prose(wireCode: string, unitId: TranslationUnitId): ProseTemplate;
 	textMap(unitId: TranslationUnitId): WireLanguageMap;
+	/** `textMap` over a source that may join several units with one space. */
+	textMapFor(source: WireStringSource): WireLanguageMap;
 	proseTextMap(unitId: TranslationUnitId): WireLanguageMap;
 	proseOrSourceMap(
 		unitId: TranslationUnitId | undefined,
@@ -99,6 +104,14 @@ export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 			? localized
 			: printProseTemplate(localized, doc);
 	};
+	const wireTextFor = (wireCode: string, source: WireStringSource): string =>
+		typeof source === "string"
+			? wireText(wireCode, source)
+			: source.map((unitId) => wireText(wireCode, unitId)).join(" ");
+	const textFor = (wireCode: string, source: WireStringSource): string =>
+		typeof source === "string"
+			? text(wireCode, source)
+			: source.map((unitId) => text(wireCode, unitId)).join(" ");
 
 	return {
 		languages: plan.languages,
@@ -113,11 +126,17 @@ export function commCareLocalization(doc: BlueprintDoc): CommCareLocalization {
 			return name;
 		},
 		wireText,
+		wireTextFor,
 		text,
 		prose,
 		textMap(unitId) {
 			return Object.fromEntries(
 				plan.languages.map((wireCode) => [wireCode, text(wireCode, unitId)]),
+			);
+		},
+		textMapFor(source) {
+			return Object.fromEntries(
+				plan.languages.map((wireCode) => [wireCode, textFor(wireCode, source)]),
 			);
 		},
 		proseTextMap(unitId) {

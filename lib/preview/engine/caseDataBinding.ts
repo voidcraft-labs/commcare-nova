@@ -53,7 +53,7 @@ import {
 	ownRecordValue,
 	personasOf,
 	recordFromEntries,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	searchInputRuntimeValueType,
 	userPropertySlugsByUuid,
 } from "@/lib/domain";
 import { blueprintDocSchema } from "@/lib/domain/blueprint";
@@ -263,7 +263,7 @@ export async function loadCasesAction(args: {
 						knownInputs: args.caseListConfig.searchInputs.map((input) => ({
 							uuid: input.uuid,
 							name: input.name,
-							data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+							data_type: searchInputRuntimeValueType(input),
 						})),
 						currentCaseType: args.caseType,
 					};
@@ -333,6 +333,10 @@ export async function loadCasesAction(args: {
 			}
 		}
 		if (inputValues !== undefined && args.caseListConfig !== undefined) {
+			/* The full pass with the resolved worker. A pattern-bearing required
+			 * condition or check stays unjudged here: the server holds no Java
+			 * Pattern engine, so Preview's Search screen enforces those in its
+			 * XPath worker, the way it alone enforces lookup-bearing ones. */
 			const runtimeErrors = searchInputSubmissionErrors(
 				args.caseListConfig,
 				args.caseType,

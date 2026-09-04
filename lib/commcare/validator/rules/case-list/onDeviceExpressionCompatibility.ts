@@ -295,6 +295,7 @@ function predicateReadsTableColumn(predicate: Predicate): boolean {
 				return;
 			case "in":
 			case "is-blank":
+			case "matches-pattern":
 				found = expressionReadsTableColumn(node.left);
 				return;
 			case "between":
@@ -471,6 +472,7 @@ function firstNestedMultiCaseCountInPredicate(
 			);
 		case "in":
 		case "is-blank":
+		case "matches-pattern":
 			return firstNestedMultiCaseCountInExpression(
 				predicate.left,
 				context,

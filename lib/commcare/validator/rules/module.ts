@@ -28,6 +28,7 @@ import { searchInputModeMatchesPropertyType } from "./case-list/searchInputModeM
 import { searchInputNameUniqueness } from "./case-list/searchInputNameUniqueness";
 import { searchInputPredicateTypeCheck } from "./case-list/searchInputPredicateTypeCheck";
 import { searchInputRefUsesWhenInputPresent } from "./case-list/searchInputRefUsesWhenInputPresent";
+import { searchInputScreenPredicateTypeCheck } from "./case-list/searchInputScreenPredicateTypeCheck";
 import { searchInputTypeMatchesPropertyType } from "./case-list/searchInputTypeMatchesPropertyType";
 import { searchInputViaModeCompatibility } from "./case-list/searchInputViaModeCompatibility";
 import { sortPriorityUniqueness } from "./case-list/sortPriorityUniqueness";
@@ -268,6 +269,7 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	searchInputTypeMatchesPropertyType,
 	searchInputDefaultTypeCheck,
 	searchInputPredicateTypeCheck,
+	searchInputScreenPredicateTypeCheck,
 	csqlPredicateRepresentability,
 	searchInputRefUsesWhenInputPresent,
 	searchInputViaModeCompatibility,

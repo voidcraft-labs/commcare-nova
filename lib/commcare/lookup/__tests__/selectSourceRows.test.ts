@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, LookupOptionsSource } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	type LookupOptionsSource,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
 import type {
@@ -48,6 +53,40 @@ function carrierDoc(source: LookupOptionsSource = SOURCE): BlueprintDoc {
 						],
 					},
 				],
+			},
+		],
+	});
+}
+
+/** A Search prompt carrying the same choice list a select field would. */
+function searchPromptDoc(source: LookupOptionsSource = SOURCE): BlueprintDoc {
+	return buildDoc({
+		appName: "Lookup search",
+		caseTypes: [
+			{
+				name: "patient",
+				properties: [{ name: "status", label: proseText("Status") }],
+			},
+		],
+		modules: [
+			{
+				uuid: testUuid("module-lookup-search"),
+				name: "Patients",
+				caseType: "patient",
+				caseListOnly: true,
+				caseListConfig: {
+					columns: [],
+					searchInputs: [
+						simpleSearchInputDef(
+							testUuid("search-status"),
+							"status",
+							"Status",
+							"select",
+							"status",
+							{ options: source },
+						),
+					],
+				},
 			},
 		],
 	});
@@ -253,5 +292,49 @@ describe("lookupSelectSourceRowFindings — reported-position cap", () => {
 		expect(errors[0].details?.offendingRowCount).toBe("7");
 		expect(errors[0].details?.offendingRowPositions).toBe("1,2,3,4,5");
 		expect(errors[0].details?.offendingRowIds.split(",")).toHaveLength(5);
+	});
+});
+
+describe("lookupSelectSourceRowFindings — Search prompt owner", () => {
+	it("judges a Search prompt's choice list by the same row rules, in the module's voice", () => {
+		// The carrier list names the prompt as its owner, so the finding
+		// lands on the module (there is no field) and says "Search field".
+		const errors = lookupSelectSourceRowFindings(
+			searchPromptDoc(),
+			snapshot(table(), [
+				row(vals({ [VALUE_COL]: "", [LABEL_COL]: "Open" })),
+				row(vals({ [VALUE_COL]: "closed", [LABEL_COL]: "Closed" })),
+				row(vals({ [VALUE_COL]: "closed", [LABEL_COL]: "Archived" })),
+			]),
+		);
+
+		expect(errors.map((e) => e.code)).toEqual([
+			"LOOKUP_SELECT_SOURCE_VALUE_BLANK",
+			"LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE",
+		]);
+		for (const error of errors) {
+			expect(error.scope).toBe("module");
+			expect(error.message).toMatch(
+				/^Search field "Status" builds its choices/,
+			);
+			expect(error.location).toEqual({
+				scope: "module",
+				moduleUuid: testUuid("module-lookup-search"),
+				moduleName: "Patients",
+				field: `caseListConfig.searchInputs[${testUuid("search-status")}].options`,
+			});
+		}
+	});
+
+	it("passes a Search prompt whose rows are clean", () => {
+		expect(
+			lookupSelectSourceRowFindings(
+				searchPromptDoc(),
+				snapshot(table(), [
+					row(vals({ [VALUE_COL]: "open", [LABEL_COL]: "Open" })),
+					row(vals({ [VALUE_COL]: "closed", [LABEL_COL]: "Closed" })),
+				]),
+			),
+		).toEqual([]);
 	});
 });

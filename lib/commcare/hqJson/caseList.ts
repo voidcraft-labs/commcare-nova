@@ -58,7 +58,6 @@ import {
 	makeTranslationUnitId,
 	type OrdinaryCaseSearchConfig,
 	orderedColumns,
-	searchInputDefault,
 	tileCellFor,
 } from "@/lib/domain";
 import {
@@ -66,6 +65,7 @@ import {
 	simplifyForEmission,
 	substituteUnansweredSearchInputsInPredicate,
 } from "@/lib/domain/predicate";
+import type { RelationEvaluationScopeContext } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
 import { emitOnDeviceExpression } from "../expression/onDeviceEmitter";
@@ -102,9 +102,9 @@ import {
 	searchNeedsSupportingCases,
 } from "../suite/case-search/relatedCaseProjection";
 import {
-	PROMPT_ATTRIBUTE_MAPPINGS,
 	type RuntimeCsqlPromptValidation,
-	searchInputSuppressesAutoMatch,
+	searchPromptRelationContext,
+	searchPromptWire,
 } from "../suite/case-search/searchPrompts";
 import {
 	buildRuntimeCsqlPromptValidations,
@@ -617,89 +617,72 @@ function projectCaseListFilter(
 // ============================================================
 
 /**
- * Translate one `SearchInputDef` to a CCHQ
- * `CaseSearchProperty`. The runtime renders one prompt per entry on
- * the search screen, keyed by `name`.
+ * Translate one `SearchInputDef` to a CCHQ `CaseSearchProperty`. The
+ * runtime renders one prompt per entry on the search screen, keyed by
+ * `name`.
  *
- * Wire-attribute mapping reuses `PROMPT_ATTRIBUTE_MAPPINGS` from the
- * suite-XML prompt emitter — both surfaces project the same
- * `(input_type) → (input_, appearance)` rule so the wire shape
- * stays consistent regardless of which CCHQ ingest path the JSON
- * flows through.
+ * Every wire slot comes from `searchPromptWire`, the same projection the
+ * suite-XML `<prompt>` emitter consumes: widget kind (`input_` /
+ * `appearance`), `hidden`, `default_value`, `exclude`, the lookup-backed
+ * `itemset`, `required`, and the single composed `validations[0]`. Only
+ * the carrier differs: suite XML writes locale ids, HQ JSON writes the
+ * per-language text map the same translation units resolve to.
  *
- * The bare `<prompt>` slot carries only the widget kind + label +
- * optional default value. CCHQ has no per-property matcher-strategy
- * flag on `CaseSearchProperty` — fuzzy / phonetic / starts-with /
- * fuzzy-date matching is expressed as explicit XPath function calls
- * inside `_xpath_query`. Every non-`exact` simple-arm input routes
- * through `composeXPathQueryEmission` via `simpleArmDerivation.ts`,
- * which emits the matching XPath function predicate AND-composed
- * with the rest of the filter set. The validator's
- * `searchInputViaModeCompatibility` rule rejects the one mode the
- * single-binding wire shape can't carry (`multi-select-contains`).
- *
- * `exclude` is set for every advanced input and every simple input
- * whose comparison routes through `_xpath_query`. The prompt remains
- * present so CommCare binds the user's typed value, while `exclude`
- * prevents Core from also auto-submitting `name` as a separate case-
- * property query. The suite-XML emitter consults the same gate.
- *
- * `default` (an authored seed expression) compiles to on-device
- * XPath via `emitOnDeviceExpression` and lands on CCHQ's
- * `default_value` attribute — same dialect the suite-XML
- * `<prompt default>` attribute carries.
+ * CCHQ has no per-property matcher-strategy flag on `CaseSearchProperty`
+ * — fuzzy / phonetic / starts-with / fuzzy-date matching is expressed as
+ * explicit XPath function calls inside `_xpath_query`, composed by
+ * `composeXPathQueryEmission` via `simpleArmDerivation.ts`. `exclude`
+ * keeps Core from also auto-submitting the prompt key as a separate
+ * case-property filter on every input whose comparison lives there.
  */
 function projectSearchInput(
 	input: SearchInputDef,
 	runtimeValidation: RuntimeCsqlPromptValidation | undefined,
 	localization: CommCareLocalization,
-	typeContext?: TypeContext,
+	relationContext: RelationEvaluationScopeContext,
 	lookupNaming?: LookupWireNaming,
 ): CaseSearchProperty {
-	const mapping = PROMPT_ATTRIBUTE_MAPPINGS[input.type];
+	const wire = searchPromptWire(
+		input,
+		runtimeValidation,
+		relationContext,
+		lookupNaming,
+	);
 	const property: CaseSearchProperty = {
-		name: input.name,
-		// Empty author labels resolve to the input's `name` at runtime so
-		// the screen always has something readable to render — same
-		// fallback the suite-XML prompts apply.
-		label: localization.textMap(
-			makeTranslationUnitId("search-input", input.uuid, "label"),
-		),
+		name: wire.key,
+		label: localization.textMapFor(wire.label.source),
 	};
-	if (mapping.input !== undefined) property.input_ = mapping.input;
-	if (mapping.appearance !== undefined)
-		property.appearance = mapping.appearance;
-	const defaultValue = searchInputDefault(input);
-	if (defaultValue !== undefined) {
-		property.default_value = emitOnDeviceExpression(
-			defaultValue,
-			undefined,
-			typeContext ?? {},
-			undefined,
-			lookupNaming === undefined
-				? {}
-				: { lookup: { naming: lookupNaming, instanceScope: "suite" } },
-		);
+	if (wire.hint !== undefined) {
+		property.hint = localization.textMapFor(wire.hint.source);
 	}
-	// Mirrors the suite-XML `<prompt exclude="true()">` decision; one
-	// gate decides both surfaces. CCHQ stores the field with
-	// `exclude_if_none=True` semantics, so a `true` value persists and
-	// a `false` / absent value omits the key entirely (the CCHQ
-	// runtime's `BooleanProperty(default=False)` reads the same).
-	if (searchInputSuppressesAutoMatch(input)) {
-		property.exclude = true;
+	if (wire.input !== undefined) property.input_ = wire.input;
+	if (wire.appearance !== undefined) property.appearance = wire.appearance;
+	if (wire.defaultValue !== undefined) {
+		property.default_value = wire.defaultValue;
 	}
-	if (runtimeValidation !== undefined) {
+	// CCHQ stores `hidden` and `exclude` with `BooleanProperty(default=False)`
+	// semantics, so a `true` value persists and an absent key reads false.
+	if (wire.hidden) property.hidden = true;
+	if (wire.exclude) property.exclude = true;
+	if (wire.itemset !== undefined) {
+		property.itemset = {
+			instance_id: wire.itemset.instanceId,
+			nodeset: wire.itemset.nodeset,
+			label: wire.itemset.label,
+			value: wire.itemset.value,
+		};
+	}
+	if (wire.required !== undefined) {
+		property.required = {
+			test: wire.required.test,
+			text: localization.textMapFor(wire.required.message.source),
+		};
+	}
+	if (wire.validation !== undefined) {
 		property.validations = [
 			{
-				test: runtimeValidation.test,
-				text: localization.textMap(
-					makeTranslationUnitId(
-						"system",
-						"search-validation",
-						runtimeValidation.messageKey,
-					),
-				),
+				test: wire.validation.test,
+				text: localization.textMapFor(wire.validation.message.source),
 			},
 		];
 	}
@@ -708,7 +691,7 @@ function projectSearchInput(
 
 /**
  * Translate a `SearchInputDef[]` to the `properties` slot of
- * `search_config`. Both arms surface as `CaseSearchProperty` entries
+ * `search_config`. Every arm surfaces as a `CaseSearchProperty` entry
  * because CommCare only creates prompt bindings from this list.
  * Advanced rows also contribute their predicate to `_xpath_query`
  * and carry `exclude: true` so the binding is not mistaken for an
@@ -722,14 +705,18 @@ function projectSearchProperties(
 	lookupNaming?: LookupWireNaming,
 ): CaseSearchProperty[] {
 	const out: CaseSearchProperty[] = [];
+	const relationContext = searchPromptRelationContext(
+		searchInputs,
+		typeContext ?? {},
+	);
 	// Search prompts render in searchInputs array order.
-	for (const input of [...searchInputs]) {
+	for (const input of searchInputs) {
 		out.push(
 			projectSearchInput(
 				input,
 				runtimeValidations.get(input.name),
 				localization,
-				typeContext,
+				relationContext,
 				lookupNaming,
 			),
 		);

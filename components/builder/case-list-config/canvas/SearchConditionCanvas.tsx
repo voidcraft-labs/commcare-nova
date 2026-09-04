@@ -2,6 +2,17 @@
 // these settings, while this canvas is their only editing surface. Keeping the
 // recursive workbench here gives deep rules enough room without duplicating a
 // second editor in the right rail.
+//
+// Four conditions share the canvas and differ only in their words and scope:
+//
+//   - a field's custom MATCH runs on the server per case (case-search dialect,
+//     per-case scope);
+//   - a field's REQUIRED condition and CHECK rule run on the Search screen
+//     itself, before any case exists: every sibling answer is readable, case
+//     data is not, and the device evaluates them (on-device dialect, global
+//     scope with the module's inputs in reach);
+//   - the Search button's availability runs on the case list with no search
+//     answers loaded at all (on-device, global, no inputs).
 
 "use client";
 
@@ -9,17 +20,26 @@ import { Icon } from "@iconify/react/offline";
 import tablerArrowLeft from "@iconify-icons/tabler/arrow-left";
 import { useEffect, useRef } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
+import type { CaseDataScope } from "@/components/builder/shared/editorSchemas";
 import { PredicateWorkbench } from "@/components/builder/shared/PredicateWorkbench";
 import type { EditorPath } from "@/components/builder/shared/path";
 import type { EditorSearchInputDecl } from "@/components/builder/shared/searchInputPresentation";
 import { Button } from "@/components/shadcn/button";
 import type { CaseType, UserProperty } from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
+import type { SearchConditionSlot } from "../workspaceSelection";
+
+export type SearchConditionCanvasContext =
+	| {
+			readonly kind: "input";
+			readonly label: string;
+			/** Which of the field's conditions this canvas edits. */
+			readonly slot: SearchConditionSlot;
+	  }
+	| { readonly kind: "search-button" };
 
 export interface SearchConditionCanvasProps {
-	readonly context:
-		| { readonly kind: "input"; readonly label: string }
-		| { readonly kind: "search-button" };
+	readonly context: SearchConditionCanvasContext;
 	readonly value: Predicate;
 	readonly onChange: (next: Predicate) => void;
 	readonly onBack: () => void;
@@ -41,6 +61,63 @@ export interface SearchConditionCanvasProps {
 	};
 }
 
+interface CanvasCopy {
+	readonly title: string;
+	readonly description: string;
+	readonly sectionTitle: string;
+	readonly evaluationTarget: "case-search" | "on-device";
+	readonly caseDataScope: CaseDataScope;
+	/** Set for the two slots the device evaluates with its Pattern engine. */
+	readonly patternMatching?: true;
+}
+
+/** Every word and scope axis the canvas shows, derived from the context alone
+ *  so the explanation cannot drift from what the editor admits. */
+export function searchConditionCanvasCopy(
+	context: SearchConditionCanvasContext,
+): CanvasCopy {
+	if (context.kind === "search-button") {
+		return {
+			title: "When Search is available",
+			description: "Choose when the Search action can run",
+			sectionTitle: "Search is available when",
+			evaluationTarget: "on-device",
+			caseDataScope: "global",
+		};
+	}
+	switch (context.slot) {
+		case "match":
+			return {
+				title: `Match cases for ${context.label}`,
+				description:
+					"Use the answer to this search field to decide which cases match",
+				sectionTitle: "Cases match when",
+				evaluationTarget: "case-search",
+				caseDataScope: "per-case",
+			};
+		case "required":
+			return {
+				title: `Require ${context.label}`,
+				description:
+					"Decide when people must answer this field before they search. Other answers on the Search screen are available here; case information isn't, because no case has been chosen yet",
+				sectionTitle: "An answer is required when",
+				evaluationTarget: "on-device",
+				caseDataScope: "global",
+				patternMatching: true,
+			};
+		case "validation":
+			return {
+				title: `Check ${context.label}`,
+				description:
+					"Decide what an answer must satisfy before the search runs. The rule is checked only when the field has an answer, and other answers on the Search screen are available here",
+				sectionTitle: "The answer passes when",
+				evaluationTarget: "on-device",
+				caseDataScope: "global",
+				patternMatching: true,
+			};
+	}
+}
+
 export function SearchConditionCanvas({
 	context,
 	value,
@@ -60,16 +137,7 @@ export function SearchConditionCanvas({
 	useEffect(() => {
 		if (focusBackOnMountRef.current) backRef.current?.focus();
 	}, []);
-	const inputCondition = context.kind === "input";
-	const title = inputCondition
-		? `Match cases for ${context.label}`
-		: "When Search is available";
-	const description = inputCondition
-		? "Use the answer to this search field to decide which cases match"
-		: "Choose when the Search action can run";
-	const sectionTitle = inputCondition
-		? "Cases match when"
-		: "Search is available when";
+	const copy = searchConditionCanvasCopy(context);
 
 	return (
 		<ContentFrame width="3xl" className="px-6 pb-24 pt-6">
@@ -92,10 +160,10 @@ export function SearchConditionCanvas({
 
 			<header className="mb-7">
 				<h1 className="font-display text-2xl font-semibold tracking-tighter text-nova-text">
-					{title}
+					{copy.title}
 				</h1>
 				<p className="mt-2 max-w-2xl text-[14px] leading-relaxed text-nova-text-muted">
-					{description}
+					{copy.description}
 				</p>
 			</header>
 
@@ -114,7 +182,7 @@ export function SearchConditionCanvas({
 						id="search-condition-heading"
 						className="font-display tracking-tighter text-[17px] font-semibold text-nova-text"
 					>
-						{sectionTitle}
+						{copy.sectionTitle}
 					</h2>
 				</div>
 
@@ -125,8 +193,9 @@ export function SearchConditionCanvas({
 					currentCaseType={currentCaseType}
 					knownInputs={knownInputs}
 					userProperties={userProperties}
-					evaluationTarget={inputCondition ? "case-search" : "on-device"}
-					caseDataScope={inputCondition ? "per-case" : "global"}
+					evaluationTarget={copy.evaluationTarget}
+					caseDataScope={copy.caseDataScope}
+					patternMatching={copy.patternMatching}
 					focusRequest={dependencyReview ?? focusRequest}
 				/>
 			</section>

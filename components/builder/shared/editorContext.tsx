@@ -136,6 +136,10 @@ interface PredicateEditContextValue {
 	 *  card would fall back to the strict default and a case-search slot
 	 *  would lose capabilities it legitimately has. */
 	readonly evaluationTarget: EvaluationTarget;
+	/** See `PredicateEditContext.patternMatching`. Carried for the same
+	 *  reason as `evaluationTarget`: the verb menu and the nested cards
+	 *  rebuild their edit context from here. */
+	readonly patternMatching: true | undefined;
 	/**
 	 * Errors keyed by serialized path. Cards look up their own path
 	 * via `useEditorErrorsAt` to render inline diagnostics; the
@@ -175,6 +179,7 @@ interface PredicateEditProviderProps {
 	readonly caseDataScope?: CaseDataScope;
 	readonly allowsNeverMatch?: boolean;
 	readonly evaluationTarget?: EvaluationTarget;
+	readonly patternMatching?: true;
 	readonly validityIndex: ValidityIndex;
 	readonly admitExpressionChange?: AdmitExpressionChange | undefined;
 	readonly children: ReactNode;
@@ -207,6 +212,7 @@ export function PredicateEditProvider({
 	caseDataScope = "per-case",
 	allowsNeverMatch = true,
 	evaluationTarget = "on-device",
+	patternMatching,
 	validityIndex,
 	admitExpressionChange,
 	children,
@@ -234,6 +240,7 @@ export function PredicateEditProvider({
 			caseDataScope,
 			allowsNeverMatch,
 			evaluationTarget,
+			patternMatching,
 			validityIndex,
 			admitExpressionChange: effectiveAdmit,
 			expressionFocusTargets,
@@ -251,6 +258,7 @@ export function PredicateEditProvider({
 			caseDataScope,
 			allowsNeverMatch,
 			evaluationTarget,
+			patternMatching,
 			validityIndex,
 			effectiveAdmit,
 			expressionFocusTargets,
@@ -416,6 +424,7 @@ export function predicateEditContextFrom(
 		caseDataScope: ctx.caseDataScope,
 		allowsNeverMatch: ctx.allowsNeverMatch,
 		evaluationTarget: ctx.evaluationTarget,
+		...(ctx.patternMatching && { patternMatching: true }),
 	};
 }
 
@@ -472,6 +481,7 @@ export function useEditorTypeContext(): TypeContext {
 		tableScope,
 		operationScope,
 		ownerValues,
+		patternMatching,
 	} = usePredicateEditContext();
 	return useMemo(
 		() =>
@@ -485,6 +495,7 @@ export function useEditorTypeContext(): TypeContext {
 				tableScope,
 				operationScope,
 				ownerValues,
+				...(patternMatching && { patternMatching: true }),
 			}),
 		[
 			caseTypes,
@@ -496,6 +507,7 @@ export function useEditorTypeContext(): TypeContext {
 			tableScope,
 			operationScope,
 			ownerValues,
+			patternMatching,
 		],
 	);
 }

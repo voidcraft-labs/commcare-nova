@@ -132,14 +132,15 @@ export interface FormReferenceSlot {
 type SearchInputArmKind = SearchInputDef["kind"];
 
 /**
- * The search-input union's second axis. `searchInputDefSchema` is four arms over
- * TWO independent dimensions — `kind` (simple | advanced) and widget shape
- * (scalar | date-range) — because a range default and a scalar range mode both
+ * The search-input union's second axis. `searchInputDefSchema` is seven arms over
+ * TWO independent dimensions — `kind` (simple | advanced | hidden) and widget
+ * shape (scalar | date-range | select; the hidden arm has no widget) — because a
+ * range default, a scalar range mode, and a choice widget without its table all
  * have to be unrepresentable. Applicability has to name both: `default` lives on
- * the two SCALAR arms regardless of kind, so no set of `kind` values alone can
- * describe it.
+ * the scalar and select arms regardless of kind, so no set of `kind` values alone
+ * can describe it.
  */
-type SearchInputWidget = "scalar" | "date-range";
+type SearchInputWidget = "scalar" | "date-range" | "select";
 
 /**
  * One reference-carrying slot on a `Module`. `columnKinds` /
@@ -651,9 +652,9 @@ export const MODULE_REFERENCE_SLOTS = [
 		path: "caseListConfig.searchInputs[].default",
 		kind: "predicate-ast",
 		searchInputKinds: ["simple", "advanced"],
-		// Scalar widgets only. A date-range input owns its range mode and never
-		// carries a scalar default, so the two date-range arms declare no key.
-		searchInputWidgets: ["scalar"],
+		// Scalar and choice widgets. A date-range input owns its range mode and
+		// never carries a scalar default, so the two date-range arms declare no key.
+		searchInputWidgets: ["scalar", "select"],
 	},
 	{
 		entity: "module",
@@ -661,6 +662,35 @@ export const MODULE_REFERENCE_SLOTS = [
 		path: "caseListConfig.searchInputs[].predicate",
 		kind: "predicate-ast",
 		searchInputKinds: ["advanced"],
+	},
+	{
+		entity: "module",
+		slot: "search_input_options",
+		path: "caseListConfig.searchInputs[].options",
+		kind: "lookup-carrier",
+		searchInputKinds: ["simple", "advanced"],
+		searchInputWidgets: ["select"],
+	},
+	{
+		entity: "module",
+		slot: "search_input_required_when",
+		path: "caseListConfig.searchInputs[].required.when",
+		kind: "predicate-ast",
+		searchInputKinds: ["simple", "advanced"],
+	},
+	{
+		entity: "module",
+		slot: "search_input_validation_rule",
+		path: "caseListConfig.searchInputs[].validation.rule",
+		kind: "predicate-ast",
+		searchInputKinds: ["simple", "advanced"],
+	},
+	{
+		entity: "module",
+		slot: "search_input_hidden_value",
+		path: "caseListConfig.searchInputs[].value",
+		kind: "predicate-ast",
+		searchInputKinds: ["hidden"],
 	},
 	{
 		entity: "module",
@@ -1064,6 +1094,9 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	"caseListConfig.searchInputs[].label": "display-text",
 	"caseListConfig.searchInputs[].type": "config",
 	"caseListConfig.searchInputs[].mode.kind": "discriminator",
+	"caseListConfig.searchInputs[].hint": "display-text",
+	"caseListConfig.searchInputs[].required.message": "display-text",
+	"caseListConfig.searchInputs[].validation.message": "display-text",
 	"caseSearchConfig.searchActionEnabled": "config",
 	"caseSearchConfig.searchScreenTitle": "display-text",
 	"caseSearchConfig.searchScreenSubtitle": "display-text",

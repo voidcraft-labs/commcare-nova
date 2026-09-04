@@ -65,9 +65,10 @@ export function searchInputModeMatchesPropertyType(
 		const input = inputs[index];
 		// Advanced inputs delegate property resolution to the predicate
 		// AST type checker (`filterTypeCheck` / per-input predicate
-		// rules); this rule's domain (mode-vs-property compatibility)
-		// has no slot to inspect on the advanced arm.
-		if (input.kind === "advanced") continue;
+		// rules) and hidden inputs bind no property at all; this rule's
+		// domain (mode-vs-property compatibility) has a slot to inspect
+		// only on the simple arm.
+		if (input.kind !== "simple") continue;
 		// Simple input without an explicit mode: the wire layer picks
 		// the per-`type` default, which is always admissible for that
 		// type, so this rule has no decision to make.

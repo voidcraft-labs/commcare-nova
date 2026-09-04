@@ -38,7 +38,14 @@ import { Icon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerScan from "@iconify-icons/tabler/scan";
 import tablerSearch from "@iconify-icons/tabler/search";
-import { useCallback, useEffect, useId, useRef, useState } from "react";
+import {
+	useCallback,
+	useEffect,
+	useId,
+	useMemo,
+	useRef,
+	useState,
+} from "react";
 import { Button } from "@/components/shadcn/button";
 import { DatePicker } from "@/components/shadcn/date-picker";
 import {
@@ -59,13 +66,39 @@ import {
 	FieldLabel,
 } from "@/components/shadcn/field";
 import { Input } from "@/components/shadcn/input";
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
 import { useReconcilerContext } from "@/lib/collab/context";
-import type { CaseType, SearchInputDef } from "@/lib/domain";
+import {
+	type CaseType,
+	joinMultiSelectSearchAnswer,
+	type SearchInputDef,
+	splitMultiSelectSearchAnswer,
+	type VisibleSearchInputDef,
+} from "@/lib/domain";
 import type { Predicate } from "@/lib/domain/predicate";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { PreviewSearchSessionValues } from "@/lib/preview/engine/identity";
+import type {
+	LookupChoice,
+	PreviewLookupData,
+} from "@/lib/preview/engine/lookupEvaluation";
 import type { SearchInputValues } from "@/lib/preview/engine/runtimeBindings";
+import { resolveSearchInputChoices } from "@/lib/preview/engine/searchExpressionEvaluation";
+import {
+	searchInputRequiredMarks,
+	searchInputRequiredMarksOnDevice,
+} from "@/lib/preview/engine/searchInputConstraints";
+import {
+	LookupChoicesEmpty,
+	LookupChoicesLoading,
+} from "../form/fields/LookupChoiceStates";
 
 type SearchInputValidationModule =
 	typeof import("@/lib/preview/engine/searchInputValidation");
@@ -109,9 +142,20 @@ interface SearchInputFormProps {
 	/** Session-backed values used by computed search expressions in the exact
 	 * exported runtime validation condition. */
 	readonly session?: PreviewSearchSessionValues;
+	/**
+	 * Runs one emitted on-device XPath where a Java Pattern engine is
+	 * available (the running app hands it the Search screen's XPath worker).
+	 * It judges a pattern-bearing required condition or check; without it
+	 * such a constraint is left unjudged, as the server leaves it.
+	 */
+	readonly evaluateOnDevice?: (source: string) => Promise<boolean>;
 	/** Full schema context keeps date/datetime expression emission identical to
 	 * the compiler when the search predicate crosses case relations. */
 	readonly typeContext?: TypeContext;
+	/** The builder session's lookup snapshot. Choice prompts read their rows
+	 * from it; while it does not cover a prompt's table the prompt shows its
+	 * loading state rather than an empty list. */
+	readonly lookupData?: PreviewLookupData;
 	/** Controlled per-input value bag. `<name>:from` / `<name>:to`
 	 *  for range bounds; bare `<name>` otherwise. Mirrors the
 	 *  runtime-bindings layer's input-value contract verbatim. */
@@ -142,7 +186,9 @@ export function SearchInputForm({
 	filter,
 	caseType,
 	session,
+	evaluateOnDevice,
 	typeContext,
+	lookupData,
 	value,
 	onChange,
 	onSubmit,
@@ -165,6 +211,16 @@ export function SearchInputForm({
 		undefined,
 	);
 	const [validating, setValidating] = useState(false);
+	/* A check the device could not run at all (a pattern Java refuses, or
+	 * the Search worker gone). Distinct from a prompt error: nothing the
+	 * worker types repairs it, so it names the builder instead. */
+	const [validationFailure, setValidationFailure] = useState<
+		{ readonly scopeKey: string; readonly message: string } | undefined
+	>(undefined);
+	const validationFailureMessage =
+		validationFailure?.scopeKey === scopeKey
+			? validationFailure.message
+			: undefined;
 
 	// `draft` is the form's local-typing buffer. Per-input change
 	// handlers update it synchronously so the rendered inputs stay
@@ -173,22 +229,35 @@ export function SearchInputForm({
 	const validateSubmission = useCallback(
 		async (candidate: SearchInputValues) => {
 			const request = ++validationRequestRef.current;
-			const { searchInputSubmissionErrors } = await loadSearchInputValidation();
-			const errors = searchInputSubmissionErrors(
-				{
-					columns: [],
-					listColumnOrder: [],
-					detailColumnOrder: [],
-					searchInputs: [...searchInputs],
-					...(filter !== undefined ? { filter } : {}),
-				},
-				caseType?.name,
-				candidate,
-				session,
-				typeContext,
-			);
+			const validation = await loadSearchInputValidation();
+			const caseListConfig = {
+				columns: [],
+				listColumnOrder: [],
+				detailColumnOrder: [],
+				searchInputs: [...searchInputs],
+				...(filter !== undefined ? { filter } : {}),
+			};
+			const errors =
+				evaluateOnDevice === undefined
+					? validation.searchInputSubmissionErrors(
+							caseListConfig,
+							caseType?.name,
+							candidate,
+							session,
+							typeContext,
+							{ lookupData },
+						)
+					: await validation.searchInputSubmissionErrorsOnDevice(
+							caseListConfig,
+							caseType?.name,
+							candidate,
+							session,
+							typeContext,
+							{ lookupData, evaluateOnDevice },
+						);
 			if (request !== validationRequestRef.current) return undefined;
 			lastValidatedDraftRef.current = candidate;
+			setValidationFailure(undefined);
 			setValidationState({
 				scopeKey,
 				attempted: errors.size > 0,
@@ -196,7 +265,16 @@ export function SearchInputForm({
 			});
 			return errors;
 		},
-		[caseType?.name, filter, scopeKey, searchInputs, session, typeContext],
+		[
+			caseType?.name,
+			evaluateOnDevice,
+			filter,
+			lookupData,
+			scopeKey,
+			searchInputs,
+			session,
+			typeContext,
+		],
 	);
 
 	useEffect(
@@ -209,12 +287,94 @@ export function SearchInputForm({
 	// Once feedback is visible, keep it in step with the corrected draft. This
 	// path runs only after the worker has attempted Search; ordinary typing pays
 	// no CSQL compilation cost.
+	/* The judged validation, with the one failure that is not a prompt
+	 * error caught here: the worker's Pattern engine refusing a pattern, or
+	 * the Search runtime being unavailable. Reported once per attempt and
+	 * cleared by the next judged pass. */
+	const judgeSubmission = useCallback(
+		async (candidate: SearchInputValues) => {
+			try {
+				return await validateSubmission(candidate);
+			} catch (error) {
+				lastValidatedDraftRef.current = candidate;
+				setValidationFailure({
+					scopeKey,
+					message: searchCheckFailureMessage(error),
+				});
+				return undefined;
+			}
+		},
+		[scopeKey, validateSubmission],
+	);
+
 	useEffect(() => {
 		if (!validationAttempted || lastValidatedDraftRef.current === draft) {
 			return;
 		}
-		void validateSubmission(draft);
-	}, [draft, validateSubmission, validationAttempted]);
+		void judgeSubmission(draft);
+	}, [draft, judgeSubmission, validationAttempted]);
+
+	/* Which prompts are required right now. The scalar thread judges every
+	 * condition it can; a pattern-bearing one is judged in the Search
+	 * worker against the same draft, and shows no mark until that verdict
+	 * lands (never a guess). */
+	const requiredMarks = useMemo(
+		() =>
+			session === undefined
+				? undefined
+				: searchInputRequiredMarks(searchInputs, draft, session, lookupData),
+		[draft, lookupData, searchInputs, session],
+	);
+	const [deviceMarks, setDeviceMarks] = useState<
+		| {
+				readonly draft: SearchInputValues;
+				readonly marks: ReadonlyMap<string, boolean>;
+		  }
+		| undefined
+	>(undefined);
+	const needsDeviceMarks =
+		requiredMarks !== undefined &&
+		[...requiredMarks.values()].some((mark) => mark === undefined);
+	useEffect(() => {
+		if (
+			!needsDeviceMarks ||
+			session === undefined ||
+			evaluateOnDevice === undefined
+		) {
+			return;
+		}
+		let cancelled = false;
+		void searchInputRequiredMarksOnDevice(
+			searchInputs,
+			draft,
+			session,
+			lookupData,
+			{ evaluateOnDevice },
+		).then(
+			(marks) => {
+				if (!cancelled) setDeviceMarks({ draft, marks });
+			},
+			() => {
+				/* Left unmarked; the submit path reports the failure. */
+			},
+		);
+		return () => {
+			cancelled = true;
+		};
+	}, [
+		draft,
+		evaluateOnDevice,
+		lookupData,
+		needsDeviceMarks,
+		searchInputs,
+		session,
+	]);
+	const requiredNow = (input: VisibleSearchInputDef): boolean =>
+		requiredMarks?.get(input.name) ??
+		(deviceMarks?.draft === draft
+			? deviceMarks.marks.get(input.name)
+			: undefined) ??
+		false;
 
 	// `lastEmittedRef` carries the value most recently treated as
 	// "already emitted" by the form. Two writes land here:
@@ -289,13 +449,19 @@ export function SearchInputForm({
 	};
 	const submitAvailable = onSubmit !== undefined;
 
+	// Hidden inputs are system-generated values the worker never sees;
+	// the run-state hook resolves them at submit.
+	const visibleInputs = searchInputs.filter(
+		(input): input is VisibleSearchInputDef => input.kind !== "hidden",
+	);
+
 	// Zero-input modules render nothing: the caller is the
 	// case-list screen, which already guards on
 	// `caseListConfig.searchInputs.length > 0` before mounting this
 	// component. Returning null here makes the contract self-
 	// enforcing: a caller that forgets the guard doesn't surface a
 	// labelled-but-empty `<search>` landmark to assistive tech.
-	if (searchInputs.length === 0) return null;
+	if (visibleInputs.length === 0) return null;
 
 	return (
 		<search aria-label={landmarkLabel}>
@@ -305,7 +471,7 @@ export function SearchInputForm({
 					if (!submitAvailable || validating) return;
 					setValidating(true);
 					try {
-						const errors = await validateSubmission(draft);
+						const errors = await judgeSubmission(draft);
 						if (errors?.size === 0) onSubmit?.(draft);
 					} finally {
 						setValidating(false);
@@ -317,12 +483,18 @@ export function SearchInputForm({
 					className="rounded-lg border border-border bg-card/30 p-4"
 				>
 					<div className="flex flex-col gap-4">
-						{[...searchInputs].map((input) => (
+						{visibleInputs.map((input) => (
 							<SearchInputRow
 								key={input.uuid}
 								input={input}
 								draft={draft}
 								setKey={setKey}
+								required={requiredNow(input)}
+								choices={
+									"options" in input && session !== undefined
+										? resolveSearchInputChoices(input, session, lookupData)
+										: undefined
+								}
 								error={
 									validationAttempted
 										? (() => {
@@ -337,6 +509,21 @@ export function SearchInputForm({
 						))}
 					</div>
 				</div>
+				{validationFailureMessage !== undefined && (
+					<p
+						role="alert"
+						data-search-check-failure
+						className="mt-3 flex items-start gap-2 text-sm text-destructive"
+					>
+						<Icon
+							icon={tablerAlertCircle}
+							width="16"
+							height="16"
+							className="mt-0.5 shrink-0"
+						/>
+						<span>{validationFailureMessage}</span>
+					</p>
+				)}
 				{submitAvailable && (
 					<Button
 						type="submit"
@@ -356,10 +543,26 @@ export function SearchInputForm({
 
 // ── Per-row renderer ───────────────────────────────────────────────
 
+/**
+ * The sentence shown when a check could not be judged at all. The device
+ * refuses a pattern Java cannot compile (the builder cannot compile Java
+ * patterns, so this is where an author first learns of one), and the
+ * Search worker can be unavailable; neither is the worker's to repair.
+ */
+function searchCheckFailureMessage(error: unknown): string {
+	const detail =
+		error instanceof Error && error.message !== "" ? ` (${error.message})` : "";
+	return `Nova couldn't run one of this search's checks${detail}. Open the field's required condition or check in the builder and fix its pattern`;
+}
+
 interface SearchInputRowProps {
-	readonly input: SearchInputDef;
+	readonly input: VisibleSearchInputDef;
 	readonly draft: SearchInputValues;
 	readonly setKey: (key: string, next: string) => void;
+	/** Required right now; the label carries the mark. */
+	readonly required: boolean;
+	/** A choice prompt's live rows; `undefined` while they load. */
+	readonly choices: readonly LookupChoice[] | undefined;
 	readonly error: string | undefined;
 }
 
@@ -370,13 +573,21 @@ interface SearchInputRowProps {
  * the value flows into the predicate, which the runtime-bindings
  * layer owns.
  */
-function SearchInputRow({ input, draft, setKey, error }: SearchInputRowProps) {
+function SearchInputRow({
+	input,
+	draft,
+	setKey,
+	required,
+	choices,
+	error,
+}: SearchInputRowProps) {
+	const chrome = { label: input.label, hint: input.hint, required };
 	switch (input.type) {
 		case "text":
 			return (
 				<TextRow
+					{...chrome}
 					name={input.name}
-					label={input.label}
 					value={draft.get(input.name) ?? ""}
 					onChange={(next) => setKey(input.name, next)}
 					error={error}
@@ -385,8 +596,8 @@ function SearchInputRow({ input, draft, setKey, error }: SearchInputRowProps) {
 		case "barcode":
 			return (
 				<BarcodeRow
+					{...chrome}
 					name={input.name}
-					label={input.label}
 					value={draft.get(input.name) ?? ""}
 					onChange={(next) => setKey(input.name, next)}
 					error={error}
@@ -395,7 +606,7 @@ function SearchInputRow({ input, draft, setKey, error }: SearchInputRowProps) {
 		case "date":
 			return (
 				<DatePopoverField
-					label={input.label}
+					{...chrome}
 					value={draft.get(input.name) ?? ""}
 					onChange={(next) => setKey(input.name, next)}
 					error={error}
@@ -404,7 +615,7 @@ function SearchInputRow({ input, draft, setKey, error }: SearchInputRowProps) {
 		case "date-range":
 			return (
 				<DateRangeRow
-					label={input.label}
+					{...chrome}
 					fromValue={draft.get(`${input.name}:from`) ?? ""}
 					toValue={draft.get(`${input.name}:to`) ?? ""}
 					onChangeFrom={(next) => setKey(`${input.name}:from`, next)}
@@ -412,14 +623,89 @@ function SearchInputRow({ input, draft, setKey, error }: SearchInputRowProps) {
 					error={error}
 				/>
 			);
+		case "select":
+			return (
+				<SelectRow
+					{...chrome}
+					name={input.name}
+					value={draft.get(input.name) ?? ""}
+					choices={choices}
+					onChange={(next) => setKey(input.name, next)}
+					error={error}
+				/>
+			);
+		case "multi-select":
+			return (
+				<MultiSelectRow
+					{...chrome}
+					name={input.name}
+					value={draft.get(input.name) ?? ""}
+					choices={choices}
+					onChange={(next) => setKey(input.name, next)}
+					error={error}
+				/>
+			);
 	}
+}
+
+// ── Shared prompt chrome ───────────────────────────────────────────
+
+interface PromptChrome {
+	readonly label: string;
+	/** Authored help under the label, the `<hint>` the device shows. */
+	readonly hint?: string;
+	/** Required right now; marks the label the way form questions are marked. */
+	readonly required?: boolean;
+}
+
+function PromptLabelText({
+	label,
+	required,
+}: Pick<PromptChrome, "label" | "required">) {
+	return (
+		<>
+			{label}
+			{required ? (
+				<>
+					<span aria-hidden="true" className="shrink-0 text-xs text-nova-rose">
+						*
+					</span>
+					<span className="sr-only"> Required.</span>
+				</>
+			) : null}
+		</>
+	);
+}
+
+function PromptHint({
+	id,
+	hint,
+}: {
+	readonly id: string;
+	readonly hint?: string;
+}) {
+	if (hint === undefined) return null;
+	return <FieldDescription id={id}>{hint}</FieldDescription>;
+}
+
+/** `aria-describedby` over the hint and error ids that are present. */
+function describedBy(
+	hintId: string,
+	hint: string | undefined,
+	errorId: string,
+	error: string | undefined,
+): string | undefined {
+	const ids = [
+		...(hint === undefined ? [] : [hintId]),
+		...(error === undefined ? [] : [errorId]),
+	];
+	return ids.length === 0 ? undefined : ids.join(" ");
 }
 
 // ── Per-widget rows ────────────────────────────────────────────────
 
-interface TextRowProps {
+interface TextRowProps extends PromptChrome {
 	readonly name: string;
-	readonly label: string;
 	readonly value: string;
 	readonly onChange: (next: string) => void;
 	readonly error?: string;
@@ -430,12 +716,24 @@ interface TextRowProps {
  * select dispatch. Barcode has a separate row because it adds a
  * feature-detected scanner without changing the underlying string value.
  */
-function TextRow({ name, label, value, onChange, error }: TextRowProps) {
+function TextRow({
+	name,
+	label,
+	hint,
+	required,
+	value,
+	onChange,
+	error,
+}: TextRowProps) {
 	const id = useId();
 	const errorId = `${id}-error`;
+	const hintId = `${id}-hint`;
 	return (
 		<Field data-invalid={error !== undefined}>
-			<FieldLabel htmlFor={id}>{label}</FieldLabel>
+			<FieldLabel htmlFor={id}>
+				<PromptLabelText label={label} required={required} />
+			</FieldLabel>
+			<PromptHint id={hintId} hint={hint} />
 			<Input
 				id={id}
 				name={name}
@@ -443,7 +741,7 @@ function TextRow({ name, label, value, onChange, error }: TextRowProps) {
 				value={value}
 				onChange={(e) => onChange(e.target.value)}
 				aria-invalid={error !== undefined}
-				aria-describedby={error !== undefined ? errorId : undefined}
+				aria-describedby={describedBy(hintId, hint, errorId, error)}
 				className="min-h-11"
 				autoComplete="off"
 				data-1p-ignore
@@ -609,12 +907,22 @@ function isTransientDetectionError(error: unknown): boolean {
 
 /** Manual entry remains the primary durable control. Camera scanning is a
  * capability-gated enhancement, never a replacement or an inert promise. */
-function BarcodeRow({ name, label, value, onChange, error }: BarcodeRowProps) {
+function BarcodeRow({
+	name,
+	label,
+	hint,
+	required,
+	value,
+	onChange,
+	error,
+}: BarcodeRowProps) {
 	const id = useId();
 	const supportDescriptionId = `${id}-scan-support`;
 	const errorId = `${id}-error`;
+	const hintId = `${id}-hint`;
 	const support = useBarcodeScanSupport();
 	const describedBy = [
+		hint !== undefined ? hintId : undefined,
 		support.kind === "unsupported" ? supportDescriptionId : undefined,
 		error !== undefined ? errorId : undefined,
 	]
@@ -622,7 +930,10 @@ function BarcodeRow({ name, label, value, onChange, error }: BarcodeRowProps) {
 		.join(" ");
 	return (
 		<Field data-invalid={error !== undefined}>
-			<FieldLabel htmlFor={id}>{label}</FieldLabel>
+			<FieldLabel htmlFor={id}>
+				<PromptLabelText label={label} required={required} />
+			</FieldLabel>
+			<PromptHint id={hintId} hint={hint} />
 			<div className="flex items-start gap-2">
 				<Input
 					id={id}
@@ -872,8 +1183,187 @@ function BarcodeScannerDialog({
 	);
 }
 
-interface DatePopoverFieldProps {
-	readonly label: string;
+interface ChoiceRowProps extends PromptChrome {
+	readonly name: string;
+	readonly value: string;
+	/** Live rows from the lookup table; `undefined` while they load. */
+	readonly choices: readonly LookupChoice[] | undefined;
+	readonly onChange: (next: string) => void;
+	readonly error?: string;
+}
+
+/**
+ * Single-choice row: the shadcn `Select` over the lookup table's live rows,
+ * the one dropdown Web Apps renders for a `select1` prompt. Choice
+ * identity is the source row id because lookup rows guarantee neither
+ * unique nor non-blank values; a blank value is offered but never reads
+ * as selected, matching the device's "no selection" for an unanswered
+ * prompt.
+ */
+function SelectRow({
+	name,
+	label,
+	hint,
+	required,
+	value,
+	choices,
+	onChange,
+	error,
+}: ChoiceRowProps) {
+	const id = useId();
+	const errorId = `${id}-error`;
+	const hintId = `${id}-hint`;
+	const selected = choices?.find(
+		(choice) => choice.value !== "" && choice.value === value,
+	);
+	return (
+		<Field data-invalid={error !== undefined}>
+			<FieldLabel htmlFor={id}>
+				<PromptLabelText label={label} required={required} />
+			</FieldLabel>
+			<PromptHint id={hintId} hint={hint} />
+			{choices === undefined ? (
+				<LookupChoicesLoading />
+			) : (
+				<Select
+					name={name}
+					value={value}
+					onValueChange={(next) => {
+						if (typeof next !== "string") return;
+						onChange(next);
+					}}
+					items={choices.map((choice) => ({
+						value: choice.value,
+						label: choice.label,
+					}))}
+				>
+					<SelectTrigger
+						id={id}
+						wrapValue
+						aria-invalid={error !== undefined}
+						aria-describedby={describedBy(hintId, hint, errorId, error)}
+						className="w-full"
+					>
+						<SelectValue placeholder="Choose one">
+							{selected?.label}
+						</SelectValue>
+					</SelectTrigger>
+					<SelectContent>
+						{choices.length === 0 ? (
+							<LookupChoicesEmpty />
+						) : (
+							choices.map((choice) => (
+								<SelectItem key={choice.key} value={choice.value}>
+									{choice.label}
+								</SelectItem>
+							))
+						)}
+					</SelectContent>
+				</Select>
+			)}
+			<FieldError id={errorId}>{error}</FieldError>
+		</Field>
+	);
+}
+
+/**
+ * Several-choice row: one checkbox per lookup row, the shape Web Apps
+ * renders for a `select` prompt. The value is CommCare's own encoding, the
+ * chosen values joined by single spaces in choice order, so the runtime
+ * bindings split it exactly as `RemoteQuerySessionManager` does.
+ */
+function MultiSelectRow({
+	name,
+	label,
+	hint,
+	required,
+	value,
+	choices,
+	onChange,
+	error,
+}: ChoiceRowProps) {
+	const groupId = useId();
+	const errorId = `${groupId}-error`;
+	const hintId = `${groupId}-hint`;
+	const chosen = new Set(splitMultiSelectSearchAnswer(value));
+	const toggle = (choiceValue: string) => {
+		if (choices === undefined || choiceValue === "") return;
+		const next = new Set(chosen);
+		if (next.has(choiceValue)) {
+			next.delete(choiceValue);
+		} else {
+			next.add(choiceValue);
+		}
+		onChange(
+			joinMultiSelectSearchAnswer(
+				choices
+					.map((choice) => choice.value)
+					.filter((candidate) => next.has(candidate)),
+			),
+		);
+	};
+	return (
+		<fieldset
+			aria-labelledby={groupId}
+			aria-describedby={describedBy(hintId, hint, errorId, error)}
+			data-invalid={error !== undefined}
+			className="m-0 flex min-w-0 w-full flex-col gap-2 border-0 p-0"
+		>
+			<legend
+				id={groupId}
+				className="flex gap-2 text-sm leading-none font-medium"
+			>
+				<PromptLabelText label={label} required={required} />
+			</legend>
+			<PromptHint id={hintId} hint={hint} />
+			{choices === undefined ? (
+				<LookupChoicesLoading />
+			) : choices.length === 0 ? (
+				<LookupChoicesEmpty />
+			) : (
+				<div className="space-y-1.5">
+					{choices.map((choice) => {
+						const isSelected = choice.value !== "" && chosen.has(choice.value);
+						return (
+							<label
+								key={choice.key}
+								className={`pv-choice-row flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 transition-colors ${
+									isSelected
+										? "border border-pv-accent/30 bg-pv-accent/10 hover:border-pv-accent/50 hover:bg-pv-accent/15"
+										: "border border-pv-input-border bg-pv-input-bg hover:border-pv-input-focus"
+								}`}
+							>
+								<input
+									type="checkbox"
+									name={name}
+									value={choice.value}
+									checked={isSelected}
+									onChange={() => toggle(choice.value)}
+									className="sr-only"
+								/>
+								<div
+									className={`flex h-4 w-4 shrink-0 items-center justify-center rounded border-2 ${
+										isSelected
+											? "border-pv-accent bg-pv-accent"
+											: "border-nova-text-muted"
+									}`}
+								>
+									{isSelected && (
+										<div className="h-2 w-2 rounded-sm bg-nova-void" />
+									)}
+								</div>
+								<span className="text-sm text-nova-text">{choice.label}</span>
+							</label>
+						);
+					})}
+				</div>
+			)}
+			<FieldError id={errorId}>{error}</FieldError>
+		</fieldset>
+	);
+}
+
+interface DatePopoverFieldProps extends PromptChrome {
 	readonly value: string;
 	readonly onChange: (next: string) => void;
 	readonly error?: string;
@@ -910,29 +1400,35 @@ interface DatePopoverFieldProps {
  */
 function DatePopoverField({
 	label,
+	hint,
+	required,
 	value,
 	onChange,
 	error,
 	invalid = false,
-	describedBy,
+	describedBy: groupDescribedBy,
 	labelClassName,
 	ariaLabel,
 }: DatePopoverFieldProps) {
 	const id = useId();
 	const errorId = `${id}-error`;
+	const hintId = `${id}-hint`;
 	const isInvalid = invalid || error !== undefined;
 	return (
 		<Field className="min-w-0" data-invalid={isInvalid}>
 			<FieldLabel htmlFor={id} className={labelClassName}>
-				{label}
+				<PromptLabelText label={label} required={required} />
 			</FieldLabel>
+			<PromptHint id={hintId} hint={hint} />
 			<DatePicker
 				id={id}
 				value={value}
 				onValueChange={onChange}
 				aria-label={ariaLabel}
 				aria-invalid={isInvalid || undefined}
-				aria-describedby={error !== undefined ? errorId : describedBy}
+				aria-describedby={
+					describedBy(hintId, hint, errorId, error) ?? groupDescribedBy
+				}
 				className="w-full"
 			/>
 			<FieldError id={errorId}>{error}</FieldError>
@@ -940,8 +1436,7 @@ function DatePopoverField({
 	);
 }
 
-interface DateRangeRowProps {
-	readonly label: string;
+interface DateRangeRowProps extends PromptChrome {
 	readonly fromValue: string;
 	readonly toValue: string;
 	readonly onChangeFrom: (next: string) => void;
@@ -967,6 +1462,8 @@ interface DateRangeRowProps {
  */
 function DateRangeRow({
 	label,
+	hint,
+	required,
 	fromValue,
 	toValue,
 	onChangeFrom,
@@ -975,19 +1472,24 @@ function DateRangeRow({
 }: DateRangeRowProps) {
 	const groupId = useId();
 	const errorId = `${groupId}-error`;
+	const hintId = `${groupId}-hint`;
 	const fromLabel = `${label} from`;
 	const toLabel = `${label} to`;
 	return (
 		<fieldset
 			aria-labelledby={groupId}
-			aria-describedby={error !== undefined ? errorId : undefined}
+			aria-describedby={describedBy(hintId, hint, errorId, error)}
 			data-date-range
 			data-invalid={error !== undefined}
 			className="@container/date-range m-0 flex min-w-0 w-full flex-col gap-2 border-0 p-0"
 		>
-			<legend id={groupId} className="text-sm leading-none font-medium">
-				{label}
+			<legend
+				id={groupId}
+				className="flex gap-2 text-sm leading-none font-medium"
+			>
+				<PromptLabelText label={label} required={required} />
 			</legend>
+			<PromptHint id={hintId} hint={hint} />
 			<div
 				data-date-range-fields
 				className="grid min-w-0 grid-cols-1 gap-2 @sm/date-range:grid-cols-2"

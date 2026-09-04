@@ -45,16 +45,21 @@ import { z } from "zod";
 import {
 	advancedDateRangeSearchInputSchema,
 	advancedScalarSearchInputSchema,
+	advancedSelectSearchInputSchema,
 	asUuid,
 	type Column,
 	caseTileGroupingSchema,
 	caseTileLayoutSchema,
 	columnSchema,
+	hiddenSearchInputSchema,
 	SEARCH_INPUT_TYPES,
 	type SearchInputDef,
 	type SearchInputType,
+	searchInputRequiredSchema,
+	searchInputValidationSchema,
 	simpleDateRangeSearchInputSchema,
 	simpleScalarSearchInputSchema,
+	simpleSelectSearchInputSchema,
 	TILE_GRID_COLUMNS,
 	TILE_GRID_ROWS,
 	tileCellSchema,
@@ -63,7 +68,9 @@ import {
 } from "@/lib/domain";
 import {
 	expressionReadsCaseData,
+	expressionReferencesAnySearchInput,
 	type Predicate,
+	predicateReadsCaseData,
 	predicateSchema,
 	type ValueExpression,
 	valueExpressionSchema,
@@ -297,14 +304,44 @@ export const caseTileLayoutInputSchema = caseTileLayoutSchema.extend({
  */
 export const SA_SEARCH_INPUT_TYPES = SEARCH_INPUT_TYPES;
 
+/**
+ * The Search-screen boundary the commit gate also enforces, said at the
+ * tool boundary so the model reads the reason beside its own call. Every
+ * slot here evaluates before any case is selected: a case read can never
+ * hold. A hidden value additionally fires before anyone types, so it may
+ * not read another input either.
+ */
 function refineSearchInputBoundary(
-	input: {
-		kind: "simple" | "advanced";
-		type: SearchInputType;
-		default?: ValueExpression;
-	},
+	input:
+		| {
+				kind: "simple" | "advanced";
+				type: SearchInputType;
+				default?: ValueExpression;
+				required?: { when?: Predicate };
+				validation?: { rule: Predicate };
+		  }
+		| { kind: "hidden"; value: ValueExpression },
 	ctx: z.RefinementCtx,
 ): void {
+	if (input.kind === "hidden") {
+		if (expressionReadsCaseData(input.value)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["value"],
+				message:
+					"A hidden search value is worked out when the Search screen opens, before any case is selected, so it cannot read case properties or relationships. Use a fixed value, `now()`, `today()`, or a current-user/session value.",
+			});
+		}
+		if (expressionReferencesAnySearchInput(input.value)) {
+			ctx.addIssue({
+				code: "custom",
+				path: ["value"],
+				message:
+					"A hidden search value is worked out before anyone answers the Search screen, so it cannot read another search input. Use a fixed value, `now()`, `today()`, or a current-user/session value.",
+			});
+		}
+		return;
+	}
 	if (input.default !== undefined && expressionReadsCaseData(input.default)) {
 		ctx.addIssue({
 			code: "custom",
@@ -313,38 +350,104 @@ function refineSearchInputBoundary(
 				"A search input's starting value is evaluated before any case is selected, so it cannot read case properties or relationships. Use a fixed value, `today()`, or a current-user/session value — or leave `default` out to start the input empty.",
 		});
 	}
+	if (
+		input.required?.when !== undefined &&
+		predicateReadsCaseData(input.required.when)
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["required", "when"],
+			message:
+				'A required condition runs on the Search screen before any case is selected, so it cannot read case properties or relationships. Compare the other search inputs (`{kind: "input", searchInputUuid}`), fixed values, or current-user/session values.',
+		});
+	}
+	if (
+		input.validation !== undefined &&
+		predicateReadsCaseData(input.validation.rule)
+	) {
+		ctx.addIssue({
+			code: "custom",
+			path: ["validation", "rule"],
+			message:
+				"A check runs on the Search screen before any case is selected, so it cannot read case properties or relationships. Test the answer itself and the other search inputs, fixed values, or current-user/session values.",
+		});
+	}
 }
+
+/**
+ * The three prompt slots every visible arm shares. The descriptions are
+ * deliberately terse: the seven arms inline them on three tools, so every
+ * word here is paid twenty-one times per request. The semantics (Search
+ * screen scope, browser-app-only enforcement, one check per input,
+ * `matches-pattern` admitted only here) live in the SA prompt and the tool
+ * descriptions, which are sent once.
+ */
+const visibleSearchInputSlots = {
+	hint: z
+		.string()
+		.min(1)
+		.optional()
+		.describe("Helper text under the input on the Search screen."),
+	required: searchInputRequiredSchema
+		.optional()
+		.describe("`{}` always; `when` conditional on sibling inputs."),
+	validation: searchInputValidationSchema
+		.optional()
+		.describe("One rule a nonblank answer must pass, with its message."),
+};
 
 const searchInputUuidSlot = {
 	searchInputUuid: uuidSchema
 		.optional()
 		.describe(
-			"Stable UUID for this new Search input. Supply it when another item in the call references the input; otherwise Nova mints it.",
+			"Supply when another item in the call references this input; otherwise minted.",
 		),
 };
 
 /**
  * Per-arm `SearchInputDef` schema with `uuid` omitted. It exposes the domain's
- * exact four final arms to both the SA and MCP surfaces.
+ * exact seven final arms to both the SA and MCP surfaces.
  * Mirrors `columnInputSchema` for the search-input add / update tools.
  */
 export const searchInputDefInputSchema = z
 	.union([
 		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
 			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
 		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
 			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+		}),
+		simpleSelectSearchInputSchema.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
 		}),
 		advancedScalarSearchInputSchema.omit({ uuid: true }).extend({
 			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 			predicate: predicateInputSchema,
 		}),
 		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
 			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
 			predicate: predicateInputSchema,
+		}),
+		advancedSelectSearchInputSchema.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
+		}),
+		hiddenSearchInputSchema.omit({ uuid: true }).extend({
+			...searchInputUuidSlot,
+			/* The bare AST node, so the wire projection keeps it a `$ref`; a
+			 * `.describe()` here would clone the node past the projection's
+			 * identity map and inline the whole ValueExpression family. */
+			value: valueExpressionInputSchema,
 		}),
 	])
 	.superRefine(refineSearchInputBoundary);
@@ -355,15 +458,32 @@ export type SearchInputDefInput = z.infer<typeof searchInputDefInputSchema>;
 export const searchInputUpdateInputSchema = z
 	.union([
 		simpleScalarSearchInputSchema.omit({ uuid: true }).extend({
+			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 		}),
-		simpleDateRangeSearchInputSchema.omit({ uuid: true }),
+		simpleDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			...visibleSearchInputSlots,
+		}),
+		simpleSelectSearchInputSchema.omit({ uuid: true }).extend({
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+		}),
 		advancedScalarSearchInputSchema.omit({ uuid: true }).extend({
+			...visibleSearchInputSlots,
 			default: valueExpressionInputSchema.optional(),
 			predicate: predicateInputSchema,
 		}),
 		advancedDateRangeSearchInputSchema.omit({ uuid: true }).extend({
+			...visibleSearchInputSlots,
 			predicate: predicateInputSchema,
+		}),
+		advancedSelectSearchInputSchema.omit({ uuid: true }).extend({
+			...visibleSearchInputSlots,
+			default: valueExpressionInputSchema.optional(),
+			predicate: predicateInputSchema,
+		}),
+		hiddenSearchInputSchema.omit({ uuid: true }).extend({
+			value: valueExpressionInputSchema,
 		}),
 	])
 	.superRefine(refineSearchInputBoundary);

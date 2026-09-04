@@ -4,10 +4,15 @@ import type { Mutation } from "@/lib/doc/types";
 import type {
 	CaseListConfig,
 	CaseSearchConfig,
+	SearchInputConditionSlot,
 	SearchInputDef,
 	Uuid,
 } from "@/lib/domain";
-import { isOwnerOnlyCaseSearchConfig, searchInputDefault } from "@/lib/domain";
+import {
+	isOwnerOnlyCaseSearchConfig,
+	searchInputDefault,
+	searchInputScreenPredicates,
+} from "@/lib/domain";
 import {
 	type PredicateAstPath,
 	walkExpressionInputRefsWithPaths,
@@ -41,6 +46,8 @@ export type SearchInputRemovalDependency =
 			readonly kind: "search-field-condition";
 			readonly label: string;
 			readonly inputUuid: SearchInputDef["uuid"];
+			/** Which of the sibling's conditions reads the answer. */
+			readonly slot: SearchInputConditionSlot;
 			readonly paths: SearchInputOccurrencePaths;
 	  }
 	| {
@@ -109,20 +116,49 @@ export function searchInputRemovalDependencies(
 			});
 		}
 	}
+	// A sibling's custom match, required condition, and check rule all read
+	// answers; each is its own dependency so the review can open the exact
+	// condition. The target's own conditions leave with the row.
 	for (const input of config.searchInputs) {
-		if (input.uuid === target.uuid || input.kind !== "advanced") {
-			continue;
+		if (input.uuid === target.uuid) continue;
+		const siblingLabel =
+			input.label.trim() || input.name.trim() || "Another search field";
+		const conditions: readonly {
+			readonly slot: SearchInputConditionSlot;
+			readonly predicate: NonNullable<CaseListConfig["filter"]>;
+			readonly label: string;
+		}[] = [
+			...(input.kind === "advanced"
+				? [
+						{
+							slot: "match" as const,
+							predicate: input.predicate,
+							label: `“${siblingLabel}” search condition`,
+						},
+					]
+				: []),
+			...searchInputScreenPredicates(input).map((screen) => ({
+				slot: screen.slot,
+				predicate: screen.predicate,
+				label:
+					screen.slot === "required"
+						? `“${siblingLabel}” required condition`
+						: `“${siblingLabel}” check`,
+			})),
+		];
+		for (const condition of conditions) {
+			const paths = nonEmptyPaths(
+				predicateInputPaths(condition.predicate, target.uuid),
+			);
+			if (paths === undefined) continue;
+			dependencies.push({
+				kind: "search-field-condition",
+				label: condition.label,
+				inputUuid: input.uuid,
+				slot: condition.slot,
+				paths,
+			});
 		}
-		const paths = nonEmptyPaths(
-			predicateInputPaths(input.predicate, target.uuid),
-		);
-		if (paths === undefined) continue;
-		dependencies.push({
-			kind: "search-field-condition",
-			label: `“${input.label.trim() || input.name.trim() || "Another search field"}” search condition`,
-			inputUuid: input.uuid,
-			paths,
-		});
 	}
 	// Sibling starting values consume answers too (the validator's
 	// `searchInputDefaultTypeCheck` rejects an orphan ref there just like

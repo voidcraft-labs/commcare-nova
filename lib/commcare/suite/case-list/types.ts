@@ -29,8 +29,8 @@ import type {
 	CaseProperty,
 	CaseTileLayout,
 	CaseType,
-	TranslationUnitId,
 	Uuid,
+	WireStringSource,
 	XPathPrintableDoc,
 } from "@/lib/domain";
 import type { AssetManifest } from "../../multimedia/assetWirePath";
@@ -55,7 +55,7 @@ export interface CaseListEmission {
 	/** Locale id -> semantic source slot. The compiler resolves these links
 	 * independently for every configured app language; unlinked values are
 	 * language-neutral wire strings and repeat unchanged. */
-	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly translationUnits: Record<string, WireStringSource>;
 }
 
 /**

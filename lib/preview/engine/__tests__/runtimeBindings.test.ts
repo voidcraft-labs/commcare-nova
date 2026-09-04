@@ -45,12 +45,14 @@ import {
 	exactMode,
 	fuzzyDateMode,
 	fuzzyMode,
+	hiddenSearchInputDef,
 	phoneticMode,
 	rangeMode,
 	type SearchInputType,
 	simpleSearchInputDef,
 	startsWithMode,
 } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	ancestorPath,
 	and,
@@ -85,6 +87,7 @@ import {
 	predicateSchema,
 	prop,
 	relationStep,
+	sessionContext,
 	subcasePath,
 	switchCase,
 	switchExpr,
@@ -2332,5 +2335,139 @@ describe("composeRuntimeFilter — default-mode table contract", () => {
 					);
 			}
 		}
+	});
+});
+
+describe("composeRuntimeFilter — choice and hidden prompts", () => {
+	// A lookup-backed choice prompt stores the chosen row's VALUE column, so
+	// the runtime compares the case property against that stored value. The
+	// table identity only shapes the widget's choices; the filter never
+	// reads the table.
+	const REGIONS = "00000000-0000-7000-8000-0000000000c1" as LookupTableId;
+	const REGION_VALUE = "10000000-0000-7000-8000-0000000000c2" as LookupColumnId;
+	const REGION_LABEL = "10000000-0000-7000-8000-0000000000c3" as LookupColumnId;
+	const OPTIONS = {
+		kind: "lookup",
+		tableId: REGIONS,
+		valueColumnId: REGION_VALUE,
+		labelColumnId: REGION_LABEL,
+	} as const;
+
+	const single = simpleSearchInputDef(
+		testUuid("region"),
+		"region",
+		"Region",
+		"select",
+		"region",
+		{ options: OPTIONS },
+	);
+	const several = simpleSearchInputDef(
+		testUuid("regions"),
+		"region",
+		"Regions",
+		"multi-select",
+		"region",
+		{ options: OPTIONS },
+	);
+
+	it("compiles a `select` answer as equality on the property", () => {
+		const result = composeRuntimeFilter(
+			[single],
+			new Map(Object.entries({ region: "north" })),
+			PATIENT,
+		);
+		expect(result).toEqual(eq(prop(PATIENT, "region"), literal("north")));
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("binds nothing for an unanswered `select`", () => {
+		expect(
+			composeRuntimeFilter(
+				[single],
+				new Map(Object.entries({ region: "" })),
+				PATIENT,
+			),
+		).toEqual(matchAll());
+		expect(composeRuntimeFilter([single], new Map(), PATIENT)).toEqual(
+			matchAll(),
+		);
+	});
+
+	it("compiles a `multi-select` answer as any-of over its `#,#`-joined tokens", () => {
+		// CommCare stores several chosen values as one `#,#`-joined answer and
+		// splits it into repeated query parameters, which the search endpoint
+		// matches as any-of (`RemoteQuerySessionManager.extractMultipleChoices`).
+		const result = composeRuntimeFilter(
+			[several],
+			new Map(Object.entries({ region: "north#,#south" })),
+			PATIENT,
+		);
+		expect(result).toEqual(
+			isIn(prop(PATIENT, "region"), literal("north"), literal("south")),
+		);
+		expect(predicateSchema.parse(result)).toEqual(result);
+	});
+
+	it("compiles a single `multi-select` token as a one-member any-of", () => {
+		expect(
+			composeRuntimeFilter(
+				[several],
+				new Map(Object.entries({ region: "north" })),
+				PATIENT,
+			),
+		).toEqual(isIn(prop(PATIENT, "region"), literal("north")));
+	});
+
+	it("binds nothing for an unanswered `multi-select`", () => {
+		expect(
+			composeRuntimeFilter(
+				[several],
+				new Map(Object.entries({ region: "" })),
+				PATIENT,
+			),
+		).toEqual(matchAll());
+	});
+
+	it("never lets a hidden input contribute a filter of its own", () => {
+		// A hidden input seeds the search-input instance; it names no case
+		// property, so even a resolved value adds no clause.
+		const hidden = hiddenSearchInputDef(
+			testUuid("searched_by"),
+			"searched_by",
+			"Searched by",
+			term(sessionContext("username")),
+		);
+		expect(
+			composeRuntimeFilter(
+				[hidden],
+				new Map(Object.entries({ searched_by: "asha" })),
+				PATIENT,
+			),
+		).toEqual(matchAll());
+	});
+
+	it("exposes a hidden input's value to sibling `input(...)` reads", () => {
+		const hiddenUuid = testUuid("searched_by");
+		const hidden = hiddenSearchInputDef(
+			hiddenUuid,
+			"searched_by",
+			"Searched by",
+			term(sessionContext("username")),
+		);
+		const advanced = advancedSearchInputDef(
+			testUuid("q"),
+			"q",
+			"Query",
+			"text",
+			eq(prop(PATIENT, "registered_by"), input(hiddenUuid)),
+		);
+
+		expect(
+			composeRuntimeFilter(
+				[hidden, advanced],
+				new Map(Object.entries({ searched_by: "asha" })),
+				PATIENT,
+			),
+		).toEqual(eq(prop(PATIENT, "registered_by"), literal("asha")));
 	});
 });

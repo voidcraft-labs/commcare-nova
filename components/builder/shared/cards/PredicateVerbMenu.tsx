@@ -44,6 +44,7 @@ import tablerMathEqualGreater from "@iconify-icons/tabler/math-equal-greater";
 import tablerMathEqualLower from "@iconify-icons/tabler/math-equal-lower";
 import tablerMathGreater from "@iconify-icons/tabler/math-greater";
 import tablerMathLower from "@iconify-icons/tabler/math-lower";
+import tablerRegex from "@iconify-icons/tabler/regex";
 import tablerSlash from "@iconify-icons/tabler/slash";
 import tablerUnlink from "@iconify-icons/tabler/unlink";
 import tablerWand from "@iconify-icons/tabler/wand";
@@ -92,6 +93,10 @@ import {
 	predicateUnavailableReason,
 } from "../editorSchemas";
 import { MATCH_MODE_VOCABULARY } from "../matchModeVocabulary";
+import {
+	PATTERN_MATCH_UNAVAILABLE_REASON,
+	patternMatchingInScope,
+} from "../patternMatchingScope";
 import { useRuleFocusContext } from "../RuleFocusContext";
 import {
 	PredicateTransitionAlert,
@@ -178,6 +183,7 @@ export function subjectOf(value: Predicate): ValueExpression | undefined {
 		case "in":
 		case "between":
 		case "is-blank":
+		case "matches-pattern":
 			return value.left;
 		case "match":
 		case "multi-select-contains":
@@ -506,7 +512,7 @@ export function reseedMatchValue(
 }
 
 export function buildWithSubjectLeft(
-	kind: "in" | "between" | "is-blank",
+	kind: "in" | "between" | "is-blank" | "matches-pattern",
 	value: Predicate,
 	ctx: PredicateEditContext,
 ): Predicate {
@@ -555,7 +561,8 @@ export function buildWithSubjectLeft(
 			upperInclusive: carried?.upperInclusive ?? b.upperInclusive,
 		});
 	}
-	// is-blank carries only the subject: any read can be blank.
+	// is-blank and matches-pattern carry only the subject: any read can be
+	// blank, and any read has text to test against a pattern.
 	return { ...fallback, left: subject };
 }
 
@@ -809,6 +816,24 @@ function buildVerbEntries(): readonly VerbEntry[] {
 				subject !== undefined && expressionLiteral(subject) === undefined,
 			disabledReason:
 				"Choose case information or another value that can change while the app runs",
+		},
+		{
+			id: "matches-pattern",
+			label: "matches a pattern",
+			icon: tablerRegex,
+			description: "Fits a regular expression, checked on the device",
+			schemaKind: "matches-pattern",
+			isCurrent: (p) => p.kind === "matches-pattern",
+			build: (p, ctx) => buildWithSubjectLeft("matches-pattern", p, ctx),
+			subjectGate: (_t, subject) =>
+				subject !== undefined && expressionLiteral(subject) === undefined,
+			disabledReason:
+				"Choose a search answer or another value that can change while the app runs",
+			// The device's Pattern engine is the only thing that can run this.
+			// Everywhere else the verb is disabled with the reason, never
+			// reported after a bounced commit.
+			contextGate: patternMatchingInScope,
+			contextDisabledReason: PATTERN_MATCH_UNAVAILABLE_REASON,
 		},
 	);
 	return entries;

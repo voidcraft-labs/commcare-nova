@@ -334,17 +334,88 @@ export function projectBuilderLanguageMutations(
 			}
 			case "updateSearchInput": {
 				const next = structuredClone(mutation);
-				const source = redirect(
-					makeTranslationUnitId("search-input", mutation.uuid, "label"),
-					next.searchInput.label,
-				);
 				const current = doc.modules[
 					mutation.moduleUuid
 				]?.caseListConfig?.searchInputs.find(
 					(candidate) => candidate.uuid === mutation.uuid,
 				);
+				const source = redirect(
+					makeTranslationUnitId("search-input", mutation.uuid, "label"),
+					next.searchInput.label,
+				);
 				if (typeof source === "string" && current !== undefined) {
 					next.searchInput.label = current.label;
+				}
+				// The three worker-facing sentences a visible prompt carries
+				// follow the field rule: a changed sentence under a worker
+				// language is that language's translation and the source stays;
+				// a removed sentence clears the translation; a sentence the
+				// source does not yet hold cannot be added here.
+				if (
+					next.searchInput.kind !== "hidden" &&
+					current !== undefined &&
+					current.kind !== "hidden"
+				) {
+					const proposed = next.searchInput;
+					const sentences = [
+						{
+							slot: "hint",
+							presented: proposed.hint,
+							source: current.hint,
+							restore: () => {
+								proposed.hint = current.hint;
+							},
+						},
+						{
+							slot: "required-message",
+							presented: proposed.required?.message,
+							source: current.required?.message,
+							restore: () => {
+								if (proposed.required !== undefined) {
+									proposed.required = {
+										...proposed.required,
+										message: current.required?.message,
+									};
+								}
+							},
+						},
+						{
+							slot: "validation-message",
+							presented: proposed.validation?.message,
+							source: current.validation?.message,
+							restore: () => {
+								if (
+									proposed.validation !== undefined &&
+									current.validation !== undefined
+								) {
+									proposed.validation = {
+										...proposed.validation,
+										message: current.validation.message,
+									};
+								}
+							},
+						},
+					] as const;
+					for (const sentence of sentences) {
+						if (sentence.presented === sentence.source) continue;
+						const id = makeTranslationUnitId(
+							"search-input",
+							mutation.uuid,
+							sentence.slot,
+						);
+						if (sentence.source === undefined) {
+							refuseMissingSource();
+							sentence.restore();
+							continue;
+						}
+						if (sentence.presented === undefined) {
+							if (redirectClear(id)) sentence.restore();
+							continue;
+						}
+						if (redirect(id, sentence.presented) !== undefined) {
+							sentence.restore();
+						}
+					}
 				}
 				projected.push(next);
 				break;

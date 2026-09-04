@@ -30,6 +30,10 @@ Predicate operators carry `ValueExpression` operands, and `ValueExpression`'s `i
 
 `is-blank` is the one stored absence operator. It matches an absent or empty value, exactly the distinction every CommCare wire target can preserve with `prop = ''`. The live schema and editor do not carry a strict-absent arm that some targets would have to widen.
 
+## `matches-pattern` — one leaf, one runtime
+
+`matches-pattern { left, pattern }` is JavaRosa's `regex(str, re)` and nothing else: `Pattern.compile(re).matcher(str).find()`, so the pattern is Java `Pattern` syntax and UNANCHORED (anchor with `^` / `$` to test the whole value). CSQL has no regex function and the case store is PostgreSQL, whose regex dialect differs from Java's, so the leaf is admitted only where the device alone evaluates it: `TypeContext.patternMatching === true`, which the validator sets for a Search prompt's `required.when` and `validation.rule` and nothing else (the default is strict absence, not `false`, so a context that forgets the flag refuses the leaf). `csqlRepresentability` rejects it with `pattern-match-not-csql`, the checker with `pattern-match-unavailable`, and `walk.ts::predicateUsesPattern` is the reader Preview uses to route a pattern-bearing constraint to the XPath worker instead of the synchronous evaluator. It is deliberately NOT the automations' portable Python/PostgreSQL regex subset (`lib/domain/automations.ts`): that subset exists because HQ runs those rules in Python, and this leaf never reaches Python or Postgres.
+
 ## Type checker contract
 
 `checkPredicate` / `checkExpression` validate a constructed AST against the case-type schema + search-input declarations, with per-node error paths. Rules worth knowing beyond the code:

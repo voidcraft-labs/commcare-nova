@@ -79,6 +79,7 @@ describe("AddSearchFieldControl", () => {
 			<AddSearchFieldControl
 				properties={[COMMUNITY, EXTERNAL_ID, CASE_NAME]}
 				onChoose={onChoose}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);
@@ -88,10 +89,13 @@ describe("AddSearchFieldControl", () => {
 		expect(
 			screen.getByText("Choose the case information people can search"),
 		).toBeDefined();
+		// The properties lead, and the one non-property entry, a hidden
+		// value the Search screen works out itself, closes the list.
 		expect(propertyOptions().map((option) => option.textContent)).toEqual([
 			expect.stringContaining("Case name"),
 			expect.stringContaining("Community"),
 			expect.stringContaining("External ID"),
+			expect.stringContaining("Hidden value"),
 		]);
 		const visibleCopy = document.querySelector(
 			'[data-slot="combobox-content"]',
@@ -108,6 +112,7 @@ describe("AddSearchFieldControl", () => {
 			<AddSearchFieldControl
 				properties={[CASE_NAME, DATE_OF_BIRTH, COMMUNITY]}
 				onChoose={() => {}}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);
@@ -127,7 +132,7 @@ describe("AddSearchFieldControl", () => {
 		fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
 		expect((search as HTMLInputElement).value).toBe("");
 		expect(document.activeElement).toBe(search);
-		expect(propertyOptions()).toHaveLength(3);
+		expect(propertyOptions()).toHaveLength(4);
 		await closeChooser();
 	});
 
@@ -137,6 +142,7 @@ describe("AddSearchFieldControl", () => {
 			<AddSearchFieldControl
 				properties={[CASE_NAME, DATE_OF_BIRTH]}
 				onChoose={onChoose}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);
@@ -170,6 +176,7 @@ describe("AddSearchFieldControl", () => {
 					},
 				]}
 				onChoose={() => {}}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);
@@ -188,15 +195,16 @@ describe("AddSearchFieldControl", () => {
 		await closeChooser();
 	});
 
-	it("uses the structural disabled reason and explains a propertyless case type", () => {
+	it("uses the structural disabled reason and still offers a hidden value to a propertyless case type", () => {
 		const { rerender } = render(
 			<AddSearchFieldControl
 				properties={[CASE_NAME]}
 				onChoose={() => {}}
+				onChooseHidden={() => {}}
 				disabledReason="Search already has the maximum number of fields"
 			/>,
 		);
-		let trigger = screen.getByRole("button", { name: "Add search field" });
+		const trigger = screen.getByRole("button", { name: "Add search field" });
 		expect(trigger.hasAttribute("disabled")).toBe(true);
 		expect(
 			screen.getByText("Search already has the maximum number of fields"),
@@ -206,13 +214,17 @@ describe("AddSearchFieldControl", () => {
 			<AddSearchFieldControl
 				properties={[]}
 				onChoose={() => {}}
+				onChooseHidden={() => {}}
 				disabledReason={undefined}
 			/>,
 		);
-		trigger = screen.getByRole("button", { name: "Add search field" });
-		expect(trigger.hasAttribute("disabled")).toBe(true);
+		// No case information to search, but a hidden value names none, so
+		// the chooser opens with that one entry rather than a disabled slot.
 		expect(
-			screen.getByText("Add case information before adding fields"),
+			screen.queryByRole("button", { name: "Add search field" }),
+		).toBeNull();
+		expect(
+			screen.getByRole("combobox", { name: "Add search field" }),
 		).toBeDefined();
 	});
 });

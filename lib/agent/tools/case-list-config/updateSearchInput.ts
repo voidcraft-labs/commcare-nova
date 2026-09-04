@@ -67,7 +67,7 @@ export type UpdateSearchInputResult =
 
 export const updateSearchInputTool = {
 	description:
-		"Replace one search input on a module's case list, keyed by searchInputUuid. The replacement is a full search-input body; switching between kind:simple and kind:advanced is permitted. The existing uuid is preserved.",
+		"Replace one search input on a module's case list, keyed by searchInputUuid. The replacement is a full search-input body; switching among kind:simple, kind:advanced, and kind:hidden is permitted. The existing uuid is preserved. The body takes the same hint / required / validation / options / hidden value slots as addSearchInputs.",
 	inputSchema: updateSearchInputInputSchema,
 	async execute(
 		input: UpdateSearchInputInput,

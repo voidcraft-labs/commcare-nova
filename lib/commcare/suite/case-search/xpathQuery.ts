@@ -50,10 +50,7 @@
 // server, so the inline shape is the only wire-correct option for
 // computed values.
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
-import {
-	type CaseListConfig,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
-} from "@/lib/domain";
+import { type CaseListConfig, searchInputRuntimeValueType } from "@/lib/domain";
 import { and, effectiveFilterForEmission } from "@/lib/domain/predicate";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
@@ -212,7 +209,7 @@ export function composeXPathQueryEmission(
 		knownInputs: caseListConfig.searchInputs.map((input) => ({
 			uuid: input.uuid,
 			name: input.name,
-			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+			data_type: searchInputRuntimeValueType(input),
 		})),
 	};
 	const csqlContext = {
@@ -385,6 +382,7 @@ function visitPredicate(p: Predicate, gated: Set<string>): void {
 			if (p.upper !== undefined) visitExpression(p.upper, gated);
 			return;
 		case "is-blank":
+		case "matches-pattern":
 			visitExpression(p.left, gated);
 			return;
 		case "match":

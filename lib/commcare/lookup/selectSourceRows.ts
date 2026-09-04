@@ -21,6 +21,7 @@
 
 import {
 	collectLookupOptionsSourceCarriers,
+	describeLookupOptionsSourceOwner,
 	type LookupOptionsSourceCarrier,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -102,17 +103,15 @@ function sourceFindings(args: {
 		tableTag: table.tag,
 		tableName: table.name,
 	};
-	const location = {
-		...carrier.location,
-		field: "optionsSource",
-	};
+	const location = carrier.location;
+	const owner = describeLookupOptionsSourceOwner(carrier.owner);
 	const errors: ValidationError[] = [];
 	if (blankValues.length > 0) {
 		errors.push(
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_BLANK",
 				carrier.location.scope,
-				`Field "${carrier.fieldId}" builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${blankValues.length} row(s) leave that column blank (row ${blankValues[0].position} first). Fill in those rows or choose another value column.`,
+				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${blankValues.length} row(s) leave that column blank (row ${blankValues[0].position} first). Fill in those rows or choose another value column.`,
 				location,
 				{
 					...baseDetails,
@@ -128,7 +127,7 @@ function sourceFindings(args: {
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE",
 				carrier.location.scope,
-				`Field "${carrier.fieldId}" builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${whitespaceValues.length} row(s) contain spaces, tabs, or line breaks there (row ${whitespaceValues[0].position} first). A saved choice value cannot contain whitespace. Tidy those rows or choose another value column.`,
+				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${whitespaceValues.length} row(s) contain spaces, tabs, or line breaks there (row ${whitespaceValues[0].position} first). A saved choice value cannot contain whitespace. Tidy those rows or choose another value column.`,
 				location,
 				{
 					...baseDetails,
@@ -144,7 +143,7 @@ function sourceFindings(args: {
 			validationError(
 				"LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE",
 				carrier.location.scope,
-				`Field "${carrier.fieldId}" builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${duplicateValues.length} value(s) appear in more than one row (for example "${duplicateValues[0]}"). Make the values unique or choose another value column.`,
+				`${owner} builds its choices from lookup table "${table.name}", using "${valueColumn.label}" as the saved value, but ${duplicateValues.length} value(s) appear in more than one row (for example "${duplicateValues[0]}"). Make the values unique or choose another value column.`,
 				location,
 				{
 					...baseDetails,
@@ -162,7 +161,7 @@ function sourceFindings(args: {
 			validationError(
 				"LOOKUP_SELECT_SOURCE_LABEL_BLANK",
 				carrier.location.scope,
-				`Field "${carrier.fieldId}" builds its choices from lookup table "${table.name}", using "${labelColumn.label}" as the label, but ${blankLabels.length} row(s) leave that column blank (row ${blankLabels[0].position} first). Fill in those rows or choose another label column.`,
+				`${owner} builds its choices from lookup table "${table.name}", using "${labelColumn.label}" as the label, but ${blankLabels.length} row(s) leave that column blank (row ${blankLabels[0].position} first). Fill in those rows or choose another label column.`,
 				location,
 				{
 					...baseDetails,

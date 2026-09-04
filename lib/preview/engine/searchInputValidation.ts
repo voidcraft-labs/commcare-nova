@@ -9,7 +9,7 @@ import {
 import {
 	type CaseListConfig,
 	ownRecordValue,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	searchInputRuntimeValueType,
 	searchRuntimeGlobalValidationMessage,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate";
@@ -18,10 +18,16 @@ import { evaluate } from "@/lib/preview/xpath/evaluator";
 import { invokeGeneratedJavaRosaFunction } from "@/lib/preview/xpath/generatedJavaRosaFunctions";
 import { dateRangeInputErrors } from "./dateRangeInputValidation";
 import type { PreviewSearchSessionValues } from "./identity";
+import type { PreviewLookupData } from "./lookupEvaluation";
 import {
 	type SearchInputValues,
 	withSearchInputExpressionValues,
 } from "./runtimeBindings";
+import {
+	type SearchInputConstraintDeviceOptions,
+	searchInputConstraintErrors,
+	searchInputConstraintErrorsOnDevice,
+} from "./searchInputConstraints";
 
 const EMPTY_SEARCH_SESSION: PreviewSearchSessionValues = {
 	context: {},
@@ -36,6 +42,12 @@ interface RuntimeValidationOptions {
 	 * case store, then run the full pass with the resolved worker.
 	 */
 	sessionIndependentOnly?: boolean;
+	/**
+	 * The lookup rows a required condition or check may fold over. A caller
+	 * without them (the server action) leaves lookup-bearing constraints
+	 * unjudged rather than guessing.
+	 */
+	lookupData?: PreviewLookupData;
 }
 
 function skipSessionBackedRejection(
@@ -155,7 +167,7 @@ function withSearchInputBindings(
 			uuid: input.uuid,
 			name: input.name,
 			label: input.label,
-			data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+			data_type: searchInputRuntimeValueType(input),
 		})),
 	};
 }
@@ -202,12 +214,17 @@ const NEGATIVE_ZERO = /^-0(?:\.0*)?$/;
  * signed spelling remains valid even though other negative values do not.
  */
 /**
- * One submission gate for every runtime-only search-value constraint.
+ * One submission gate for every search-value constraint the running app
+ * enforces before a query is sent.
  *
  * Quote safety is derived from the exact exported CSQL expression. Daterange
- * pair/order validation mirrors CommCare's indivisible range answer. Keeping
- * both in one map gives the form one error location per prompt without
- * duplicating either setting or semantic rule in the component.
+ * pair/order validation mirrors CommCare's indivisible range answer. The
+ * authored required condition and check are the prompt's `<required>` /
+ * `<validation>`, evaluated over the draft with its siblings. Keeping all of
+ * them in one map gives the form one error location per prompt without
+ * duplicating any setting or semantic rule in the component; an authored
+ * message wins over a system one on the same prompt, because the worker can
+ * act on it directly.
  */
 export function searchInputSubmissionErrors(
 	caseListConfig: CaseListConfig,
@@ -233,6 +250,59 @@ export function searchInputSubmissionErrors(
 	for (const [name, message] of dateRangeInputErrors(
 		caseListConfig.searchInputs,
 		values,
+	)) {
+		errors.set(name, message);
+	}
+	for (const [name, message] of searchInputConstraintErrors(
+		caseListConfig.searchInputs,
+		values,
+		session,
+		options?.lookupData,
+		options,
+	)) {
+		errors.set(name, message);
+	}
+	return errors;
+}
+
+/**
+ * The same gate for the running Search screen, which can reach the XPath
+ * worker: a pattern-bearing required condition or check is judged there
+ * instead of being left unjudged. Every other constraint is decided exactly
+ * as in `searchInputSubmissionErrors`, so the two gates differ only in what
+ * a Pattern engine adds.
+ */
+export async function searchInputSubmissionErrorsOnDevice(
+	caseListConfig: CaseListConfig,
+	caseType: string | undefined,
+	values: SearchInputValues,
+	session: PreviewSearchSessionValues = EMPTY_SEARCH_SESSION,
+	typeContext: TypeContext | undefined,
+	options: RuntimeValidationOptions &
+		Pick<SearchInputConstraintDeviceOptions, "evaluateOnDevice">,
+): Promise<ReadonlyMap<string, string>> {
+	const errors = new Map(
+		searchInputRuntimeQuoteErrors(
+			caseListConfig,
+			caseType,
+			values,
+			session,
+			typeContext,
+			options,
+		),
+	);
+	for (const [name, message] of dateRangeInputErrors(
+		caseListConfig.searchInputs,
+		values,
+	)) {
+		errors.set(name, message);
+	}
+	for (const [name, message] of await searchInputConstraintErrorsOnDevice(
+		caseListConfig.searchInputs,
+		values,
+		session,
+		options.lookupData,
+		options,
 	)) {
 		errors.set(name, message);
 	}

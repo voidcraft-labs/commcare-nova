@@ -945,6 +945,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={onSelect}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 			/>,
@@ -992,6 +993,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={onMoveInput}
 			/>,
@@ -1033,6 +1035,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 			/>,
@@ -1068,6 +1071,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 			/>,
@@ -1110,6 +1114,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 			/>,
@@ -1189,6 +1194,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -1218,8 +1224,10 @@ describe("case workspace chrome", () => {
 		expect(
 			screen.queryByRole("button", { name: "Edit Search screen" }),
 		).toBeNull();
+		// A case type with no properties still opens the chooser, because a
+		// hidden value names no case information.
 		expect(
-			screen.getByRole("button", { name: "Add search field" }),
+			screen.getByRole("combobox", { name: "Add search field" }),
 		).toBeDefined();
 	});
 
@@ -1234,6 +1242,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -1271,6 +1280,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={onSelect}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -1306,6 +1316,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -1337,6 +1348,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}
@@ -2806,7 +2818,7 @@ describe("case workspace chrome", () => {
 		const onBack = vi.fn();
 		render(
 			<SearchConditionCanvas
-				context={{ kind: "input", label: "Patient name" }}
+				context={{ kind: "input", slot: "match", label: "Patient name" }}
 				value={matchAll()}
 				onChange={() => {}}
 				onBack={onBack}
@@ -2993,6 +3005,7 @@ describe("case workspace chrome", () => {
 				selection={null}
 				onSelect={() => {}}
 				onAddInput={() => {}}
+				onAddHiddenInput={() => {}}
 				addInputDisabledReason={undefined}
 				onMoveInput={() => {}}
 				hasSearchSurface={false}

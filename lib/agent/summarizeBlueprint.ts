@@ -258,13 +258,31 @@ function formatColumn(col: Column, place: string): string {
 	return `${col.uuid}: ${body}${place}`;
 }
 
-/** One-line search-input summary — uuid + kind + name + label hint. */
+/**
+ * One-line search-input summary — uuid + kind + name + label, then the
+ * prompt slots a visible input carries as bare markers, so the SA can see
+ * that a hint, a required condition, a check, or lookup choices exist
+ * without re-reading the module.
+ */
 function formatSearchInput(input: SearchInputDef): string {
+	if (input.kind === "hidden") {
+		return `${input.uuid}: (hidden) ${input.name} (system value, "${input.label}")`;
+	}
 	const body =
 		input.kind === "simple"
 			? `(simple) ${input.name} → ${input.property} (${input.type}, "${input.label}")`
 			: `(advanced) ${input.name} (${input.type}, "${input.label}")`;
-	return `${input.uuid}: ${body}`;
+	const markers: string[] = [];
+	if (input.hint !== undefined) markers.push("hint");
+	if (input.required !== undefined) {
+		markers.push(
+			input.required.when === undefined ? "required" : "required when",
+		);
+	}
+	if (input.validation !== undefined) markers.push("check");
+	if ("options" in input) markers.push("lookup choices");
+	const suffix = markers.length === 0 ? "" : ` [${markers.join(", ")}]`;
+	return `${input.uuid}: ${body}${suffix}`;
 }
 
 /**

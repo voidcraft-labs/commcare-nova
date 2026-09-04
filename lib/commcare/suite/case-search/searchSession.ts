@@ -15,8 +15,8 @@ import {
 	caseListColumnIsEmitted,
 	DEFAULT_CASE_SEARCH_TITLE,
 	type OrdinaryCaseSearchConfig,
-	searchInputDefault,
-	type TranslationUnitId,
+	searchInputExpressions,
+	type WireStringSource,
 } from "@/lib/domain";
 import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import { validateCaseType } from "../../identifierValidation";
@@ -87,7 +87,7 @@ const XPATH_QUERY_KEY = "_xpath_query";
 export interface SearchSessionEmission {
 	readonly element: Element;
 	readonly strings: Record<string, string>;
-	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly translationUnits: Record<string, WireStringSource>;
 	readonly instances: ReadonlySet<string>;
 }
 
@@ -370,19 +370,24 @@ export function buildSearchSession(args: {
 				instances.add(id);
 			}
 		}
-		// `input.default` lowers via `emitOnDeviceExpression` into the
-		// `<prompt default="…">` attribute. A default that references
-		// another input or a session term needs the matching instance
-		// declared on `<remote-request>`.
-		const inputDefault = searchInputDefault(input);
-		if (inputDefault !== undefined) {
+		// `input.default` and a hidden input's `value` lower via
+		// `emitOnDeviceExpression` into the `<prompt default="…">`
+		// attribute. An expression that references another input or a
+		// session term needs the matching instance declared on
+		// `<remote-request>`.
+		for (const expression of searchInputExpressions(input)) {
 			for (const id of collectExpressionInstances(
-				inputDefault,
+				expression,
 				args.lookupNaming,
 			)) {
 				instances.add(id);
 			}
 		}
+	}
+	// Prompt children — itemset fixtures and their row filters, required
+	// tests, validation rules — declare their own reads.
+	for (const id of promptEmission.instances) {
+		instances.add(id);
 	}
 	if (caseSearchConfig.excludedOwnerIds !== undefined) {
 		for (const id of collectExpressionInstances(
@@ -433,7 +438,7 @@ export function emitSearchSession(args: {
 }): {
 	readonly xml: string;
 	readonly strings: Record<string, string>;
-	readonly translationUnits: Record<string, TranslationUnitId>;
+	readonly translationUnits: Record<string, WireStringSource>;
 	readonly instances: ReadonlySet<string>;
 } {
 	const { element, strings, translationUnits, instances } =

@@ -71,7 +71,7 @@ describe("Search-field dependency review focus", () => {
 	it("does not let Back autofocus overwrite an exact condition target", async () => {
 		render(
 			<SearchConditionCanvas
-				context={{ kind: "input", label: "Region" }}
+				context={{ kind: "input", slot: "match", label: "Region" }}
 				value={eq(prop("client", "region"), input(testUuid("query")))}
 				onChange={vi.fn()}
 				onBack={vi.fn()}
@@ -175,7 +175,7 @@ describe("Search-field dependency review focus", () => {
 	it("keeps ordinary Search-condition navigation focused on Back", () => {
 		render(
 			<SearchConditionCanvas
-				context={{ kind: "input", label: "Region" }}
+				context={{ kind: "input", slot: "match", label: "Region" }}
 				value={eq(prop("client", "region"), literal("North"))}
 				onChange={vi.fn()}
 				onBack={vi.fn()}

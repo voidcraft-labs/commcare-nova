@@ -168,9 +168,9 @@ vi.mock("../inspector/SearchInputEditor", () => ({
 	SearchInputEditor: ({
 		onEditCondition,
 	}: {
-		readonly onEditCondition: () => void;
+		readonly onEditCondition: (slot: "match") => void;
 	}) => (
-		<button type="button" onClick={onEditCondition}>
+		<button type="button" onClick={() => onEditCondition("match")}>
 			Edit condition
 		</button>
 	),

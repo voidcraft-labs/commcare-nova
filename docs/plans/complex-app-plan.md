@@ -1375,6 +1375,17 @@ search, and Postgres for the preview (`lib/case-store/sql`). Search-button displ
 conditions, results availability, and default ordering are authored in the case
 workspace; `content/docs/case-workspace.mdx` is the user-facing guide.
 
+A Search prompt carries everything CommCare's `<prompt>` can: a hint, a required
+condition (always or conditional, with a message), one check with its message,
+lookup-backed `select` / `multi-select` choices, and a hidden system value the
+screen works out when it opens (`lib/domain/modules.ts::searchInputDefSchema`,
+seven arms; `lib/commcare/suite/case-search/searchPrompts.ts::searchPromptWire`
+is the one lowering both wire paths read). The required condition and the check
+are the search-screen predicate scope — the input and its siblings, session
+values, literals, never case data — and the only home of the `matches-pattern`
+leaf (JavaRosa `regex()`, evaluated in Preview's dedicated Search worker
+runtime). Enforcement is Web Apps only; every surface says so.
+
 ### Case tiles
 
 A module's case list is laid out either as a row of columns or as a **tile** — a
@@ -2413,7 +2424,7 @@ reproduced.
 
 ## What remains
 
-One unit remains. **Every entry below is a pointer, not a summary of
+Two units remain. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -2433,6 +2444,20 @@ creates, why `respect_relevancy` exists only on forms, what a case-list endpoint
 excludes, the runtime replay sequence, and the documented divergences that are
 sharp edges rather than Nova bugs.
 
+### Search before register
+
+[`complex-app/search-before-register.md`](complex-app/search-before-register.md)
+· depends on nothing outstanding · blocks nothing
+
+A search-first module setting, a completed-search context distinct from
+not-searched and failed, and one no-matches registration form that carries the
+search answers, lowered to CommCare's `case_list_form` + hidden-module shape only
+at the boundary. **The file holds** the inline-search wire shape and its oracles,
+the Register action bytes and the frozen toggle that gates its relevancy, the
+regenerated return frame, the runtime facts that make the zero-results gate safe
+only post-query, why the feature is Web Apps-only, and the implementation gates
+to re-verify in source.
+
 ---
 
 ## Dependency order
@@ -2442,8 +2467,10 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | — |
+| [search before register](complex-app/search-before-register.md) | — |
 
-The remaining unit has no outstanding prerequisites and nothing waits on it.
+Neither remaining unit has an outstanding prerequisite, and nothing waits on
+either; the session-endpoint file names the one fact it takes from the other.
 
 ---
 

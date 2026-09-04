@@ -18,9 +18,12 @@ import { Icon, type IconifyIcon } from "@iconify/react/offline";
 import tablerAlertCircle from "@iconify-icons/tabler/alert-circle";
 import tablerBarcode from "@iconify-icons/tabler/barcode";
 import tablerCalendar from "@iconify-icons/tabler/calendar";
+import tablerChevronDown from "@iconify-icons/tabler/chevron-down";
+import tablerEyeOff from "@iconify-icons/tabler/eye-off";
 import tablerGripVertical from "@iconify-icons/tabler/grip-vertical";
 import tablerPlus from "@iconify-icons/tabler/plus";
 import tablerSearch from "@iconify-icons/tabler/search";
+import tablerSquareCheck from "@iconify-icons/tabler/square-check";
 import { useId, useMemo, useState } from "react";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import {
@@ -55,7 +58,7 @@ import {
 import {
 	resolveRows,
 	rowHasStructuralError,
-	SEARCH_INPUT_TYPE_ICONS,
+	searchInputIcon,
 } from "../searchInputResolution";
 import type { WorkspaceSelection } from "../workspaceSelection";
 import { AddGhostButton, AuthoredDragPreviewLabel } from "./canvasChrome";
@@ -70,6 +73,8 @@ export interface SearchCanvasProps {
 	/** Enables an intentional zero-input Search action before opening settings. */
 	readonly onConfigureSearchAction?: () => void;
 	readonly onAddInput: (property: CaseProperty) => void;
+	/** Adds a hidden value: computed when the search runs, never shown. */
+	readonly onAddHiddenInput: () => void;
 	/** Disabled-add hint: `undefined` means add is enabled. */
 	readonly addInputDisabledReason: string | undefined;
 	readonly onMoveInput: (uuid: SearchInputDef["uuid"], toIndex: number) => void;
@@ -94,6 +99,7 @@ export function SearchCanvas({
 	onSelect,
 	onConfigureSearchAction,
 	onAddInput,
+	onAddHiddenInput,
 	addInputDisabledReason,
 	onMoveInput,
 	hasSearchSurface,
@@ -376,6 +382,7 @@ export function SearchCanvas({
 							<AddSearchFieldControl
 								properties={properties}
 								onChoose={onAddInput}
+								onChooseHidden={onAddHiddenInput}
 								disabledReason={addInputDisabledReason}
 							/>
 						)}
@@ -386,26 +393,30 @@ export function SearchCanvas({
 	);
 }
 
+type AddSearchFieldChoice =
+	| { readonly kind: "property"; readonly property: CaseProperty }
+	| { readonly kind: "hidden" };
+
 /**
  * Search-field creation starts with the one decision Nova cannot infer: which
  * case information the author wants people to search. Mechanical field and
- * match defaults are applied only after that explicit choice.
+ * match defaults are applied only after that explicit choice. A hidden value
+ * (something Nova works out and carries with the search, never shown) is the
+ * one quiet footer choice, because it names no case information at all.
  */
 export function AddSearchFieldControl({
 	properties,
 	onChoose,
+	onChooseHidden,
 	disabledReason,
 }: {
 	readonly properties: readonly CaseProperty[];
 	readonly onChoose: (property: CaseProperty) => void;
+	readonly onChooseHidden: () => void;
 	readonly disabledReason: string | undefined;
 }) {
 	const projectProse = useProseProjection();
-	const effectiveDisabledReason =
-		disabledReason ??
-		(properties.length === 0
-			? "Add case information before adding fields"
-			: undefined);
+	const effectiveDisabledReason = disabledReason;
 
 	const orderedProperties = useMemo(() => {
 		const indexed = properties.map((property, index) => ({ property, index }));
@@ -421,32 +432,46 @@ export function AddSearchFieldControl({
 		});
 		return indexed.map(({ property }) => property);
 	}, [properties]);
-	const choices = useMemo<readonly SearchableChoice<CaseProperty>[]>(
-		() =>
-			orderedProperties.map((property) => {
-				const name = property.name;
-				return {
-					id: `property:${name}`,
-					label: propertyDisplayLabel(property, projectProse),
-					detail: [
-						propertyTypeLabel(property),
-						friendlyPropertyDisambiguator(
-							property,
-							orderedProperties,
-							projectProse,
-						),
-					]
-						.filter((part): part is string => part !== undefined)
-						.join(" · "),
-					group:
-						name === "case_name" || !isStandardCaseListProperty(name)
-							? "Common information"
-							: "More case information",
-					icon: tablerPlus,
-					searchText: `${property.name} ${propertyTypeLabel(property)}`,
-					value: property,
-				};
-			}),
+	const choices = useMemo<readonly SearchableChoice<AddSearchFieldChoice>[]>(
+		() => [
+			...orderedProperties.map(
+				(property): SearchableChoice<AddSearchFieldChoice> => {
+					const name = property.name;
+					return {
+						id: `property:${name}`,
+						label: propertyDisplayLabel(property, projectProse),
+						detail: [
+							propertyTypeLabel(property),
+							friendlyPropertyDisambiguator(
+								property,
+								orderedProperties,
+								projectProse,
+							),
+						]
+							.filter((part): part is string => part !== undefined)
+							.join(" · "),
+						group:
+							name === "case_name" || !isStandardCaseListProperty(name)
+								? "Common information"
+								: "More case information",
+						icon: tablerPlus,
+						searchText: `${property.name} ${propertyTypeLabel(property)}`,
+						value: { kind: "property", property },
+					};
+				},
+			),
+			{
+				id: "hidden",
+				label: "Hidden value",
+				detail:
+					"A value Nova works out when the search runs, kept with it but never shown",
+				group: "More options",
+				icon: tablerEyeOff,
+				quiet: true,
+				searchText: "hidden system value search time provenance",
+				value: { kind: "hidden" },
+			},
+		],
 		[orderedProperties, projectProse],
 	);
 
@@ -465,7 +490,10 @@ export function AddSearchFieldControl({
 	return (
 		<SearchableChoiceCombobox
 			choices={choices}
-			onChoose={(choice) => onChoose(choice.value)}
+			onChoose={(choice) => {
+				if (choice.value.kind === "hidden") onChooseHidden();
+				else onChoose(choice.value.property);
+			}}
 			trigger={
 				<Button
 					type="button"
@@ -517,6 +545,9 @@ function InputRow({
 }: InputRowProps) {
 	const dflt = defaultDisplayValue(searchInputDefault(input));
 	const label = input.label || input.name || "Untitled field";
+	const hidden = input.kind === "hidden";
+	const hint = hidden ? undefined : input.hint;
+	const required = hidden ? undefined : input.required;
 	const content = (
 		<span className="flex min-w-0 w-full flex-col">
 			<span className="mb-2 flex min-w-0 items-start gap-2">
@@ -524,7 +555,25 @@ function InputRow({
 					className={`min-w-0 flex-1 break-words text-left text-[14px] font-semibold ${input.label ? "text-nova-text" : "italic text-nova-text-muted"}`}
 				>
 					{input.label || "Untitled field"}
+					{required !== undefined && (
+						<span
+							className="ml-1 text-xs text-nova-rose"
+							title={
+								required.when === undefined
+									? "Required"
+									: "Required under a condition"
+							}
+						>
+							*
+						</span>
+					)}
 				</span>
+				{hidden && (
+					<span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-nova-text-muted">
+						<Icon icon={tablerEyeOff} width="13" height="13" />
+						Hidden
+					</span>
+				)}
 				{hasError && (
 					<span className="inline-flex shrink-0 items-center gap-1 text-[12px] font-medium text-nova-rose">
 						<Icon icon={tablerAlertCircle} width="13" height="13" />
@@ -532,6 +581,11 @@ function InputRow({
 					</span>
 				)}
 			</span>
+			{hint !== undefined && (
+				<span className="mb-2 break-words text-left text-[13px] text-nova-text-secondary">
+					{hint}
+				</span>
+			)}
 			<AppField input={input} defaultText={dflt} />
 		</span>
 	);
@@ -600,7 +654,34 @@ function AppField({
 	readonly input: SearchInputDef;
 	readonly defaultText: string | undefined;
 }) {
+	if (input.kind === "hidden") {
+		// The worker never sees this value; the canvas shows what the app
+		// will carry, in the same box shape, dimmed like a disabled control.
+		return (
+			<FieldBox
+				text={defaultText ?? "Calculated value"}
+				filled={false}
+				icon={tablerEyeOff}
+			/>
+		);
+	}
 	switch (input.type) {
+		case "select":
+			return (
+				<FieldBox
+					text={defaultText ?? "Choose one"}
+					filled={defaultText !== undefined}
+					icon={tablerChevronDown}
+				/>
+			);
+		case "multi-select":
+			return (
+				<FieldBox
+					text={defaultText ?? "Choose any that apply"}
+					filled={defaultText !== undefined}
+					icon={tablerSquareCheck}
+				/>
+			);
 		case "date-range":
 			return (
 				<span className="grid min-w-0 w-full grid-cols-1 gap-1.5 @sm:grid-cols-2">
@@ -696,7 +777,7 @@ function InputDragPreview({ input }: { readonly input: SearchInputDef }) {
 				className="text-nova-text-muted"
 			/>
 			<Icon
-				icon={SEARCH_INPUT_TYPE_ICONS[input.type]}
+				icon={searchInputIcon(input)}
 				width="14"
 				height="14"
 				className="text-nova-violet-bright"

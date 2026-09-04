@@ -16,6 +16,7 @@ import { emitCaseListFilter } from "@/lib/commcare/predicate/caseListFilterEmitt
 import {
 	ownRecordValue,
 	type SearchInputDef,
+	type SelectSearchInputDef,
 	searchInputDefault,
 } from "@/lib/domain";
 import type {
@@ -32,9 +33,12 @@ import {
 	previewUserPropertySlugMap,
 } from "./identity";
 import {
+	evaluateLookupChoices,
 	expressionLookupsCovered,
 	foldTableLookupsInExpression,
 	foldTableLookupsInPredicate,
+	type LookupChoice,
+	lookupOptionsSourceCovered,
 	type PreviewLookupData,
 } from "./lookupEvaluation";
 import type { SearchInputValues } from "./runtimeBindings";
@@ -100,9 +104,43 @@ export function evaluatePreviewSearchPredicate(
 	inputValues: SearchInputValues = new Map(),
 	lookupData?: PreviewLookupData,
 ): boolean {
+	return toBoolean(
+		evaluatePreviewSearchXPath(
+			emitPreviewSearchPredicate(
+				predicate,
+				searchInputs,
+				session,
+				inputValues,
+				lookupData,
+			),
+			session,
+		),
+	);
+}
+
+/**
+ * The exact on-device XPath a search-screen predicate evaluates as, with
+ * the draft's answers bound in and lookup carriers folded, so that a caller
+ * with a different evaluator (the XPath worker, for a pattern-bearing
+ * constraint) runs the same bytes the scalar path does. Only the session
+ * instance remains to be resolved.
+ *
+ * A hidden input the bag does not carry is seeded here: the device holds
+ * every hidden prompt's value from the moment it builds the query screen
+ * (`util/screen/QueryScreen.java::init`), so a condition reading one judges
+ * the seeded value before the worker searches, not blank. A bag that
+ * already carries the value (the submitted answers) keeps it.
+ */
+export function emitPreviewSearchPredicate(
+	predicate: Predicate,
+	searchInputs: readonly SearchInputDef[],
+	session: PreviewSearchSessionValues,
+	inputValues: SearchInputValues = new Map(),
+	lookupData?: PreviewLookupData,
+): string {
 	const expressionValues = withSearchInputExpressionValues(
 		searchInputs,
-		inputValues,
+		withSeededHiddenValues(searchInputs, inputValues, session, lookupData),
 	);
 	const bound = bindSearchInputValuesInPredicate(
 		predicate,
@@ -117,14 +155,27 @@ export function evaluatePreviewSearchPredicate(
 					outer: searchSessionEvalContext(session),
 					userPropertySlugs: previewUserPropertySlugMap(session),
 				});
-	return toBoolean(
-		evaluatePreviewSearchXPath(
-			emitCaseListFilter(folded, "casedb", {
-				userPropertySlugs: previewUserPropertySlugMap(session),
-			}),
-			session,
-		),
+	return emitCaseListFilter(folded, "casedb", {
+		userPropertySlugs: previewUserPropertySlugMap(session),
+	});
+}
+
+/** The bag with every hidden input it lacks resolved in, or the bag
+ *  itself when it already holds them all (or there are none). */
+function withSeededHiddenValues(
+	searchInputs: readonly SearchInputDef[],
+	inputValues: SearchInputValues,
+	session: PreviewSearchSessionValues,
+	lookupData: PreviewLookupData | undefined,
+): SearchInputValues {
+	const missing = searchInputs.filter(
+		(input) => input.kind === "hidden" && !inputValues.has(input.name),
 	);
+	if (missing.length === 0) return inputValues;
+	return new Map([
+		...inputValues,
+		...resolveSearchHiddenValues(missing, session, lookupData),
+	]);
 }
 
 function evaluatePreviewSearchXPath(
@@ -217,6 +268,66 @@ export function resolveSearchInputDefaults(
 		values.set(input.name, value);
 	}
 	return values;
+}
+
+/**
+ * Resolve every hidden input's system-generated value at the moment the
+ * worker searches. CommCare seeds a hidden prompt's `default` into the
+ * answers when it builds the query screen and re-evaluates it on every
+ * rebuild (`util/screen/QueryScreen.java::init`), so the value a search
+ * carries is the one current when the worker pressed Search, never a
+ * value typed by the worker. A hidden input reads no sibling answer
+ * (the validator refuses `input(...)` in its value), so each expression
+ * evaluates over the session alone. A value whose lookup carriers the
+ * held snapshot does not cover contributes nothing this resolution; a
+ * blank result is omitted, matching an unanswered prompt.
+ */
+export function resolveSearchHiddenValues(
+	searchInputs: readonly SearchInputDef[],
+	session: PreviewSearchSessionValues,
+	lookupData?: PreviewLookupData,
+): SearchInputValues {
+	const values = new Map<string, string>();
+	for (const input of searchInputs) {
+		if (input.kind !== "hidden") continue;
+		if (!expressionLookupsCovered(input.value, lookupData)) continue;
+		const value = evaluatePreviewSearchExpression(
+			input.value,
+			session,
+			undefined,
+			undefined,
+			lookupData,
+		);
+		if (value === "") continue;
+		values.set(input.name, value);
+	}
+	return values;
+}
+
+/**
+ * The choices a lookup-backed Search prompt offers right now: the source
+ * table's rows in authored order, filtered by the authored row filter over
+ * table columns and session values (the search screen has no case and the
+ * filter admits no sibling answer). `undefined` while the held snapshot
+ * does not cover the source, which the widget renders as its loading
+ * state; blank or duplicate values stay in the list, exactly as the device
+ * fixture would carry them.
+ */
+export function resolveSearchInputChoices(
+	input: SelectSearchInputDef,
+	session: PreviewSearchSessionValues,
+	lookupData: PreviewLookupData | undefined,
+): readonly LookupChoice[] | undefined {
+	if (
+		lookupData === undefined ||
+		!lookupOptionsSourceCovered(input.options, lookupData)
+	) {
+		return undefined;
+	}
+	return evaluateLookupChoices(input.options, lookupData, {
+		outer: searchSessionEvalContext(session),
+		userPropertySlugs: previewUserPropertySlugMap(session),
+	});
 }
 
 /** CCHQ splits this one niche value on whitespace only; commas remain ids. */

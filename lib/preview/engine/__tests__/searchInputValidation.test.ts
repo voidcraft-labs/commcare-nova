@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { advancedSearchInputDef, type CaseListConfig } from "@/lib/domain";
+import {
+	advancedSearchInputDef,
+	type CaseListConfig,
+	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import {
 	and,
 	concat,
@@ -11,7 +16,9 @@ import {
 	eq,
 	gt,
 	input,
+	isBlank,
 	matchAll,
+	matchesPattern,
 	prop,
 	sessionUser,
 	subcasePath,
@@ -24,6 +31,7 @@ import {
 	searchInputRuntimeGlobalError,
 	searchInputRuntimeQuoteErrors,
 	searchInputSubmissionErrors,
+	searchInputSubmissionErrorsOnDevice,
 } from "../searchInputValidation";
 
 const FIRST = testUuid("00000000-0000-0000-0000-0000000000a1");
@@ -430,5 +438,167 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				userPropertySlugs: {},
 			}),
 		).toBeUndefined();
+	});
+});
+
+describe("searchInputSubmissionErrors — Search screen required conditions and checks", () => {
+	// The composed gate the Search screen and the server action share. The
+	// constraint layer itself is covered in `searchInputConstraints.test.ts`;
+	// these pin how it composes with the CSQL-derived errors on one prompt
+	// and how the two gates differ only in what a Pattern engine adds.
+	const NAME = testUuid("00000000-0000-0000-0000-0000000000c1");
+	const PHONE = testUuid("00000000-0000-0000-0000-0000000000c2");
+	const EMAIL = testUuid("00000000-0000-0000-0000-0000000000c3");
+
+	const config: CaseListConfig = resolveCaseListConfig({
+		columns: [],
+		searchInputs: [
+			simpleSearchInputDef(NAME, "full_name", "Name", "text", "full_name", {
+				required: {},
+			}),
+			simpleSearchInputDef(PHONE, "phone", "Phone", "text", "phone", {
+				// One of the two identifies the person.
+				required: {
+					when: isBlank(input(NAME)),
+					message: "Give a name or a phone number.",
+				},
+			}),
+			simpleSearchInputDef(EMAIL, "email", "Email", "text", "email", {
+				validation: {
+					rule: matchesPattern(input(EMAIL), "@"),
+					message: "Enter an email address.",
+				},
+			}),
+		],
+	});
+
+	it("reports a blank required prompt with its message", () => {
+		const errors = searchInputSubmissionErrors(config, "patient", new Map());
+		expect(errors.get("full_name")).toBe(SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE);
+		expect(errors.get("phone")).toBe("Give a name or a phone number.");
+	});
+
+	it("judges a sibling-answered condition from the submitted values", () => {
+		const errors = searchInputSubmissionErrors(
+			config,
+			"patient",
+			new Map([["full_name", "Asha"]]),
+		);
+		expect(errors.has("phone")).toBe(false);
+		expect(errors.has("full_name")).toBe(false);
+	});
+
+	it("skips a check on a blank answer", () => {
+		const errors = searchInputSubmissionErrors(
+			config,
+			"patient",
+			new Map([["full_name", "Asha"]]),
+		);
+		expect(errors.has("email")).toBe(false);
+	});
+
+	it("leaves a pattern-bearing check unjudged without a Pattern engine", () => {
+		const errors = searchInputSubmissionErrors(
+			config,
+			"patient",
+			new Map([
+				["full_name", "Asha"],
+				["email", "not-an-address"],
+			]),
+		);
+		expect(errors.has("email")).toBe(false);
+	});
+
+	it("judges the pattern-bearing check on the device path with the answer bound in", async () => {
+		const sources: string[] = [];
+		const errors = await searchInputSubmissionErrorsOnDevice(
+			config,
+			"patient",
+			new Map([
+				["full_name", "Asha"],
+				["email", "not-an-address"],
+			]),
+			undefined,
+			undefined,
+			{
+				evaluateOnDevice: async (source) => {
+					sources.push(source);
+					return false;
+				},
+			},
+		);
+		expect(errors.get("email")).toBe("Enter an email address.");
+		expect(sources).toEqual(["regex('not-an-address', '@')"]);
+	});
+
+	it("clears the check on the device path when the answer fits", async () => {
+		const errors = await searchInputSubmissionErrorsOnDevice(
+			config,
+			"patient",
+			new Map([
+				["full_name", "Asha"],
+				["email", "asha@example.org"],
+			]),
+			undefined,
+			undefined,
+			{ evaluateOnDevice: async () => true },
+		);
+		expect(errors.size).toBe(0);
+	});
+
+	it("decides plain constraints identically on both gates without the device", async () => {
+		let devicePasses = 0;
+		const onDevice = await searchInputSubmissionErrorsOnDevice(
+			config,
+			"patient",
+			new Map(),
+			undefined,
+			undefined,
+			{
+				evaluateOnDevice: async () => {
+					devicePasses += 1;
+					return true;
+				},
+			},
+		);
+		expect(devicePasses).toBe(0);
+		expect(onDevice).toEqual(
+			searchInputSubmissionErrors(config, "patient", new Map()),
+		);
+	});
+
+	it("lets an authored check message win over the CSQL quote error on one prompt", () => {
+		// The worker can act on the authored sentence directly; the system
+		// quote sentence describes the same answer less usefully.
+		const QUERY = testUuid("00000000-0000-0000-0000-0000000000c4");
+		const quoted: CaseListConfig = resolveCaseListConfig({
+			columns: [],
+			searchInputs: [
+				advancedSearchInputDef(
+					QUERY,
+					"query",
+					"Query",
+					"text",
+					whenInput(
+						input(QUERY),
+						eq(prop("patient", "case_name"), input(QUERY)),
+					),
+					{
+						validation: {
+							rule: isBlank(input(QUERY)),
+							message: "Leave the query blank.",
+						},
+					},
+				),
+			],
+		});
+		const value = new Map([["query", `O'Brien said "hello"`]]);
+
+		expect(
+			searchInputRuntimeQuoteErrors(quoted, "patient", value).get("query"),
+		).toContain("quotation mark");
+		expect(
+			searchInputSubmissionErrors(quoted, "patient", value).get("query"),
+		).toBe("Leave the query blank.");
 	});
 });

@@ -65,6 +65,7 @@ import {
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import type { CaseRowWithCalculated } from "@/lib/preview/engine/caseDataBindingTypes";
+import { BuilderFormEngineProvider } from "@/lib/preview/engine/provider";
 import { invalidateCaseData } from "@/lib/preview/hooks/caseDataInvalidation";
 import type { Location } from "@/lib/routing/types";
 import type {
@@ -843,9 +844,14 @@ function renderCaseListScreen(opts: {
 		>
 			<BuilderLocalizationProvider>
 				<CaptureDocStore />
-				<CaseListScreen
-					screen={{ type: "caseList", moduleUuid: MODULE_UUID }}
-				/>
+				{/* The screen judges a pattern-bearing Search constraint in the
+				 * engine's Search worker, so it mounts inside the engine
+				 * provider exactly as the running app does. */}
+				<BuilderFormEngineProvider>
+					<CaseListScreen
+						screen={{ type: "caseList", moduleUuid: MODULE_UUID }}
+					/>
+				</BuilderFormEngineProvider>
 			</BuilderLocalizationProvider>
 		</BlueprintDocProvider>
 	);

@@ -457,6 +457,19 @@ export function predicateReadsRelatedCaseData(predicate: Predicate): boolean {
 	return readsRelated;
 }
 
+/**
+ * Whether the predicate carries a `matches-pattern` leaf anywhere. Such a
+ * predicate can execute only where a Java Pattern engine runs: the device,
+ * and Preview's XPath worker. Callers without one leave it unjudged.
+ */
+export function predicateUsesPattern(predicate: Predicate): boolean {
+	let uses = false;
+	walkPredicateNodes(predicate, (node) => {
+		if (node.kind === "matches-pattern") uses = true;
+	});
+	return uses;
+}
+
 // ── Internal recursion ────────────────────────────────────────────
 
 interface AstVisitor {
@@ -533,6 +546,7 @@ function walkPredicate(
 			}
 			return;
 		case "is-blank":
+		case "matches-pattern":
 			walkValueExpression(predicate.left, visitor, [...path, "left"]);
 			return;
 		case "between":

@@ -31,6 +31,7 @@ export function isStructuralPredicate(
 		case "in":
 		case "between":
 		case "is-blank":
+		case "matches-pattern":
 		case "match":
 		case "multi-select-contains":
 		case "within-distance":

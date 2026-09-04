@@ -17,6 +17,8 @@ describe("moduleTypeContext search-input runtime values", () => {
 			date: "date",
 			"date-range": "text",
 			barcode: "text",
+			select: "text",
+			"multi-select": "text",
 		});
 	});
 

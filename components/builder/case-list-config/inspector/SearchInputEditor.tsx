@@ -1,13 +1,24 @@
 // components/builder/case-list-config/inspector/SearchInputEditor.tsx
 //
 // Inspector body for one search field. ONE view serves every author:
-// Label → what it searches → how the field looks → how it matches →
-// what it starts with. The internal reference name is still available
-// behind one quiet Advanced disclosure; storage vocabulary should not
-// compete with the worker-facing choices in the normal flow. Writing a
-// custom condition remains the last choice in the Match picker. The rail
-// summarizes it and opens the center workbench; picking any standard match
-// brings the standard controls back here.
+// Label and hint → what it searches → how the field looks → how it matches →
+// what it starts with → whether an answer is required → one check on the
+// answer. The internal reference name is still available behind one quiet
+// Advanced disclosure; storage vocabulary should not compete with the
+// worker-facing choices in the normal flow. Writing a custom condition
+// remains the last choice in the Match picker. The rail summarizes it and
+// opens the center workbench; picking any standard match brings the standard
+// controls back here. The required condition and the check rule follow the
+// same rule: a summary here, the full editor in the center.
+//
+// A hidden value is a different thing (no widget, no match, never shown), so
+// a row of that kind renders `HiddenSearchValueEditor` instead of this view.
+//
+// A choice widget (`select` / `multi-select`) needs a Project data table
+// before it can exist, so choosing one for a field that has no choices yet
+// STAGES the type change: the table and columns are chosen first and the
+// field changes type in one commit once they are complete. Cancel leaves the
+// field as it was. Nothing here can land a choice field without its table.
 //
 // Under the hood the schema still splits into two arms (`simple`
 // carries `(property, mode, via)`; `advanced` carries a predicate
@@ -40,11 +51,13 @@ import {
 	type SearchableChoice,
 	SearchableChoiceCombobox,
 } from "@/components/builder/case-list-config/SearchableChoiceCombobox";
+import { firstComparisonDefault } from "@/components/builder/shared/cards/comparisonSeed";
 import { ExpressionCardEditor } from "@/components/builder/shared/ExpressionCardEditor";
 import {
 	buildValidityIndex,
 	PredicateEditProvider,
 } from "@/components/builder/shared/editorContext";
+import type { PredicateEditContext } from "@/components/builder/shared/editorSchemas";
 import { BlurCommitTextInput } from "@/components/builder/shared/primitives/BlurCommitTextInput";
 import { InlineError } from "@/components/builder/shared/primitives/CardShell";
 import {
@@ -87,16 +100,25 @@ import {
 	type CaseType,
 	DEFAULT_SEARCH_MODE_KIND,
 	effectiveDataType,
+	isSelectSearchInputType,
+	type LookupOptionsSource,
+	multiSelectSearchInputRefusal,
+	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	SEARCH_INPUT_TYPE_PROPERTY_TYPES,
 	SEARCH_INPUT_TYPES,
 	SEARCH_MODE_PROPERTY_TYPES,
 	type SearchInputDef,
 	type SearchInputMode,
+	type SearchInputRequired,
 	type SearchInputType,
+	type SearchInputValidation,
+	type SelectSearchInputType,
 	type SimpleSearchInputDef,
 	searchInputDefault,
+	searchInputOptions,
 	simpleSearchInputDef,
 	type UserProperty,
+	type VisibleSearchInputDef,
 } from "@/lib/domain";
 import {
 	acceptsType,
@@ -107,7 +129,10 @@ import {
 	type ValueExpression,
 } from "@/lib/domain/predicate";
 import { DISCLOSURE_ROW_CLS } from "@/lib/styles";
-import { summarizeFilter } from "../predicateSummary";
+import {
+	type PredicateSummaryContext,
+	summarizeFilter,
+} from "../predicateSummary";
 import {
 	buildMode,
 	canSeedCustomConditionFaithfully,
@@ -137,6 +162,10 @@ import {
 	widgetTypeForProperty,
 	xmlNameFromProperty,
 } from "../seeds";
+import type { SearchConditionSlot } from "../workspaceSelection";
+import { HiddenSearchValueEditor } from "./HiddenSearchValueEditor";
+import { SearchChoiceSourceEditor } from "./SearchChoiceSourceEditor";
+import { FieldRow } from "./searchInputFieldRow";
 
 // ── Public types ──────────────────────────────────────────────────
 
@@ -154,9 +183,14 @@ export interface SearchInputEditorProps {
 	readonly currentCaseType: string;
 	readonly userProperties?: readonly UserProperty[];
 	readonly onChange: (next: SearchInputDef) => void;
-	/** Opens this field's custom condition in the center-canvas workbench. */
-	readonly onEditCondition: () => void;
+	/** Opens one of this field's conditions in the center-canvas workbench:
+	 *  the custom match, the required condition, or the check rule. */
+	readonly onEditCondition: (slot: SearchConditionSlot) => void;
 }
+
+/** Placeholder a fresh check carries until the author writes the real one. */
+export const SEARCH_INPUT_CHECK_SEED_MESSAGE =
+	"Check this answer and try again";
 
 /** Where a simple row's property lives: this case, the parent case,
  *  or a non-canonical relation walk authored elsewhere (chat, MCP). */
@@ -197,9 +231,32 @@ function classifyVia(via: RelationPath | undefined): BindingScope {
 
 /**
  * Inspector body for one search field. Every control labeled, every
- * target full-size, one view for all authors.
+ * target full-size, one view for all authors. A hidden value is its own
+ * surface; every visible widget shares the one below.
  */
-export function SearchInputEditor({
+export function SearchInputEditor(props: SearchInputEditorProps) {
+	if (props.value.kind === "hidden") {
+		return (
+			<HiddenSearchValueEditor
+				value={props.value}
+				index={props.index}
+				siblings={props.siblings}
+				caseTypes={props.caseTypes}
+				currentCaseType={props.currentCaseType}
+				userProperties={props.userProperties}
+				onChange={props.onChange}
+			/>
+		);
+	}
+	return <VisibleSearchInputEditor {...props} value={props.value} />;
+}
+
+interface VisibleSearchInputEditorProps
+	extends Omit<SearchInputEditorProps, "value"> {
+	readonly value: VisibleSearchInputDef;
+}
+
+function VisibleSearchInputEditor({
 	value,
 	index,
 	siblings,
@@ -208,13 +265,18 @@ export function SearchInputEditor({
 	userProperties = [],
 	onChange,
 	onEditCondition,
-}: SearchInputEditorProps) {
+}: VisibleSearchInputEditorProps) {
 	const [pendingStandardReplacement, setPendingStandardReplacement] =
 		useState<PendingStandardReplacement | null>(null);
 	const [pendingInputTransition, setPendingInputTransition] =
 		useState<PendingInputTransition | null>(null);
 	const [pendingCustomConversion, setPendingCustomConversion] =
 		useState<SimpleSearchInputDef | null>(null);
+	/* A choice widget chosen for a field that has no choice list yet. The type
+	 * picker shows it while the table is being chosen; the field itself does
+	 * not change until the source is complete. */
+	const [pendingChoiceType, setPendingChoiceType] =
+		useState<SelectSearchInputType | null>(null);
 	const bindingTriggerRef = useRef<HTMLButtonElement>(null);
 	const typeTriggerRef = useRef<HTMLButtonElement>(null);
 	const matchTriggerRef = useRef<HTMLButtonElement>(null);
@@ -246,10 +308,30 @@ export function SearchInputEditor({
 
 	// ── Common-slot mutators ──
 
-	const setName = (name: string) => onChange(rebuildRow(value, { name }));
+	/* A multiple-choice field matches only when its reference name IS the
+	 * property it searches (`multiSelectSearchInputRefusal`), so a rename that
+	 * breaks that is held with the reason instead of bouncing off the gate. */
+	const [nameRefusal, setNameRefusal] = useState<string | null>(null);
+	const setName = (name: string) => {
+		if (value.kind === "simple" && value.type === "multi-select") {
+			const refusal = multiSelectSearchInputRefusal({ ...value, name });
+			if (refusal !== undefined) {
+				setNameRefusal(refusal);
+				return;
+			}
+		}
+		setNameRefusal(null);
+		onChange(rebuildRow(value, { name }));
+	};
+	/* The reason a multiple-choice widget is withheld from this row, if any:
+	 * the same verdict the commit gate applies. */
+	const multiSelectRefusal =
+		value.kind === "simple" && value.type !== "multi-select"
+			? multiSelectSearchInputRefusal(value)
+			: undefined;
 	const setLabel = (label: string) => onChange(rebuildRow(value, { label }));
 	const requestInputTransition = (
-		next: SearchInputDef,
+		next: VisibleSearchInputDef,
 		focus: TransitionFocus,
 		targetDescription: string,
 	) => {
@@ -265,7 +347,10 @@ export function SearchInputEditor({
 			currentDefault !== undefined &&
 			nextDefault === undefined &&
 			expressionHasMeaningfulContent(currentDefault);
-		if (!modeChanged && !meaningfulDefaultRemoved) {
+		const choicesRemoved =
+			searchInputOptions(value) !== undefined &&
+			searchInputOptions(next) === undefined;
+		if (!modeChanged && !meaningfulDefaultRemoved && !choicesRemoved) {
 			onChange(next);
 			return;
 		}
@@ -282,6 +367,11 @@ export function SearchInputEditor({
 				`The starting value will be removed because ${targetDescription} can't use it.`,
 			);
 		}
+		if (choicesRemoved) {
+			consequences.push(
+				`The choice list will be removed because ${targetDescription} doesn't offer choices.`,
+			);
+		}
 		consequences.push("You can undo this change.");
 		setPendingInputTransition({
 			source: value,
@@ -292,8 +382,7 @@ export function SearchInputEditor({
 		});
 	};
 
-	const setType = (type: SearchInputType) => {
-		if (type === value.type) return;
+	const applyType = (type: SearchInputType, options?: LookupOptionsSource) => {
 		const keepMode =
 			value.kind !== "simple" ||
 			value.mode === undefined ||
@@ -304,13 +393,40 @@ export function SearchInputEditor({
 			defaultFitsInputType(currentDefault, type, caseTypes, currentCaseType);
 		const next = rebuildRow(value, {
 			type,
+			...(options === undefined ? {} : { options }),
 			...(keepMode ? {} : { mode: undefined }),
 			...(keepDefault ? {} : { default: undefined }),
 		});
 		requestInputTransition(next, "type", SEARCH_INPUT_TYPE_LABELS[type]);
 	};
+	const setType = (type: SearchInputType) => {
+		if (type === value.type) {
+			setPendingChoiceType(null);
+			return;
+		}
+		// A choice widget cannot exist without its table. When the field already
+		// offers choices the list carries over; otherwise the change waits for
+		// the source editor to complete it.
+		if (
+			isSelectSearchInputType(type) &&
+			searchInputOptions(value) === undefined
+		) {
+			setPendingChoiceType(type);
+			return;
+		}
+		setPendingChoiceType(null);
+		applyType(type);
+	};
 	const setDefault = (next: ValueExpression | undefined) =>
 		onChange(rebuildRow(value, { default: next }));
+	const setHint = (hint: string) =>
+		onChange(rebuildRow(value, { hint: hint === "" ? undefined : hint }));
+	const setRequired = (required: SearchInputRequired | undefined) =>
+		onChange(rebuildRow(value, { required }));
+	const setValidation = (validation: SearchInputValidation | undefined) =>
+		onChange(rebuildRow(value, { validation }));
+	const setOptions = (options: LookupOptionsSource) =>
+		onChange(rebuildRow(value, { options }));
 
 	// ── Simple-arm mutators ──
 
@@ -351,11 +467,42 @@ export function SearchInputEditor({
 		const propertyDef = (
 			caseTypes.find((c) => c.name === destination)?.properties ?? []
 		).find((p) => p.name === property);
+		if (
+			value.label === "" ||
+			value.label === labelFromProperty(value.property)
+		) {
+			patch.label =
+				propertyDef !== undefined
+					? propertyDisplayLabel(propertyDef, projectProse)
+					: labelFromProperty(property);
+		}
+		const oldBase = xmlNameFromProperty(value.property);
+		const nameDerived =
+			value.name === "" ||
+			value.name === oldBase ||
+			new RegExp(`^${oldBase}_\\d+$`).test(value.name);
+		if (nameDerived) {
+			patch.name = uniqueInputName(
+				xmlNameFromProperty(property),
+				siblings.filter((s) => s.uuid !== value.uuid),
+			);
+		}
+
 		if (propertyDef !== undefined) {
 			const dataType = effectiveDataType(propertyDef);
+			// A multiple-choice field also has to keep riding the bare prompt
+			// (this case, a name equal to the property); a binding that breaks
+			// that falls back to the property's natural widget, and the
+			// transition names the choice list it drops.
 			const typeAllowed =
-				SEARCH_INPUT_TYPE_PROPERTY_TYPES[value.type]?.includes(dataType) ??
-				true;
+				(SEARCH_INPUT_TYPE_PROPERTY_TYPES[value.type]?.includes(dataType) ??
+					true) &&
+				(value.type !== "multi-select" ||
+					multiSelectSearchInputRefusal({
+						name: patch.name ?? value.name,
+						property,
+						via,
+					}) === undefined);
 			nextType = typeAllowed ? value.type : widgetTypeForProperty(propertyDef);
 			if (nextType !== value.type) patch.type = nextType;
 			const modeAllowed =
@@ -381,27 +528,6 @@ export function SearchInputEditor({
 			)
 		) {
 			patch.default = undefined;
-		}
-
-		if (
-			value.label === "" ||
-			value.label === labelFromProperty(value.property)
-		) {
-			patch.label =
-				propertyDef !== undefined
-					? propertyDisplayLabel(propertyDef, projectProse)
-					: labelFromProperty(property);
-		}
-		const oldBase = xmlNameFromProperty(value.property);
-		const nameDerived =
-			value.name === "" ||
-			value.name === oldBase ||
-			new RegExp(`^${oldBase}_\\d+$`).test(value.name);
-		if (nameDerived) {
-			patch.name = uniqueInputName(
-				xmlNameFromProperty(property),
-				siblings.filter((s) => s.uuid !== value.uuid),
-			);
 		}
 
 		const next = rebuildRow(value, patch);
@@ -451,6 +577,7 @@ export function SearchInputEditor({
 
 	const applyCustomConversion = (source: SimpleSearchInputDef) => {
 		if (!searchInputsMatch(source, value)) return;
+		const options = searchInputOptions(source);
 		onChange(
 			advancedSearchInputDef(
 				source.uuid,
@@ -459,16 +586,18 @@ export function SearchInputEditor({
 				source.type,
 				seedCustomCondition(source, currentCaseType),
 				{
+					...visibleSlotsOf(source),
 					default: searchInputDefault(source),
+					...(options === undefined ? {} : { options }),
 				},
 			),
 		);
-		onEditCondition();
+		onEditCondition("match");
 	};
 
 	const toCustomCondition = () => {
 		if (value.kind === "advanced") {
-			onEditCondition();
+			onEditCondition("match");
 			return;
 		}
 		if (!canSeedCustomConditionFaithfully(value)) {
@@ -499,8 +628,18 @@ export function SearchInputEditor({
 				? properties.find((p) => p.name === recovered)
 				: undefined) ?? pickSeedProperty(ct, used);
 		if (propertyDef === undefined) return null;
-		const inferredType = widgetTypeForProperty(propertyDef);
 		const dataType = effectiveDataType(propertyDef);
+		const currentOptions = searchInputOptions(value);
+		// A choice list survives the conversion while the recovered property can
+		// still hold a chosen token; otherwise the widget follows the property.
+		const keepChoices =
+			currentOptions !== undefined &&
+			isSelectSearchInputType(value.type) &&
+			(SEARCH_INPUT_TYPE_PROPERTY_TYPES[value.type]?.includes(dataType) ??
+				true);
+		const inferredType = keepChoices
+			? value.type
+			: widgetTypeForProperty(propertyDef);
 		const type =
 			kind === "range" &&
 			(dataType === undefined || dataType === "date" || dataType === "datetime")
@@ -519,6 +658,7 @@ export function SearchInputEditor({
 		const keepDefault =
 			currentDefault === undefined ||
 			defaultFitsInputType(currentDefault, type, caseTypes, currentCaseType);
+		const visible = visibleSlotsOf(value);
 		const next =
 			type === "date-range"
 				? simpleSearchInputDef(
@@ -527,19 +667,35 @@ export function SearchInputEditor({
 						value.label,
 						type,
 						propertyDef.name,
-						{ mode: { kind: "range" } },
+						{ ...visible, mode: { kind: "range" } },
 					)
-				: simpleSearchInputDef(
-						value.uuid,
-						value.name,
-						value.label,
-						type,
-						propertyDef.name,
-						{
-							default: keepDefault ? currentDefault : undefined,
-							...(mode !== undefined && mode.kind !== "range" ? { mode } : {}),
-						},
-					);
+				: isSelectSearchInputType(type) && currentOptions !== undefined
+					? simpleSearchInputDef(
+							value.uuid,
+							value.name,
+							value.label,
+							type,
+							propertyDef.name,
+							{
+								...visible,
+								options: currentOptions,
+								default: keepDefault ? currentDefault : undefined,
+							},
+						)
+					: simpleSearchInputDef(
+							value.uuid,
+							value.name,
+							value.label,
+							type,
+							propertyDef.name,
+							{
+								...visible,
+								default: keepDefault ? currentDefault : undefined,
+								...(mode !== undefined && mode.kind !== "range"
+									? { mode }
+									: {}),
+							},
+						);
 		const resultingMode = effectiveModeKind(next);
 		const targetPropertyLabel = propertyDisplayLabel(propertyDef, projectProse);
 		return {
@@ -598,6 +754,15 @@ export function SearchInputEditor({
 					{resolved.labelEmpty && <InlineError errors={["Enter a label"]} />}
 				</FieldRow>
 
+				<FieldRow label="Hint" hint="A short line under the label, if it helps">
+					<BlurCommitTextInput
+						value={value.hint ?? ""}
+						onCommit={setHint}
+						placeholder="Optional"
+						ariaLabel={`Search field ${index + 1} hint`}
+					/>
+				</FieldRow>
+
 				{value.kind === "simple" && (
 					<FieldRow label="Case information">
 						<BindingPicker
@@ -612,15 +777,56 @@ export function SearchInputEditor({
 					</FieldRow>
 				)}
 
-				<FieldRow label="Field type">
+				<FieldRow
+					label="Field type"
+					hint={
+						pendingChoiceType === null
+							? undefined
+							: "Choose the table the choices come from to finish this change"
+					}
+				>
 					<TypePicker
-						value={value.type}
+						value={pendingChoiceType ?? value.type}
 						onChange={setType}
 						propertyDataType={propertyDataType}
+						multiSelectRefusal={multiSelectRefusal}
 						rowIndex={index}
 						triggerRef={typeTriggerRef}
 					/>
 				</FieldRow>
+
+				{pendingChoiceType !== null ? (
+					<FieldRow label="Choices">
+						<SearchChoiceSourceEditor
+							value={undefined}
+							caseTypes={caseTypes}
+							userProperties={userProperties}
+							rowIndex={index}
+							onCommit={(options) => {
+								setPendingChoiceType(null);
+								applyType(pendingChoiceType, options);
+							}}
+							onCancel={() => setPendingChoiceType(null)}
+						/>
+					</FieldRow>
+				) : isSelectSearchInputType(value.type) ? (
+					<FieldRow
+						label="Choices"
+						hint={
+							value.type === "multi-select"
+								? "People tick any that apply, and a case matches when it holds one of them"
+								: "People pick one, and a case matches when it holds that value"
+						}
+					>
+						<SearchChoiceSourceEditor
+							value={searchInputOptions(value)}
+							caseTypes={caseTypes}
+							userProperties={userProperties}
+							rowIndex={index}
+							onCommit={setOptions}
+						/>
+					</FieldRow>
+				) : null}
 
 				<FieldRow
 					label="How it matches"
@@ -661,7 +867,7 @@ export function SearchInputEditor({
 								data-condition-origin
 								type="button"
 								variant="outline"
-								onClick={onEditCondition}
+								onClick={() => onEditCondition("match")}
 								className="mt-3 w-full"
 							>
 								Edit condition
@@ -684,6 +890,32 @@ export function SearchInputEditor({
 					/>
 				)}
 
+				<RequiredSlot
+					value={value.required}
+					rowIndex={index}
+					summaryContext={{
+						caseTypes,
+						currentCaseType,
+						knownInputs,
+						projectProse,
+					}}
+					onChange={setRequired}
+					onEditCondition={() => onEditCondition("required")}
+				/>
+
+				<CheckSlot
+					value={value.validation}
+					rowIndex={index}
+					summaryContext={{
+						caseTypes,
+						currentCaseType,
+						knownInputs,
+						projectProse,
+					}}
+					onChange={setValidation}
+					onEditRule={() => onEditCondition("validation")}
+				/>
+
 				<AdvancedInputSettings active={resolved.nameState.kind !== "ok"}>
 					<FieldRow
 						label="Name used in other conditions"
@@ -694,6 +926,7 @@ export function SearchInputEditor({
 							onCommit={setName}
 							ariaLabel={`Search field ${index + 1} name used in other conditions`}
 						/>
+						{nameRefusal !== null && <InlineError errors={[nameRefusal]} />}
 						{resolved.nameState.kind === "empty" && (
 							<InlineError errors={["Enter a name used in other conditions"]} />
 						)}
@@ -868,38 +1101,299 @@ function AdvancedInputSettings({
 	);
 }
 
-// ── Field chrome ──────────────────────────────────────────────────
+// ── Required + check slots ────────────────────────────────────────
+//
+// Both evaluate on the Search screen itself, where every sibling answer is
+// readable, and both are enforced by Web Apps only: Android never checks a
+// prompt before it searches. The rail holds the choice and the message; a
+// condition or rule opens in the center canvas like the custom match does.
 
-/** Friendly sentence-case label + control + quiet hint. */
-function FieldRow({
-	label,
-	hint,
-	children,
-}: {
-	readonly label: string;
-	readonly hint?: string;
-	readonly children: React.ReactNode;
-}) {
+type RequiredChoice = "optional" | "always" | "conditional";
+
+function requiredChoiceOf(
+	required: SearchInputRequired | undefined,
+): RequiredChoice {
+	if (required === undefined) return "optional";
+	return required.when === undefined ? "always" : "conditional";
+}
+
+const REQUIRED_CHOICE_LABELS: Record<RequiredChoice, string> = {
+	optional: "Optional",
+	always: "Always required",
+	conditional: "Required under a condition",
+};
+
+const REQUIRED_CHOICE_DESCRIPTIONS: Record<RequiredChoice, string> = {
+	optional: "People can search without answering",
+	always: "People must answer before they search",
+	conditional: "Required only while a condition holds",
+};
+
+const REQUIRED_CHOICES: readonly RequiredChoice[] = [
+	"optional",
+	"always",
+	"conditional",
+];
+
+interface RequiredSlotProps {
+	readonly value: SearchInputRequired | undefined;
+	readonly rowIndex: number;
+	readonly summaryContext: PredicateSummaryContext;
+	readonly onChange: (next: SearchInputRequired | undefined) => void;
+	readonly onEditCondition: () => void;
+}
+
+function RequiredSlot({
+	value,
+	rowIndex,
+	summaryContext,
+	onChange,
+	onEditCondition,
+}: RequiredSlotProps) {
+	const choice = requiredChoiceOf(value);
+	const pick = (next: RequiredChoice) => {
+		if (next === choice) return;
+		switch (next) {
+			case "optional":
+				onChange(undefined);
+				return;
+			case "always":
+				onChange(
+					value?.message === undefined ? {} : { message: value.message },
+				);
+				return;
+			case "conditional": {
+				const when = firstComparisonDefault({
+					...summaryContextToEditContext(summaryContext),
+					caseDataScope: "global",
+					patternMatching: true,
+				});
+				onChange({
+					...(value?.message === undefined ? {} : { message: value.message }),
+					when,
+				});
+				onEditCondition();
+				return;
+			}
+		}
+	};
 	return (
-		/* `gap`, not `space-y`. This row holds popup TRIGGERS, and Base UI mounts
-		 * `position: fixed` focus guards as their siblings while a popup is open.
-		 * Tailwind's space utilities are sibling-counting (`> :not(:last-child)`),
-		 * so those guards change which children are "last" and the spacing moves
-		 * under the open popup. `gap` spaces the children of a flex container
-		 * without reference to their count or order, so an out-of-flow helper
-		 * appearing mid-row cannot shift anything. */
-		<div className="flex flex-col gap-2">
-			<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
-				{label}
-			</div>
-			{children}
-			{hint !== undefined && (
-				<p className="text-[13px] leading-relaxed text-nova-text-muted">
-					{hint}
-				</p>
+		<FieldRow
+			label="Required"
+			hint={
+				choice === "optional"
+					? undefined
+					: "Checked in the browser app. On a phone the search runs either way"
+			}
+		>
+			<DropdownMenu>
+				<DropdownMenuTrigger
+					render={<Button type="button" variant="outline" />}
+					aria-label={`Search field ${rowIndex + 1} required: ${REQUIRED_CHOICE_LABELS[choice]}`}
+					className={PICKER_TRIGGER_CLS}
+				>
+					<span className="flex-1 min-w-0 text-left">
+						<span className="block text-nova-text">
+							{REQUIRED_CHOICE_LABELS[choice]}
+						</span>
+						<span className="block break-words text-[13px] text-nova-text-muted">
+							{REQUIRED_CHOICE_DESCRIPTIONS[choice]}
+						</span>
+					</span>
+					<Icon
+						icon={tablerChevronDown}
+						width="15"
+						height="15"
+						className="shrink-0 text-nova-text-muted transition-transform group-data-[popup-open]:rotate-180"
+					/>
+				</DropdownMenuTrigger>
+				<DropdownMenuContent align="start" preferredMinWidth="17rem">
+					<DropdownMenuRadioGroup
+						value={choice}
+						onValueChange={(next) => pick(next as RequiredChoice)}
+					>
+						{REQUIRED_CHOICES.map((candidate) => {
+							const isActive = candidate === choice;
+							return (
+								<DropdownMenuRadioItem
+									key={candidate}
+									value={candidate}
+									className={
+										isActive ? "text-nova-violet-bright bg-nova-violet/10" : ""
+									}
+								>
+									<span className="flex-1 text-left">
+										<div>{REQUIRED_CHOICE_LABELS[candidate]}</div>
+										<div
+											className={`text-[13px] leading-relaxed ${
+												isActive
+													? "text-nova-violet-bright"
+													: "text-nova-text-muted"
+											}`}
+										>
+											{REQUIRED_CHOICE_DESCRIPTIONS[candidate]}
+										</div>
+									</span>
+								</DropdownMenuRadioItem>
+							);
+						})}
+					</DropdownMenuRadioGroup>
+				</DropdownMenuContent>
+			</DropdownMenu>
+
+			{value !== undefined && (
+				<div className="space-y-3 rounded-xl border border-white/[0.06] bg-nova-deep/30 p-3">
+					{value.when !== undefined && (
+						<div>
+							<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+								{summarizeFilter(value.when, summaryContext) ??
+									"Always, until the condition is edited"}
+							</p>
+							<Button
+								data-condition-origin
+								type="button"
+								variant="outline"
+								onClick={onEditCondition}
+								className="mt-3 w-full"
+							>
+								Edit condition
+							</Button>
+						</div>
+					)}
+					<div className="flex flex-col gap-2">
+						<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
+							Message when unanswered
+						</div>
+						<BlurCommitTextInput
+							value={value.message ?? ""}
+							onCommit={(message) =>
+								onChange({
+									...(value.when === undefined ? {} : { when: value.when }),
+									...(message === "" ? {} : { message }),
+								})
+							}
+							placeholder={SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE}
+							ariaLabel={`Search field ${rowIndex + 1} required message`}
+						/>
+						<p className="text-[13px] leading-relaxed text-nova-text-muted">
+							Leave it blank to use the standard message
+						</p>
+					</div>
+				</div>
 			)}
-		</div>
+		</FieldRow>
 	);
+}
+
+interface CheckSlotProps {
+	readonly value: SearchInputValidation | undefined;
+	readonly rowIndex: number;
+	readonly summaryContext: PredicateSummaryContext;
+	readonly onChange: (next: SearchInputValidation | undefined) => void;
+	readonly onEditRule: () => void;
+}
+
+function CheckSlot({
+	value,
+	rowIndex,
+	summaryContext,
+	onChange,
+	onEditRule,
+}: CheckSlotProps) {
+	const [messageError, setMessageError] = useState<string | null>(null);
+	return (
+		<FieldRow
+			label="Check on the answer"
+			hint={
+				value === undefined
+					? "One rule an answer must pass before the search runs"
+					: "Checked in the browser app once an answer is given. On a phone the search runs either way"
+			}
+		>
+			{value === undefined ? (
+				<Button
+					type="button"
+					onClick={() => {
+						onChange({
+							rule: firstComparisonDefault({
+								...summaryContextToEditContext(summaryContext),
+								caseDataScope: "global",
+								patternMatching: true,
+							}),
+							message: SEARCH_INPUT_CHECK_SEED_MESSAGE,
+						});
+						onEditRule();
+					}}
+					variant="ghost"
+					className="nova-add-slot w-full"
+					aria-label={`Add a check for search field ${rowIndex + 1}`}
+				>
+					<Icon icon={tablerPlus} width="13" height="13" />
+					<span>Add check</span>
+				</Button>
+			) : (
+				<div className="space-y-3 rounded-xl border border-white/[0.06] bg-nova-deep/30 p-3">
+					<div>
+						<p className="text-[13px] leading-relaxed text-nova-text-secondary">
+							{summarizeFilter(value.rule, summaryContext) ??
+								"Every answer passes, until the rule is edited"}
+						</p>
+						<Button
+							data-condition-origin
+							type="button"
+							variant="outline"
+							onClick={onEditRule}
+							className="mt-3 w-full"
+						>
+							Edit rule
+						</Button>
+					</div>
+					<div className="flex flex-col gap-2">
+						<div className="text-[13px] font-medium leading-5 text-nova-text-secondary">
+							Message when the check fails
+						</div>
+						<BlurCommitTextInput
+							value={value.message}
+							onCommit={(message) => {
+								if (message === "") {
+									setMessageError(
+										"Enter the message people read when the check fails",
+									);
+									return;
+								}
+								setMessageError(null);
+								onChange({ rule: value.rule, message });
+							}}
+							ariaLabel={`Search field ${rowIndex + 1} check message`}
+						/>
+						{messageError !== null && <InlineError errors={[messageError]} />}
+					</div>
+					<Button
+						type="button"
+						onClick={() => onChange(undefined)}
+						variant="destructive"
+						className="w-full px-3 text-[14px]"
+						aria-label={`Remove the check for search field ${rowIndex + 1}`}
+					>
+						Remove check
+					</Button>
+				</div>
+			)}
+		</FieldRow>
+	);
+}
+
+/** The seed context for a Search-screen condition: every named sibling is
+ *  readable, case data is not (nothing has been selected yet). The caller
+ *  adds the scope and, for the device-evaluated slots, pattern matching. */
+function summaryContextToEditContext(
+	context: PredicateSummaryContext,
+): Omit<PredicateEditContext, "caseDataScope" | "patternMatching"> {
+	return {
+		caseTypes: context.caseTypes ?? [],
+		currentCaseType: context.currentCaseType ?? "",
+		knownInputs: context.knownInputs ?? [],
+	};
 }
 
 /** The person-to-person line under a dangling property:
@@ -1215,54 +1709,101 @@ interface RowPatch {
 	readonly via?: RelationPath | undefined;
 	readonly mode?: SearchInputMode | undefined;
 	readonly default?: ValueExpression | undefined;
+	readonly hint?: string | undefined;
+	readonly required?: SearchInputRequired | undefined;
+	readonly validation?: SearchInputValidation | undefined;
+	readonly options?: LookupOptionsSource;
 }
 
-function rebuildRow(value: SearchInputDef, patch: RowPatch): SearchInputDef {
+/** The slots every visible prompt carries beside its widget. */
+function visibleSlotsOf(value: VisibleSearchInputDef): {
+	readonly hint?: string;
+	readonly required?: SearchInputRequired;
+	readonly validation?: SearchInputValidation;
+} {
+	return {
+		...(value.hint === undefined ? {} : { hint: value.hint }),
+		...(value.required === undefined ? {} : { required: value.required }),
+		...(value.validation === undefined ? {} : { validation: value.validation }),
+	};
+}
+
+function rebuildRow(
+	value: VisibleSearchInputDef,
+	patch: RowPatch,
+): VisibleSearchInputDef {
 	const type = patch.type ?? value.type;
+	const name = patch.name ?? value.name;
+	const label = patch.label ?? value.label;
+	const hint = "hint" in patch ? patch.hint : value.hint;
+	const required = "required" in patch ? patch.required : value.required;
+	const validation =
+		"validation" in patch ? patch.validation : value.validation;
+	const visible = {
+		...(hint === undefined ? {} : { hint }),
+		...(required === undefined ? {} : { required }),
+		...(validation === undefined ? {} : { validation }),
+	};
+	const dflt = "default" in patch ? patch.default : searchInputDefault(value);
+	// A choice widget's list rides along whenever the target is still a choice
+	// widget; every other widget drops it. The type picker stages a choice
+	// widget until a list exists, so a select without options never reaches here.
+	const options = isSelectSearchInputType(type)
+		? (patch.options ?? searchInputOptions(value))
+		: undefined;
+	if (isSelectSearchInputType(type) && options === undefined) {
+		throw new Error(
+			"A choice search field cannot be rebuilt without its lookup source.",
+		);
+	}
 	if (value.kind === "simple") {
 		const property = patch.property ?? value.property;
 		const via = "via" in patch ? patch.via : value.via;
 		const mode = "mode" in patch ? patch.mode : value.mode;
-		const dflt = "default" in patch ? patch.default : searchInputDefault(value);
-		return type === "date-range"
-			? simpleSearchInputDef(
-					value.uuid,
-					patch.name ?? value.name,
-					patch.label ?? value.label,
-					type,
-					property,
-					{ via, mode: { kind: "range" } },
-				)
-			: simpleSearchInputDef(
-					value.uuid,
-					patch.name ?? value.name,
-					patch.label ?? value.label,
-					type,
-					property,
-					{
-						via,
-						...(mode !== undefined && mode.kind !== "range" ? { mode } : {}),
-						default: dflt,
-					},
-				);
+		if (type === "date-range") {
+			return simpleSearchInputDef(value.uuid, name, label, type, property, {
+				...visible,
+				via,
+				mode: { kind: "range" },
+			});
+		}
+		if (isSelectSearchInputType(type) && options !== undefined) {
+			return simpleSearchInputDef(value.uuid, name, label, type, property, {
+				...visible,
+				via,
+				options,
+				default: dflt,
+			});
+		}
+		return simpleSearchInputDef(value.uuid, name, label, type, property, {
+			...visible,
+			via,
+			...(mode !== undefined && mode.kind !== "range" ? { mode } : {}),
+			default: dflt,
+		});
 	}
-	const dflt = "default" in patch ? patch.default : searchInputDefault(value);
-	return type === "date-range"
-		? advancedSearchInputDef(
-				value.uuid,
-				patch.name ?? value.name,
-				patch.label ?? value.label,
-				type,
-				value.predicate,
-			)
-		: advancedSearchInputDef(
-				value.uuid,
-				patch.name ?? value.name,
-				patch.label ?? value.label,
-				type,
-				value.predicate,
-				{ default: dflt },
-			);
+	if (type === "date-range") {
+		return advancedSearchInputDef(
+			value.uuid,
+			name,
+			label,
+			type,
+			value.predicate,
+			visible,
+		);
+	}
+	return advancedSearchInputDef(
+		value.uuid,
+		name,
+		label,
+		type,
+		value.predicate,
+		{
+			...visible,
+			default: dflt,
+			...(options === undefined ? {} : { options }),
+		},
+	);
 }
 
 // ── Field-type picker ─────────────────────────────────────────────
@@ -1275,6 +1816,9 @@ interface TypePickerProps {
 	 *  picker. `undefined` (custom condition / unresolved property)
 	 *  gates nothing, matching the validator's skip. */
 	readonly propertyDataType: CasePropertyDataType | undefined;
+	/** Why a multiple-choice widget is withheld from this row, when it is:
+	 *  the commit gate's own reason, shown on the disabled item. */
+	readonly multiSelectRefusal?: string;
 	readonly rowIndex: number;
 	readonly triggerRef: RefObject<HTMLButtonElement | null>;
 }
@@ -1283,6 +1827,7 @@ function TypePicker({
 	value,
 	onChange,
 	propertyDataType,
+	multiSelectRefusal,
 	rowIndex,
 	triggerRef,
 }: TypePickerProps) {
@@ -1326,12 +1871,15 @@ function TypePicker({
 						// data type can't run (a calendar over a text
 						// property, say) is disabled with the reason rather
 						// than selectable into a validation error.
+						const refusal =
+							t === "multi-select" ? multiSelectRefusal : undefined;
 						const admitted =
-							propertyDataType === undefined ||
-							(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
-								propertyDataType,
-							) ??
-								true);
+							refusal === undefined &&
+							(propertyDataType === undefined ||
+								(SEARCH_INPUT_TYPE_PROPERTY_TYPES[t]?.includes(
+									propertyDataType,
+								) ??
+									true));
 						return (
 							<DropdownMenuRadioItem
 								key={t}
@@ -1362,7 +1910,8 @@ function TypePicker({
 									>
 										{admitted
 											? SEARCH_INPUT_TYPE_DESCRIPTIONS[t]
-											: "This field type doesn't work with this information"}
+											: (refusal ??
+												"This field type doesn't work with this information")}
 									</div>
 								</span>
 							</DropdownMenuRadioItem>
@@ -1377,7 +1926,7 @@ function TypePicker({
 // ── Match picker: standard modes + the custom arm, one menu ──────
 
 interface MatchPickerProps {
-	readonly value: SearchInputDef;
+	readonly value: VisibleSearchInputDef;
 	/** Effective data type of the bound property: gates which modes
 	 *  are selectable. `undefined` (unresolved property / custom
 	 *  condition) gates nothing, matching the validator's skip. */

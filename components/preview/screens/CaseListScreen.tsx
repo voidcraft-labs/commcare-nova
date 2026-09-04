@@ -102,8 +102,9 @@ import {
 	effectiveCaseSearchConfig,
 	makeTranslationUnitId,
 	orderedColumns,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
 	SEARCH_RUNTIME_VALIDATION_MESSAGES,
+	searchInputRuntimeValueType,
+	visibleSearchInputs,
 } from "@/lib/domain";
 import { formTypeIcons } from "@/lib/domain/formTypeIcons";
 import {
@@ -136,6 +137,7 @@ import type {
 import { formDisplayVisibility } from "@/lib/preview/engine/displayConditionEvaluation";
 import { previewSessionValues } from "@/lib/preview/engine/identity";
 import { predicateLookupsCovered } from "@/lib/preview/engine/lookupEvaluation";
+import { useBuilderFormEngine } from "@/lib/preview/engine/provider";
 import { evaluatePreviewSearchPredicate } from "@/lib/preview/engine/searchExpressionEvaluation";
 import type { PreviewScreen } from "@/lib/preview/engine/types";
 import { usePreviewLookupStatus } from "@/lib/preview/engine/useLookupPreviewData";
@@ -161,6 +163,7 @@ import {
 	reconcilePreviewCaseChoices,
 	togglePreviewCaseChoice,
 } from "@/lib/preview/orderedCaseSelection";
+import { toBoolean } from "@/lib/preview/xpath/coerce";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import {
 	useAccessPhase,
@@ -315,6 +318,22 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		() => previewSessionValues(identity),
 		[identity],
 	);
+	/* A pattern-bearing required condition or check on the Search screen is
+	 * judged in the Search screen's XPath worker, where the device's Java
+	 * Pattern engine runs; the module keys the worker so a module switch
+	 * starts a fresh one. */
+	const engine = useBuilderFormEngine();
+	const evaluateSearchScreenXPath = useCallback(
+		async (source: string) =>
+			toBoolean(
+				await engine.evaluateSearchScreenXPath(
+					moduleUuid,
+					source,
+					searchSession,
+				),
+			),
+		[engine, moduleUuid, searchSession],
+	);
 	const lookupStatus = usePreviewLookupStatus();
 	/* Case-first form conditions evaluate at THIS screen, against the
 	 * SELECTED row's projection: the wire's `<command relevant>` locus
@@ -362,7 +381,7 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 			knownInputs: (config?.searchInputs ?? []).map((input) => ({
 				uuid: input.uuid,
 				name: input.name,
-				data_type: SEARCH_INPUT_RUNTIME_VALUE_TYPES[input.type],
+				data_type: searchInputRuntimeValueType(input),
 			})),
 			...(caseType !== undefined && { currentCaseType: caseType.name }),
 		}),
@@ -397,7 +416,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 		session: searchSession,
 		...(lookupStatus.kind === "data" && { lookupData: lookupStatus.data }),
 	});
-	const hasSearchInputs = (config?.searchInputs.length ?? 0) > 0;
+	/* Hidden inputs are answered by the system at submit, so only visible
+	 * prompts decide whether a worker has a Search screen to fill in; the wire
+	 * makes the same distinction in `compileForPlatform`. */
+	const hasSearchInputs =
+		visibleSearchInputs(config?.searchInputs ?? []).length > 0;
 	const searchButtonCondition = searchConfig?.searchButtonDisplayCondition;
 	/* CommCare evaluates this predicate on the case-list Search action, before
 	 * the prompt screen exists. Preview's combined Search + Results composition
@@ -1510,7 +1533,11 @@ export function CaseListScreen({ screen }: CaseListScreenProps) {
 						filter={config?.filter}
 						caseType={caseType}
 						session={searchSession}
+						evaluateOnDevice={evaluateSearchScreenXPath}
 						typeContext={searchTypeContext}
+						{...(lookupStatus.kind === "data" && {
+							lookupData: lookupStatus.data,
+						})}
 						value={searchRun.draft}
 						onChange={searchRun.changeDraft}
 						onSubmit={searchRun.submit}

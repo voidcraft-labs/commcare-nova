@@ -24,6 +24,7 @@ import {
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
 	type Module,
+	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 } from "./modules";
 import {
 	type ProseReferencePart,
@@ -46,6 +47,9 @@ export const translationUnitRoles = [
 	"case-list-mapping-label",
 	"case-list-interval-text",
 	"search-input-label",
+	"search-input-hint",
+	"search-input-required-message",
+	"search-input-validation-message",
 	"search-screen-title",
 	"search-screen-subtitle",
 	"search-button-label",
@@ -146,6 +150,8 @@ const NONBLANK_TRANSLATION_ROLES: ReadonlySet<TranslationUnitRole> = new Set([
 	"search-screen-subtitle",
 	"search-button-label",
 	"search-input-label",
+	"search-input-required-message",
+	"search-input-validation-message",
 	"search-runtime-validation-message",
 ]);
 
@@ -486,6 +492,7 @@ export function collectTranslationUnits(
 	];
 	const seenCaseOptions = new Set<TranslationUnitId>();
 	let hasSearchInputs = false;
+	let needsDefaultRequiredMessage = false;
 
 	for (const moduleUuid of doc.moduleOrder) {
 		const module = doc.modules[moduleUuid];
@@ -623,6 +630,68 @@ export function collectTranslationUnits(
 					context: { moduleName: module.name },
 				}),
 			);
+			if (input.kind === "hidden") continue;
+			const inputOwner = {
+				kind: "search-input" as const,
+				moduleUuid,
+				searchInputUuid: input.uuid,
+			};
+			const inputBreadcrumb = [
+				...moduleBreadcrumb,
+				"Search",
+				input.label !== "" ? input.label : input.name,
+			];
+			if (input.hint !== undefined) {
+				out.push(
+					unit({
+						id: makeTranslationUnitId("search-input", input.uuid, "hint"),
+						valueKind: "text",
+						role: "search-input-hint",
+						source: input.hint,
+						owner: inputOwner,
+						breadcrumb: [...inputBreadcrumb, "hint"],
+						context: { moduleName: module.name },
+					}),
+				);
+			}
+			if (input.required !== undefined) {
+				if (input.required.message === undefined) {
+					needsDefaultRequiredMessage = true;
+				} else {
+					out.push(
+						unit({
+							id: makeTranslationUnitId(
+								"search-input",
+								input.uuid,
+								"required-message",
+							),
+							valueKind: "text",
+							role: "search-input-required-message",
+							source: input.required.message,
+							owner: inputOwner,
+							breadcrumb: [...inputBreadcrumb, "required message"],
+							context: { moduleName: module.name },
+						}),
+					);
+				}
+			}
+			if (input.validation !== undefined) {
+				out.push(
+					unit({
+						id: makeTranslationUnitId(
+							"search-input",
+							input.uuid,
+							"validation-message",
+						),
+						valueKind: "text",
+						role: "search-input-validation-message",
+						source: input.validation.message,
+						owner: inputOwner,
+						breadcrumb: [...inputBreadcrumb, "validation message"],
+						context: { moduleName: module.name },
+					}),
+				);
+			}
 		}
 
 		const search = effectiveCaseSearchConfig(module);
@@ -686,6 +755,20 @@ export function collectTranslationUnits(
 				}),
 			);
 		}
+	}
+	if (needsDefaultRequiredMessage) {
+		const description = "Search answer required";
+		out.push(
+			unit({
+				id: makeTranslationUnitId("system", "search-required", "default"),
+				valueKind: "text",
+				role: "search-runtime-validation-message",
+				source: SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
+				owner: { kind: "app" },
+				breadcrumb: [doc.appName, "Search", "System messages", description],
+				context: { systemMessageDescription: description },
+			}),
+		);
 	}
 
 	return out;

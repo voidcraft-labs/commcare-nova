@@ -551,11 +551,12 @@ type SearchInputContent = SearchInputDef extends infer T
 	: never;
 
 /**
- * The UUID-omitted projection of the domain's exact four-arm Search-input
+ * The UUID-omitted projection of the domain's exact seven-arm Search-input
  * union.
  *
  * `kind` alone is deliberately not a discriminator here: both `simple` and
- * `advanced` each have a scalar-widget arm and a date-range arm. The widget
+ * `advanced` each have a scalar-widget arm, a date-range arm, and a choice arm
+ * (the hidden arm stands alone). The widget
  * split is structural (date-range owns range mode and cannot own a scalar
  * default), so collapsing those pairs to make `kind` unique would weaken the
  * final stored shape. Keep the mutation projection as the same strict union

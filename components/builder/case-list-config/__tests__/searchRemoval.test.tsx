@@ -204,10 +204,10 @@ vi.mock("../inspector/SearchInputEditor", () => ({
 	}: {
 		readonly value: SearchInputDef;
 		readonly onChange: (next: SearchInputDef) => void;
-		readonly onEditCondition: () => void;
+		readonly onEditCondition: (slot: "match") => void;
 	}) => (
 		<>
-			<button type="button" onClick={onEditCondition}>
+			<button type="button" onClick={() => onEditCondition("match")}>
 				Edit condition
 			</button>
 			<button
@@ -1041,6 +1041,7 @@ describe("Search field removal", () => {
 				kind: "search-field-condition",
 				label: "“External ID” search condition",
 				inputUuid: SECOND_UUID,
+				slot: "match",
 				paths: [
 					["when-input-present", "input"],
 					["when-input-present", "clause", "right"],

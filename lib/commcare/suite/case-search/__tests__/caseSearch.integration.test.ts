@@ -65,6 +65,8 @@ import { setCaseSearchAdvancedTool } from "@/lib/agent/tools/case-search-config/
 import { setCaseSearchDisplayTool } from "@/lib/agent/tools/case-search-config/setCaseSearchDisplay";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
+import { buildLookupFixtures } from "@/lib/commcare/lookup/fixtures";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
 import {
@@ -75,17 +77,21 @@ import {
 	plainColumn,
 	simpleSearchInputDef,
 } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	eq,
 	input,
 	literal,
 	matchAll,
+	matchesPattern,
 	prop,
 	sessionUser,
 	term,
 	toValueExpression,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { searchRuntimeValidationMessage } from "@/lib/domain/searchRuntimeValidationMessages";
+import type { LookupRevision, LookupRowId } from "@/lib/lookup/types";
 import { compileForPlatform } from "../compileForPlatform";
 
 // ============================================================
@@ -1093,5 +1099,223 @@ describe("case-search integration — expandDoc HQ JSON projection", () => {
 		expect(shortCols[0].field).toBe("case_name");
 		expect(shortCols[1].format).toBe("plain");
 		expect(shortCols[1].field).toBe("region");
+	});
+});
+
+// ============================================================
+// 7. Prompt children through the full compile path
+// ============================================================
+//
+// `searchPrompts.test.ts` pins each CCHQ prompt-child partial at the
+// emitter. These two tests prove the same bytes survive the real
+// remote-request / suite orchestration: the authored check composes
+// with the compiler's CSQL guard into Core's one `<validation>` slot,
+// and a lookup-backed choice prompt declares its fixture instance on
+// the `<remote-request>`.
+
+const REGIONS_TABLE = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
+const REGIONS_VALUE = "018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
+const REGIONS_LABEL = "018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
+const SI_REGION_UUID = testUuid("33333333-3333-3333-3333-bbbbbbbb0003");
+
+const REGIONS_NAMING = lookupWireNaming([
+	{
+		id: REGIONS_TABLE,
+		name: "Regions",
+		tag: "regions",
+		definitionRevision: "1" as LookupRevision,
+		columns: [
+			{
+				id: REGIONS_VALUE,
+				wireName: "value",
+				label: "Value",
+				dataType: "text",
+			},
+			{
+				id: REGIONS_LABEL,
+				wireName: "label",
+				label: "Label",
+				dataType: "text",
+			},
+		],
+	},
+]);
+
+const REGIONS_FIXTURES = buildLookupFixtures(
+	REGIONS_NAMING,
+	new Map([
+		[
+			REGIONS_TABLE,
+			[
+				{
+					id: "018f3e8a-7b2c-7def-8abc-0000000000d1" as LookupRowId,
+					values: { [REGIONS_VALUE]: "north", [REGIONS_LABEL]: "North" },
+				},
+			],
+		],
+	]),
+);
+
+/** The `<prompt key="…">…</prompt>` slice of a compiled suite. */
+function promptXml(suite: string, key: string): string {
+	const start = suite.indexOf(`<prompt key="${key}"`);
+	const end = suite.indexOf("</prompt>", start);
+	if (start < 0 || end < start) {
+		throw new Error(`The compiled suite carries no <prompt key="${key}">.`);
+	}
+	return suite.slice(start, end);
+}
+
+describe("case-search integration — prompt children through the compile path", () => {
+	it("composes the authored check and the CSQL quote guard into one <validation> with the messages joined", () => {
+		// The advanced `status_search` input's own predicate inlines its answer
+		// into `_xpath_query`, so the compiler adds the quote guard; the
+		// authored check shares Core's single slot with it.
+		const base = buildSearchBlueprint();
+		const module = base.modules[MOD_UUID];
+		if (module?.caseListConfig === undefined) {
+			throw new Error("search fixture must carry a case-list config");
+		}
+		const doc: BlueprintDoc = {
+			...base,
+			modules: {
+				...base.modules,
+				[MOD_UUID]: {
+					...module,
+					caseListConfig: {
+						...module.caseListConfig,
+						searchInputs: [
+							...module.caseListConfig.searchInputs.filter(
+								(searchInput) => searchInput.name !== "status_search",
+							),
+							advancedSearchInputDef(
+								SI_STATUS_UUID,
+								"status_search",
+								"Status",
+								"text",
+								whenInput(
+									input(SI_STATUS_UUID),
+									eq(prop("patient", "status"), input(SI_STATUS_UUID)),
+								),
+								{
+									validation: {
+										rule: matchesPattern(input(SI_STATUS_UUID), "^[a-z]+$"),
+										message: "Use lowercase letters only.",
+									},
+								},
+							),
+						],
+					},
+				},
+			},
+		};
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+
+		const hqJson = expandDoc(doc);
+		const ccz = compileCcz(hqJson, doc.appName, doc);
+		const zip = new AdmZip(ccz);
+		const prompt = promptXml(zip.readAsText("suite.xml"), "status_search");
+		const strings = zip.readAsText("default/app_strings.txt");
+		const quoteGuard = searchRuntimeValidationMessage(new Set(["quote"]));
+		if (quoteGuard === undefined) {
+			throw new Error("The compiler's quote guard message is not catalogued.");
+		}
+
+		expect(prompt.match(/<validation /g)).toHaveLength(1);
+		const test = decodeXML(
+			prompt.match(/<validation test="([^"]+)">/)?.[1] ?? "",
+		);
+		expect(test).toMatch(
+			/^\(regex\(instance\('search-input:results'\)\/input\/field\[@name='status_search'\], '\^\[a-z\]\+\$'\)\) and \(.+\)$/,
+		);
+		expect(prompt).toContain(
+			'"><text><locale id="search_property.m0.status_search.validation.0.text"/></text></validation>',
+		);
+		expect(strings).toContain(
+			`search_property.m0.status_search.validation.0.text=Use lowercase letters only. ${quoteGuard.message}`,
+		);
+
+		// HQ JSON carries the same composed assertion.
+		const property = hqJson.modules[0].search_config.properties.find(
+			(candidate) => candidate.name === "status_search",
+		);
+		expect(property?.validations).toHaveLength(1);
+		expect(property?.validations?.[0].test).toBe(test);
+		expect(property?.validations?.[0].text).toEqual({
+			en: `Use lowercase letters only. ${quoteGuard.message}`,
+		});
+	});
+
+	it("declares the item-list fixture instance on the <remote-request> for a lookup-backed choice prompt", () => {
+		const base = buildSearchBlueprint();
+		const module = base.modules[MOD_UUID];
+		if (module?.caseListConfig === undefined) {
+			throw new Error("search fixture must carry a case-list config");
+		}
+		const doc: BlueprintDoc = {
+			...base,
+			modules: {
+				...base.modules,
+				[MOD_UUID]: {
+					...module,
+					caseListConfig: {
+						...module.caseListConfig,
+						searchInputs: [
+							...module.caseListConfig.searchInputs,
+							simpleSearchInputDef(
+								SI_REGION_UUID,
+								"region",
+								"Region",
+								"select",
+								"region",
+								{
+									options: {
+										kind: "lookup",
+										tableId: REGIONS_TABLE,
+										valueColumnId: REGIONS_VALUE,
+										labelColumnId: REGIONS_LABEL,
+									},
+								},
+							),
+						],
+					},
+				},
+			},
+		};
+
+		const hqJson = expandDoc(doc, { lookupNaming: REGIONS_NAMING });
+		const zip = new AdmZip(
+			compileCcz(hqJson, doc.appName, doc, {
+				lookup: { naming: REGIONS_NAMING, fixtures: REGIONS_FIXTURES },
+			}),
+		);
+		const suite = zip.readAsText("suite.xml");
+		const remoteStart = suite.indexOf("<remote-request>");
+		const remoteEnd = suite.indexOf("</remote-request>", remoteStart);
+		expect(remoteStart).toBeGreaterThan(-1);
+		const remoteRequest = suite.slice(remoteStart, remoteEnd);
+
+		expect(remoteRequest).toContain(
+			'<instance id="item-list:regions" src="jr://fixture/item-list:regions"/>',
+		);
+		expect(promptXml(remoteRequest, "region")).toBe(
+			'<prompt key="region" input="select1">' +
+				'<display><text><locale id="search_property.m0.region"/></text></display>' +
+				'<itemset nodeset="instance(&apos;item-list:regions&apos;)/regions_list/regions">' +
+				'<label ref="label"/>' +
+				'<value ref="value"/>' +
+				"</itemset>",
+		);
+
+		const property = hqJson.modules[0].search_config.properties.find(
+			(candidate) => candidate.name === "region",
+		);
+		expect(property?.input_).toBe("select1");
+		expect(property?.itemset).toEqual({
+			instance_id: "item-list:regions",
+			nodeset: "instance('item-list:regions')/regions_list/regions",
+			label: "label",
+			value: "value",
+		});
 	});
 });

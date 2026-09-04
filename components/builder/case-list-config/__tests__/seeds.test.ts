@@ -148,10 +148,11 @@ describe("seedSearchInput", () => {
 		expect(seed && "mode" in seed ? seed.mode : undefined).toBeUndefined();
 	});
 
-	it("seeds a text widget over select-typed properties — never `select`", () => {
-		// The wire prompt carries no itemset slot, so a `select` search
-		// input is gate-rejected outright: a seed that picked it would
-		// turn the add affordance into a rejection toast.
+	it("seeds a text widget over select-typed properties, never `select`", () => {
+		// A choice widget reads its options from a Project data table the
+		// author owns, and Nova never creates Project data implicitly, so the
+		// seed stays a text box; the inspector offers the choice widgets once a
+		// table exists.
 		const selectOnly = caseType("referral", [
 			prop("referral_status", "single_select"),
 		]);

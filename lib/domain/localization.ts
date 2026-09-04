@@ -254,6 +254,15 @@ export function translationSourceFingerprint(
 	return `source-v1:${kind}:${JSON.stringify(value)}`;
 }
 
+/**
+ * What one wire string resolves to in each language: a single translation
+ * unit, or several units whose localized texts are joined by one space. The
+ * joined form exists for the one wire slot CommCare cannot split, a search
+ * prompt's single validation message, when an authored rule and a compiler
+ * guard share it.
+ */
+export type WireStringSource = TranslationUnitId | readonly TranslationUnitId[];
+
 /** Length-prefixed segments preserve arbitrary semantic keys without escaping. */
 export function makeTranslationUnitId(
 	...segments: readonly string[]

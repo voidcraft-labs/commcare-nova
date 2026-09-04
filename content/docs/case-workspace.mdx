@@ -229,6 +229,44 @@ fixed values and current-user information. Case information belongs in the
 field's own match behavior or in **Cases available**, which run against each
 case.
 
+### Hints, required fields, and checks
+
+Each search field can carry a **Hint**, a short line under its label that
+says what to type or why it matters. A field can also be **Required**, always
+or only while a condition holds, with a message of your own or Nova's default.
+A **Check on the answer** is one rule a filled-in answer must pass, with the
+message shown when it does not. Both the required condition and the check are
+decided on the Search screen itself, so they can look at this field, the other
+search fields (a field that has not been answered reads as blank), fixed
+values, and current-user information, but not at case information. They are
+also the one place a **matches a pattern** condition is available: it tests
+the answer against a regular expression, anchored with `^` and `$` when the
+whole answer must fit, which is the natural shape for an ID number or a phone
+number.
+
+Required fields and checks are enforced in the browser app. On a phone the
+search runs either way, so treat them as guidance for web workers rather than
+a guarantee.
+
+### Choice fields
+
+A search field whose type is **Single choice** or **Multiple choice** offers
+its answers from a Project lookup table: pick the table, the column that holds
+the stored value, and the column that holds the label, exactly as a
+lookup-backed question does. Nova does not offer a typed-in list of choices on
+the Search screen, so a fixed yes/no choice is a two-row table you own. A
+multiple-choice field finds cases whose value is any of the chosen answers.
+
+### Hidden values
+
+**Add search field** also offers a **Hidden value**: a value the Search
+screen works out once when it opens and carries with the search, such as the
+time of the search or the worker's id. It is never shown, never asked, and
+never narrows the results; it exists so other conditions can read it by name.
+A hidden value works with fixed values, the current date and time, and
+current-user information, and cannot read case information or another search
+field.
+
 Results owns **Cases available**, the rules that always decide which cases can
 appear before anyone searches. The conditions are listed and edited together
 in the canvas, above Default order. Choose **Add condition** for another rule,
@@ -311,10 +349,10 @@ that do not have a visible row also live there. Less-common settings stay
 behind **More settings**. Arrangement does not: screen membership, row order, and
 the Cases available and Default order sections each have one home in the
 center canvas.
-When a search field needs a custom matching condition, or the Search button
-needs a display condition, the sidebar shows its summary and opens the same
-full condition editor in the center. The condition is never duplicated in both
-places.
+When a search field needs a custom matching condition, a required condition,
+or a check, or the Search button needs a display condition, the sidebar shows
+its summary and opens the same full condition editor in the center. The
+condition is never duplicated in both places.
 
 For a case-list-only module, use the settings button beside the module name for
 appearance. **App home tile** controls how the module looks on the app's main

@@ -386,8 +386,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`${q(modName(e))} is set to Several cases, but it has no follow-up or close form that can use the complete selection and no compatible child workflow can receive it. Add one of those forms, carry the same case selection into a child that has one, or switch Selection to One case.`,
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: (e) =>
 		`An image display in ${q(modName(e))} uses ${q(det(e, "value", "the same value"))} twice, so only the first image appears. Change or remove one of the rules.`,
-	CASE_LIST_SEARCH_INPUT_SELECT_WIDGET_NOT_SUPPORTED: (e) =>
-		`The search field ${q(det(e, "inputName", "in this module"))} uses a dropdown that isn't available here. Change its field type to Text.`,
+	CASE_LIST_MULTI_SELECT_INPUT_NEEDS_DIRECT_MATCH: (e) =>
+		`The search field ${q(det(e, "inputName", "in this module"))} lets people choose several values, so it needs to be named after the case information it searches on this case type. Rename it to match, or switch it to a single-choice field.`,
 	CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR: (e) =>
 		`The search field ${q(det(e, "inputName", "in this module"))} has a condition that compares values that don't go together. Open it and adjust the comparison.`,
 	CASE_LIST_SEARCH_INPUT_UNKNOWN_PROPERTY: (e) =>
@@ -402,6 +402,24 @@ const USER_MESSAGE_BY_CODE: Partial<
 			: `The starting value for search field ${q(det(e, "inputName", "in this module"))} doesn't match its field type. Change the starting value or clear it.`,
 	CASE_LIST_SEARCH_INPUT_DEFAULT_CASE_DATA_UNAVAILABLE: (e) =>
 		`The starting value for search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it always comes back empty. Use a fixed value, today's date, or current-user information, or clear it.`,
+	CASE_LIST_SEARCH_INPUT_REQUIRED_CONDITION_TYPE_ERROR: (e) =>
+		`The required condition for search field ${q(det(e, "inputName", "in this module"))} compares values that don't go together. Open it and adjust the comparison.`,
+	CASE_LIST_SEARCH_INPUT_REQUIRED_CONDITION_CASE_DATA_UNAVAILABLE: (e) =>
+		`The required condition for search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it can never hold. Compare other search answers, fixed values, or current-user information instead.`,
+	CASE_LIST_SEARCH_INPUT_VALIDATION_RULE_TYPE_ERROR: (e) =>
+		`The check on search field ${q(det(e, "inputName", "in this module"))} compares values that don't go together. Open it and adjust the comparison.`,
+	CASE_LIST_SEARCH_INPUT_VALIDATION_RULE_CASE_DATA_UNAVAILABLE: (e) =>
+		`The check on search field ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it can never pass. Compare other search answers, fixed values, or current-user information instead.`,
+	CASE_LIST_SEARCH_INPUT_HIDDEN_VALUE_TYPE_ERROR: (e) =>
+		`The hidden search value ${q(det(e, "inputName", "in this module"))} is built from values that don't go together. Open it and adjust the calculation.`,
+	CASE_LIST_SEARCH_INPUT_HIDDEN_VALUE_CASE_DATA_UNAVAILABLE: (e) =>
+		`The hidden search value ${q(det(e, "inputName", "in this module"))} tries to read a case before one has been selected, so it always comes back empty. Use the current time, today's date, a fixed value, or current-user information.`,
+	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_SCOPE: (e) =>
+		`The row rule for search field ${q(det(e, "inputName", "in this module"))} reads something the Search screen can't see yet. Use columns from the data table, fixed values, or current-user information.`,
+	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_TYPE_ERROR: (e) =>
+		`The row rule for search field ${q(det(e, "inputName", "in this module"))} compares values that don't go together. Open it and adjust the comparison.`,
+	CASE_LIST_SEARCH_INPUT_OPTIONS_FILTER_NOT_ON_DEVICE: (e) =>
+		`The row rule for search field ${q(det(e, "inputName", "in this module"))} uses a date calculation the device can't run. Use a whole date with seconds, minutes, hours, days, or weeks.`,
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: (e) =>
 		`Two search fields in ${q(modName(e))} use the same name for conditions, ${q(det(e, "inputName", ""))}. Rename one under More settings.`,
 	CASE_LIST_BARE_SEARCH_INPUT_REF: (e) => {

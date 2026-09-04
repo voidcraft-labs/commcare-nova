@@ -68,9 +68,10 @@ export function searchInputTypeMatchesPropertyType(
 	for (let index = 0; index < inputs.length; index++) {
 		const input = inputs[index];
 		// Advanced-arm inputs carry a free predicate — no single widget-
-		// vs-property pair to gate. Predicate-type validation lives in
-		// `searchInputPredicateTypeCheck`.
-		if (input.kind === "advanced") continue;
+		// vs-property pair to gate (predicate-type validation lives in
+		// `searchInputPredicateTypeCheck`), and hidden inputs bind no
+		// property. Only the simple arm has a pair to check.
+		if (input.kind !== "simple") continue;
 
 		const allowed = SEARCH_INPUT_TYPE_PROPERTY_TYPES[input.type];
 		// `undefined` admit-list means "every property type works" — the

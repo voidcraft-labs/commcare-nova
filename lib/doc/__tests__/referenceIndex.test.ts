@@ -19,7 +19,7 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
 import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
 import { applyMutations } from "@/lib/doc/mutations";
@@ -37,19 +37,26 @@ import {
 	caseTypeTargetKey,
 	entityTargetKey,
 	expressionSource,
+	hiddenSearchInputDef,
 	locationTargetKey,
 	printProseTemplate,
+	simpleSearchInputDef,
 	type Uuid,
 	userPropertyTargetKey,
 } from "@/lib/domain";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
+	and,
 	eq,
 	fixedLocation,
+	input,
+	isBlank,
 	literal,
 	ownerLocationAtLevel,
 	prop,
 	sessionUserProperty,
 	subcasePath,
+	tableColumn,
 	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
@@ -365,6 +372,123 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		const slots = slotsFor(doc, userPropertyTargetKey(propertyUuid));
 		expect(slots[moduleUuid]).toEqual({ module_display_condition: true });
 		expect(slots[fieldUuid]).toEqual({ relevant: true });
+	});
+
+	it("indexes the Search prompt slots: options filter, required condition, check, and hidden value", () => {
+		// The four slots this PR added each carry an AST. The prompt slots
+		// never name a case row (no case is selected on the Search screen),
+		// so the identities they can reach are custom worker properties and
+		// other inputs; only the former is an index target (search inputs are
+		// not retirement or rename targets, so `input(...)` leaves index
+		// nothing). The options filter is a table-row scope whose
+		// `table-column` leaves belong to the lookup registry, not this index.
+		const propertyUuid = testUuid("worker-property-region");
+		const hiddenPropertyUuid = testUuid("worker-property-site");
+		const regionUuid = testUuid("search-input-region");
+		const nameUuid = testUuid("search-input-name");
+		const siteUuid = testUuid("search-input-site");
+		const tableId = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
+		const valueColumn =
+			"018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
+		const labelColumn =
+			"018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "region", label: proseText("Region") },
+						{ name: "full_name", label: proseText("Name") },
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: resolveCaseListConfig({
+						columns: [],
+						searchInputs: [
+							simpleSearchInputDef(
+								regionUuid,
+								"region",
+								"Region",
+								"select",
+								"region",
+								{
+									options: {
+										kind: "lookup",
+										tableId,
+										valueColumnId: valueColumn,
+										labelColumnId: labelColumn,
+										filter: eq(
+											tableColumn(tableId, valueColumn),
+											sessionUserProperty(propertyUuid),
+										),
+									},
+								},
+							),
+							simpleSearchInputDef(
+								nameUuid,
+								"full_name",
+								"Name",
+								"text",
+								"full_name",
+								{
+									required: {
+										when: and(
+											isBlank(input(regionUuid)),
+											eq(sessionUserProperty(propertyUuid), literal("north")),
+										),
+									},
+									validation: {
+										rule: eq(
+											input(nameUuid),
+											sessionUserProperty(propertyUuid),
+										),
+										message: "Search your own region.",
+									},
+								},
+							),
+							hiddenSearchInputDef(
+								siteUuid,
+								"site",
+								"Site",
+								term(sessionUserProperty(hiddenPropertyUuid)),
+							),
+						],
+					}),
+				},
+			],
+		});
+		doc.userProperties = {
+			[propertyUuid]: { uuid: propertyUuid, slug: "region", label: "Region" },
+			[hiddenPropertyUuid]: {
+				uuid: hiddenPropertyUuid,
+				slug: "site",
+				label: "Site",
+			},
+		};
+		const moduleUuid = doc.moduleOrder[0];
+
+		expect(slotsFor(doc, userPropertyTargetKey(propertyUuid))).toEqual({
+			[moduleUuid]: {
+				search_input_options: true,
+				search_input_required_when: true,
+				search_input_validation_rule: true,
+			},
+		});
+		expect(slotsFor(doc, userPropertyTargetKey(hiddenPropertyUuid))).toEqual({
+			[moduleUuid]: { search_input_hidden_value: true },
+		});
+		// A sibling read is a removal dependency (`searchInputMutations.ts`),
+		// not an index edge.
+		expect(slotsFor(doc, entityTargetKey(regionUuid))).toEqual({});
+		// The incremental index and the rebuild agree on the new slots.
+		expect(buildReferenceIndex(doc).in).toEqual(
+			(doc.refIndex ?? buildReferenceIndex(doc)).in,
+		);
 	});
 
 	it("indexes module and form display-condition Predicate leaves", () => {

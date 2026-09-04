@@ -45,6 +45,7 @@ import {
 	lt,
 	match,
 	matchAll,
+	matchesPattern,
 	matchNone,
 	missing,
 	multiSelectAll,
@@ -73,6 +74,7 @@ import {
 	checkPredicate,
 	checkValueAssignmentExpression,
 	checkValueExpression,
+	type TypeContext,
 } from "../typeChecker";
 import { MATCH_MODES, MULTI_SELECT_QUANTIFIERS } from "../types";
 
@@ -1775,6 +1777,68 @@ describe("checkPredicate — exists / missing relation-path resolution", () => {
 		if (!result.ok) {
 			expect(result.errors[0].path).toEqual(["exists", "where"]);
 			expect(result.errors[0].message).toMatch(/type mismatch/i);
+		}
+	});
+});
+
+describe("checkPredicate — matches-pattern admission", () => {
+	const inputCtx = {
+		...ctx,
+		knownInputs: [{ uuid: testUuid("ssn"), name: "ssn" }],
+	};
+
+	it("is refused wherever the slot does not run on the device's Pattern engine", () => {
+		// The strict default: a context that says nothing about pattern
+		// matching cannot offer a leaf its wire cannot lower (CSQL has no
+		// regex, the case store is PostgreSQL).
+		const p = matchesPattern(input(testUuid("ssn")), "^[0-9]{9}$");
+		const result = checkPredicate(p, inputCtx);
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].code).toBe("pattern-match-unavailable");
+			expect(result.errors[0].path).toEqual([]);
+			expect(result.errors[0].message).toMatch(/required condition or check/);
+		}
+	});
+
+	it("is accepted where the context runs the device's Pattern engine", () => {
+		const p = matchesPattern(input(testUuid("ssn")), "^[0-9]{9}$");
+		expect(checkPredicate(p, { ...inputCtx, patternMatching: true }).ok).toBe(
+			true,
+		);
+	});
+
+	it("accepts a session read and a computed subject", () => {
+		const pmCtx: TypeContext = { ...inputCtx, patternMatching: true };
+		expect(
+			checkPredicate(matchesPattern(sessionUser("region"), "^[A-Z]"), pmCtx).ok,
+		).toBe(true);
+		expect(
+			checkPredicate(
+				matchesPattern(sessionContext("username"), "^[a-z]+$"),
+				pmCtx,
+			).ok,
+		).toBe(true);
+	});
+
+	it("rejects a literal subject with the operand-shape reason", () => {
+		const p = matchesPattern(literal("123-45-6789"), "^[0-9]{3}-");
+		const result = checkPredicate(p, { ...ctx, patternMatching: true });
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors).toHaveLength(1);
+			expect(result.errors[0].code).toBe("runtime-value");
+			expect(result.errors[0].path).toEqual(["left"]);
+		}
+	});
+
+	it("propagates an unresolved input from the subject at ['left']", () => {
+		const p = matchesPattern(input(testUuid("missing")), "^x");
+		const result = checkPredicate(p, { ...ctx, patternMatching: true });
+		expect(result.ok).toBe(false);
+		if (!result.ok) {
+			expect(result.errors[0].path).toEqual(["left"]);
 		}
 	});
 });

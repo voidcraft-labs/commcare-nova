@@ -7,9 +7,20 @@ import {
 	type LookupReferenceExtractorRegistry,
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	hiddenSearchInputDef,
+	simpleSearchInputDef,
+} from "@/lib/domain";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
-import { literal, matchAll, tableLookup, term } from "@/lib/domain/predicate";
+import {
+	eq,
+	literal,
+	matchAll,
+	tableColumn,
+	tableLookup,
+	term,
+} from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import type { LookupRevision, LookupTableDefinition } from "@/lib/lookup/types";
 import { evaluateCommit } from "../gate";
@@ -168,6 +179,142 @@ describe("lookup reference validation", () => {
 			acceptedColumnTypes: "text",
 			actualColumnType: "decimal",
 		});
+	});
+
+	it("checks a Search prompt's choice list and Search-screen predicates against the live table", () => {
+		// A `select` prompt's value/label columns and its row filter, a
+		// sibling's required condition and check, and a hidden value all read
+		// the Project's tables. Each is extracted by the production registry,
+		// so a column the table no longer holds is one finding per exact
+		// occurrence rather than an emit-time surprise.
+		const moduleUuid = testUuid("module-search-lookup");
+		const selectUuid = testUuid("search-select-lookup");
+		const nameUuid = testUuid("search-name-lookup");
+		const hiddenUuid = testUuid("search-hidden-lookup");
+		const missingColumn = columnId("9");
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "region", label: proseText("Region") },
+						{ name: "full_name", label: proseText("Name") },
+					],
+				},
+			],
+			modules: [
+				{
+					uuid: moduleUuid,
+					name: "Patients",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: {
+						columns: [],
+						searchInputs: [
+							simpleSearchInputDef(
+								selectUuid,
+								"region",
+								"Region",
+								"select",
+								"region",
+								{
+									options: {
+										kind: "lookup",
+										tableId: tableId("1"),
+										valueColumnId: columnId("1"),
+										labelColumnId: columnId("1"),
+										filter: eq(
+											tableColumn(tableId("1"), missingColumn),
+											literal("north"),
+										),
+									},
+								},
+							),
+							simpleSearchInputDef(
+								nameUuid,
+								"full_name",
+								"Name",
+								"text",
+								"full_name",
+								{
+									required: {
+										when: eq(
+											tableLookup(tableId("1"), missingColumn, matchAll()),
+											literal("yes"),
+										),
+									},
+									validation: {
+										rule: eq(
+											tableLookup(tableId("1"), columnId("1"), matchAll()),
+											literal("yes"),
+										),
+										message: "Not in the list.",
+									},
+								},
+							),
+							hiddenSearchInputDef(
+								hiddenUuid,
+								"site",
+								"Site",
+								tableLookup(tableId("1"), missingColumn, matchAll()),
+							),
+						],
+					},
+				},
+			],
+		});
+
+		// Findings sort by carrier, so the projection is read by slot.
+		const bySlot = (findings: readonly { slot?: unknown }[]) =>
+			[...findings].sort((a, b) =>
+				String(a.slot).localeCompare(String(b.slot)),
+			);
+		const findings = bySlot(
+			runValidation(doc, availableContext([definition()]))
+				.filter((finding) => finding.code.startsWith("LOOKUP_"))
+				.map((finding) => ({
+					code: finding.code,
+					slot: finding.details?.registrySlot,
+					carrier: finding.details?.carrierUuid,
+					subpath: finding.details?.subpath,
+				})),
+		);
+
+		expect(findings).toEqual([
+			{
+				code: "LOOKUP_COLUMN_NOT_AVAILABLE",
+				slot: "search_input_hidden_value",
+				carrier: hiddenUuid,
+				subpath: "/k:resultColumnId",
+			},
+			{
+				code: "LOOKUP_COLUMN_NOT_AVAILABLE",
+				slot: "search_input_options",
+				carrier: selectUuid,
+				subpath: "/k:filter/k:left/k:term/k:columnId",
+			},
+			{
+				code: "LOOKUP_COLUMN_NOT_AVAILABLE",
+				slot: "search_input_required_when",
+				carrier: nameUuid,
+				subpath: "/k:left/k:resultColumnId",
+			},
+		]);
+		// Under an unavailable context every exact occurrence is named, the
+		// well-formed check included.
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
+				.filter((finding) => finding.code === "LOOKUP_CONTEXT_UNAVAILABLE")
+				.map((finding) => finding.details?.registrySlot)
+				.sort(),
+		).toEqual([
+			"search_input_hidden_value",
+			"search_input_options",
+			"search_input_options",
+			"search_input_options",
+			"search_input_required_when",
+			"search_input_validation_rule",
+		]);
 	});
 
 	it("threads an explicit synthetic registry through the full runner", () => {

@@ -37,6 +37,7 @@ const PREDICATE_KINDS = new Set([
 	"match-all",
 	"match-none",
 	"is-blank",
+	"matches-pattern",
 	"between",
 	"and",
 	"or",
@@ -213,6 +214,7 @@ function normalizePredicate(value: unknown): unknown {
 				center: normalizeValue(source.center),
 			});
 		case "is-blank":
+		case "matches-pattern":
 			return withMembers(source, { left: normalizeValue(source.left) });
 		case "match":
 			return withMembers(source, { value: normalizeValue(source.value) });
@@ -295,6 +297,17 @@ function normalizeAny(value: unknown): unknown {
 	if (typeof source.kind === "string") {
 		if (PREDICATE_KINDS.has(source.kind)) return normalizePredicate(source);
 		if (VALUE_EXPRESSION_KINDS.has(source.kind)) return normalizeValue(source);
+	}
+	if (
+		source.kind === "hidden" &&
+		typeof source.name === "string" &&
+		source.value !== undefined
+	) {
+		// A hidden Search input: its `value` is the one ValueExpression slot
+		// keyed by a word other tool bodies use for plain data.
+		return withMembers(normalizeMembers(source), {
+			value: normalizeValue(source.value),
+		});
 	}
 	return normalizeMembers(source);
 }
