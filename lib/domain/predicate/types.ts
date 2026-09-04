@@ -1602,7 +1602,13 @@ const matchesPatternSchema = z
 	.object({
 		kind: z.literal("matches-pattern"),
 		left: z.lazy(() => valueExpressionSchema),
-		pattern: z.string().min(1).max(PATTERN_MAX_LENGTH),
+		pattern: z
+			.string()
+			.min(1)
+			.max(PATTERN_MAX_LENGTH)
+			.describe(
+				"Java regular expression, matched anywhere in the value (anchor with ^ and $). Admitted only in a Search input's required.when and validation.rule.",
+			),
 	})
 	.strict();
 

@@ -68,7 +68,7 @@ function docWith(searchInputs: readonly SearchInputDef[]) {
 				properties: [
 					{ name: "case_name", label: proseText("Name"), data_type: "text" },
 					{ name: "phone", label: proseText("Phone"), data_type: "text" },
-					{ name: "age", label: proseText("Age"), data_type: "integer" },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			},
 		],

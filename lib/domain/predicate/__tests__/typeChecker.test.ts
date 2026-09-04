@@ -74,6 +74,7 @@ import {
 	checkPredicate,
 	checkValueAssignmentExpression,
 	checkValueExpression,
+	type TypeContext,
 } from "../typeChecker";
 import { MATCH_MODES, MULTI_SELECT_QUANTIFIERS } from "../types";
 
@@ -1809,7 +1810,7 @@ describe("checkPredicate — matches-pattern admission", () => {
 	});
 
 	it("accepts a session read and a computed subject", () => {
-		const pmCtx = { ...inputCtx, patternMatching: true };
+		const pmCtx: TypeContext = { ...inputCtx, patternMatching: true };
 		expect(
 			checkPredicate(matchesPattern(sessionUser("region"), "^[A-Z]"), pmCtx).ok,
 		).toBe(true);
