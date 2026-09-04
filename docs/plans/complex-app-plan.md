@@ -1386,6 +1386,121 @@ values, literals, never case data — and the only home of the `matches-pattern`
 leaf (JavaRosa `regex()`, evaluated in Preview's dedicated Search worker
 runtime). Enforcement is Web Apps only; every surface says so.
 
+#### Search first
+
+A module may open on its Search screen instead of a browse list
+(`caseSearchConfig.searchFirst: true`, `lib/domain/modules.ts::moduleOpensOnSearch`).
+Results exist only after a completed search and show only what it found, with
+**Search again** returning to Search; a search-first module with no visible
+prompt runs its search on its own. The setting is offered for a case-first
+module or a bare case list, because a registration form on the menu needs a
+fresh case id that breaks the shared datum, and it refuses a Search-button
+display condition (there is no button to gate) and **Previous screen** as an
+after-submit destination (`lib/commcare/validator/rules/case-search/`). The
+wire shape is HQ's inline search, byte for byte
+(`lib/commcare/suite/case-search/compileForPlatform.ts`): `inline_search` with
+`auto_launch`, no `<remote-request>` and no `m{N}_search_*` details, a `<query
+storage-instance="results:inline">` plus the claim `<post>` inside each
+case-requiring `<entry><session>`, the `case_id` datum over
+`instance('results:inline')/results/case[@case_type][@status='open']<filter>[not(commcare_is_related_case=true())]`,
+`selected_cases` with `<post relevant="$case_id != ''">` for several cases, the
+browse entry carrying the query and no post, and no search `<action>` on
+`case_short` (`app_manager/util.py::module_uses_inline_search`,
+`suite_xml/sections/entries.py::EntriesHelper.get_query_datums / add_post_to_entry / include_post_in_entry / get_datum_meta_module`;
+oracle `tests/test_suite_inline_search.py::InlineSearchSuiteTest`). Inline
+search is the only safe shape for a zero-results gate: `instance('results…')`
+before the query ran throws `XPathMissingInstanceException`
+(`commcare-core javarosa/xpath/expr/XPathPathExpr.java`;
+`core/process/CommCareInstanceInitializer.java::setupExternalDataInstance`).
+Two inline modules may not share an instance name across a parent-select or
+root relation, and a case-requiring form of an inline module may not use
+`post_form_workflow == previous` (`helpers/validators.py`). A link INTO a
+search-first module carries the query as a stack child, as HQ's
+`WorkflowQueryMeta` does (`lib/commcare/formLinkProjection.ts`). In the inline
+shape every `input(...)` read on both wire paths prints
+`search-input:results:inline`, because Core registers only
+`search-input:<storage>`
+(`RemoteQuerySessionManager.java::getEvaluationContextWithUserInputInstance`).
+
+#### Register when nothing matches
+
+A search-first module may offer one registration form only after a search
+completes with nothing found (`Form.entry = { kind: "search-no-matches", label? }`,
+`lib/domain/forms.ts::formEntersFromMenu`). The form is the module's own case
+type, leaves the menu (no link may target it, it carries no display condition
+and no after-submit choice, every menu projection consults `menuFormUuidsOf`),
+and its fields read the search's answers through `#search/<name>`
+(`search-answer-ref` in the XPath AST, identity-backed like every reference;
+`lib/doc/searchNoMatchesForm.ts` plans the form and the carried fields, and
+`searchNoMatchesDependents.ts` refuses taking the search away while the form
+depends on it). A completed search is a context distinct from not-searched and
+failed (`lib/session/previewSearchState.ts`: `not-searched | running | failed |
+completed {matchCount}` per module); the action is available only for
+`completed` with zero matches, and the form refuses a launch without one
+(`components/preview/screens/noMatchesForm.ts`). After submit the worker lands
+on Results showing only the case they registered (the module's Search when it
+keeps no menu form), mirroring HQ's regenerated frame. The builder authors it
+as **When no cases match** on the Search canvas and **How this form opens** in
+the form's settings (`components/builder/CLAUDE.md` § Case-list workspace);
+the SA and MCP set `entry` on `create_form` / `update_form` and carry the
+answers with `carry_search_answers`.
+
+Lowering happens only at the CommCare boundary, identically for Preview, local
+`.ccz`, and HQ-regenerated output (`lib/commcare/emissionPlan.ts` is the one
+derived module sequence both emitters walk). The host module carries HQ's
+`case_list_form { form_id, label, post_form_workflow: "case_list",
+relevancy_expression: "count(instance('results:inline')/results/case) = 0" }`;
+the form itself moves into a synthetic hidden module of the host case type
+(`module_filter: "false()"` → `<menu relevant="false()">`,
+`suite_xml/sections/menus.py::MenuContributor._generate_menu`; stack pushes
+ignore menu relevance, `commcare-core session/CommCareSession.java::performPushInner`).
+The Register `<action>` sits on every `*_short` detail, row and tile
+(`suite_xml/sections/details.py::DetailContributor.build_detail`;
+`features/case_tiles.py::CaseTileHelper.build_case_tile_detail`), with the bytes
+pinned to `tests/data/case_list_form/case-list-form-suite.xml`: `<action
+relevant><display><text><locale id="case_list_form.m{N}"/></text></display><stack><push><command
+value="'m{H}-f0'"/>…<datum id="return_to" value="'m{N}'"/></push></stack></action>`,
+no `auto_launch` / `redo_last`, datums copied from the target entry as
+`DetailContributor.get_datums_for_action` does (function datums as they are,
+selection datums from the host's first menu form). `Action.relevant` is
+string-compared to `"true"` and `Detail.get_all_xpaths` ignores it
+(`commcare-core suite/model/Action.java::isRelevant`;
+`suite_xml/xml_models.py::Detail.get_all_xpaths`), so Nova emits an explicit
+boolean comparison and the `results:inline` instance comes from the datum
+nodeset. HQ emits that `relevant` only under
+`toggles.FOLLOWUP_FORMS_AS_CASE_LIST_FORM` (TAG_FROZEN, domain;
+`details.py::DetailContributor.get_case_list_form_action`), which is the
+`registration-after-empty-search` project-space capability a direct publish
+requires. HQ validates only that the form is a registration form of the search
+module's case type (`helpers/validators.py::ModuleBaseValidator.validate_case_list_form`;
+`models/forms.py::Form.get_registration_actions`), so the synthetic module
+carries the host case type and the emitted form has exactly one `open_case`.
+The return frame is HQ's regenerated end-of-form frame for an inline target
+under `post_form_workflow='case_list'`: `<create if="count(…return_to) = 1 and
+…return_to = 'm{N}'"><command value="'m{N}'"/><query id="results:inline"
+value="…/phone/case_fixture/<app>/"><data key="case_type" ref="'t'"/><data
+key="case_id" ref="instance('commcaresession')/session/data/case_id_new_t_0"/></query></create>`,
+the query child cloned from the target's common datum prefix and no `case_id`
+datum (`post_process/workflow.py::WorkflowHelper._get_stack_frames`,
+`CaseListFormWorkflow._get_stack_frames / _add_stack_children_for_target`,
+`WorkflowQueryMeta.to_stack_datum`; partial in
+`test_suite_inline_search.py::test_form_linking_to_inline_search_module_from_registration_form`).
+A formless host returns with the host command alone. The XForm declares
+`search-input:results:inline` as `src="jr://instance/search-input/results:inline"`
+(`post_process/instances.py::search_input_instances`), and `#search/<name>`
+emits as `instance('search-input:results:inline')/input/field[@name='<name>']`.
+Web Apps is the enforcing runtime: Android never shows a case list on an empty
+search response and passes no search-input extra
+(`commcare-android …/activities/QueryRequestActivity.java::processSuccess`), so
+the action and the carried answers are browser-app behaviour and every surface
+says so. Nova never emits a session endpoint for a no-matches form and never
+offers `respect_relevancy=false` toward one. `CaseSearch` has removed
+`search_filter / search_label / search_again_label / additional_relevant /
+dynamic_search` and the `USH_INLINE_SEARCH` / `USH_SEARCH_FILTER` toggles are
+gone (`models/case_search.py::CaseSearch`; `models/modules.py::CaseListForm`):
+`case_list_form.{form_id, label, relevancy_expression, post_form_workflow}` and
+`inline_search / auto_launch / default_search` are the live fields.
+
 ### Case tiles
 
 A module's case list is laid out either as a row of columns or as a **tile** — a
@@ -2424,7 +2539,7 @@ reproduced.
 
 ## What remains
 
-Two units remain. **Every entry below is a pointer, not a summary of
+One unit remains. **Every entry below is a pointer, not a summary of
 record** — the contract, the binding CommCare facts, the wire shapes, and the
 observed outcome live only in the linked file, and each entry names what it is
 withholding so you can tell when you need it. Read that file, and
@@ -2444,25 +2559,6 @@ creates, why `respect_relevancy` exists only on forms, what a case-list endpoint
 excludes, the runtime replay sequence, and the documented divergences that are
 sharp edges rather than Nova bugs.
 
-### Search before register
-
-[`complex-app/search-before-register.md`](complex-app/search-before-register.md)
-· depends on nothing outstanding · blocks nothing
-
-A search-first module setting, a completed-search context distinct from
-not-searched and failed, and one no-matches registration form that carries the
-search answers, lowered to CommCare's `case_list_form` + hidden-module shape only
-at the boundary. The richer Search prompts, the search-first setting (the
-inline-search wire shape on both paths, its validator rules, the Preview
-phases, and the builder switch), and the no-matches form itself (`Form.entry`,
-the `case_list_form` + hidden-module lowering, the completed-search context and
-the form's admission in Preview, the SA/MCP `entry` and carried answers) have
-shipped; the unit stays here until its builder surfaces and smoke land. **The file holds** the inline-search wire shape and its oracles,
-the Register action bytes and the frozen toggle that gates its relevancy, the
-regenerated return frame, the runtime facts that make the zero-results gate safe
-only post-query, why the feature is Web Apps-only, and the implementation gates
-to re-verify in source.
-
 ---
 
 ## Dependency order
@@ -2472,10 +2568,8 @@ Each unit's prerequisites, matching the "Depends on" line in its file:
 | Unit | Needs |
 | --- | --- |
 | [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | — |
-| [search before register](complex-app/search-before-register.md) | — |
 
-Neither remaining unit has an outstanding prerequisite, and nothing waits on
-either; the session-endpoint file names the one fact it takes from the other.
+The remaining unit has no outstanding prerequisite, and nothing waits on it.
 
 ---
 

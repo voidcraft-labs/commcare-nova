@@ -70,6 +70,7 @@ import {
 	FORM_LINKS_FIXTURE_COUNT,
 	MOVE_APP_COUNT,
 	ORGANIZATION_FIXTURE_COUNT,
+	SEARCH_FIRST_FIXTURE_COUNT,
 } from "./lib/config";
 import {
 	buildFormLinksBlueprint,
@@ -87,6 +88,12 @@ import {
 	reactProfileInitialRoute,
 	reactProfileRoute,
 } from "./lib/reactProfileSeed";
+import {
+	buildSearchFirstBlueprint,
+	SEARCH_FIRST_SEED,
+	type SearchFirstRoutes,
+	searchFirstRoutes,
+} from "./lib/searchFirstSeed";
 import { buildSessionStorageState } from "./lib/session";
 
 /** Stable identifiers the tests assert against (mirrored in `authed.spec.ts`). */
@@ -785,6 +792,49 @@ async function main(): Promise<void> {
 		});
 	}
 
+	/* The search-first journey registers a case from an empty search, so
+	 * every attempt gets its own app and its own seeded row. */
+	const searchFirst: {
+		appId: string;
+		routes: SearchFirstRoutes;
+		caseId: string;
+	}[] = [];
+	for (let attempt = 0; attempt < SEARCH_FIRST_FIXTURE_COUNT; attempt++) {
+		const { appId: searchFirstAppId, baseSeq: searchFirstGenesisSeq } =
+			await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
+				name: SEARCH_FIRST_SEED.appName,
+				status: "complete",
+			});
+		const searchFirstDoc = toPersistableDoc(
+			buildSearchFirstBlueprint(searchFirstAppId),
+		);
+		await appendSyntheticBatch({
+			appId: searchFirstAppId,
+			expectedBaseSeq: searchFirstGenesisSeq,
+			targetDoc: searchFirstDoc,
+			authority: { kind: "user", actorUserId: SEED.userId },
+		});
+		await materializeCaseStoreSchemas({
+			appId: searchFirstAppId,
+			blueprint: searchFirstDoc,
+			syncedSeq: searchFirstGenesisSeq + 1,
+		});
+		const searchFirstPatient = await caseStore.insert({
+			appId: searchFirstAppId,
+			row: {
+				case_type: SEARCH_FIRST_SEED.caseType,
+				case_name: SEARCH_FIRST_SEED.caseName,
+				status: "open",
+				properties: {},
+			},
+		});
+		searchFirst.push({
+			appId: searchFirstAppId,
+			routes: searchFirstRoutes(searchFirstAppId),
+			caseId: searchFirstPatient.caseId,
+		});
+	}
+
 	/* The sections journey runs a form split into two pages in Preview and
 	 * changes nothing durable, so one app serves every attempt. */
 	const { appId: formSectionsAppId, baseSeq: formSectionsGenesisSeq } =
@@ -1120,6 +1170,7 @@ async function main(): Promise<void> {
 				caseWorkspace,
 				caseChanges,
 				formLinks,
+				searchFirst,
 				formSections,
 				deleteAppIds,
 				threadsAppId,

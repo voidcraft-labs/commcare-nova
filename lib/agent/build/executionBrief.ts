@@ -338,6 +338,7 @@ const CONSTRAINT_AREAS: Readonly<
 	>
 > = {
 	PREVIEW_AUTOMATIONS_NOT_EXECUTED: ["automations"],
+	NO_MATCHES_REGISTRATION_IS_WEB_APPS_ONLY: ["case-list", "forms"],
 	AUTOMATION_HQ_MANUAL_SETUP: ["automations"],
 	HQ_BUILD_RELEASE_NOT_API_DRIVEN: [],
 	WORKER_SCHEMA_AND_ROLES_NOT_PUSHED: ["users"],
@@ -357,7 +358,6 @@ const CONSTRAINT_AREAS: Readonly<
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
 	GAP_SESSION_ENDPOINTS_DEEP_LINKS: ["navigation"],
-	GAP_SEARCH_BEFORE_REGISTER: ["case-list", "forms"],
 };
 
 function checklistRequirement(

@@ -1,8 +1,8 @@
 /**
  * The no-matches registration form on the wire.
  *
- * Oracles, all in `~/code/commcare-hq` (see
- * `docs/plans/complex-app/search-before-register.md`):
+ * Oracles, all in `~/code/commcare-hq` (the binding facts live in
+ * `docs/plans/complex-app-plan.md` § Register when nothing matches):
  *
  *   - `tests/data/case_list_form/case-list-form-suite.xml`: the Register
  *     `<action>` on `m0_case_short` (display, push with the target command,

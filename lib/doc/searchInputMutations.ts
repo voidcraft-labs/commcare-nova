@@ -1,6 +1,6 @@
 /** Planners for Search-input row edits. */
 
-import type { Mutation } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type {
 	CaseListConfig,
 	CaseSearchConfig,
@@ -18,6 +18,7 @@ import {
 	walkExpressionInputRefsWithPaths,
 	walkInputRefsWithPaths,
 } from "@/lib/domain/predicate";
+import { searchAnswerFieldDependents } from "./searchNoMatchesDependents";
 
 type SearchInputOccurrencePaths = readonly [
 	PredicateAstPath,
@@ -71,7 +72,47 @@ export type SearchInputRemovalDependency =
 			readonly label: string;
 			readonly columnUuid: Uuid;
 			readonly paths: SearchInputOccurrencePaths;
+	  }
+	/** A form field reading the answer as `#search/<name>` (the no-matches
+	 * registration form's carried answers). */
+	| {
+			readonly kind: "form-field";
+			readonly label: string;
+			readonly moduleUuid: Uuid;
+			readonly formUuid: Uuid;
+			readonly fieldUuid: Uuid;
+			/** How many of the field's expression slots read the answer. */
+			readonly uses: number;
 	  };
+
+/** How many places one dependency reads the answer in. */
+export function searchInputDependencyUses(
+	dependency: SearchInputRemovalDependency,
+): number {
+	return dependency.kind === "form-field"
+		? dependency.uses
+		: dependency.paths.length;
+}
+
+/**
+ * The form fields of `moduleUuid` reading the prompt's answer as
+ * `#search/<name>`: they live outside the case-list config, so a surface
+ * holding the config still needs the document for them.
+ */
+export function searchInputFormFieldDependencies(
+	doc: BlueprintDoc,
+	moduleUuid: Uuid,
+	inputUuid: Uuid,
+): readonly SearchInputRemovalDependency[] {
+	return searchAnswerFieldDependents(doc, inputUuid).map((dependent) => ({
+		kind: "form-field" as const,
+		label: `“${dependent.fieldId}” in “${dependent.formName}”`,
+		moduleUuid,
+		formUuid: dependent.formUuid,
+		fieldUuid: dependent.fieldUuid,
+		uses: dependent.slots.length,
+	}));
+}
 
 function predicateInputPaths(
 	predicate: NonNullable<CaseListConfig["filter"]>,
