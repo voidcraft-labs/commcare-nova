@@ -496,6 +496,9 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 
 async function readySubmitButton(): Promise<HTMLButtonElement> {
 	return await waitFor(() => {
+		expect(
+			document.querySelector('[data-preview-engine-ready="true"]'),
+		).not.toBeNull();
 		const button = screen.getByRole("button", {
 			name: /^submit$/i,
 		}) as HTMLButtonElement;

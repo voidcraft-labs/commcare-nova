@@ -68,3 +68,5 @@ image.env
 migration.env
 mcp-headers
 mcp-body
+
+.next-profiles

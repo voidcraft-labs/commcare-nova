@@ -2203,9 +2203,12 @@ test.describe("authenticated builder", () => {
 		await page.getByRole("button", { name: "Preview", exact: true }).click();
 		const dateTrigger = page.locator('button[data-slot="date-picker"]');
 		await expect(dateTrigger).toHaveCount(1, { timeout: 20_000 });
+		await expect(
+			page.locator('[data-preview-engine-ready="true"]'),
+		).toBeVisible({ timeout: 20_000 });
 
 		await test.step("both renderers lay the rows out identically", async () => {
-			expect(await rowGeometry()).toEqual(edit);
+			await expect.poll(rowGeometry).toEqual(edit);
 		});
 
 		await test.step("no native temporal input survives anywhere", async () => {
