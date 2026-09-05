@@ -86,7 +86,7 @@ export function storedMessageToUIMessage(msg: OldStoredMessage): {
 
 export async function up(db: Kysely<unknown>): Promise<void> {
 	/* Idempotent throughout — the ledger-less adoption path (see
-	 * `migrate.test.ts`) replays EVERY migration against an already-migrated
+	 * `migrate.postgres.test.ts`) replays EVERY migration against an already-migrated
 	 * schema, so each step must no-op cleanly when its work is done. */
 	await sql`ALTER TABLE threads ADD COLUMN IF NOT EXISTS updated_at text`.execute(
 		db,

@@ -327,7 +327,7 @@ jobs:
     # better-auth / better-call session read path) on every PR. The test seeds +
     # asserts against Better Auth's Kysely/Postgres adapter on a per-test
     # testcontainer database (booted by the case-store vitest globalSetup) — no
-    # emulator, no ADC. See lib/db/__tests__/sessionCookie.integration.test.ts.
+    # emulator, no ADC. See lib/db/__tests__/sessionCookie.postgres.test.ts.
     name: Auth session-cookie contract
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -351,4 +351,4 @@ jobs:
       - run: npm ci
       - uses: ./.github/actions/pull-test-image
       - name: Session-cookie contract (Postgres testcontainer)
-        run: node_modules/.bin/vitest run sessionCookie.integration.test.ts
+        run: node_modules/.bin/vitest run sessionCookie.postgres.test.ts

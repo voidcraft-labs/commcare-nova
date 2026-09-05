@@ -17,18 +17,34 @@ export default defineConfig({
 		// `vitest.setup.ts` for the rationale and the escape hatch for
 		// tests that want to assert on log calls.
 		setupFiles: ["./vitest.setup.ts"],
-		// Boot one Postgres testcontainer per `vitest run` and seed
-		// the case-store schema. Workers consume the connection URI
-		// via `inject("postgresTestUrl")`. See
-		// `lib/case-store/sql/__tests__/globalSetup.ts` for the
-		// container-per-run + per-test BEGIN/ROLLBACK contract.
-		globalSetup: ["./lib/case-store/sql/__tests__/globalSetup.ts"],
+		// Only the Postgres project owns Docker. A selected ordinary test never
+		// imports the migration graph or provisions an unused database. Projects
+		// share the default sequence group and worker pool; no extra concurrency.
+		projects: [
+			{
+				extends: true,
+				test: {
+					name: "unit",
+					exclude: ["**/*.postgres.test.{ts,tsx}"],
+				},
+			},
+			{
+				extends: true,
+				test: {
+					name: "postgres",
+					include: ["**/*.postgres.test.{ts,tsx}"],
+					globalSetup: ["./lib/case-store/sql/__tests__/globalSetup.ts"],
+				},
+			},
+		],
 		// Files whose change must force a `--changed` run (the fast local
 		// loop, `npm run test:changed`) to re-run the WHOLE suite: they sit
 		// OUTSIDE every test's import graph yet change how all tests execute
 		// (installed deps — including a lockfile-only bump that leaves
 		// package.json untouched — this config, the global logger/motion
-		// stubs, the shared Postgres container). CI never scopes: its test
+		// stubs, and shared database preparation). Vitest exposes this option
+		// only at the root, so migration/template changes conservatively force
+		// the whole selected run. CI never scopes: its test
 		// jobs run every test file, sharded.
 		// Patterns match the absolute paths `vitest --changed` feeds
 		// picomatch; note the no-trailing-`/**` form — vitest's own default
@@ -39,7 +55,8 @@ export default defineConfig({
 			"**/package-lock.json",
 			"**/{vitest,vite}.config.*",
 			"**/vitest.setup.ts",
-			"**/lib/case-store/sql/__tests__/globalSetup.ts",
+			"**/lib/case-store/sql/__tests__/{globalSetup,applyMigrations}.ts",
+			"**/lib/case-store/migrations/**",
 		],
 		// Container boot is the long pole. 60 s default test timeout
 		// applies to test bodies, not to globalSetup itself; raising

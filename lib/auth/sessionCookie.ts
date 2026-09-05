@@ -16,7 +16,7 @@
  * This reproduction is intentionally NOT imported from better-call (its
  * `exports` map doesn't expose the function, and we don't want a deep-path
  * import that a version bump silently moves). The contract is instead pinned by
- * an end-to-end guard: `lib/db/__tests__/sessionCookie.integration.test.ts`
+ * an end-to-end guard: `lib/db/__tests__/sessionCookie.postgres.test.ts`
  * mints with this helper and asserts `auth.api.getSession` accepts it, so a
  * better-auth/better-call signing change fails loudly in CI rather than here.
  */

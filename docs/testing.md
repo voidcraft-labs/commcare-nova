@@ -21,6 +21,31 @@ restates its fixture, snapshots an implementation, or mocks away the behavior
 should be removed or rewritten. Do not duplicate a full workflow for each minor
 input variation when a focused test can prove the varying rule.
 
+## Local test projects
+
+Ordinary `*.test.ts` / `*.test.tsx` files run in the `unit` project, including
+component tests and integrations whose external boundaries are mocked. Tests
+that actually read or write Postgres use `*.postgres.test.ts` (or `.tsx`) and
+run in the `postgres` project. Only that project boots Docker and migrates the
+database. Both projects share the existing worker pool and file isolation.
+
+`npm test -- path/to/file.test.ts` selects the appropriate project automatically.
+`npm test -- --project=unit` runs without Docker. `npm test -- --project=postgres`
+selects the database suite. CI runs both projects. A misplaced database fixture
+fails before connecting rather than falling back to local database credentials.
+
+Separate tests by their dependencies. A file-wide database hook makes even a
+pure formatting assertion pay for a database. Keep pure projections, mocked
+boundary contracts, and real database acceptance in sibling files. The
+`caseDataBindingClient`, `caseDataBindingActions`, and
+`caseDataBinding.postgres` suites illustrate those three boundaries.
+
+Do not test a convenience fixture as though it were production behavior. Call
+the real function with independently chosen inputs and a counterexample that
+would distinguish the intended behavior from a plausible wrong implementation.
+For example, submission authority tests give the client and committed form
+conflicting destinations, then verify which one production code honors.
+
 ## Own asynchronous work
 
 Every operation started by a test must finish or be cancelled and joined before
@@ -59,7 +84,15 @@ Migration tests omit `schema` to clone an extensions-only database, then execute
 the migrations they are testing. Templates are never test targets. They contain
 no application fixture rows. This preserves real commits and test isolation
 without repeatedly installing PostGIS. Do not replace transaction tests with
-nested transactions or shared mutable tables to gain speed.
+nested transactions or shared mutable tables to gain speed. Tests using the
+module-scoped database handle must stay sequential within their file.
+
+For an expensive historical migration precondition, `prepareTemplate(db, pool)`
+runs once per suite and closes that database to connections. Each test receives
+its own clone; the migration under test still executes in the test body. Do not
+move the behavior being asserted into template preparation or share a writable
+database across tests. `preparedTemplate.postgres.test.ts` verifies committed
+write isolation and cleanup, including the prepared template.
 
 ## Performance and verification
 
@@ -69,8 +102,10 @@ Reproduce the slow files locally before running a broad graph. Run one broad
 suite at a time on a 16 GB machine, including across agents/worktrees.
 
 Use `npm test -- path/to/test.ts` for focused work and `npm run test:changed` for
-an import-graph check. Configuration and dependency changes force a full changed
-run. CI runs all tests, independent of changed-file selection. Preserve file
+an import-graph check. Configuration, dependency, and shared database-preparation/migration changes
+force a full changed run: those dependencies sit outside the test imports.
+Vitest exposes that trigger only at the root, so use explicit file selection
+for the first local check. CI runs all tests, independent of changed-file selection. Preserve file
 isolation and unhandled-error reporting; increasing timeouts, adding retries,
 skipping tests, or reducing assertions is not a performance fix.
 

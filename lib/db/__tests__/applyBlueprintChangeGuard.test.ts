@@ -15,7 +15,7 @@
  * The deep read-evaluate-write behavior the writer itself owns (re-apply on the
  * FRESH stored doc, the concurrent-delete guard, the fresh-doc re-verdict, the
  * per-commit reauth, and canonical document hydration) is exercised against a REAL
- * Postgres transaction in `commitGuardedBatch.integration.test.ts`.
+ * Postgres transaction in `commitGuardedBatchTransactions.postgres.test.ts`.
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";

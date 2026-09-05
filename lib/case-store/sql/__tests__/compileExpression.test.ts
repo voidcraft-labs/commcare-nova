@@ -13,7 +13,7 @@
 // Postgres semantic correctness (do these tokens parse as the
 // intended types? does the operator round-trip the expected value?)
 // is the harness sibling's concern at
-// `compileExpression.harness.test.ts`.
+// `compileExpression.harness.postgres.test.ts`.
 //
 // ## Predicate-thunk strategy
 //

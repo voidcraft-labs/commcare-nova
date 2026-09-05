@@ -208,8 +208,8 @@ gate, and integrity services every other write uses.
 
 ## Tests
 
-`__tests__/changeSetStore.integration.test.ts` (the fault matrix +
-idempotency/authority/lifecycle), `changeSetRuntime.integration.test.ts`
+`__tests__/changeSetStore.postgres.test.ts` (the fault matrix +
+idempotency/authority/lifecycle), `changeSetRuntime.postgres.test.ts`
 (workspace replay/process death, isolation gate, exclusivity, commit +
 rebase), and the pure suites (`digest`, `handles`,
 `stagingProjection` — classification completeness + collision freedom,

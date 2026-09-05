@@ -16,7 +16,7 @@
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Client, Pool } from "pg";
-import { afterEach, beforeEach, inject } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, inject } from "vitest";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 
 /**
@@ -37,6 +37,9 @@ export interface PerTestDatabaseOptions {
 	databaseNamePrefix: string;
 	/** Clone the production migration result for behavior tests; omit for migration tests. */
 	schema?: "migrated";
+	/** Build expensive migration preconditions once, then clone them per test.
+	 * The migration under test must still run in each test body. */
+	prepareTemplate?: (db: Kysely<unknown>, pool: Pool) => Promise<void>;
 	/**
 	 * Explicitly identify this isolated database as the local migration target.
 	 *
@@ -58,6 +61,43 @@ export interface PerTestDatabaseOptions {
 export function setupPerTestDatabase(
 	options: PerTestDatabaseOptions,
 ): PerTestDatabaseHandle {
+	let suiteTemplate: string | undefined;
+	if (options.prepareTemplate) {
+		const prepare = options.prepareTemplate;
+		beforeAll(async () => {
+			const created = await createIsolatedDatabase(
+				`${options.databaseNamePrefix}template_`,
+				options.schema,
+			);
+			suiteTemplate = created.databaseName;
+			const built = buildIsolatedDb(created.uri);
+			const previous = process.env.NOVA_DB_LOCAL_URL;
+			try {
+				if (options.establishLocalMigrationAuthority) {
+					process.env.NOVA_DB_LOCAL_URL = created.uri;
+				}
+				await prepare(built.db, built.pool);
+			} finally {
+				if (previous === undefined) delete process.env.NOVA_DB_LOCAL_URL;
+				else process.env.NOVA_DB_LOCAL_URL = previous;
+				await built.db.destroy();
+				if (!built.pool.ended) await built.pool.end();
+			}
+			const admin = new Client({ connectionString: postgresTestUrl() });
+			try {
+				await admin.connect();
+				await admin.query(
+					`ALTER DATABASE ${suiteTemplate} ALLOW_CONNECTIONS false`,
+				);
+			} finally {
+				await admin.end();
+			}
+		});
+		afterAll(async () => {
+			if (suiteTemplate !== undefined)
+				await dropIsolatedDatabase(suiteTemplate);
+		});
+	}
 	// `null` outside a test body — getters throw if accessed there
 	// rather than silently returning the previous test's state.
 	let active: {
@@ -72,6 +112,7 @@ export function setupPerTestDatabase(
 		const created = await createIsolatedDatabase(
 			options.databaseNamePrefix,
 			options.schema,
+			suiteTemplate,
 		);
 		const built = buildIsolatedDb(created.uri);
 		const previousLocalDatabaseUrl = process.env.NOVA_DB_LOCAL_URL;
@@ -170,17 +211,19 @@ function urlForDatabase(baseUri: string, databaseName: string): string {
 async function createIsolatedDatabase(
 	databaseNamePrefix: string,
 	schema?: "migrated",
+	preparedTemplate?: string,
 ): Promise<{ databaseName: string; uri: string }> {
-	const baseUri = inject("postgresTestUrl");
+	const baseUri = postgresTestUrl();
 	const databaseName = `${databaseNamePrefix}${Math.random().toString(36).slice(2, 10)}`;
 
 	const adminClient = new Client({ connectionString: baseUri });
 	try {
 		await adminClient.connect();
 		const template =
-			schema === "migrated"
+			preparedTemplate ??
+			(schema === "migrated"
 				? inject("postgresMigratedTemplate")
-				: inject("postgresExtensionsTemplate");
+				: inject("postgresExtensionsTemplate"));
 		await adminClient.query(
 			`CREATE DATABASE ${databaseName} TEMPLATE ${template}`,
 		);
@@ -199,7 +242,7 @@ async function createIsolatedDatabase(
  * belt-and-suspenders fallback.
  */
 async function dropIsolatedDatabase(databaseName: string): Promise<void> {
-	const baseUri = inject("postgresTestUrl");
+	const baseUri = postgresTestUrl();
 	const adminClient = new Client({ connectionString: baseUri });
 	try {
 		await adminClient.connect();
@@ -209,6 +252,17 @@ async function dropIsolatedDatabase(databaseName: string): Promise<void> {
 	} finally {
 		await adminClient.end();
 	}
+}
+
+/** Refuse a misplaced fixture before pg can fall back to local credentials. */
+export function postgresTestUrl(): string {
+	const uri = inject("postgresTestUrl");
+	if (!uri) {
+		throw new Error(
+			"This fixture needs the Postgres test project. Name its test *.postgres.test.ts so Vitest provisions the isolated database.",
+		);
+	}
+	return uri;
 }
 
 /**
@@ -228,8 +282,7 @@ function buildIsolatedDb(uri: string): {
 	// re-emits that as a pool `'error'` (`terminating connection due to
 	// administrator command`); with no listener Node escalates it to an
 	// uncaughtException that fails the whole `vitest run`, and under
-	// `--detect-async-leaks` its timing is additionally misreported as a leak
-	// pinned to an unrelated test file. The drop is intentional, so a
+	// a late worker teardown its timing can affect another file. The drop is intentional, so a
 	// terminated idle connection here is expected teardown noise, not a fault
 	// the harness should surface. (An error on an ACTIVE query still rejects
 	// that query — this listener only catches idle-client errors.)

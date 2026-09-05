@@ -242,7 +242,7 @@ const RETIRED_CASE_PROPERTY_IDENTIFIERS = [
 
 const FROZEN_CANONICAL_IDENTITY_SOURCES = [
 	"lib/case-store/migrations/20260728000000_canonical_identity_foundation/",
-	"lib/case-store/migrations/__tests__/canonicalIdentityFoundation.integration.test.ts",
+	"lib/case-store/migrations/__tests__/canonicalIdentityFoundation.postgres.test.ts",
 	"lib/case-store/migrations/__tests__/canonicalIdentityFoundation.test.ts",
 	"lib/case-store/migrations/__tests__/frozenAuditPrivilegeBoundary.test.ts",
 	"lib/case-store/migrations/__tests__/frozenOccurrenceDispatcher.test.ts",

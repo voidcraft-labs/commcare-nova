@@ -7,7 +7,7 @@
  * it upserts a `@dimagi.com` agent user + personal Project, writes a live
  * session row through Better Auth's own adapter, and sets the signed session
  * cookie (`lib/auth/sessionCookie.ts`: the same signer the smoke suite uses,
- * contract-pinned by `lib/db/__tests__/sessionCookie.integration.test.ts`),
+ * contract-pinned by `lib/db/__tests__/sessionCookie.postgres.test.ts`),
  * then redirects. From there the client is simply logged in.
  *
  *   browser / agent:  navigate to  http://localhost:3000/api/dev/login

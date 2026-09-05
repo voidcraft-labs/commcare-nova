@@ -4,7 +4,7 @@
  * These exercise `LogWriter`'s batching + failure-isolation semantics via
  * an injected sink stub — no database. The default production sink
  * (`pgSink`) and its column mapping are covered end-to-end by
- * `reader.integration.test.ts` (a writer with the default sink writes, then
+ * `reader.postgres.test.ts` (a writer with the default sink writes, then
  * `readEvents` reads the rows back).
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
