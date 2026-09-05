@@ -3,14 +3,39 @@ import { readdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { performance } from "node:perf_hooks";
 
+async function cpuMicroseconds() {
+	for (const [file, divisor] of [
+		["/sys/fs/cgroup/cpu.stat", 1],
+		["/sys/fs/cgroup/cpuacct/cpuacct.usage", 1000],
+		["/sys/fs/cgroup/cpu,cpuacct/cpuacct.usage", 1000],
+	]) {
+		try {
+			const value = await readFile(file, "utf8");
+			const usage = file.endsWith("cpu.stat")
+				? value.match(/^usage_usec (\d+)$/m)?.[1]
+				: value.trim();
+			if (usage) return Number(usage) / divisor;
+		} catch {
+			/* Local builds may not have Linux cgroup accounting. */
+		}
+	}
+	return null;
+}
+
 async function runPhase(name, command, args, env = process.env) {
 	const started = performance.now();
+	const cpuStarted = await cpuMicroseconds();
 	await new Promise((resolve, reject) => {
 		const child = spawn(command, args, { env, stdio: "inherit" });
 		child.once("error", reject);
-		child.once("exit", (code, signal) => {
+		child.once("exit", async (code, signal) => {
+			const cpuFinished = await cpuMicroseconds();
+			const cpuSeconds =
+				cpuStarted === null || cpuFinished === null
+					? undefined
+					: Number(((cpuFinished - cpuStarted) / 1_000_000).toFixed(3));
 			console.log(
-				`NOVA_BUILD_PHASE ${JSON.stringify({ name, seconds: Number(((performance.now() - started) / 1000).toFixed(3)), code, signal })}`,
+				`NOVA_BUILD_PHASE ${JSON.stringify({ name, seconds: Number(((performance.now() - started) / 1000).toFixed(3)), cpuSeconds, code, signal })}`,
 			);
 			if (code === 0) resolve();
 			else reject(new Error(`${name} failed (${signal || code})`));

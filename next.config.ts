@@ -1,4 +1,3 @@
-import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 import { withSentryConfig } from "@sentry/nextjs";
 import { createMDX } from "fumadocs-mdx/next";
@@ -15,14 +14,6 @@ const reactProfiler = readReactProfilerConfig();
 const buildRoot = fileURLToPath(new URL(".", import.meta.url));
 
 const nextConfig: NextConfig = {
-	// Next reserves a core for coordination even on a two-core worker. Page
-	// generation can use both; larger machines retain that spare core.
-	experimental: {
-		cpus: Math.max(
-			1,
-			availableParallelism() - Number(availableParallelism() > 2),
-		),
-	},
 	/* Keep the retired docs URL working while clients and bookmarks move to the
 	 * semantic project-space guidance. Config redirects run before proxy host
 	 * routing, so constrain this one to the docs hostname. */
@@ -84,9 +75,12 @@ const nextConfig: NextConfig = {
 		"@google-cloud/kms",
 		// These Node SDKs include generated API clients. Loading their published
 		// packages avoids compiling and duplicating them into server source maps.
-		// The complete standalone image verifies all three native imports.
+		// The complete standalone image verifies the native imports.
 		"@google-cloud/cloud-sql-connector",
 		"@google-cloud/storage",
+		"xlsx",
+		"mammoth",
+		"music-metadata",
 	],
 
 	/* Built-in icon bytes (public/nova-icons/*.png) are read at runtime via `fs`

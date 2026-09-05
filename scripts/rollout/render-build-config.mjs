@@ -172,9 +172,9 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		"cloudbuild.yaml",
 		issues,
 	);
-	if (count(cloudBuild, "source /workspace/rollout.env") !== 3) {
+	if (count(cloudBuild, "source /workspace/rollout.env") !== 2) {
 		issues.push(
-			"cloudbuild.yaml must load runtime declarations for build, cache export, and deploy",
+			"cloudbuild.yaml must load runtime declarations for build and deploy",
 		);
 	}
 	requireExactlyOnce(
@@ -214,12 +214,11 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		".github/workflows/ci.yml",
 		issues,
 	);
-	requireExactlyTwice(
-		dockerfile,
-		`ARG ${RUNTIME_BUILD_ID_ENV_KEY}`,
-		"Dockerfile",
-		issues,
-	);
+	if (count(dockerfile, `ARG ${RUNTIME_BUILD_ID_ENV_KEY}`) !== 3) {
+		issues.push(
+			"Dockerfile must declare build identity for compilation, cache admission, and the runtime image",
+		);
+	}
 	requireExactlyTwice(
 		dockerfile,
 		`ENV ${RUNTIME_BUILD_ID_ENV_KEY}="\${${RUNTIME_BUILD_ID_ENV_KEY}}"`,

@@ -274,6 +274,61 @@ describe("deployment artifact and release contracts", () => {
 		}
 	});
 
+	test("cache export cannot compile the application or require its credentials", () => {
+		const directory = mkdtempSync(join(tmpdir(), "nova-cache-export-"));
+		try {
+			const log = join(directory, "calls.jsonl");
+			writeFileSync(
+				join(directory, "docker"),
+				`#!/usr/bin/env node\nrequire('node:fs').appendFileSync(process.env.NOVA_TEST_DOCKER_LOG, JSON.stringify(process.argv.slice(2))+'\\n');\n`,
+				{ mode: 0o700 },
+			);
+			const result = spawnSync(
+				"bash",
+				["scripts/rollout/export-build-cache.sh"],
+				{
+					encoding: "utf8",
+					env: {
+						...process.env,
+						PATH: `${directory}:${process.env.PATH}`,
+						NOVA_TEST_DOCKER_LOG: log,
+						NOVA_BUILD_ID: "cache-contract",
+						NOVA_BUILD_CACHE_DIRECTORY: join(directory, "cache"),
+						NOVA_BUILDX_BUILDER: "isolated-contract",
+						NOVA_IMAGE_TAG: "",
+						NOVA_DOCKER_CACHE_TO: "registry/dependencies:contract",
+						NOVA_NEXT_CACHE_TO: "registry/compiler:contract",
+						SENTRY_AUTH_TOKEN: "",
+						NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: "",
+						NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: "",
+					},
+				},
+			);
+			expect(result.status, result.stderr).toBe(0);
+			const calls: string[][] = read(log)
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			const builds = calls.filter(
+				(args) => args[0] === "buildx" && args[1] === "build",
+			);
+			expect(
+				builds.map((args) => args[args.indexOf("--target") + 1]).sort(),
+			).toEqual(["dependency-archive", "next-cache-export"]);
+			expect(builds.every((args) => !args.includes("--secret"))).toBe(true);
+			const snapshot = dockerfile.slice(
+				dockerfile.indexOf("AS cache-snapshot"),
+				dockerfile.indexOf("FROM scratch AS next-cache-export"),
+			);
+			expect(snapshot).not.toContain("--from=builder");
+			expect(snapshot).toContain(
+				`test "$(cat /cache/.nova-completed-build)" = "\${NOVA_BUILD_ID}"`,
+			);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
+	});
+
 	test.each(["success", "cache-failure", "runner-failure"])(
 		"image helper preserves the full build and cache-failure boundary (%s)",
 		(mode) => {

@@ -29,11 +29,8 @@ case "${NOVA_IMAGE_OUTPUT:-load}" in
 	load)
 		docker buildx build "${application_arguments[@]}" --target runner \
 			--load --tag "$NOVA_IMAGE_TAG" .
-        docker run --rm --entrypoint node "$NOVA_IMAGE_TAG" --input-type=module -e '
-          for (const [name, member] of [["@google-cloud/kms", "KeyManagementServiceClient"], ["@google-cloud/cloud-sql-connector", "Connector"], ["@google-cloud/storage", "Storage"]]) {
-            if (typeof (await import(name))[member] !== "function") throw new Error(`Missing standalone SDK: ${name}`);
-          }
-        '
+        docker run --rm --interactive --entrypoint node "$NOVA_IMAGE_TAG" --input-type=module \
+            < "$(dirname "$0")/verify-runtime-packages.mjs"
 		;;
 	registry)
 		docker buildx build "${application_arguments[@]}" --target runner \

@@ -25,9 +25,10 @@ pins change, then update the digest in both Cloud Build configurations. The
 application pipeline never builds its own tooling. The worker machine size is
 the Cloud Build default.
 
-A private registry cache holds dependency/source/migration layers. npm download
-archives stay in a disposable cache mount, so they do not duplicate installed
-packages in those exported layers. A separate
+A private registry cache holds one installed-dependency tar archive. Both npm
+downloads and the installation tree stay in disposable mounts; registry export
+processes the archive instead of walking the complete installed file tree.
+Each build expands that archive inside BuildKit before compilation. A separate
 OCI image holds only `.next/cache`, including Turbopack and native TypeScript
 incremental state. BuildKit seeds its writable cache mount directly from that
 image; the compiler cache never enters the host source context or an
@@ -49,13 +50,15 @@ empty seed before application compilation begins. An application compile,
 type-check, source-map upload, or image-export failure is terminal; it never
 triggers a retry disguised as a cold build. Cache export/publication failure
 does not invalidate a successfully built application. Generated Cloud Build
-control and verification files are excluded from the Docker source context so
-cache export reuses the completed build instead of compiling again. Private
+control and verification files are excluded from the Docker source context.
+Cache export has no application-build dependency and receives no application
+build credentials. It requires an exact Build ID marker written into the cache
+mount only after the complete build succeeds, so publication cannot invoke a
+second compilation. Private
 cache artifacts expire after fourteen days and are never deployable images.
 
 The build runs Next, the native production type check, and Sentry upload in
-sequence. Static-page generation uses both cores on a two-core worker; larger
-machines keep Next's spare coordinator core. Parallel type checking and source-map processing caused CPU
+sequence. Parallel type checking and source-map processing caused CPU
 contention on the default worker. CI continues to type-check the whole repo;
 the production configuration covers runtime code and Next's generated route
 types. Turbopack generates native debug IDs and indexed maps with embedded
@@ -64,9 +67,10 @@ symbolication reader flattens indexed maps when needed. The upload retains the
 SDK's exact manifest exclusions, including the private Server Action manifest.
 Only after successful upload and release finalization are source maps and
 mapping URLs removed from public, server, and standalone output. Cloud SQL,
-Storage, and KMS use their published native Node packages instead of being
-compiled into server chunks; complete-image verification loads all three SDKs
-from the standalone artifact.
+Storage, KMS, and the document/media parsers use their published native Node
+packages instead of being compiled into server chunks; complete-image
+verification loads those packages and round-trips a workbook in the standalone
+artifact.
 
 ## Migration admission
 

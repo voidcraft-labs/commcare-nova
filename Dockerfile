@@ -27,13 +27,23 @@ RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
     npm install --global "npm@${NPM_VERSION}" --ignore-scripts --no-audit --no-fund && \
     test "$(npm --version)" = "${NPM_VERSION}"
 
+# Cache one dependency archive rather than making the registry exporter walk
+# the entire installed file tree. The install tree and npm downloads remain in
+# disposable mounts; only the archive enters the published cache layer.
+FROM build-base AS dependency-archive
+WORKDIR /app
+COPY package.json package-lock.json .npmrc ./
+RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
+    --mount=type=cache,id=nova-npm-install,target=/install \
+    cp package.json package-lock.json .npmrc /install/ && \
+    cd /install && npm ci --ignore-scripts --no-audit --no-fund && \
+    tar -cf /node_modules.tar node_modules
+
 FROM build-base AS deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
-# Download archives are disposable, not a second copy of node_modules in the
-# exported dependency layer. A fresh worker still installs from the lockfile.
-RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
-    npm ci --ignore-scripts --no-audit --no-fund
+RUN --mount=type=bind,from=dependency-archive,source=/node_modules.tar,target=/node_modules.tar \
+    tar -xf /node_modules.tar
 
 # Inherit dependency layers instead of copying the full node_modules tree.
 FROM deps AS sources
@@ -153,7 +163,7 @@ ENV NOVA_BUILD_ID="${NOVA_BUILD_ID}" \
 RUN --mount=type=cache,id=nova-next-cache,target=/app/.next/cache \
     --mount=type=secret,id=SENTRY_AUTH_TOKEN,env=SENTRY_AUTH_TOKEN \
     --mount=type=secret,id=NEXT_SERVER_ACTIONS_ENCRYPTION_KEY,env=NEXT_SERVER_ACTIONS_ENCRYPTION_KEY,required=true \
-    npm run build
+    npm run build && printf '%s' "${NOVA_BUILD_ID}" > /app/.next/cache/.nova-completed-build
 
 # Publish one directly downloadable corresponding-source archive for the
 # OpenJDK-derived browser runtime. Preserve repo-root-relative paths so the
@@ -171,12 +181,14 @@ RUN mkdir -p public/third-party && \
       lib/preview/xpath/vendor/javaPatternNames.generated.ts
 
 
-# This is exported separately while deployment runs. The completion dependency
-# prevents publishing a partial compiler cache. No application artifacts enter
-# this private cache image.
+# Export only the completed private cache mount. A Build ID marker is written
+# after compilation, type checking, source-map upload, and map removal succeed.
+# This stage deliberately has no dependency on the builder stage: exporting a
+# cache cannot invoke application compilation again, even after cache imports.
 FROM ${NODE_IMAGE} AS cache-snapshot
-COPY --from=builder /app/.next/BUILD_ID /build-complete
+ARG NOVA_BUILD_ID
 RUN --mount=type=cache,id=nova-next-cache,target=/cache \
+    test "$(cat /cache/.nova-completed-build)" = "${NOVA_BUILD_ID}" && \
     test "$(du -sk /cache | cut -f1)" -le 2097152 && cp -a /cache /output
 
 FROM scratch AS next-cache-export
