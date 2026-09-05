@@ -39,6 +39,7 @@ export type ChangeSetHandle = z.infer<typeof changeSetHandleSchema>;
 
 /** The closed set of entity kinds a handle may bind. */
 export const stagedEntityKindSchema = z.enum([
+	"entry_point",
 	"module",
 	"form",
 	"field",

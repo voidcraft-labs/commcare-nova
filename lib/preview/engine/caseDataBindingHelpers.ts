@@ -2251,6 +2251,7 @@ export type AuthorizedPreviewContext =
 			store: CaseStore;
 			scope: LookupScope;
 			blueprint?: PersistableDoc;
+			baseSeq?: number;
 			/**
 			 * What this worker's device would hold — pass it to every RUNNING
 			 * read and to none of the authoring ones.
@@ -2390,6 +2391,7 @@ export async function resolveAuthorizedPreviewContext(args: {
 			role: access.role,
 		},
 		...(blueprint !== undefined && { blueprint }),
+		...(snapshot !== undefined && { baseSeq: snapshot.baseSeq }),
 	};
 }
 

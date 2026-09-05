@@ -338,6 +338,66 @@ interface NeverGates {
 type Coverage = RejectionProbe | NeverGates;
 
 const GUARD_COVERAGE = {
+	addEntryPoint: {
+		neverGates:
+			"A named survey destination has no case-selection requirements.",
+		build: () => {
+			const doc = richDoc();
+			return {
+				doc,
+				batch: [
+					{
+						kind: "addEntryPoint",
+						target: {
+							kind: "form",
+							moduleUuid: doc.moduleOrder[1],
+							formUuid: formUuidAt(doc, 1, 0),
+						},
+						entryPoint: { uuid: testUuid("entry-point"), id: "survey" },
+					},
+				],
+			};
+		},
+	},
+	updateEntryPoint: {
+		neverGates:
+			"Changing an existing unique external identifier preserves the destination.",
+		build: () => {
+			const doc = richDoc();
+			const uuid = formUuidAt(doc, 1, 0);
+			doc.forms[uuid].entryPoint = {
+				uuid: testUuid("entry-point"),
+				id: "survey",
+			};
+			return {
+				doc,
+				batch: [
+					{
+						kind: "updateEntryPoint",
+						entryPointUuid: testUuid("entry-point"),
+						patch: { id: "survey_two" },
+					},
+				],
+			};
+		},
+	},
+	removeEntryPoint: {
+		neverGates: "Removing an entry point leaves its destination intact.",
+		build: () => {
+			const doc = richDoc();
+			const uuid = formUuidAt(doc, 1, 0);
+			doc.forms[uuid].entryPoint = {
+				uuid: testUuid("entry-point"),
+				id: "survey",
+			};
+			return {
+				doc,
+				batch: [
+					{ kind: "removeEntryPoint", entryPointUuid: testUuid("entry-point") },
+				],
+			};
+		},
+	},
 	// ── Module kinds ────────────────────────────────────────────────
 	addModule: {
 		build: () => ({

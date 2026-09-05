@@ -1079,7 +1079,7 @@ function tileStyleChildren(
 	// preview renderer so the three cannot disagree.
 	//
 	// Long-detail tiles are out of scope by contract — see
-	// `docs/plans/complex-app/00-contracts.md`, deliberate target gaps:
+	// `docs/architecture/contracts.md`, deliberate target gaps:
 	// "Tiles apply to the short and search details; the case-detail view emits
 	// a plain field list." CommCare would accept a `custom` tile there, so
 	// nothing upstream forbids it; this branch is what makes the excluded case

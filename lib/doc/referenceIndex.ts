@@ -1290,6 +1290,10 @@ export function planReferenceIndexMaintenance(
 		}
 	};
 	switch (mut.kind) {
+		case "addEntryPoint":
+		case "updateEntryPoint":
+		case "removeEntryPoint":
+			return NO_MAINTENANCE;
 		// App-level slots are never indexed (the case-type catalog is
 		// root-level data the planner reads directly), so the granular catalog
 		// kinds are no-ops here.

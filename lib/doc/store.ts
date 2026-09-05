@@ -396,6 +396,9 @@ function affectsCaseWriteProjection(
 		case "setModuleMedia":
 		case "renameForm":
 		case "setFormMedia":
+		case "addEntryPoint":
+		case "updateEntryPoint":
+		case "removeEntryPoint":
 		case "addFormLink":
 		case "updateFormLink":
 		case "removeFormLink":

@@ -1,3 +1,4 @@
+import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 /**
  * BlueprintDoc → HqApplication expansion.
  *
@@ -141,6 +142,7 @@ function toHqFormLink(
  * `logo_refs` (absent, not empty — see the assignment below).
  */
 export interface ExpandOptions {
+	readonly runtimeTarget?: RuntimeTarget;
 	assets?: AssetManifest;
 	/**
 	 * Lookup wire naming from the validated definitions snapshot. Present
@@ -237,6 +239,7 @@ export function expandDoc(
 	// context builds them once (cached) and the shells below consume the
 	// same objects — the projection and the emitted `actions` cannot drift.
 	const linkContext = formLinkProjectionContext(doc, {
+		runtimeTarget: opts.runtimeTarget,
 		attachmentTarget: opts.attachmentTarget ?? null,
 		...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
 	});
@@ -337,9 +340,13 @@ export function expandDoc(
 			// conditional); a terminal unconditional link is the exhaustive
 			// else, and HQ's `_get_fallback_frame` is skipped with a `null`.
 			// Without links, `postSubmit` is the workflow itself, as before.
-			const workflow = toHqWorkflow(
-				effectivePostSubmit(doc, formUuid) ?? defaultPostSubmit(form.type),
-			);
+			const workflow =
+				plan.synthetic.has(moduleUuid) && form.postSubmit === "app_home"
+					? "root"
+					: toHqWorkflow(
+							effectivePostSubmit(doc, formUuid) ??
+								defaultPostSubmit(form.type),
+						);
 			const projectedLinks = projectFormLinks(doc, linkContext, formUuid);
 			const hqFormLinks =
 				projectedLinks === undefined
@@ -362,6 +369,9 @@ export function expandDoc(
 				projectedLinks?.fallback.kind === "guarded" ? workflow : null,
 				hqFormLinks,
 			);
+			formShellObj.session_endpoint_id = form.entryPoint?.id ?? "";
+			formShellObj.respect_relevancy =
+				form.entryPoint?.ignoreDisplayConditions !== true;
 			formShellObj.form_filter =
 				emitFormDisplayConditionForHq(
 					form.displayCondition,
@@ -416,6 +426,8 @@ export function expandDoc(
 			forms,
 			caseDetails,
 		);
+		shell.session_endpoint_id = mod.entryPoint?.id ?? "";
+		shell.case_list_session_endpoint_id = mod.caseListEntryPoint?.id ?? "";
 		const rootModuleUuid = moduleParent(doc, moduleUuid);
 		if (rootModuleUuid !== undefined && rootModuleUuid !== null) {
 			const rootModuleId = moduleUniqueIdOf.get(rootModuleUuid);

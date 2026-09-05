@@ -136,7 +136,7 @@ beforeEach(() => {
 
 describe("POST /api/compile/json", () => {
 	it("returns a plain JSON file for a media-free app", async () => {
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("application/json");
@@ -171,7 +171,7 @@ describe("POST /api/compile/json", () => {
 			new Map([[asset.assetId, asset]]),
 		);
 
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toContain("application/zip");
@@ -235,7 +235,7 @@ describe("POST /api/compile/json", () => {
 			},
 		} as never);
 
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 
 		expect(res.headers.get("content-type")).toContain("application/zip");
 		const bundle = new AdmZip(Buffer.from(await res.arrayBuffer()));
@@ -254,7 +254,7 @@ describe("POST /api/compile/json", () => {
 
 	it("returns unchecked destination compatibility as response metadata", async () => {
 		loadsDoc(docWithCaseSearch());
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		const report = decodeProjectSpaceCompatibilityReport(
 			res.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
 		);
@@ -281,7 +281,7 @@ describe("POST /api/compile/json", () => {
 			],
 		} as never);
 
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		// Read the body (asserting the message + closing the response
 		// stream: an unread error body leaks under the async-leak gate).
 		const body = (await res.json()) as { error: string; details?: string[] };
@@ -298,7 +298,7 @@ describe("POST /api/compile/json", () => {
 			new Error("lookup database unavailable"),
 		);
 
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		const body = (await res.json()) as { error: string };
 
 		expect(res.status).toBe(500);
@@ -315,7 +315,7 @@ describe("POST /api/compile/json", () => {
  */
 describe("POST /api/compile/json — attachment link target", () => {
 	it("hands the emitter nothing while no project space holds the app", async () => {
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		// Read the body so the response stream closes (async-leak gate).
 		await res.json();
 

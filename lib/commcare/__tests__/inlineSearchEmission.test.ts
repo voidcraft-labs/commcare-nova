@@ -1,3 +1,4 @@
+import { COMMCARE_SERVER_IDS, COMMCARE_SERVERS } from "@/lib/commcare/servers";
 /**
  * The inline (search-first) suite shape, pinned to CommCare HQ's own
  * oracle `corehq/apps/app_manager/tests/test_suite_inline_search.py`
@@ -705,4 +706,30 @@ describe("search-first modules lower to HQ's inline search shape", () => {
 		const [query] = childrenNamed(session, "query");
 		expect(query.attribs.default_search).toBe("true");
 	});
+});
+
+describe("selected runtime server", () => {
+	it.each(COMMCARE_SERVER_IDS)(
+		"uses %s for inline search, claim and after-submit case hydration",
+		(server) => {
+			const doc = registrationLinkDoc();
+			const runtimeTarget = { server, domain: "clinic", appId: "released-app" };
+			const zip = compileCcz(
+				expandDoc(doc, { runtimeTarget }),
+				doc.appName,
+				doc,
+				{ runtimeTarget },
+			);
+			const xml = new AdmZip(zip).readAsText("suite.xml");
+			const base = COMMCARE_SERVERS[server].baseUrl;
+			expect(xml).toContain(`${base}/a/clinic/phone/search/released-app/`);
+			expect(xml).toContain(`${base}/a/clinic/phone/claim-case/`);
+			expect(xml).toContain(
+				`${base}/a/clinic/phone/case_fixture/released-app/`,
+			);
+			expect(xml).not.toContain("__COMMCARE_HOST__");
+			if (server !== "production")
+				expect(xml).not.toContain("www.commcarehq.org");
+		},
+	);
 });

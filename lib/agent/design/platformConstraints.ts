@@ -10,10 +10,8 @@
  *
  * Each entry is a bounded, present-tense statement plus a stable repository
  * anchor (`file::symbol` or a doc path — never line numbers). `gapUnitFile`
- * marks a deliberate target gap from the complex-app program: the code stands
- * exactly as long as its unit file remains under `docs/plans/complex-app/`,
- * and the catalog source test fails when a unit ships (its file disappears)
- * without this vocabulary shedding the code.
+ * is reserved for an explicitly owned future capability gap. The completed
+ * complex-app program carries no remaining gap constraints.
  *
  * Adding a code here is a reviewed act: it becomes citable grounding for a
  * CRITICAL finding (`review.ts::validateFindingEvidence`), so a wrong entry
@@ -45,8 +43,6 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET",
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
-	// Deliberate target gaps (one per remaining complex-app unit)
-	"GAP_SESSION_ENDPOINTS_DEEP_LINKS",
 ] as const;
 
 export type PlatformConstraintCode = (typeof PLATFORM_CONSTRAINT_CODES)[number];
@@ -71,7 +67,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 		code: "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
 		statement:
 			"Preview shows a read-only current-match count for an automation; it never updates a case, sends a message, or advances a schedule, and current matching does not predict CommCare HQ's next sweep.",
-		sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
+		sourceAnchor: "docs/architecture/complex-apps.md#what-is-built",
 	},
 	NO_MATCHES_REGISTRATION_IS_WEB_APPS_ONLY: {
 		code: "NO_MATCHES_REGISTRATION_IS_WEB_APPS_ONLY",
@@ -101,7 +97,7 @@ export const PLATFORM_CONSTRAINTS: Record<
 		code: "LOCATION_OWNER_EXPORT_CLOSED",
 		statement:
 			"Typed location-based case ownership executes in Preview and publishing puts an app's places on the target project space. An owner set to a place beneath the current case owner exports on every mode, emitting level codes and the case's own owner_id; an owner set to one particular place is refused on every mode, because the compiler emits Nova's own place UUID and no compile path resolves it through the deployment's location mappings.",
-		sourceAnchor: "docs/plans/complex-app-plan.md#what-is-built",
+		sourceAnchor: "docs/architecture/complex-apps.md#what-is-built",
 	},
 	CASE_SEARCH_IS_LIVE_AND_ONLINE: {
 		code: "CASE_SEARCH_IS_LIVE_AND_ONLINE",
@@ -190,12 +186,5 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"On-device date arithmetic can faithfully add fixed seconds through weeks to a date. Calendar-relative months or years, and date-add over a datetime, are rejected because JavaRosa cannot preserve their semantics; a design that requires true calendar milestones must resolve that requirement instead of lowering it to hand-built leap-year arithmetic or an unstated day approximation.",
 		sourceAnchor:
 			"lib/commcare/expression/onDeviceCompatibility.ts::onDeviceDateAddIssue",
-	},
-	GAP_SESSION_ENDPOINTS_DEEP_LINKS: {
-		code: "GAP_SESSION_ENDPOINTS_DEEP_LINKS",
-		statement:
-			"Session endpoints and shareable deep links resolved against the selected HQ server are a deliberate target gap.",
-		sourceAnchor: "docs/plans/complex-app/session-endpoints-and-deep-links.md",
-		gapUnitFile: "session-endpoints-and-deep-links.md",
 	},
 };

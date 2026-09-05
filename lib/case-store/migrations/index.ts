@@ -1,3 +1,5 @@
+import * as deploymentEntryPoints from "./20260904000000_deployment_entry_points";
+import * as entryPointHandles from "./20260904010000_entry_point_handles";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -146,6 +148,8 @@ export const caseStoreMigrations: Record<string, Migration> = {
 		betterAuth17RollingDeployBridge,
 	"20260829010000_design_lookup_materialization": designLookupMaterialization,
 	"20260830000000_design_lookup_handle_kinds": designLookupHandleKinds,
+	"20260904000000_deployment_entry_points": deploymentEntryPoints,
+	"20260904010000_entry_point_handles": entryPointHandles,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

@@ -158,6 +158,18 @@ valid direct Builder or MCP edit.
   receive `configureCaseSelection` without receiving the rest of the case-list
   tool family; an earlier module creation never enables several-case selection
   while a later affected form is still absent.
+  Explicit entry-point intent is owned by module/form composition: optional
+  `entryPoint` and module `caseListEntryPoint` carry an optional external `id`,
+  with `ignoreDisplayConditions: true` available only on forms. Absent stored
+  slots stay absent. The compiler reserves explicit IDs before generating
+  collision-free defaults from destination names. The last workflow owns all
+  entry-point realization and depends on every earlier workflow, so navigation
+  topology and selection consumers exist before endpoints are enabled. Endpoint
+  form creation uses a deterministic `@form_<DesignId>` handle, inherited through
+  the existing private plan handle table. The final brief authorizes only the
+  entry-point tool family needed there; `finishWorkflow` proves exact bound
+  destination, external ID, visibility behavior, missing coverage, and extra
+  endpoints against that accepted inventory.
   Each form composition, section, and item is owned by its workflow so exact
   plan coverage includes the worker-facing information architecture.
 - `executionBrief.ts` renders the bounded semantic brief consumed by a slice

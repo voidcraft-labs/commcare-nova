@@ -31,6 +31,7 @@ import type {
 import { PublishButton } from "@/components/ui/PublishButton";
 import { useReconcilerContext } from "@/lib/collab/context";
 import { useProjectToast } from "@/lib/collab/useProjectToast";
+import type { CommCareServer } from "@/lib/deployment";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
 	decodeExportAdvisories,
@@ -86,6 +87,7 @@ function triggerBlobDownload(blob: Blob, filename: string): void {
  */
 async function downloadArtifact(opts: {
 	appId: string;
+	server?: CommCareServer;
 	endpoint: string;
 	/** Noun for the failure toast, e.g. `"the .ccz file"` / `"the JSON file"`. */
 	fileLabel: string;
@@ -104,8 +106,11 @@ async function downloadArtifact(opts: {
 		const res = await fetch(opts.endpoint, {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
-			// Send only the app id: the route loads the blueprint server-side.
-			body: JSON.stringify({ appId: opts.appId }),
+			// The route loads the authorized blueprint and resolves the chosen server.
+			body: JSON.stringify({
+				appId: opts.appId,
+				...(opts.server ? { server: opts.server } : {}),
+			}),
 			signal: opts.signal,
 		});
 		if (!opts.isCurrent()) {
@@ -261,26 +266,34 @@ export const PublishPanel = memo(function PublishPanel() {
 		return s.appId;
 	}, [docStore]);
 
-	const handleDownloadCcz =
-		useCallback(async (): Promise<PublishDownloadOutcome> => {
+	const handleDownloadCcz = useCallback(
+		async (
+			downloadServer?: CommCareServer,
+		): Promise<PublishDownloadOutcome> => {
 			const s = docStore?.getState();
 			if (!s || s.moduleOrder.length === 0 || !s.appId) return { ok: false };
 			// The compile endpoint returns the `.ccz` bytes inline: one request, no
 			// separate download round-trip.
 			return runDownload({
 				appId: s.appId,
+				server: downloadServer,
 				endpoint: "/api/compile",
 				fileLabel: "the .ccz file",
 				filename: () => `${s.appName || "app"}.ccz`,
 			});
-		}, [docStore, runDownload]);
+		},
+		[docStore, runDownload],
+	);
 
-	const handleDownloadJson =
-		useCallback(async (): Promise<PublishDownloadOutcome> => {
+	const handleDownloadJson = useCallback(
+		async (
+			downloadServer?: CommCareServer,
+		): Promise<PublishDownloadOutcome> => {
 			const s = docStore?.getState();
 			if (!s || s.moduleOrder.length === 0 || !s.appId) return { ok: false };
 			return runDownload({
 				appId: s.appId,
+				server: downloadServer,
 				endpoint: "/api/compile/json",
 				fileLabel: "the JSON file",
 				// Media-aware: a media-free app comes back as a plain `.json`; an app
@@ -289,7 +302,9 @@ export const PublishPanel = memo(function PublishPanel() {
 				filename: (blob) =>
 					`${s.appName || "app"}.${blob.type.includes("zip") ? "zip" : "json"}`,
 			});
-		}, [docStore, runDownload]);
+		},
+		[docStore, runDownload],
+	);
 
 	const loadProjectSpaceCompatibility = useCallback(
 		async (

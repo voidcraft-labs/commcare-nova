@@ -527,6 +527,18 @@ function requiredPrerequisiteWorkflowIds(
 			}
 		}
 	}
+	if (
+		contract.moduleCompositions.some(
+			(item) =>
+				item.entryPoint !== undefined || item.caseListEntryPoint !== undefined,
+		) ||
+		contract.formCompositions.some((item) => item.entryPoint !== undefined)
+	) {
+		const owner = orderedWorkflowIds.at(-1);
+		if (owner !== undefined)
+			for (const id of orderedWorkflowIds)
+				if (id !== owner) required.get(owner)?.add(id);
+	}
 	return new Map(
 		[...required].map(([workflowId, ids]) => [
 			workflowId,

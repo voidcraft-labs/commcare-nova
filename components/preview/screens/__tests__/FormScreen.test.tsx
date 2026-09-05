@@ -236,7 +236,6 @@ vi.mock("@/lib/session/hooks", async () => {
 		usePreviewMenuCaseSelections: () => previewMenuCaseSelectionsMock,
 		useSetPreviewCaseTarget: () => setPreviewCaseTargetMock,
 		useSetPreviewMenuCaseSelection: () => setPreviewMenuCaseSelectionMock,
-		usePreviewSearchState: () => undefined,
 		useSetPreviewSearchState: () => setPreviewSearchStateMock,
 		useSetPreviewSelectedCase: () => setPreviewSelectedCaseMock,
 		useSetPreviewing: () => setPreviewingMock,
@@ -364,6 +363,7 @@ function renderFormScreen(opts: {
 	usercaseAfterSubmit?: boolean;
 	closeAfterSubmit?: boolean;
 	flatModuleAfterSubmit?: boolean;
+	noMatchesPostSubmit?: "implicit" | "app_home";
 	runtimeFault?: boolean;
 }) {
 	currentLocation = {
@@ -494,6 +494,14 @@ function renderFormScreen(opts: {
 						id: "registration_form",
 						name: "Registration",
 						type: "registration",
+						...(opts.noMatchesPostSubmit
+							? {
+									entry: { kind: "search-no-matches" as const },
+									...(opts.noMatchesPostSubmit === "app_home"
+										? { postSubmit: "app_home" as const }
+										: {}),
+								}
+							: {}),
 						...(opts.nestedAfterSubmit === "automatic"
 							? {
 									formLinks: [
@@ -992,6 +1000,7 @@ beforeEach(async () => {
 	setPreviewMenuCaseSelectionMock.mockClear();
 	setPreviewSelectedCaseMock.mockClear();
 	setPreviewingMock.mockClear();
+	setPreviewSearchStateMock.mockClear();
 	vi.mocked(reportClientError).mockClear();
 	/* Reset the appId carrier so the `!appId` guard test's per-run
 	 *  override doesn't leak into sibling tests. */
@@ -3813,4 +3822,69 @@ describe("FormScreen — repeated structure accessibility", () => {
 		}
 		expect(submit.parentElement?.className).toContain("flex-wrap");
 	});
+});
+
+describe("FormScreen — no-matches registration destination", () => {
+	for (const destination of ["app_home", "implicit"] as const)
+		it(
+			destination === "app_home"
+				? "returns explicitly to App home from a multiple-selection host without carrying a scalar case"
+				: "retains the registered-case Results return when no override is authored",
+			async () => {
+				vi.mocked(submitFormAction).mockResolvedValue({
+					kind: "registration",
+					caseId: "new-case-id",
+					createdChildren: [],
+				});
+				renderFormScreen({
+					formUuid: REG_FORM_UUID,
+					noMatchesPostSubmit: destination,
+					multipleSelection: destination === "app_home",
+				});
+				act(() => {
+					capturedSession?.getState().setPreviewSearchState(MODULE_UUID, {
+						kind: "completed",
+						attempt: 1,
+						answers: {},
+						matchCount: 0,
+					});
+					capturedSession?.getState().setPreviewCaseTarget({
+						formUuid: REG_FORM_UUID,
+						searchLaunch: { moduleUuid: MODULE_UUID, attempt: 1 },
+					});
+				});
+				const submit = await screen.findByRole("button", { name: /^submit$/i });
+				fireEvent.click(submit);
+				await waitFor(() =>
+					expect(vi.mocked(submitFormAction)).toHaveBeenCalledTimes(1),
+				);
+				if (destination === "app_home") {
+					await waitFor(() =>
+						expect(navigateMock.goHome).toHaveBeenCalledTimes(1),
+					);
+					expect(navigateMock.openCaseList).not.toHaveBeenCalled();
+					expect(setPreviewSearchStateMock).toHaveBeenCalledWith(
+						MODULE_UUID,
+						undefined,
+					);
+					expect(setPreviewCaseTargetMock).toHaveBeenCalledWith(undefined);
+					expect(setPreviewSelectedCaseMock).toHaveBeenCalledWith(undefined);
+					expect(
+						capturedSession?.getState().previewParentCaseRequest,
+					).toBeUndefined();
+				} else {
+					await waitFor(() =>
+						expect(navigateMock.openCaseList).toHaveBeenCalledWith(MODULE_UUID),
+					);
+					expect(navigateMock.goHome).not.toHaveBeenCalled();
+					expect(setPreviewSearchStateMock).toHaveBeenCalledWith(
+						MODULE_UUID,
+						expect.objectContaining({
+							kind: "completed",
+							registeredCaseId: "new-case-id",
+						}),
+					);
+				}
+			},
+		);
 });

@@ -113,6 +113,8 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	Record<ValidationErrorCode, ValidityClass>
 > = {
 	// ── App-level ────────────────────────────────────────────────────
+	ENTRY_POINT_INVALID: "soundness",
+	SUITE_ENDPOINT_INVALID: "oracle",
 	EMPTY_APP_NAME: "soundness",
 	NO_MODULES: "completeness",
 	MISSING_CHILD_CASE_MODULE: "completeness",
@@ -272,6 +274,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	SEARCH_NO_MATCHES_ENTRY_REQUIRES_SEARCH_FIRST: "soundness",
 	SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION: "soundness",
 	SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION: "soundness",
+	SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN: "soundness",
 	SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM: "soundness",
 	FORM_LINK_CIRCULAR: "soundness",
 	FORM_LINK_NO_FALLBACK: "soundness",

@@ -874,6 +874,81 @@ function checkStacks(
 	return errors;
 }
 
+function checkEndpoints(
+	model: SuiteModel,
+	loc: ValidationLocation,
+): ValidationError[] {
+	const errors: ValidationError[] = [];
+	const endpoints = findAll((e) => e.name === "endpoint", model.suite.children);
+	const ids = new Set<string>();
+	const fail = (message: string) =>
+		errors.push(validationError("SUITE_ENDPOINT_INVALID", "app", message, loc));
+	for (const endpoint of endpoints) {
+		const id = endpoint.attribs.id;
+		if (!id || ids.has(id))
+			fail("The suite has a missing or duplicate entry point ID.");
+		ids.add(id);
+		const children = endpoint.children.filter(isTag);
+		const arguments_ = children.filter((e) => e.name === "argument");
+		const args = new Set<string>();
+		for (const arg of arguments_) {
+			const key = arg.attribs.id;
+			if (!key || args.has(key))
+				fail("The entry point has a missing or duplicate argument.");
+			args.add(key);
+			if (
+				arg.attribs["instance-id"] &&
+				(arg.attribs["instance-id"] !== key ||
+					arg.attribs["instance-src"] !== "jr://instance/selected-entities")
+			)
+				fail(
+					"The entry point collection argument has an invalid instance binding.",
+				);
+		}
+		const stacks = children.filter((e) => e.name === "stack");
+		if (stacks.length !== 1)
+			fail("The entry point needs exactly one navigation stack.");
+		for (const stack of stacks)
+			for (const push of stack.children.filter(isTag)) {
+				if (push.name !== "push")
+					fail("Entry point navigation must use push frames.");
+				for (const step of push.children.filter(isTag)) {
+					if (
+						!["command", "datum", "instance-datum", "query"].includes(step.name)
+					)
+						fail("The entry point contains an unsupported navigation step.");
+					if (step.name === "command") {
+						const value = step.attribs.value ?? "";
+						const command =
+							value.startsWith("'") && value.endsWith("'")
+								? value.slice(1, -1)
+								: "";
+						if (
+							!command ||
+							(!model.commandIds.has(command) &&
+								!model.menuScopes.some((m) => m.element.attribs.id === command))
+						)
+							fail("The entry point references a missing command.");
+					}
+					if (step.name === "datum" || step.name === "instance-datum") {
+						const key = step.attribs.id;
+						if (!args.has(key) || step.attribs.value !== `$${key}`)
+							fail("The entry point has an unbound selection argument.");
+						const arg = arguments_.find((a) => a.attribs.id === key);
+						if (
+							(step.name === "instance-datum") !==
+							Boolean(arg?.attribs["instance-id"])
+						)
+							fail(
+								"The entry point argument cardinality does not match its navigation datum.",
+							);
+					}
+				}
+			}
+	}
+	return errors;
+}
+
 // ── Category 1 — suite version (C1-26) ─────────────────────────────
 
 /**
@@ -2109,6 +2184,7 @@ export function validateSuite(
 		...checkEntries(model, loc),
 		...checkPrompts(model, loc),
 		...checkStacks(model, loc),
+		...checkEndpoints(model, loc),
 		...checkXPathSurfaces(model, loc),
 		...checkQueryData(model, loc),
 		// Category 2 — parse-clean, runtime-fatal.

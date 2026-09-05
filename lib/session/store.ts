@@ -1,3 +1,4 @@
+import type { EntryPointPreviewLaunch } from "@/lib/preview/entryPointLaunchTypes";
 /**
  * BuilderSession store — ephemeral UI state for the builder.
  *
@@ -244,6 +245,7 @@ export interface BuilderSessionState {
 	 *  the form. Cleared on every preview-mode toggle (see `setPreviewing`)
 	 *  so previewing a form fresh never reloads a stale case. */
 	previewCaseTarget: PreviewCaseTarget | undefined;
+	previewEntryPointLaunch: EntryPointPreviewLaunch | undefined;
 
 	/** The case currently open in the running-app case list's detail/confirm
 	 *  (the row clicked, before continuing). Mirrors the case list's local
@@ -629,6 +631,8 @@ export interface BuilderSessionState {
 	 *  - Same value: no-op (guards against double-entry that would overwrite
 	 *    the stash with `{ stashed: false }` values). */
 	setPreviewing: (on: boolean) => void;
+	installEntryPointLaunch: (launch: EntryPointPreviewLaunch) => void;
+	clearEntryPointLaunch: () => void;
 	/** Choose which persona Preview runs as. `undefined` = the signed-in
 	 *  member. Changing identity mid-session drops the case target: the
 	 *  case one worker picked is not the case the next one is looking at. */
@@ -798,6 +802,9 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 				previewing: false,
 				activeFieldId: undefined,
 				previewCaseTarget: undefined as PreviewCaseTarget | undefined,
+				previewEntryPointLaunch: undefined as
+					| EntryPointPreviewLaunch
+					| undefined,
 				previewSelectedCase: undefined as PreviewSelectedCase | undefined,
 				previewMenuCaseSelections: {} as Readonly<
 					Record<string, PreviewMenuCaseSelection>
@@ -996,6 +1003,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 							...(confirmedProjectChanged
 								? {
 										previewCaseTarget: undefined,
+										previewEntryPointLaunch: undefined,
 										previewSelectedCase: undefined,
 										previewMenuCaseSelections: {},
 										previewParentCaseRequest: undefined,
@@ -1164,6 +1172,34 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					return get().connectStash[mode]?.[formUuid];
 				},
 
+				installEntryPointLaunch(launch: EntryPointPreviewLaunch) {
+					const s = get();
+					set({
+						previewing: true,
+						previewPersonaUuid: launch.personaUuid,
+						previewEntryPointLaunch: launch,
+						previewCaseTarget: launch.formTarget,
+						previewMenuCaseSelections: launch.menuSelections,
+						previewSelectedCase: undefined,
+						previewParentCaseRequest: undefined,
+						previewSearchStates: {},
+						sidebars: s.previewing
+							? s.sidebars
+							: {
+									chat: { open: false, stashed: s.sidebars.chat.open },
+									structure: {
+										open: false,
+										stashed: s.sidebars.structure.open,
+									},
+								},
+					});
+				},
+				clearEntryPointLaunch() {
+					// Normal navigation inherits its case selections through the established
+					// menu contract; only the endpoint's launch-specific bypass expires here.
+					if (get().previewEntryPointLaunch)
+						set({ previewEntryPointLaunch: undefined });
+				},
 				setPreviewing(on: boolean) {
 					const s = get();
 
@@ -1180,6 +1216,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						set({
 							previewing: true,
 							previewCaseTarget: undefined,
+							previewEntryPointLaunch: undefined,
 							previewSelectedCase: undefined,
 							previewMenuCaseSelections: {},
 							previewParentCaseRequest: undefined,
@@ -1207,6 +1244,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewing: false,
 						previewPersonaUuid: undefined,
 						previewCaseTarget: undefined,
+						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewParentCaseRequest: undefined,
@@ -1232,6 +1270,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					set({
 						previewPersonaUuid: personaUuid,
 						previewCaseTarget: undefined,
+						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewParentCaseRequest: undefined,
@@ -1612,6 +1651,7 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						previewing: false,
 						activeFieldId: undefined,
 						previewCaseTarget: undefined,
+						previewEntryPointLaunch: undefined,
 						previewSelectedCase: undefined,
 						previewMenuCaseSelections: {},
 						previewParentCaseRequest: undefined,

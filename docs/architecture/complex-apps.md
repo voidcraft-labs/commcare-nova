@@ -1,55 +1,16 @@
-# Complex app plan
+# Complex app architecture
 
-Nova's plan for building complex CommCare apps: lookup tables, display
-conditions, case operations, case tiles, media capture, users and locations,
-automations, and HQ deployment.
+Nova builds complex CommCare apps through one canonical document shared by the
+Builder, Solutions Architect, and MCP API. This reference records the implemented
+behavior and binding wire facts. The code and nearest subtree `CLAUDE.md` own
+implementation detail; [architecture contracts](contracts.md) define shared
+product, delivery, and engineering invariants.
 
-This is the only planning document for that program. It describes the system as
-it is today and indexes the work that remains. Its primary sources are the two
-research memos in `docs/research/` — `advanced-case-actions.md` and
-`commcare-locations.md` — which stay as evidence; where a memo and this document
-disagree, this document wins. It carries no history: what shipped, when, in which
-PR, and against which revision lives in git. When behavior changes, this file
-changes with it in the same PR.
-
-Every CommCare citation uses stable names (`file::function`), never line numbers
-— upstream lines rot silently.
-
----
-
-## How to use this plan
-
-The program spans three kinds of file, and each answers exactly one question:
-
-| File | Answers |
-| --- | --- |
-| this one | what Nova builds today, and which unit owns what remains |
-| [`complex-app/00-contracts.md`](complex-app/00-contracts.md) | the delivery, product, architecture, and UX rules that bind every unit |
-| the other `complex-app/*.md` files | one remaining unit each: its contract, its binding CommCare facts, what a user observes |
-
-Three rules govern reading them, in order:
-
-- **Open the unit's file before you touch the unit.** The entries under
-  [What remains](#what-remains) route you to a file; they do not brief you on it.
-  Each one deliberately omits every binding fact, wire contract, and design fence
-  the unit rests on — so planning, estimating, implementing, or answering a
-  question from an index entry alone produces a confident wrong answer. The
-  omitted facts are exactly the ones that decide the shape of the work.
-- **Read the contracts file alongside it.** The rules there are stated once and
-  never repeated in a unit file. A unit implemented without them will pass its own
-  acceptance and still violate the program — a version floor, a draft state, a
-  silently adopted remote resource, or a workspace masquerading as app content.
-- **Re-verify every CommCare claim in source before you rely on it.** The facts
-  recorded here were verified against the Dimagi checkouts at the time they were
-  written; upstream moves. Each carries its `file::function` so it can be
-  re-verified — never restate one from memory, and never soften one you could not
-  re-find.
-
-For shipped behavior, [What is built](#what-is-built) states what exists and why
-it takes the shape it does; the code and the nearest subtree `CLAUDE.md` remain
-authoritative for how.
-
----
+Re-verify CommCare claims against the local Dimagi sources before changing their
+implementation. Citations use stable `file::function` names. The primary-source
+memos in `docs/research/` remain evidence; this reference describes current Nova
+behavior. Update it with behavior changes, and keep unimplemented work in an
+active plan rather than presenting it here as shipped.
 
 ## What is built
 
@@ -512,7 +473,7 @@ command. Because two Blueprint snapshots cannot prove that intent,
 diff throws unless the caller supplies the recorded command — and the store
 keeps admitted command batches as an ordered queue, so document equality can
 never elide a rename followed by its inverse. The binding rule lives in
-[the contracts](complex-app/00-contracts.md#identity-and-references);
+[the contracts](contracts.md#identity-and-references);
 `lib/doc/CLAUDE.md` and `lib/case-store/CLAUDE.md` own the mechanics.
 
 The builder keeps the two gestures in different homes: the selected field's
@@ -1631,7 +1592,7 @@ Three facts shape everything above the wire:
   takes it as an ordinary key. The commit gate cannot speak to that — it is case
   data, not document structure — so the authoring surface MEASURES the population
   and states the consequence (§ *What the commit gate may read* in
-  `complex-app/00-contracts.md`).
+  `contracts.md`).
 
 The clustering runs in SQL, between the user's sort and the page window, because
 that is the only place it can: `CaseStore.queryGrouped` reproduces
@@ -2486,7 +2447,7 @@ and `data/suite/multi_select_case_list/basic_remote_request.xml`; the selected
 instance and form shape are pinned to
 `tests/data/form_preparation_v2/multi_no_actions.xml`. The separate session
 endpoint fixture under `tests/data/session_endpoint_remote_request_multi_select.xml`
-belongs to the remaining endpoint unit, which consumes this datum foundation.
+pins the session endpoint collection transport built on this datum foundation.
 
 ### Related-case Search results and derived project-space compatibility
 
@@ -2537,71 +2498,38 @@ reproduced.
 
 ---
 
-## What remains
-
-One unit remains. **Every entry below is a pointer, not a summary of
-record** — the contract, the binding CommCare facts, the wire shapes, and the
-observed outcome live only in the linked file, and each entry names what it is
-withholding so you can tell when you need it. Read that file, and
-[`00-contracts.md`](complex-app/00-contracts.md), before you plan or implement.
-
-Units are named, not numbered: the file's name is the unit's identity, so a
-unit that ships leaves no gap and nothing ever renumbers.
-
 ### Session endpoints and deep links
 
-[`complex-app/session-endpoints-and-deep-links.md`](complex-app/session-endpoints-and-deep-links.md)
-· depends on nothing outstanding · blocks nothing
+Modules, case lists, and forms own optional UUID-bearing entry points with stable,
+app-unique external IDs. Renaming the destination preserves its external ID;
+duplication remints both identities. Builder, SA, and MCP use the same granular
+mutations. Required case selections derive from destination navigation rather
+than a second authored graph. Only form entry points can explicitly bypass
+display conditions; that choice never bypasses Project authorization.
 
-Session endpoints and shareable deep links resolved against the selected HQ
-server. **The file holds** the emission shape and why it pushes rather than
-creates, why `respect_relevancy` exists only on forms, what a case-list endpoint
-excludes, the runtime replay sequence, and the documented divergences that are
-sharp edges rather than Nova bugs.
+The shared navigation projection emits matching HQ JSON and suite endpoints:
+selection arguments, claim pushes, and a navigation push. Multiple selections
+carry instance metadata and preserve order. Case-list destinations omit the last
+selection only when the regenerated frame actually reaches the list. Flattened
+modules, no-matches registration forms, registry smart links, and unbound query
+arguments are excluded. Formless modules retain their actual module-menu step.
+HQ's `EndpointsHelper` and `WorkflowHelper.get_frame_children`, plus
+`session_endpoint_remote_request.xml` and its multi-select fixture, define the
+wire contract. Search, claim, and known-case hydration URLs all use the selected
+HQ server.
 
----
+Preview validates a committed document, persona, and complete case selections
+against real Project data, then installs the navigation state atomically. It does
+not claim cases or simulate an HQ sync. Unavailable cases, stale requests, and
+invalid selections fail without changing the current Preview or choosing a
+fallback case. Known-case navigation does not fabricate completed Search input.
 
-## Dependency order
-
-Each unit's prerequisites, matching the "Depends on" line in its file:
-
-| Unit | Needs |
-| --- | --- |
-| [session endpoints and deep links](complex-app/session-endpoints-and-deep-links.md) | — |
-
-The remaining unit has no outstanding prerequisite, and nothing waits on it.
-
----
-
-## Keeping these files honest
-
-These files change in the same PR as the behavior they describe. The rules:
-
-- **Present tense only.** Describe what the system does. If a sentence needs a
-  date, a PR number, a revision, or a branch name to make sense, it belongs in the
-  commit message.
-- **Move a unit, don't annotate it.** When a unit ships, its contract moves into
-  [What is built](#what-is-built) rewritten as current behavior, and its unit
-  file, its entry under [What remains](#what-remains), and its dependency row all
-  disappear together. No "shipped" markers, no status column, no changelog entry.
-  When several units ship together — one PR or a stacked train — each still
-  moves on its own: its own rewrite into What is built, its own removals, never
-  one unit's record dispersed through another's.
-- **What is built states the what and the why, and points at the how.** A
-  section there carries the capability, the reasons for its shape, and the
-  binding CommCare wire facts — not the implementation mechanics, which belong
-  to the nearest subtree `CLAUDE.md` and the code. Moving a shipped unit in is a
-  rewrite to that altitude, never a paste of the unit file or the PR
-  description.
-- **One home per fact.** A binding CommCare fact lives in exactly one place: this
-  file once it is shipped behavior, or one unit file while it is not. The index
-  entries and the dependency table restate nothing — a fact duplicated into the
-  index is a fact that will silently rot there.
-- **Anchor every platform claim.** A CommCare constraint carries its
-  `file::function` when it is load-bearing. A claim with no anchor is a claim
-  nobody can re-verify when upstream moves.
-- **A new unit is a new file, and its name is its identity.** Adding one means
-  a slug-named file under `complex-app/`, an entry under
-  [What remains](#what-remains), and a dependency row — never a section
-  grafted into this file, and never a numeric label: units are referenced by
-  name everywhere, so shipping one leaves no gap and nothing ever renumbers.
+Publishing records the exact uploaded entry-point manifest. Link generation
+checks the released build's exact profile and suite, target prerequisites,
+dependency availability, and the current publish generation before returning
+HQ's normal working-app URL. A partial remote write invalidates prior eligibility.
+The check is an observation at copy time: HQ chooses the recipient's build when
+the link opens. It never probes a link by executing it, because execution may
+claim cases. HQ IDs are explicit external inputs; multiple selections use HQ's
+comma-separated transport and reject IDs that cannot round-trip. The domain,
+CommCare, Preview, and deployment subtree contracts own the detailed behavior.

@@ -66,12 +66,18 @@ import {
 } from "./lib/caseWorkspaceSeed";
 import {
 	CASE_CHANGES_FIXTURE_COUNT,
+	DEEP_LINKS_FIXTURE_COUNT,
 	DELETE_APP_COUNT,
 	FORM_LINKS_FIXTURE_COUNT,
 	MOVE_APP_COUNT,
 	ORGANIZATION_FIXTURE_COUNT,
 	SEARCH_FIRST_FIXTURE_COUNT,
 } from "./lib/config";
+import {
+	buildDeepLinksBlueprint,
+	DEEP_LINKS_SEED,
+	deepLinksRoute,
+} from "./lib/deepLinksSeed";
 import {
 	buildFormLinksBlueprint,
 	FORM_LINKS_SEED,
@@ -792,6 +798,58 @@ async function main(): Promise<void> {
 		});
 	}
 
+	// Each deep-link attempt owns its document and two distinguishable cases.
+	const deepLinks: {
+		appId: string;
+		route: string;
+		selectedCaseId: string;
+		distractorCaseId: string;
+	}[] = [];
+	for (let attempt = 0; attempt < DEEP_LINKS_FIXTURE_COUNT; attempt++) {
+		const { appId, baseSeq } = await createExplicitBlankApp(
+			SEED.userId,
+			seedProjectId,
+			randomUUID(),
+			{ name: DEEP_LINKS_SEED.appName, status: "complete" },
+		);
+		const blueprint = toPersistableDoc(buildDeepLinksBlueprint(appId));
+		await appendSyntheticBatch({
+			appId,
+			expectedBaseSeq: baseSeq,
+			targetDoc: blueprint,
+			authority: { kind: "user", actorUserId: SEED.userId },
+		});
+		await materializeCaseStoreSchemas({
+			appId,
+			blueprint,
+			syncedSeq: baseSeq + 1,
+		});
+		const distractor = await caseStore.insert({
+			appId,
+			row: {
+				case_type: DEEP_LINKS_SEED.caseType,
+				case_name: DEEP_LINKS_SEED.distractorName,
+				status: "open",
+				properties: {},
+			},
+		});
+		const selected = await caseStore.insert({
+			appId,
+			row: {
+				case_type: DEEP_LINKS_SEED.caseType,
+				case_name: DEEP_LINKS_SEED.selectedName,
+				status: "open",
+				properties: {},
+			},
+		});
+		deepLinks.push({
+			appId,
+			route: deepLinksRoute(appId),
+			selectedCaseId: selected.caseId,
+			distractorCaseId: distractor.caseId,
+		});
+	}
+
 	/* The search-first journey registers a case from an empty search, so
 	 * every attempt gets its own app and its own seeded row. */
 	const searchFirst: {
@@ -1170,6 +1228,7 @@ async function main(): Promise<void> {
 				caseWorkspace,
 				caseChanges,
 				formLinks,
+				deepLinks,
 				searchFirst,
 				formSections,
 				deleteAppIds,

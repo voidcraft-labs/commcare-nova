@@ -1118,6 +1118,9 @@ export function mutationSequenceAdmissionIssue(
 			case "updateAutomation":
 			case "updateAutomationSchedule":
 				break;
+			case "addEntryPoint":
+			case "updateEntryPoint":
+			case "removeEntryPoint":
 			case "setAppName":
 			case "setConnectType":
 			case "setAppLogo":

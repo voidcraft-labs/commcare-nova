@@ -39,6 +39,7 @@ import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
  * the projection map moved with it.
  */
 const EVERY_FAMILY: Readonly<Record<AuthorableIdentityFamily, true>> = {
+	"entry-point": true,
 	module: true,
 	form: true,
 	field: true,
@@ -69,7 +70,7 @@ const EVERY_FAMILY: Readonly<Record<AuthorableIdentityFamily, true>> = {
 /** Adding an identity family is a REVIEW DUTY: classify it in
  *  `STAGING_PROJECTION_DECISIONS` (and, if handle-eligible, give it a staged
  *  entity kind), then move this count. */
-const REVIEWED_FAMILY_COUNT = 25;
+const REVIEWED_FAMILY_COUNT = 26;
 
 function walkJson(
 	node: unknown,

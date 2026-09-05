@@ -34,6 +34,7 @@ import { buildAutomationSetupGuide } from "@/lib/automations/setupGuidance";
 import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
 import {
+	entryPointInventory,
 	orderedLocationProperties,
 	organizationLevelsOf,
 	ownRecordValue,
@@ -49,7 +50,8 @@ type SetupArtifactSectionId =
 	| "places"
 	| "automations"
 	| "build-and-release"
-	| "web-apps";
+	| "web-apps"
+	| "deep-links";
 
 /**
  * One instruction.
@@ -646,11 +648,39 @@ export function buildSetupArtifact(input: SetupArtifactInput): SetupArtifact {
 		automationsSection(input),
 		buildAndReleaseSection(input),
 		webAppsSection(input),
+		deepLinksSection(input),
 	].filter((section): section is SetupArtifactSection => section !== null);
 	return {
 		server: input.server,
 		domain: input.domain,
 		hqAppId: input.hqAppId,
 		sections,
+	};
+}
+
+function deepLinksSection(
+	input: SetupArtifactInput,
+): SetupArtifactSection | null {
+	if (entryPointInventory(input.doc).length === 0) return null;
+	return {
+		id: "deep-links",
+		title: "Deep links",
+		summary: "Named destinations for authenticated CommCare HQ links.",
+		url: null,
+		steps: [
+			step(
+				"enable-deep-links",
+				"Your project-space administrator can enable Deep links support before you publish.",
+			),
+			step(
+				"release-links",
+				"After publishing, make and release a build on CommCare HQ. Copy a link from this deployment in Nova to check that released build.",
+			),
+		],
+		caveats: [
+			"Released build checked describes verification when you copy the link. CommCare HQ chooses the build each recipient opens and checks their access.",
+			"Opening a link can claim and sync cases on CommCare HQ. Nova Preview tests navigation against the selected worker's available Project cases and does not perform that claim or sync.",
+			"HQ links need case IDs from the destination project space. Nova Preview case IDs are separate.",
+		],
 	};
 }

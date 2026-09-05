@@ -5,6 +5,11 @@ import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { log } from "@/lib/logger";
 import { OrganizationError } from "@/lib/organization/errors";
 import { readOrganizationAuthoringSnapshot } from "@/lib/organization/service";
+import { getEntryPointLink } from "./entryPointLinks";
+import {
+	type EntryPointLink,
+	getEntryPointLinkSchema,
+} from "./entryPointTypes";
 import { DeploymentError } from "./errors";
 import { previewProjectSpaceFor } from "./previewSpace";
 import { leftBehindResources } from "./resources";
@@ -174,6 +179,7 @@ async function committedDocWithLocations(scope: DeploymentScope) {
 	});
 	return {
 		doc: snapshot.blueprint,
+		sourceSequence: snapshot.blueprintSeq,
 		locations: snapshot.organization.locations,
 	};
 }
@@ -451,4 +457,37 @@ function failure(
 		userId: scope.actorUserId,
 	});
 	return unavailable();
+}
+
+/** Copy checks one released build; opening the URL remains HQ-authenticated. */
+export async function getEntryPointLinkAction(
+	input: unknown,
+): Promise<DeploymentActionResult<EntryPointLink>> {
+	const parsed = getEntryPointLinkSchema.safeParse(input);
+	if (!parsed.success)
+		return {
+			success: false,
+			code: "invalid_input",
+			message: "Choose an entry point and provide its required case IDs.",
+		};
+	const resolved = await resolveScope(parsed.data.appId, "edit");
+	if (!resolved.ok) return resolved.result;
+	try {
+		const { doc, sourceSequence } = await committedDocWithLocations(
+			resolved.scope,
+		);
+		return {
+			success: true,
+			data: await getEntryPointLink({
+				scope: resolved.scope,
+				target: { server: parsed.data.server, domain: parsed.data.domain },
+				doc,
+				sourceSequence,
+				entryPointUuid: parsed.data.entryPointUuid,
+				selections: parsed.data.selections,
+			}),
+		};
+	} catch (error) {
+		return failure(error, "check deep link", resolved.scope);
+	}
 }

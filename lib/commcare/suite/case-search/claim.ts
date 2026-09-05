@@ -1,3 +1,4 @@
+import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 // lib/commcare/suite/case-search/claim.ts
 //
 // `<post>` claim element inside `<remote-request>`. CCHQ's runtime
@@ -15,15 +16,9 @@ import render from "dom-serializer";
 import type { Element } from "domhandler";
 import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
 
-/**
- * The CCHQ claim endpoint URL with `__DOMAIN__` placeholder. CCHQ's
- * `Application.create_suite` substitutes the live domain at build
- * time via `absolute_reverse('claim_case', args=[self.domain])`,
- * so the literal placeholder never reaches a runtime — direct .ccz
- * sideload is not a Nova path.
- */
-export const CLAIM_URL_TEMPLATE =
-	"https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/";
+/** Portable URL used only by unbound structural emission and fixture tests.
+ * Actual exports supply their resolved selected-server runtime target. */
+export const CLAIM_URL_TEMPLATE = runtimeUrls().claim;
 
 /**
  * The case-not-already-claimed guard, lifted verbatim from CCHQ's
@@ -71,11 +66,14 @@ export const CLAIM_MULTI_EXCLUDE =
  * CCHQ-regenerated suite.
  */
 
-export function buildClaimPost(multiple = false): Element {
+export function buildClaimPost(
+	multiple = false,
+	runtimeTarget?: RuntimeTarget,
+): Element {
 	if (multiple) {
 		return el(
 			"post",
-			{ url: CLAIM_URL_TEMPLATE, relevant: CLAIM_MULTI_RELEVANT },
+			{ url: runtimeUrls(runtimeTarget).claim, relevant: CLAIM_MULTI_RELEVANT },
 			[
 				el("data", {
 					key: "case_id",
@@ -88,7 +86,7 @@ export function buildClaimPost(multiple = false): Element {
 	}
 	return el(
 		"post",
-		{ url: CLAIM_URL_TEMPLATE, relevant: CLAIM_DEFAULT_RELEVANT },
+		{ url: runtimeUrls(runtimeTarget).claim, relevant: CLAIM_DEFAULT_RELEVANT },
 		[el("data", { key: "case_id", ref: SEARCH_CASE_ID_REF })],
 	);
 }
@@ -110,6 +108,7 @@ export interface InlineClaimPost {
  * (`RemoteRequestFactory.build_case_id_query_data`).
  */
 export function buildInlineClaimPost(args: {
+	readonly runtimeTarget?: RuntimeTarget;
 	/** The entry's own case datum id. */
 	readonly sessionVar: string;
 	/** Whether that datum is a multiple selection (`instance-datum`). */
@@ -155,7 +154,11 @@ export function buildInlineClaimPost(args: {
 			? CLAIM_MULTI_RELEVANT
 			: `${claimed(sessionRef(sessionVar))} = 0`;
 	return {
-		element: el("post", { url: CLAIM_URL_TEMPLATE, relevant }, [own, ...extra]),
+		element: el(
+			"post",
+			{ url: runtimeUrls(args.runtimeTarget).claim, relevant },
+			[own, ...extra],
+		),
 		instances: [
 			"casedb",
 			...(collection && others.length === 0 ? [] : ["commcaresession"]),

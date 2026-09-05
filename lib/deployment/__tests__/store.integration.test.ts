@@ -19,11 +19,15 @@ import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { activeRemoteApp } from "../resources";
 import {
 	applyDeploymentObservation,
+	beginDeploymentContentWrite,
 	type DeploymentScope,
+	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
 	readDeployment,
 	readDeploymentPreviewRecords,
 	readDeploymentsForApp,
+	readEntryPointEvidence,
+	recordEntryPointObservation,
 	recordPushedResources,
 	recordRemoteResource,
 } from "../store";
@@ -1048,5 +1052,97 @@ describe("tenancy", () => {
 				},
 			}),
 		).rejects.toThrow();
+	});
+});
+
+describe("entry point release evidence", () => {
+	it("invalidates before dependencies change and rejects a stale observation", async () => {
+		const scope = await seed();
+		await publish(scope, "hq-1", 1);
+		const generation = await beginDeploymentContentWrite(scope, TARGET);
+		const manifest = {
+			generation,
+			remoteAppId: "hq-1",
+			sourceSequence: 0,
+			entries: [],
+			dependencies: [],
+		};
+		expect(
+			await finishDeploymentContentWrite(scope, TARGET, generation, manifest),
+		).toBe(true);
+		const observation = {
+			generation,
+			remoteAppId: "hq-1",
+			entryPointUuid: "entry",
+			sourceSequence: 0,
+			checkedAt: AT,
+			releasedBuildId: "build-1",
+			releasedVersion: 1,
+		};
+		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
+			true,
+		);
+		await beginDeploymentContentWrite(scope, TARGET);
+		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();
+		expect(await recordEntryPointObservation(scope, TARGET, observation)).toBe(
+			false,
+		);
+		expect((await readEntryPointEvidence(scope, TARGET)).observation).toEqual(
+			observation,
+		);
+	});
+	it("a superseded completion invalidates a newer manifest instead of blessing uncertain remote write order", async () => {
+		const scope = await seed();
+		await publish(scope, "hq-1", 1);
+		const first = await beginDeploymentContentWrite(scope, TARGET);
+		const second = await beginDeploymentContentWrite(scope, TARGET);
+		expect(
+			await finishDeploymentContentWrite(scope, TARGET, second, {
+				generation: second,
+				remoteAppId: "hq-1",
+				sourceSequence: 2,
+				entries: [],
+				dependencies: [],
+			}),
+		).toBe(true);
+		expect(
+			await finishDeploymentContentWrite(scope, TARGET, first, {
+				generation: first,
+				remoteAppId: "hq-1",
+				sourceSequence: 0,
+				entries: [],
+				dependencies: [],
+			}),
+		).toBe(false);
+		expect((await readEntryPointEvidence(scope, TARGET)).manifest).toBeNull();
+	});
+	it("refuses an observation if the entry point was edited or removed during the remote check", async () => {
+		const scope = await seed();
+		await publish(scope, "hq-1", 1);
+		const generation = await beginDeploymentContentWrite(scope, TARGET);
+		await finishDeploymentContentWrite(scope, TARGET, generation, {
+			generation,
+			remoteAppId: "hq-1",
+			sourceSequence: 0,
+			entries: [],
+			dependencies: [],
+		});
+		await sql`UPDATE apps SET mutation_seq = mutation_seq + 1 WHERE id = ${scope.appId}`.execute(
+			h.db(),
+		);
+		expect(
+			await recordEntryPointObservation(scope, TARGET, {
+				generation,
+				remoteAppId: "hq-1",
+				entryPointUuid: "entry",
+				sourceSequence: 0,
+				checkedAt: AT,
+				releasedBuildId: "build-1",
+				releasedVersion: 1,
+			}),
+		).toBe(false);
+		expect(
+			(await readEntryPointEvidence(scope, TARGET)).observation,
+		).toBeNull();
 	});
 });

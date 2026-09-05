@@ -23,6 +23,17 @@ function nestedModuleIdentities(
 ): BlueprintAuthoredIdentity[] {
 	return [
 		{ uuid: module.uuid, kind: "module" },
+		...[module.entryPoint, module.caseListEntryPoint].flatMap((e) =>
+			e
+				? [
+						{
+							uuid: e.uuid,
+							kind: "entryPoint" as const,
+							ownerUuid: module.uuid,
+						},
+					]
+				: [],
+		),
 		...(module.caseListConfig?.columns ?? []).map((column) => ({
 			uuid: column.uuid,
 			kind: "caseListColumn" as const,
@@ -41,6 +52,15 @@ function nestedFormIdentities(
 ): BlueprintAuthoredIdentity[] {
 	return [
 		{ uuid: form.uuid, kind: "form" },
+		...(form.entryPoint
+			? [
+					{
+						uuid: form.entryPoint.uuid,
+						kind: "entryPoint" as const,
+						ownerUuid: form.uuid,
+					},
+				]
+			: []),
 		...(form.caseOperations ?? []).map((operation) => ({
 			uuid: operation.uuid,
 			kind: "caseOperation" as const,
@@ -260,6 +280,20 @@ function createClaims(
 
 function identitiesClaimedBy(mutation: Mutation): MutationIdentityClaim[] {
 	switch (mutation.kind) {
+		case "addEntryPoint":
+			return createClaims([
+				{
+					uuid: mutation.entryPoint.uuid,
+					kind: "entryPoint",
+					ownerUuid:
+						mutation.target.kind === "form"
+							? mutation.target.formUuid
+							: mutation.target.moduleUuid,
+				},
+			]);
+		case "updateEntryPoint":
+		case "removeEntryPoint":
+			return [];
 		case "addModule":
 			return createClaims(nestedModuleIdentities(mutation.module));
 		case "addForm":

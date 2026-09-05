@@ -97,6 +97,10 @@ describe("shared tool registry — execution policy coherence", () => {
 			]),
 		);
 		expect(classification).toEqual({
+			getEntryPoints: "read-blueprint/allowed",
+			addEntryPoint: "mutate-blueprint/allowed",
+			updateEntryPoint: "mutate-blueprint/allowed",
+			removeEntryPoint: "mutate-blueprint/allowed",
 			getAutomations: "read-blueprint/allowed",
 			addAutomations: "mutate-blueprint/allowed",
 			updateAutomation: "mutate-blueprint/allowed",

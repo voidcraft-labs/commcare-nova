@@ -29,6 +29,7 @@ export type AuthorableIdentityFamily =
 	| "location"
 	| "case-operation"
 	| "form-link"
+	| "entry-point"
 	| "automation"
 	| "automation-criterion"
 	| "automation-setup-criterion"
@@ -145,6 +146,7 @@ function classifyIdentity(
 	 * for the mutation it emits, so the family comes from the tool. */
 	if (property === "after" && tool === "move_module") return "module";
 	if (property === "formUuid") return "form";
+	if (property === "entryPointUuid") return "entry-point";
 	if (property === "automationUuid" || property === "afterAutomationUuid") {
 		return "automation";
 	}

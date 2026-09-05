@@ -146,8 +146,8 @@ interface PublishDialogProps {
 		domain: string | undefined,
 		signal: AbortSignal,
 	) => Promise<PublishProjectSpaceCompatibilityOutcome>;
-	onDownloadJson: () => Promise<PublishDownloadOutcome>;
-	onDownloadCcz: () => Promise<PublishDownloadOutcome>;
+	onDownloadJson: (server?: CommCareServer) => Promise<PublishDownloadOutcome>;
+	onDownloadCcz: (server?: CommCareServer) => Promise<PublishDownloadOutcome>;
 }
 
 type PublishStatus =
@@ -253,6 +253,7 @@ export function PublishDialog({
 	const [status, setStatus] = useState<PublishStatus>({ type: "idle" });
 	const [appName, setAppName] = useState(storeAppName);
 	const [selectedDomain, setSelectedDomain] = useState("");
+	const [downloadServer, setDownloadServer] = useState<CommCareServer | "">("");
 	/**
 	 * Which of the tables already on the selected project space this person
 	 * has said Nova may take over.
@@ -696,8 +697,8 @@ export function PublishDialog({
 			const generation = ++operationGenerationRef.current;
 			setStatus({ type: "downloading", target: downloadTarget });
 			const outcome = await (downloadTarget === "web"
-				? onDownloadJson()
-				: onDownloadCcz());
+				? onDownloadJson(downloadServer || undefined)
+				: onDownloadCcz(downloadServer || undefined));
 			if (operationGenerationRef.current !== generation) return;
 			if (!outcome.ok) {
 				setStatus({ type: "idle" });
@@ -710,7 +711,7 @@ export function PublishDialog({
 				advisories: outcome.advisories,
 			});
 		},
-		[onDownloadCcz, onDownloadJson],
+		[onDownloadCcz, onDownloadJson, downloadServer],
 	);
 
 	const isWorking =
@@ -826,6 +827,47 @@ export function PublishDialog({
 							</FieldDescription>
 						</Field>
 
+						{target !== "hq" && (
+							<Field className="mt-4 gap-1.5">
+								<FieldLabel htmlFor="download-server">
+									CommCare HQ server
+								</FieldLabel>
+								<Select
+									value={downloadServer}
+									items={[
+										{ value: "", label: "Use published destination" },
+										...(["production", "india", "eu"] as const).map(
+											(value) => ({
+												value,
+												label: deploymentServerLabel(value),
+											}),
+										),
+									]}
+									onValueChange={(value) => {
+										setDownloadServer((value ?? "") as CommCareServer | "");
+										setStatus({ type: "idle" });
+									}}
+									disabled={isWorking}
+								>
+									<SelectTrigger id="download-server">
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value="">Use published destination</SelectItem>
+										{(["production", "india", "eu"] as const).map((value) => (
+											<SelectItem key={value} value={value}>
+												{deploymentServerLabel(value)}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+								<FieldDescription>
+									Choose the server where this file will run. A single published
+									destination can supply it automatically; otherwise you can
+									select one here.
+								</FieldDescription>
+							</Field>
+						)}
 						<div className="mt-5 border-t border-nova-border pt-5">
 							{target === "hq" ? (
 								/* Only a publish that LANDED replaces the form. A refusal

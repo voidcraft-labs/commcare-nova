@@ -298,16 +298,16 @@ describe("registerGetAgentPrompt — build modes", () => {
 describe("registerGetAgentPrompt — edit mode happy path", () => {
 	it("loads the blueprint, threads it through the renderer, and returns the inlined edit prompt", async () => {
 		const doc = fixturePopulatedDoc();
-		vi.mocked(loadAppBlueprint).mockResolvedValueOnce(loadedFor(doc));
+		vi.mocked(loadAppBlueprint).mockResolvedValue(loadedFor(doc));
 
 		const { server, capture } = makeFakeServer();
 		registerGetAgentPrompt(server, toolCtx);
 
-		const out = (await capture()({ mode: "edit", app_id: "a-edit" }, {})) as {
-			content: Array<{ type: "text"; text: string }>;
-		};
-
-		const text = out.content[0]?.text ?? "";
+		const handler = vi.fn(capture());
+		const text = await readCompletePrompt(handler, {
+			mode: "edit",
+			app_id: "a-edit",
+		});
 		/* `EDIT_PREAMBLE` framing must appear — edit mode boots with
 		 * the same prompt `/api/chat`'s edit mode produces; this is
 		 * the end-to-end parity check. */
@@ -327,9 +327,12 @@ describe("registerGetAgentPrompt — edit mode happy path", () => {
 		/* Renderer received `(interactive, doc)` — confirms the
 		 * handler did the threading rather than dropping the doc. */
 		expect(renderAgentPrompt).toHaveBeenCalledWith(true, doc);
-		/* The single-load invariant — the tool issues exactly one
-		 * blueprint read per call. */
-		expect(loadAppBlueprint).toHaveBeenCalledTimes(1);
+		/* Each page reauthorizes and reads once; prompt growth may require
+		 * several pages without changing the complete operating instructions. */
+		expect(handler).toHaveBeenCalled();
+		expect(loadAppBlueprint).toHaveBeenCalledTimes(handler.mock.calls.length);
+		expect(renderAgentPrompt).toHaveBeenCalledTimes(handler.mock.calls.length);
+		expect(text).toContain("NOVA-PROMPT-END");
 	});
 
 	it("reloads the app and continues a snapshot-bound oversized prompt", async () => {

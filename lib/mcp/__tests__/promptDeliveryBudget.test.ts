@@ -132,16 +132,33 @@ describe("served prompt delivery contract", () => {
 		).toBe(true);
 	});
 
-	it("edit mode inlines the blueprint summary when it fits", () => {
-		/* The common case, and the one worth protecting: an app small
-		 * enough to carry gets its structure in the prompt, so the agent
-		 * starts knowing what it is editing. Production measurement at
-		 * the time of writing: 338 of 384 editable apps. */
+	it("edit mode keeps its complete blueprint summary across delivery pages", () => {
 		const rendered = renderAgentPrompt(true, fixturePopulatedDoc());
 		expect(rendered).toContain("## Current app state");
 		expect(rendered).toContain("Vaccine Tracker");
 		expect(rendered).not.toContain("too large to include here");
-		expect(deliverAgentPrompt(rendered).content[0]?.text).toBe(rendered);
+		const chunks: string[] = [];
+		let cursor: string | undefined;
+		do {
+			const text = deliverAgentPrompt(rendered, cursor).content[0]?.text ?? "";
+			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
+				AGENT_PROMPT_RESULT_BUDGET_CHARS,
+			);
+			if (text === rendered) {
+				chunks.push(text);
+				break;
+			}
+			const page = JSON.parse(text) as AgentPromptPage;
+			expect(page.kind).toBe("nova-agent-prompt-page");
+			chunks.push(page.prompt_chunk);
+			cursor = page.next_cursor;
+		} while (cursor !== undefined);
+		expect(chunks.join("")).toBe(rendered);
+	});
+
+	it("delivers a short prompt inline without an envelope", () => {
+		const prompt = `Complete guidance\n${PROMPT_END_MARKER}`;
+		expect(deliverAgentPrompt(prompt).content[0]?.text).toBe(prompt);
 	});
 
 	it("pages before the host ceiling when the model-facing budget requires it", () => {

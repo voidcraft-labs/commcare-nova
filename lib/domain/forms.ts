@@ -2,6 +2,7 @@
 import { z } from "zod";
 import { formIconRefSchema } from "./builtinIcons";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
+import { formEntryPointSchema } from "./entryPoints";
 import { persistableJsonPositiveIntegerSchema } from "./jsonNumber";
 import { mediaAssetIdSchema } from "./multimedia";
 import {
@@ -507,6 +508,7 @@ export type ConnectTask = z.infer<typeof connectTaskSchema>;
 
 export const formSchema = z
 	.object({
+		entryPoint: formEntryPointSchema.optional(),
 		uuid: uuidSchema,
 		id: z.string(),
 		name: z.string(),
@@ -524,7 +526,8 @@ export const formSchema = z
 		/**
 		 * Present when the form is not a menu item. A no-matches form has a
 		 * fixed after-submit (Results showing the case it registered), so
-		 * `postSubmit`, `formLinks`, and `displayCondition` are refused on it
+		 * Only explicit App home is allowed for `postSubmit`; `formLinks` and
+		 * `displayCondition` are refused on it
 		 * by the validator rather than the schema, which keeps the patch and
 		 * clear shapes ordinary.
 		 */

@@ -35,6 +35,9 @@ type MutationOwnershipMode =
  * says which merge-unit ownership model it has.
  */
 const MUTATION_KIND_OWNERSHIP = {
+	addEntryPoint: "whole-value",
+	updateEntryPoint: "patch",
+	removeEntryPoint: "whole-value",
 	addModule: "whole-value",
 	removeModule: "whole-value",
 	moveModule: "whole-value",
@@ -647,6 +650,8 @@ function nullMeaning(
 	}
 
 	const clear =
+		(kind === "updateEntryPoint" &&
+			jsonPointer === "/patch/ignoreDisplayConditions") ||
 		(kind === "updateModule" &&
 			(jsonPointer.startsWith("/patch/") ||
 				jsonPointer.startsWith("/caseSearchConfigPatch/"))) ||

@@ -12,6 +12,18 @@ function declarations(toolName: string, input: unknown) {
 }
 
 describe("shared creation handle declarations", () => {
+	it("declares an entry point without redeclaring its module or form target", () => {
+		expect(
+			declarations("addEntryPoint", {
+				entryPointUuid: { handle: "@visit_link" },
+				target: {
+					kind: "form",
+					moduleUuid: { handle: "@patients" },
+					formUuid: { handle: "@visit" },
+				},
+			}),
+		).toEqual([{ handle: "@visit_link", entityKind: "entry_point" }]);
+	});
 	it("binds every nested identity created by createModule", () => {
 		expect(
 			declarations("createModule", {

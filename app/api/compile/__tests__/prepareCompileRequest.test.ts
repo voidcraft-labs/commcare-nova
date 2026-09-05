@@ -146,10 +146,13 @@ describe("prepareCompileRequest", () => {
 			],
 		} as never);
 
-		const compileErr = await prepareCompileRequest(reqWith({ appId: "a1" }), {
-			boundaryErrorVerb: "compile",
-			mode: "ccz",
-		}).catch((e) => e);
+		const compileErr = await prepareCompileRequest(
+			reqWith({ appId: "a1", server: "production" }),
+			{
+				boundaryErrorVerb: "compile",
+				mode: "ccz",
+			},
+		).catch((e) => e);
 		expect(compileErr).toBeInstanceOf(ApiError);
 		expect((compileErr as ApiError).status).toBe(422);
 		expect((compileErr as ApiError).message).toBe(
@@ -172,10 +175,13 @@ describe("prepareCompileRequest", () => {
 				}),
 			],
 		} as never);
-		const exportErr = await prepareCompileRequest(reqWith({ appId: "a1" }), {
-			boundaryErrorVerb: "export",
-			mode: "hq-json",
-		}).catch((e) => e);
+		const exportErr = await prepareCompileRequest(
+			reqWith({ appId: "a1", server: "production" }),
+			{
+				boundaryErrorVerb: "export",
+				mode: "hq-json",
+			},
+		).catch((e) => e);
 		expect((exportErr as ApiError).message).toBe(
 			"This app isn't ready to export. Fix the issues below, then try again.",
 		);
@@ -185,10 +191,13 @@ describe("prepareCompileRequest", () => {
 	});
 
 	it("returns the loaded doc (with fieldParent rebuilt) + manifest on success", async () => {
-		const result = await prepareCompileRequest(reqWith({ appId: "a1" }), {
-			boundaryErrorVerb: "compile",
-			mode: "ccz",
-		});
+		const result = await prepareCompileRequest(
+			reqWith({ appId: "a1", server: "production" }),
+			{
+				boundaryErrorVerb: "compile",
+				mode: "ccz",
+			},
+		);
 
 		expect(result.doc.appName).toBe("Vaccine Tracker");
 		// `fieldParent` is the derived index the routes' expand/compile walk needs.
@@ -216,4 +225,41 @@ describe("prepareCompileRequest", () => {
 			{ withBytes: true },
 		);
 	});
+});
+
+it("requires an explicit server when no unique deployment exists", async () => {
+	loadsDoc(validDoc());
+	await expect(
+		prepareCompileRequest(reqWith({ appId: "a1" }), {
+			boundaryErrorVerb: "compile",
+			mode: "ccz",
+		}),
+	).rejects.toMatchObject({ status: 422 });
+});
+it("reuses a unique India deployment without a server override", async () => {
+	loadsDoc(validDoc());
+	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({
+		kind: "known",
+		target: { server: "india", domain: "clinic" },
+	});
+	const prepared = await prepareCompileRequest(reqWith({ appId: "a1" }), {
+		boundaryErrorVerb: "compile",
+		mode: "ccz",
+	});
+	expect(prepared.runtimeTarget).toEqual({ server: "india", domain: "clinic" });
+});
+
+it("does not retain India attachment URLs when exporting for EU", async () => {
+	loadsDoc(validDoc());
+	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({
+		kind: "known",
+		target: { server: "india", domain: "clinic" },
+	});
+	const prepared = await prepareCompileRequest(
+		reqWith({ appId: "a1", server: "eu" }),
+		{ boundaryErrorVerb: "compile", mode: "ccz" },
+	);
+	expect(prepared.runtimeTarget).toEqual({ server: "eu" });
+	expect(prepared.attachmentTarget).toBeNull();
+	expect(prepared.attachmentTargetState).toBe("none");
 });

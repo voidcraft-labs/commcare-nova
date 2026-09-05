@@ -31,6 +31,10 @@ interface ActionPhrases {
  *  summary only exists once the call returns, the `doing` form always stands
  *  alone. */
 const TOOL_ACTIONS: Record<string, ActionPhrases> = {
+	addEntryPoint: { doing: "Adding deep link", done: "Added deep link" },
+	updateEntryPoint: { doing: "Updating deep link", done: "Updated deep link" },
+	removeEntryPoint: { doing: "Removing deep link", done: "Removed deep link" },
+	getEntryPoints: { doing: "Reading deep links", done: "Read deep links" },
 	addFields: { doing: "Adding fields", done: "Added fields" },
 	editField: { doing: "Updating field", done: "Updated field" },
 	removeField: { doing: "Removing field", done: "Removed field" },

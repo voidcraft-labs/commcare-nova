@@ -92,6 +92,7 @@ export const CREATION_IDENTITY_SPECS: Readonly<
 	Record<string, readonly CreationIdentitySpec[]>
 > = {
 	/* Shared structural creation tools. */
+	addEntryPoint: [spec(["entryPointUuid"], "entry_point")],
 	createModule: [
 		spec(["moduleUuid"], "module"),
 		spec(["forms", "*", "formUuid"], "form"),

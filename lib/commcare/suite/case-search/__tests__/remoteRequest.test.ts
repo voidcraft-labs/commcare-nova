@@ -1,3 +1,4 @@
+import { COMMCARE_SERVER_IDS, COMMCARE_SERVERS } from "@/lib/commcare/servers";
 // lib/commcare/suite/case-search/__tests__/remoteRequest.test.ts
 //
 // Acceptance tests for the `<remote-request>` orchestrator. Each
@@ -82,7 +83,7 @@ function makeModule(args: {
 // verbatim — as it does in CCHQ's own suite.xml.)
 const MINIMAL_REMOTE_REQUEST_XML =
 	`<remote-request>` +
-	`<post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"` +
+	`<post url="https://__COMMCARE_HOST__/a/__DOMAIN__/phone/claim-case/"` +
 	` relevant="count(instance(&apos;casedb&apos;)/casedb/case[@case_id=instance(&apos;commcaresession&apos;)/session/data/search_case_id]) = 0">` +
 	`<data key="case_id" ref="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/>` +
 	`</post>` +
@@ -93,7 +94,7 @@ const MINIMAL_REMOTE_REQUEST_XML =
 	`<instance id="commcaresession" src="jr://instance/session"/>` +
 	`<instance id="results" src="jr://instance/remote/results"/>` +
 	`<session>` +
-	`<query url="https://www.commcarehq.org/a/__DOMAIN__/phone/search/__APP_ID__/"` +
+	`<query url="https://__COMMCARE_HOST__/a/__DOMAIN__/phone/search/__APP_ID__/"` +
 	` default_search="false" storage-instance="results" template="case">` +
 	`<title><text><locale id="case_search.m0.inputs"/></text></title>` +
 	`<data key="case_type" ref="&apos;patient&apos;"/>` +
@@ -387,7 +388,7 @@ describe("emitRemoteRequest — <post>", () => {
 			moduleIndex: 0,
 		});
 		expect(xml).toContain(
-			`url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"`,
+			`url="https://__COMMCARE_HOST__/a/__DOMAIN__/phone/claim-case/"`,
 		);
 	});
 });
@@ -549,3 +550,20 @@ describe("emitRemoteRequest — Nova-shaped end-to-end composition", () => {
 		expect(xml).toContain(`detail-select="m0_search_short"`);
 	});
 });
+
+it.each(COMMCARE_SERVER_IDS)(
+	"uses the selected %s server for list-first requests",
+	(server) => {
+		const { xml } = emitRemoteRequest({
+			module: makeModule({ caseType: "patient", caseSearchConfig: {} }),
+			moduleIndex: 0,
+			runtimeTarget: { server, domain: "clinic", appId: "app" },
+		});
+		expect(xml).toContain(
+			`${COMMCARE_SERVERS[server].baseUrl}/a/clinic/phone/search/app/`,
+		);
+		expect(xml).toContain(
+			`${COMMCARE_SERVERS[server].baseUrl}/a/clinic/phone/claim-case/`,
+		);
+	},
+);

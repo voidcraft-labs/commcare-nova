@@ -1,6 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
+import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
 import { Button } from "@/components/shadcn/button";
 import { PopoverTitle } from "@/components/shadcn/popover";
@@ -50,6 +51,14 @@ export function ModuleSettingsPanel({
 			{/* Content */}
 			<div className="min-h-0 flex-1 space-y-5 overflow-y-auto overscroll-contain px-4 py-4">
 				<ModuleNameSection moduleUuid={moduleUuid} />
+				<EntryPointSettingsShortcut
+					target={{ kind: "module", moduleUuid }}
+					onNavigateAway={onClose}
+				/>
+				<EntryPointSettingsShortcut
+					target={{ kind: "case-list", moduleUuid }}
+					onNavigateAway={onClose}
+				/>
 				<MenuPlacementSection moduleUuid={moduleUuid} />
 				<ModuleCaseTypeSection moduleUuid={moduleUuid} />
 				<ModuleAppearanceSection moduleUuid={moduleUuid} />

@@ -49,6 +49,7 @@ import type { Location } from "@/lib/routing/types";
 import {
 	useBuilderIsReady,
 	useEditMode,
+	usePreviewEntryPointLaunch,
 	usePreviewMenuCaseSelections,
 	usePreviewParentCaseRequest,
 	useSetPreviewCaseTarget,
@@ -210,7 +211,13 @@ export function ModuleScreen({ screen }: ModuleScreenProps) {
 	 * `moduleScreenNavigation.ts` owns which landing applies and why. */
 	const isCaseFirst = useIsCaseFirstModule(moduleUuid);
 	const isBareCaseList = useIsBareCaseListModule(moduleUuid);
+	const endpointLaunch = usePreviewEntryPointLaunch();
+	const preserveEntryPointMenu =
+		mode !== "edit" &&
+		endpointLaunch?.location.kind === "module" &&
+		endpointLaunch.location.moduleUuid === moduleUuid;
 	const landing = moduleScreenLanding({
+		preserveEntryPointMenu,
 		hasModule: !!moduleUuid,
 		hasChildren,
 		hasSelectedCase: selectedMenuCase !== undefined,

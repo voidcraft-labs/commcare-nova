@@ -43,7 +43,7 @@
  * collapses into one group. WHICH cases lack the index is runtime data,
  * so a construction-time refusal could not be honest — the authoring
  * surface measures it and states the consequence instead
- * (`docs/plans/complex-app/00-contracts.md` § What the commit gate may
+ * (`docs/architecture/contracts.md` § What the commit gate may
  * read).
  */
 

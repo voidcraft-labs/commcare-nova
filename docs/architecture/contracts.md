@@ -1,8 +1,8 @@
-# Binding contracts
+# Architecture contracts
 
-The rules every unit of the complex-app program obeys. The unit files do not
-repeat them; read this file once at the start of any unit, alongside
-[what is built](../complex-app-plan.md#what-is-built).
+Shared product, delivery, architecture, and UX invariants for changes to Nova.
+Read alongside the [implemented complex app architecture](complex-apps.md#what-is-built)
+and the nearest subtree contract.
 
 Every CommCare citation uses stable names (`file::function`), never line numbers
 — upstream lines rot silently.
@@ -288,15 +288,14 @@ These decisions are closed unless the project owner explicitly reopens them.
   report any old remote resource left behind.
 - Phases are idempotent and independently retryable. Retrying a table or location
   push must not require importing a duplicate app.
-- `uploaded`, `built`, `released`, and `runnable` are distinct states. Endpoint
-  links are shown as durable only after their deployment is released and the URL
-  has been probed.
-- Endpoint URLs derive from the selected HQ server. `lib/commcare/client.ts`
-  resolves its base URL per credential server from `COMMCARE_SERVERS`. Two
-  suite-emission constants still hardcode the US host and must move to the
-  selected server before endpoints ship —
-  `lib/commcare/suite/case-search/claim.ts::CLAIM_URL_TEMPLATE` and the search
-  template in `lib/commcare/suite/case-search/searchSession.ts`.
+- `uploaded`, `built`, `released`, and `runnable` are distinct states. Entry-point
+  links require a fresh check of the released build's exact profile and suite,
+  required dependencies, and unchanged publish generation. This is verification
+  at copy time; HQ resolves the recipient's build when the normal public link
+  opens. Never execute an endpoint as a probe: it may claim cases.
+- Endpoint, search, claim, and known-case hydration URLs all derive from the
+  selected HQ server. Compilation receives the authoritative target context;
+  portable exports identify unresolved domain/app placeholders explicitly.
 
 ### Deliberate target gaps
 

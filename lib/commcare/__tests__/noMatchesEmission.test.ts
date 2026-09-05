@@ -2,7 +2,7 @@
  * The no-matches registration form on the wire.
  *
  * Oracles, all in `~/code/commcare-hq` (the binding facts live in
- * `docs/plans/complex-app-plan.md` § Register when nothing matches):
+ * `docs/architecture/complex-apps.md` § Register when nothing matches):
  *
  *   - `tests/data/case_list_form/case-list-form-suite.xml`: the Register
  *     `<action>` on `m0_case_short` (display, push with the target command,
@@ -379,4 +379,34 @@ describe("no-matches registration form", () => {
 			"command",
 		]);
 	});
+});
+
+describe("explicit no-matches App home", () => {
+	it.each([false, true])(
+		"uses HQ root and an empty local create frame (multiple=%s)",
+		(multiple) => {
+			const doc = noMatchesDoc();
+			doc.forms[REGISTER_FORM].postSubmit = "app_home";
+			if (multiple)
+				doc.modules[HOST_MODULE].caseListConfig = {
+					...(doc.modules[HOST_MODULE].caseListConfig ?? caseListConfig([])),
+					selection: { kind: "multiple", maximum: 5 },
+				};
+			const hq = expandDoc(doc);
+			expect(hq.modules.at(-1)?.forms[0].post_form_workflow).toBe("root");
+			const { suite } = compileSuite(doc);
+			const entry = childrenNamed(suite, "entry").find((entry) =>
+				childrenNamed(entry, "command").some(
+					(command) => command.attribs.id === "m1-f0",
+				),
+			);
+			expect(entry).toBeDefined();
+			if (!entry) throw new Error("Missing registration entry");
+			const stack = childrenNamed(entry, "stack")[0];
+			const creates = childrenNamed(stack, "create");
+			expect(creates).toHaveLength(1);
+			expect(creates[0].attribs).toEqual({});
+			expect(creates[0].children).toEqual([]);
+		},
+	);
 });

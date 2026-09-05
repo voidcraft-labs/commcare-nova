@@ -22,6 +22,7 @@ import tablerBuildingCommunity from "@iconify-icons/tabler/building-community";
 import tablerClockBolt from "@iconify-icons/tabler/clock-bolt";
 import tablerCloudUpload from "@iconify-icons/tabler/cloud-upload";
 import tablerLanguage from "@iconify-icons/tabler/language";
+import tablerLink from "@iconify-icons/tabler/link";
 import tablerUsers from "@iconify-icons/tabler/users";
 import { ContentFrame } from "@/components/builder/ContentFrame";
 import { useNavigate } from "@/lib/routing/hooks";
@@ -32,6 +33,7 @@ import {
 } from "@/lib/routing/types";
 import { selectableSegmentCls } from "@/lib/styles";
 import { AutomationsSection } from "./AutomationsSection";
+import { DeepLinksSection } from "./DeepLinksSection";
 import { LanguagesSection } from "./LanguagesSection";
 import { OrganizationSection } from "./OrganizationSection";
 import { PublishingSection } from "./PublishingSection";
@@ -42,6 +44,7 @@ const SECTION_ICONS: Readonly<Record<AppSetupSection, IconifyIcon>> = {
 	organization: tablerBuildingCommunity,
 	languages: tablerLanguage,
 	automations: tablerClockBolt,
+	"deep-links": tablerLink,
 	publishing: tablerCloudUpload,
 };
 
@@ -95,6 +98,8 @@ export function AppSetupWorkspace({ section }: { section: AppSetupSection }) {
 						<LanguagesSection />
 					) : section === "automations" ? (
 						<AutomationsSection />
+					) : section === "deep-links" ? (
+						<DeepLinksSection />
 					) : (
 						<PublishingSection />
 					)}

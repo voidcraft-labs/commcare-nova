@@ -39,6 +39,7 @@ import { prepareCompileRequest } from "../prepareCompileRequest";
 export async function POST(req: NextRequest) {
 	try {
 		const {
+			runtimeTarget,
 			doc,
 			assets,
 			compiledAtSeq,
@@ -56,6 +57,7 @@ export async function POST(req: NextRequest) {
 		// the pre-media output.
 		const hasMedia = assets.size > 0;
 		const hqJson = expandDoc(doc, {
+			runtimeTarget,
 			attachmentTarget,
 			...(hasMedia && { assets }),
 			...(lookupNaming && { lookupNaming }),

@@ -19,6 +19,12 @@
 
 export * from "./constants";
 export * from "./deriveCaseConfig";
+export {
+	type EntryPointProjection,
+	type EntryPointRequiredSelection,
+	entryPointProjectionIssue,
+	projectEntryPoint,
+} from "./entryPointProjection";
 export * from "./formActions";
 export * from "./hashtags";
 export * from "./hqShells";

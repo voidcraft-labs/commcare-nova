@@ -29,6 +29,7 @@ import { hostLowersNoMatchesForm } from "./emissionPlan";
 export * from "@/lib/publish/projectSpaceCompatibility";
 
 export type HqPrivateFeatureFlagId =
+	| "deep-links"
 	| "case-search-base"
 	| "advanced-case-search"
 	| "commcare-connect"
@@ -195,6 +196,20 @@ export function projectSpaceCompatibilityProbePlan(
 	}
 
 	const capabilities: HqProjectSpaceCapabilityProbePlan[] = [];
+	if (
+		Object.values(doc.modules).some(
+			(module) => module.entryPoint || module.caseListEntryPoint,
+		) ||
+		Object.values(doc.forms).some((form) => form.entryPoint)
+	) {
+		capabilities.push({
+			capability: projectSpaceCapabilityUse("deep-links", [
+				"The app has named entry points for authenticated links.",
+			]),
+			featureFlags: [privateFeatureFlag("deep-links")],
+			runtimeProbes: [],
+		});
+	}
 	const searchReasons = reasonsByCapability.get("case-search");
 	if (searchReasons) {
 		capabilities.push({

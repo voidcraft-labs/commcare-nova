@@ -83,7 +83,10 @@ gate, and integrity services every other write uses.
   schemas emit from this map in the executor unit. Every creator declares in
   its existing canonical identity slot; worker properties, user types,
   personas, and place-information properties use `userPropertyUuid`,
-  `userTypeUuid`, `personaUuid`, and `locationPropertyUuid`. A later change
+  `userTypeUuid`, `personaUuid`, and `locationPropertyUuid`; entry points declare
+  `entryPointUuid` with staged kind `entry_point`. Its forward migration widens
+  the durable handle constraint before reviewed construction uses this kind.
+  A later change
   set in the same frozen accepted plan inherits bindings from earlier
   committed slices, including the genesis set through its immutable committed
   receipt's app identity, only after `runtime.ts` proves each UUID and entity

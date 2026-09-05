@@ -225,7 +225,7 @@ export interface NavigateActions {
 	 * `/build/{appId}/setup/{section}`, defaulting to its first section.
 	 * App administration, not app content — it names no module.
 	 */
-	openAppSetup: (section?: AppSetupSection) => void;
+	openAppSetup: (section?: AppSetupSection, entryPointUuid?: Uuid) => void;
 	/**
 	 * Open the Project data workspace. Routes to
 	 * `/build/{appId}/project-data`, or straight to one table when given its
@@ -689,8 +689,17 @@ export function useNavigate(): NavigateActions {
 				push({ kind: "module-condition", moduleUuid }),
 			openFormCondition: (moduleUuid: Uuid, formUuid: Uuid) =>
 				push({ kind: "form-condition", moduleUuid, formUuid }),
-			openAppSetup: (section: AppSetupSection = DEFAULT_APP_SETUP_SECTION) =>
-				push({ kind: "app-setup", section }),
+			openAppSetup: (
+				section: AppSetupSection = DEFAULT_APP_SETUP_SECTION,
+				entryPointUuid?: Uuid,
+			) =>
+				push({
+					kind: "app-setup",
+					section,
+					...(section === "deep-links" && entryPointUuid
+						? { entryPointUuid }
+						: {}),
+				}),
 			openProjectData: (tableId?: LookupTableId) =>
 				push({ kind: "project-data", tableId }),
 			openFormOperations: (

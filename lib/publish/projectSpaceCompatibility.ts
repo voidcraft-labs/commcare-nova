@@ -13,6 +13,7 @@ export const PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER =
 	"X-Nova-Project-Space-Compatibility";
 
 export type ProjectSpaceCapabilityId =
+	| "deep-links"
 	| "case-search"
 	| "commcare-connect"
 	| "case-attachments"
@@ -36,6 +37,12 @@ export interface ProjectSpaceAdvisoryDefinition {
 export const PROJECT_SPACE_CAPABILITIES: Readonly<
 	Record<ProjectSpaceCapabilityId, ProjectSpaceCapabilityDefinition>
 > = {
+	"deep-links": {
+		id: "deep-links",
+		label: "Deep links",
+		description:
+			"Lets an authenticated link open a named destination in the app.",
+	},
 	"case-search": {
 		id: "case-search",
 		label: "Case search",
@@ -326,6 +333,7 @@ const COMPATIBILITY_ISSUES = new Set<ProjectSpaceCompatibilityIssue>([
 	"connected-account-permission",
 ]);
 const CAPABILITY_IDS = new Set<ProjectSpaceCapabilityId>([
+	"deep-links",
 	"case-search",
 	"commcare-connect",
 	"case-attachments",

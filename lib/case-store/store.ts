@@ -477,7 +477,7 @@ export type CountArgs =
 			 * unlinked case silently repair an app, and unlinking one
 			 * silently break it. The authoring surface states the consequence
 			 * and shows this number beside it
-			 * (`docs/plans/complex-app/00-contracts.md` § What the commit gate
+			 * (`docs/architecture/contracts.md` § What the commit gate
 			 * may read).
 			 *
 			 * It counts what the AUTHOR governs rather than what the running

@@ -1,3 +1,4 @@
+import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 // lib/commcare/suite/case-search/inlineSearch.ts
 //
 // The inline shape a search-first module lowers to: CommCare runs the
@@ -48,6 +49,7 @@ export function moduleIsSearchFirst(mod: Module): boolean {
  */
 export function buildInlineSearch(args: {
 	readonly module: Module;
+	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleIndex: number;
 	readonly typeContext?: TypeContext;
 	readonly lookupNaming?: LookupWireNaming;
@@ -76,6 +78,7 @@ export function buildInlineSearch(args: {
 		moduleIndex,
 		typeContext: args.typeContext,
 		lookupNaming: args.lookupNaming,
+		runtimeTarget: args.runtimeTarget,
 		ancestorCaseType: args.ancestorCaseType,
 	});
 	const query: SessionQuery = {

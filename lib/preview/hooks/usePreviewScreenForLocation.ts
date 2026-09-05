@@ -11,7 +11,11 @@ import {
 } from "@/lib/preview/menuProjection";
 import { locationToPreviewScreen } from "@/lib/preview/screenProjection";
 import type { Location } from "@/lib/routing/types";
-import { useEditMode, usePreviewMenuCaseSelections } from "@/lib/session/hooks";
+import {
+	useEditMode,
+	usePreviewEntryPointLaunch,
+	usePreviewMenuCaseSelections,
+} from "@/lib/session/hooks";
 import { usePreviewMenuSource } from "./usePreviewMenuSource";
 import { useSelectedPreviewIdentityState } from "./useSelectedPreviewIdentity";
 
@@ -23,6 +27,11 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 	const { moduleOrder, formOrder } = useAppStructure();
 	const menuSource = usePreviewMenuSource();
 	const mode = useEditMode();
+	const endpointLaunch = usePreviewEntryPointLaunch();
+	const bypass =
+		mode === "preview" &&
+		endpointLaunch?.ignoreDisplayConditions === true &&
+		JSON.stringify(endpointLaunch.location) === JSON.stringify(loc);
 	const menuCaseSelections = usePreviewMenuCaseSelections();
 	const identityState = useSelectedPreviewIdentityState();
 	const identity =
@@ -32,11 +41,11 @@ export function usePreviewScreenForLocation(loc: Location): PreviewScreen {
 	const moduleVisibility = useMemo(
 		() =>
 			previewModuleVisibility(menuSource, {
-				authoring: mode === "edit",
+				authoring: mode === "edit" || bypass,
 				session,
 				lookup,
 			}),
-		[lookup, menuSource, mode, session],
+		[lookup, menuSource, mode, session, bypass],
 	);
 	const atCaseRecord = loc.kind === "cases" && loc.caseId !== undefined;
 	const directRunningModuleUuid =

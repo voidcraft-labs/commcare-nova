@@ -238,7 +238,10 @@ describe("registerCompileApp — happy path, json format", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "json" },
+			{},
+		)) as {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
@@ -266,7 +269,10 @@ describe("registerCompileApp — happy path, ccz format", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "ccz" },
+			{},
+		)) as {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
@@ -307,7 +313,7 @@ describe("registerCompileApp — happy path, ccz format", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		await capture()({ app_id: "a1", format: "ccz" }, {});
+		await capture()({ server: "production", app_id: "a1", format: "ccz" }, {});
 
 		/* The seq stamps the profile's `cc-content-version` (verified against
 		 * a real profile in the compiler unit test); here we assert the tool
@@ -333,7 +339,10 @@ describe("registerCompileApp — project-space compatibility", () => {
 
 			const { server, capture } = makeFakeServer();
 			registerCompileApp(server, toolCtx);
-			const out = (await capture()({ app_id: "a1", format }, {})) as {
+			const out = (await capture()(
+				{ server: "production", app_id: "a1", format },
+				{},
+			)) as {
 				content: Array<{ type: "text"; text: string }>;
 				_meta: Record<string, unknown>;
 			};
@@ -398,7 +407,10 @@ describe("registerCompileApp — ownership failure", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "json" },
+			{},
+		)) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
 		};
@@ -493,7 +505,10 @@ describe("registerCompileApp — media validation gate", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "ccz" },
+			{},
+		)) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
 		};
@@ -523,7 +538,10 @@ describe("registerCompileApp — media validation gate", () => {
 
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
-		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "ccz" },
+			{},
+		)) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
 		};
@@ -546,7 +564,10 @@ describe("registerCompileApp — media validation gate", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "ccz" },
+			{},
+		)) as {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
@@ -580,7 +601,10 @@ describe("registerCompileApp — media validation gate", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "json" },
+			{},
+		)) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
 		};
@@ -618,7 +642,10 @@ describe("registerCompileApp — media validation gate", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "json" },
+			{},
+		)) as {
 			content: Array<{ type: "text"; text: string }>;
 		};
 
@@ -657,7 +684,10 @@ describe("registerCompileApp — json compiledAtSeq (_meta carrier)", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "json" },
+			{},
+		)) as {
 			content: Array<{ type: "text"; text: string }>;
 			_meta?: Record<string, unknown>;
 		};
@@ -690,7 +720,10 @@ describe("registerCompileApp — json compiledAtSeq (_meta carrier)", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "json" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "json" },
+			{},
+		)) as {
 			content: Array<{ type: "text"; text: string }>;
 			_meta?: Record<string, unknown>;
 		};
@@ -721,7 +754,10 @@ describe("registerCompileApp — compileCcz throws", () => {
 		const { server, capture } = makeFakeServer();
 		registerCompileApp(server, toolCtx);
 
-		const out = (await capture()({ app_id: "a1", format: "ccz" }, {})) as {
+		const out = (await capture()(
+			{ server: "production", app_id: "a1", format: "ccz" },
+			{},
+		)) as {
 			isError?: true;
 			content: Array<{ type: "text"; text: string }>;
 		};

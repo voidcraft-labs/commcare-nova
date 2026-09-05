@@ -25,8 +25,8 @@ import { CaseListWorkspaceProvider } from "@/components/builder/case-list-config
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import { proseText } from "@/lib/domain/prose";
-
 import type { Location } from "@/lib/routing/types";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 
 const MODULE_UUID = testUuid("mod-1");
 const setPreviewingMock = vi.fn();
@@ -158,13 +158,15 @@ function renderShell() {
 				fieldOrder: {},
 			}}
 		>
-			<BuilderLocalizationProvider>
-				<CaseListWorkspaceProvider
-					controllerComponent={CaseListWorkspaceControllerBridge}
-				>
-					<PreviewShell />
-				</CaseListWorkspaceProvider>
-			</BuilderLocalizationProvider>
+			<BuilderSessionProvider>
+				<BuilderLocalizationProvider>
+					<CaseListWorkspaceProvider
+						controllerComponent={CaseListWorkspaceControllerBridge}
+					>
+						<PreviewShell />
+					</CaseListWorkspaceProvider>
+				</BuilderLocalizationProvider>
+			</BuilderSessionProvider>
 		</BlueprintDocProvider>
 	);
 	return render(tree);

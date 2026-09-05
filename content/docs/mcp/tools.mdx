@@ -600,6 +600,29 @@ Case search is the search experience that surrounds the case list: the screen ti
 | `set_case_search_display` | Set the search-screen title, subtitle, search button label, and the predicate that decides when to show the search button. |
 | `set_case_search_advanced` | Set the advanced cluster: an expression naming owner ids whose cases are excluded from search results, and `searchFirst`, which opens the module on its Search screen with no browse list. |
 
+## Working with deep links
+
+| Tool | What it does |
+|---|---|
+| `get_entry_points` | List authored entry points, stable UUIDs and external IDs, destinations, and required case selections. This does not produce or verify a released link. |
+| `add_entry_point` | Enable one explicit entry point with `target: { kind: "module", moduleUuid }`, `{ kind: "case-list", moduleUuid }`, or `{ kind: "form", moduleUuid, formUuid }`. Optional `entryPointUuid` predeclares its identity; optional `id` sets its stable external ID. Otherwise Nova generates both. |
+| `update_entry_point` | Address `entryPointUuid` and supply `patch` with `id` or the form-only `ignoreDisplayConditions`. Omission keeps a setting; `null` clears the condition bypass. |
+| `remove_entry_point` | Remove the UUID-addressed entry point. Publish and release the change to remove it on HQ. |
+
+Each destination owns at most one entry point. IDs are unique across the app
+and use lowercase letters, numbers, underscores, and hyphens. Renaming a
+destination preserves its external ID; changing that ID can break distributed
+links. The form-only `ignoreDisplayConditions: true` bypasses display
+conditions on entry, never Project or case access. On add, omission or `null`
+respects conditions.
+
+Requirements derive from the destination's current case selections. Preserve
+all required parent selections and the order and maximum for multiple cases.
+Search-first case-list destinations and no-matches registration forms are
+unavailable; the tool names unsupported configurations. Do not invent session
+variables or form-value overrides. [Preview testing](../deep-links.mdx) uses
+real Nova cases and does not execute HQ claims.
+
 ## Working on forms
 
 CommCare has four form types: `registration` creates a new case, `followup` updates a case, `close` loads and closes a case, `survey` is standalone (no case).
@@ -916,9 +939,32 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 
 ## Publishing
 
+`compile_app` accepts `server: "production" | "india" | "eu"`. Supply it
+when the app has no unique published destination. Search, case claims, and
+known-case hydration use that server; Nova does not silently choose US.
+
+`get_entry_point_link` takes `app_id`, `server`, `domain`,
+`entry_point_uuid`, and `selections: [{ module_uuid, case_ids }]`. Supply every
+required selection from `get_entry_points`, using **external case IDs from
+that HQ project space**, never Nova Preview row IDs. Use an empty array when
+no cases are required. The tool returns a URL only after a fresh release
+check; a stored `get_deployment` result is not evidence for constructing one.
+Publish all committed app edits, including label changes, before requesting a new
+checked link. The app snapshot must still match when the check completes.
+It never opens the link or executes claims. An unavailable or mismatched
+release refuses with the next step, rather than returning a guessed URL.
+
+The URL uses HQ's public app entry route and follows HQ build selection when
+opened. Normally that is the latest released build, but a recipient or
+project's latest-build policy can select an unreleased build. It is not pinned
+to `released_build_id`, and future release changes can change its behavior.
+Recipients still authenticate and need the relevant app and case access.
+
+
 | Tool | What it does |
 |---|---|
 | `compile_app` | Compile to CommCare HQ format: the JSON shape HQ accepts (a zip bundling that JSON with the media files and the `lookup-tables.xlsx` workbook when the app has either), or a `.ccz` archive. When the app needs destination support, a separate [project-space compatibility](../project-space-compatibility.mdx) block lists it as not checked without blocking the download. |
+| `get_entry_point_link` | Freshly verify a published entry point against the exact released HQ build and return its public URL plus `checked_at`, `released_build_id`, and `released_version`. Reads HQ and records the observation in Nova; requires `nova.hq.write` and edit access. |
 | `get_hq_connection` | Check whether you've added an HQ API key in Commcare Nova settings, and if so, which CommCare server it belongs to (US, India, or EU, separate servers with separate accounts) and which project spaces (domains) it can reach. |
 | `upload_app_to_hq` | Push the app to CommCare HQ: its lookup tables and its organization's places first, then the app itself. The first upload to a project space creates the app there; uploading again updates that same HQ app in place (`hq_app_action` in the result says which happened). Pass `domain` to choose the target space when your key reaches several. The tool rechecks [project-space compatibility](../project-space-compatibility.mdx) immediately before remote writes and returns `project_space_compatibility`, the HQ app URL, the deployment state, and the setup steps the project space still needs by hand. |
 | `get_deployment` | Report every project space the app has been published to and how far along each one is: `preflight`, `resources`, `uploaded`, `built`, `released`, `runnable`, or `incomplete`. Reads Commcare Nova's own record, without contacting CommCare HQ. |

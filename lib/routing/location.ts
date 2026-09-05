@@ -90,7 +90,9 @@ export function serializePath(loc: Location): string[] {
 		case "home":
 			return [];
 		case "app-setup":
-			return [APP_SETUP_SEGMENT, loc.section];
+			return loc.section === "deep-links" && loc.entryPointUuid
+				? [APP_SETUP_SEGMENT, loc.section, loc.entryPointUuid]
+				: [APP_SETUP_SEGMENT, loc.section];
 		case "project-data":
 			return loc.tableId !== undefined
 				? [PROJECT_DATA_SEGMENT, loc.tableId]
@@ -242,8 +244,12 @@ export function parsePathToLocation(
 	 * whole destination. */
 	if (segments[0] === APP_SETUP_SEGMENT) {
 		const section = segments[1];
+		const entryPoint = uuidSchema.safeParse(segments[2]);
 		return {
 			kind: "app-setup",
+			...(section === "deep-links" && entryPoint.success
+				? { entryPointUuid: entryPoint.data }
+				: {}),
 			section:
 				section !== undefined && isAppSetupSection(section)
 					? section
@@ -454,9 +460,7 @@ export function isValidLocation(loc: Location, doc: LocationDoc): boolean {
 		case "home":
 			return true;
 		case "app-setup":
-			/* App administration references no blueprint entity, so there is
-			 * nothing for the doc to invalidate. */
-			return true;
+			return !loc.entryPointUuid || entryPointExists(doc, loc.entryPointUuid);
 		case "project-data":
 			/* Project data references no blueprint entity either. Its `tableId`
 			 * names a Project lookup table, which lives outside the document
@@ -520,7 +524,11 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	/* Neither configuration workspace names an entity, so both survive every
 	 * doc change. This must come before the module read below — there is no
 	 * `moduleUuid` on either to read. */
-	if (loc.kind === "app-setup" || loc.kind === "project-data") return loc;
+	if (loc.kind === "app-setup")
+		return isValidLocation(loc, doc)
+			? loc
+			: { kind: "app-setup", section: loc.section };
+	if (loc.kind === "project-data") return loc;
 
 	/* Module uuid is shared by module, cases, and form screens. If the
 	 * module has been deleted, nothing below it can be recovered — the
@@ -619,4 +627,14 @@ export function recoverLocation(loc: Location, doc: LocationDoc): Location {
 	}
 
 	return loc;
+}
+
+function entryPointExists(doc: LocationDoc, uuid: Uuid): boolean {
+	return (
+		Object.values(doc.modules).some(
+			(module) =>
+				module.entryPoint?.uuid === uuid ||
+				module.caseListEntryPoint?.uuid === uuid,
+		) || Object.values(doc.forms).some((form) => form.entryPoint?.uuid === uuid)
+	);
 }

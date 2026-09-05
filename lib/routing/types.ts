@@ -62,6 +62,7 @@ export const APP_SETUP_SECTIONS = [
 	"organization",
 	"languages",
 	"automations",
+	"deep-links",
 	"publishing",
 ] as const;
 export type AppSetupSection = (typeof APP_SETUP_SECTIONS)[number];
@@ -81,6 +82,7 @@ export const APP_SETUP_SECTION_LABELS: Readonly<
 	organization: "Organization",
 	languages: "Languages",
 	automations: "Automations",
+	"deep-links": "Deep links",
 	publishing: "Publishing",
 };
 
@@ -129,6 +131,7 @@ export const locationSchema = z.discriminatedUnion("kind", [
 		.object({
 			kind: z.literal("app-setup"),
 			section: z.enum(APP_SETUP_SECTIONS),
+			entryPointUuid: uuidSchema.optional(),
 		})
 		.strict(),
 	/* Project data carries no `moduleUuid` either, and for a stronger reason:

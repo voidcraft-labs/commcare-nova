@@ -789,3 +789,8 @@ export function useRequestPublishDialog(): (request: {
 export function useClearPublishDialogRequest(): () => void {
 	return useBuilderSession((s) => s.clearPublishDialogRequest);
 }
+
+/** The verified endpoint launch, scoped to one running destination. */
+export function usePreviewEntryPointLaunch() {
+	return useBuilderSession((s) => s.previewEntryPointLaunch);
+}
