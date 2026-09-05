@@ -27,23 +27,13 @@ RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
     npm install --global "npm@${NPM_VERSION}" --ignore-scripts --no-audit --no-fund && \
     test "$(npm --version)" = "${NPM_VERSION}"
 
-# Cache one dependency archive rather than making the registry exporter walk
-# the entire installed file tree. The install tree and npm downloads remain in
-# disposable mounts; only the archive enters the published cache layer.
-FROM build-base AS dependency-archive
-WORKDIR /app
-COPY package.json package-lock.json .npmrc ./
-RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
-    --mount=type=cache,id=nova-npm-install,target=/install \
-    cp package.json package-lock.json .npmrc /install/ && \
-    cd /install && npm ci --ignore-scripts --no-audit --no-fund && \
-    tar -cf /node_modules.tar node_modules
-
+# Install directly into the dependency layer. The registry cache exports this
+# stage alone; no intermediate archive is written, extracted, or fingerprinted.
 FROM build-base AS deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
-RUN --mount=type=bind,from=dependency-archive,source=/node_modules.tar,target=/node_modules.tar \
-    tar -xf /node_modules.tar
+RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
+    npm ci --ignore-scripts --no-audit --no-fund
 
 # Inherit dependency layers instead of copying the full node_modules tree.
 FROM deps AS sources

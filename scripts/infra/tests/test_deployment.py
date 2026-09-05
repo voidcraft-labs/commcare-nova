@@ -248,6 +248,10 @@ class MigrationAdmissionTests(unittest.TestCase):
 
     def test_changed_artifact_updates_only_image_with_etag_before_execution(self):
         job, execution = self.fixtures()
+        job["labels"] = {"team": "nova"}
+        job["annotations"] = {"example.com/owner": "deployment"}
+        job["binaryAuthorization"] = {"useDefault": True}
+        job["startExecutionToken"] = "never-replay-this"
         image = IMAGE.replace("a" * 64, "b" * 64)
         updated = copy.deepcopy(job)
         updated["template"]["template"]["containers"][0]["image"] = image
@@ -257,9 +261,14 @@ class MigrationAdmissionTests(unittest.TestCase):
         self.assertEqual(result["mode"], "executed")
         self.assertEqual([c.args[1] for c in api.call_args_list], ["GET", "PATCH", "GET"])
         update = api.call_args_list[1]
-        self.assertTrue(update.args[2].endswith("?updateMask=template.template.containers"))
+        self.assertEqual(update.args[2], JOB)
         self.assertEqual(update.args[3]["etag"], "generation-3")
-        self.assertEqual(update.args[3]["template"]["template"]["containers"], updated["template"]["template"]["containers"])
+        self.assertEqual(update.args[3]["template"], updated["template"])
+        self.assertNotIn("latestCreatedExecution", update.args[3])
+        self.assertNotIn("generation", update.args[3])
+        self.assertNotIn("startExecutionToken", update.args[3])
+        for field in ("labels", "annotations", "binaryAuthorization"):
+            self.assertEqual(update.args[3][field], job[field])
         self.assertEqual(execute.call_args.kwargs["expected_image"], image)
 
     def test_failed_execution_requires_a_new_actual_execution(self):

@@ -6,6 +6,8 @@ built reproducible migration image must have a verified successful Execution
 before the service update. The gate reuses unchanged successful artifacts only
 with the full Job contract, latest Execution identity, and etag still matching;
 changed artifacts run the full migration and runtime probe while the app builds.
+Job image changes PATCH the complete writable configuration with its etag;
+Cloud Run Jobs do not accept an update mask.
 The capture worker is built and updated explicitly outside application releases. Stable infrastructure is
 managed explicitly by `manage-deployment.py` (plan by default, `--apply` to
 change it); see `docs/architecture/deployment.md`. Do not add
