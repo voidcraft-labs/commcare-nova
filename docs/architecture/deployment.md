@@ -26,9 +26,9 @@ application pipeline never builds its own tooling. The worker machine size is
 the Cloud Build default.
 
 A private registry cache holds the installed dependency layer, exported with
-`mode=min` from the `deps` target. Warm builds restore that layer directly;
-the cold install's intermediate tar archive is not published alongside it.
-This avoids expanding an archive after the registry has already extracted it.
+`mode=min` from the `deps` target. npm installs directly into that layer, and
+warm builds restore it directly. There is no intermediate dependency archive
+to write, extract, or fingerprint.
 A separate
 OCI image holds only `.next/cache`, including Turbopack and native TypeScript
 incremental state. BuildKit seeds its writable cache mount directly from that
