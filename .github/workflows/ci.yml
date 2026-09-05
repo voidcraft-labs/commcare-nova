@@ -230,18 +230,17 @@ jobs:
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       - uses: ./.github/actions/pull-test-image
-      # Cache the Chromium binary (~150MB) so it isn't re-downloaded every run.
-      # Keyed on the whole lockfile (coarse — any dep bump re-saves, but
-      # restore-keys still serves the existing binary, so no re-download).
-      # `--with-deps` still installs the (apt) OS deps, which are fast.
+      # CI's public/authed projects use Chromium headless shell (no channel
+      # override). Full Chrome is unused and cost 36s on the measured cold run.
+      # Keep a separate cache so the old full-browser payload is not restored.
       - name: Cache Playwright browsers
         uses: actions/cache@v6
         with:
           path: ~/.cache/ms-playwright
-          key: playwright-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: playwright-${{ runner.os }}-
-      - name: Install Playwright (Chromium + OS deps)
-        run: npx playwright install --with-deps chromium
+          key: playwright-shell-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+          restore-keys: playwright-shell-${{ runner.os }}-
+      - name: Install Playwright (headless shell + OS deps)
+        run: npx playwright install --with-deps --only-shell chromium
       # Hermetic: local Postgres + seeded session. No real GCP, no prod
       # credentials, no LLM spend. Runs the credential-free `public` checks and
       # the seeded-session `authed` checks. This catches UI / route / render /

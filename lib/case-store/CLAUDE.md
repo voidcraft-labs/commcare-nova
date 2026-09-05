@@ -1206,8 +1206,8 @@ The harness pins to two non-negotiable rules:
    file boots cost 5-15 s each on `pg_ctl init` + extension install
    and make the watch loop unusable.
 
-2. **Per-test isolation comes from BEGIN/ROLLBACK, NOT separate
-   schemas / databases.** The `db` fixture in `setup.ts` opens a
+2. **SQL compiler fixtures use BEGIN/ROLLBACK; code that owns transactions
+   uses a separate database.** The `db` fixture in `setup.ts` opens a
    transaction in `beforeEach`-equivalent setup, immediately runs
    `SET CONSTRAINTS ALL IMMEDIATE`, seeds the exact parent app/Project
    rows used by the compiler fixtures, and rolls the transaction back

@@ -196,3 +196,8 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 CI runs three smoke shards against separate production servers and databases. Each
 shard retains one worker because tests within it share seeded data. Read
 `docs/testing.md` for boundary selection and asynchronous ownership.
+
+CI installs only Chromium headless shell (`playwright install --with-deps
+--only-shell chromium`), the browser its headless public/authed projects use.
+A future channel override or headed CI project must update that installation
+contract. Local headed and profiling workflows still need full Chromium.

@@ -113,3 +113,7 @@ The CI wall-time target is five minutes from workflow start to completion,
 including setup and fan-in jobs. Compare actual hosted runs; local timings and
 runner CPU totals do not establish that target. Smoke shards use separate
 Postgres instances so destructive browser scenarios cannot race across shards.
+
+CI installs only the headless shell used by its smoke projects. Full Chromium
+is required for local headed/profiling workflows, but downloading it for a
+headless CI job adds setup time without exercising another browser.
