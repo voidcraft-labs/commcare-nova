@@ -810,7 +810,7 @@ export class FormEngine {
 		const updates: EngineStoreState = {};
 		const current = this.store.getState()[path];
 		if (current && current.value !== value) {
-			updates[path] = { ...current, value };
+			updates[path] = { ...current, value, edited: true };
 		}
 
 		/* Cascade: re-evaluate expressions for all affected paths. Only
@@ -2598,7 +2598,7 @@ export class FormEngine {
 		const updates: EngineStoreState = {};
 		for (const concrete of concretes) {
 			const current = this.store.getState()[concrete];
-			if (current?.touched) continue;
+			if (current?.touched || current?.edited) continue;
 			const value = this.computeDefault(field, concrete);
 			if (value !== undefined) {
 				this.instance.set(concrete, value);
@@ -2630,7 +2630,7 @@ export class FormEngine {
 		const updates: EngineStoreState = {};
 		for (const concrete of this.materializePaths(path)) {
 			const current = this.store.getState()[concrete];
-			if (current?.touched) continue;
+			if (current?.touched || current?.edited) continue;
 			const value = await this.computeDefaultAsync(
 				field,
 				concrete,
@@ -2823,23 +2823,31 @@ export class FormEngine {
 	}
 
 	/** Snapshot values and touched state for persisting across engine rebuilds.
-	 * Schema changes normally retain only touched answers. Presentation-only
+	 * Schema changes retain edited answers, including in-focus empty answers. Presentation-only
 	 * rebuilds can request every value because their value schema is identical,
 	 * including an in-focus edit that has not blurred yet. */
 	getValueSnapshot(options?: { includeAllValues?: boolean }): {
 		values: Map<string, string>;
 		touched: Set<string>;
+		edited: Set<string>;
 	} {
 		const values = new Map<string, string>();
 		const touched = new Set<string>();
+		const edited = new Set<string>();
 		for (const [path, state] of Object.entries(this.store.getState())) {
 			if (state === DEFAULT_ENGINE_STATE) continue;
-			if (options?.includeAllValues || state.value || state.touched) {
+			if (
+				options?.includeAllValues ||
+				state.value ||
+				state.touched ||
+				state.edited
+			) {
 				values.set(path, state.value);
 			}
 			if (state.touched) touched.add(path);
+			if (state.edited) edited.add(path);
 		}
-		return { values, touched };
+		return { values, touched, edited };
 	}
 
 	/** Restore values from a snapshot and re-evaluate expressions. */
@@ -2847,24 +2855,30 @@ export class FormEngine {
 		snapshot: {
 			values: Map<string, string>;
 			touched: Set<string>;
+			edited?: ReadonlySet<string>;
 		},
 		options?: { restoreAllValues?: boolean },
 	): void {
 		const updates: EngineStoreState = {};
 		const currentState = this.store.getState();
 
-		/* Schema changes restore user-touched values so new defaults win. A
+		/* Schema changes restore edited and blurred answers so new defaults win
+		 * only for fields the user has left alone. A
 		 * presentation-only rebuild restores all values because no value-bearing
 		 * schema changed and an active input may not have blurred yet. */
 		const restoredPaths = options?.restoreAllValues
 			? snapshot.values.keys()
-			: snapshot.touched;
+			: new Set([...snapshot.touched, ...(snapshot.edited ?? [])]);
 		for (const path of restoredPaths) {
 			const value = snapshot.values.get(path);
 			const current = currentState[path];
 			if (value !== undefined && current) {
 				this.instance.set(path, value);
-				updates[path] = { ...current, value };
+				updates[path] = {
+					...current,
+					value,
+					edited: snapshot.edited?.has(path),
+				};
 			}
 		}
 

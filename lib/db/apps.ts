@@ -1265,7 +1265,7 @@ export async function commitAppProjectMoveInTransaction(
 	 * auth-app tenancy migration's catalog forbids a second one), so
 	 * nothing in the database will catch it if this update is removed —
 	 * the rows would silently stay in the source Project and be invisible
-	 * to every member of the destination. `projectMove.integration.test.ts`
+	 * to every member of the destination. `projectMove.postgres.test.ts`
 	 * asserts the row actually moved, rather than that the move succeeded.
 	 *
 	 * What the destination inherits is the honest record of where this app

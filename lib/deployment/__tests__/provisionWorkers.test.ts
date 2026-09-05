@@ -9,7 +9,7 @@
  * the ledger reconciles against the document rather than against the call.
  *
  * The store is mocked because what it persists is proved against real
- * Postgres in `store.integration.test.ts`; the subject here is the
+ * Postgres in `store.postgres.test.ts`; the subject here is the
  * ordering and the decisions.
  */
 

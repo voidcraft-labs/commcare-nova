@@ -155,7 +155,7 @@ async function logScrollTop(page: Page): Promise<number> {
  * Answer every POST /api/chat with a canned SSE reply AT THE NETWORK LAYER —
  * the request never reaches the server, so the scroll tests can never reach
  * the model (or spend anything). The chunk shapes mirror the transport
- * contract (`transportContract.integration.test.ts`): SSE `data:` lines
+ * contract (`transportContract.postgres.test.ts`): SSE `data:` lines
  * terminated by `[DONE]`, with the `x-workflow-run-id` reconnect header.
  * Each send gets a numbered reply so repeated sends stay uniquely assertable.
  */
@@ -4099,8 +4099,10 @@ test.describe("authenticated builder", () => {
 			.first();
 		await expect(moveControl).toBeVisible();
 		const box = await moveControl.boundingBox();
-		expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
-		expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+		// Layout/transforms can report 43.999969px for a 44px target. Compare
+		// rendered pixel sizes, not incidental floating-point subtraction noise.
+		expect(Math.round(box?.width ?? 0)).toBeGreaterThanOrEqual(44);
+		expect(Math.round(box?.height ?? 0)).toBeGreaterThanOrEqual(44);
 
 		const moveHeadings = page.getByRole("heading", {
 			name: seed.moveAppName,

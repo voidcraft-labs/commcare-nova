@@ -48,7 +48,7 @@ design sessions for one actor can never both hold. Canonical commits,
 thread writes, and unchanged-holder verification (the heartbeats) take NO
 actor gate and keep authority-row-first ordering — gate-after-row on any
 lifecycle path would permit a gate↔row deadlock, which is exactly what the
-`actorGenerationGate.test.ts` source scan forbids.
+`actorGenerationGate.postgres.test.ts` source scan forbids.
 
 **Builder hydration is one authorized snapshot.**
 `appAccess.ts::resolveAuthorizedAppSnapshot` holds `apps FOR SHARE`, then the

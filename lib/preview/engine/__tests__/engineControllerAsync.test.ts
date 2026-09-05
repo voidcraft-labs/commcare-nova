@@ -167,6 +167,32 @@ describe("EngineController async runtime", () => {
 		}
 	});
 
+	it("retains an in-focus cleared answer through a same-entry rebuild without showing validation", async () => {
+		const ctrl = controller({
+			uuid: FIELD_UUID,
+			id: "answer",
+			kind: "text",
+			label: proseText("Answer"),
+			default_value: xp("'original'"),
+			required: xp("true()"),
+		});
+		try {
+			await ctrl.activateFormAsync(FORM_UUID);
+			const edit = ctrl.onValueChangeAsync(FIELD_UUID, "");
+			const rebuild = ctrl.rebuildActiveFormAsync(FORM_UUID);
+			await Promise.all([edit, rebuild]);
+			await ctrl.rebuildActiveFormAsync(FORM_UUID);
+			expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+				value: "",
+				touched: false,
+			});
+			expect(ctrl.entryStore.getState().fault).toBeUndefined();
+			expect(await ctrl.validateAllAsync()).toBe(false);
+		} finally {
+			ctrl.dispose();
+		}
+	});
+
 	it("settles a staged value before a superseding blur validates it", async () => {
 		const ctrl = controller(
 			{

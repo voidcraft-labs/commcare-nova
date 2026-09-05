@@ -55,7 +55,7 @@ const user = (id: string): unknown => ({
 
 /** Drive the pure window over a chunk sequence; the TransformStream wrapper
  *  is exercised end-to-end (real transport, real route) by
- *  `transportContract.integration.test.ts`. */
+ *  `transportContract.postgres.test.ts`. */
 function runThrough(
 	messages: readonly unknown[],
 	chunks: UIMessageChunk[],

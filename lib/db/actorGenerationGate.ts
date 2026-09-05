@@ -12,7 +12,7 @@
 // keyspace (a DIFFERENT keyspace from the two-int32 form the Project
 // membership gate uses, so the two gates cannot interact). The key derives
 // from a versioned hash namespace plus the actor's user id; the derivation
-// is pinned by golden vectors in `__tests__/actorGenerationGate.test.ts`.
+// is pinned by golden vectors in `__tests__/actorGenerationGate.postgres.test.ts`.
 //
 // LOCK ORDER — the one deliberate amendment to the app-row-first
 // convention: for holder/reservation LIFECYCLE transitions (create, claim,

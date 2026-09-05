@@ -603,7 +603,7 @@ What that key would have bought is proved where every write already happens:
 touching a deployment row, so a mismatched row cannot be written through the
 store. A Project move re-tenants these rows in the same transaction that flips
 `apps.project_id` (`lib/db/apps.ts::commitAppProjectMoveInTransaction`), and
-`projectMove.integration.test.ts` asserts the row actually moved rather than
+`projectMove.postgres.test.ts` asserts the row actually moved rather than
 that the move merely succeeded.
 
 

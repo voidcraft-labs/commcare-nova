@@ -89,7 +89,7 @@ const GEOPOINT_PATTERN = `^${DECIMAL}(?: ${DECIMAL}){3}$`;
 // a typed `CasePropertiesValidationError` at the write boundary
 // rather than a 500 from the database. The case-store boundary owns
 // the cast token; this bound must track it (the cross-layer round
-// trip is pinned by `lib/case-store/postgres/__tests__/store.test.ts`).
+// trip is pinned by `lib/case-store/postgres/__tests__/store.postgres.test.ts`).
 const INT4_MIN = -2_147_483_648;
 const INT4_MAX = 2_147_483_647;
 

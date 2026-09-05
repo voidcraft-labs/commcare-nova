@@ -21,7 +21,7 @@
  * request/response body streams would sit undrained here, surfacing as
  * leaked async resources under `--detect-async-leaks`. We mock it to a
  * sentinel handler (mirroring
- * `lib/db/__tests__/mcp-revocation.integration.test.ts`) whose `fetch`
+ * `lib/db/__tests__/mcp-revocation.postgres.test.ts`) whose `fetch`
  * still invokes the per-request server factory — so the real
  * `registerNovaTools` call in `dispatchMcpTools` runs and the
  * `ToolContext` propagation assertions stay meaningful — and returns a

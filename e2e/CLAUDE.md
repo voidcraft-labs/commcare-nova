@@ -35,7 +35,7 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   `better-call`, and `e2e/lib/session.ts` wraps it into Playwright `storageState`.
   (Local driving OUTSIDE this suite doesn't need any of that — `GET /api/dev/login`
   is the one-URL sign-in.) Its validity is pinned by
-  `lib/db/__tests__/sessionCookie.integration.test.ts` — a better-auth/better-call
+  `lib/db/__tests__/sessionCookie.postgres.test.ts` — a better-auth/better-call
   bump that breaks it fails *there*, not as a Playwright timeout, so re-verify the
   signer after such a bump.
 - **Prod cookie name differs.** Local (`http`) is `better-auth.session_token`; a
@@ -105,7 +105,7 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
   `POST /api/chat` from `page.route` with a canned UI-message SSE stream
   (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by
-  `transportContract.integration.test.ts`), so a send exercises the real
+  `transportContract.postgres.test.ts`), so a send exercises the real
   composer → `useChat` → transport path without the request ever reaching the
   server — the smoke stays model-free even for tests that hit Send. The
   fixture app for these tests ("Smoke — Scroll") seeds a paused askQuestions
@@ -196,3 +196,13 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 CI runs three smoke shards against separate production servers and databases. Each
 shard retains one worker because tests within it share seeded data. Read
 `docs/testing.md` for boundary selection and asynchronous ownership.
+
+CI installs only Chromium headless shell (`playwright install --with-deps
+--only-shell chromium`), the browser its headless public/authed projects use.
+A future channel override or headed CI project must update that installation
+contract. Local headed and profiling workflows still need full Chromium.
+
+For whole-pixel layout contracts, round browser geometry before comparing it
+with an integer pixel boundary: a 44px target can be reported as 43.999969px
+after transforms. Keep exact fractional comparisons only when the fraction
+itself is the behavior being tested.

@@ -5,7 +5,7 @@
  * the monthly spend cap and the per-run admin inspect summary.
  *
  * That writer and `refundReservation` are mocked so these tests stay unit-
- * scoped. `runSummary.test.ts` proves the two database rows commit together.
+ * scoped. `runSummary.postgres.test.ts` proves the two database rows commit together.
  */
 import { describe, expect, it, vi } from "vitest";
 
@@ -554,7 +554,7 @@ describe("UsageAccumulator", () => {
 			refundReservationMock.mockReset();
 			// An EDIT reserved 5, not a build's 100. The exact amount is no longer
 			// flush's concern (refundReservation reads it off the marker — see
-			// credits.test.ts); this pins that the flush refund GATE still fires for a
+			// credits.postgres.test.ts); this pins that the flush refund GATE still fires for a
 			// non-build reservation, delegating by appId.
 			const acc = new UsageAccumulator({
 				...reservedSeed,
@@ -587,7 +587,7 @@ describe("UsageAccumulator", () => {
 			writeRunSummaryMock.mockReset();
 			refundReservationMock.mockReset();
 			// The cross-midnight period-capture now lives on the marker: reserveCredits
-			// writes the booked period, refundReservation reads it (credits.test.ts).
+			// writes the booked period, refundReservation reads it (credits.postgres.test.ts).
 			// flush's job is only to FIRE the refund — this asserts a prior-month
 			// chargePeriod still passes the gate and delegates by appId.
 			const acc = new UsageAccumulator({
