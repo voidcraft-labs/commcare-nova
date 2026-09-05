@@ -1887,6 +1887,11 @@ export class EngineController {
 			return this.engine !== undefined;
 		}
 		if (this.atomicRevisionsPending > 0) return false;
+		// A blur belongs to the input event, not to the later worker result.
+		// A same-entry rebuild must capture the just-committed answer even if
+		// it retires this validation revision before the worker runs.
+		engine.markTouched(path);
+		this.syncPathsToStore([path]);
 		return this.runAsyncRevision(
 			"validation",
 			formUuid,

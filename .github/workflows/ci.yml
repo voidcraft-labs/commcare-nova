@@ -204,11 +204,11 @@ jobs:
           bash scripts/rollout/build-image.sh
 
   smoke:
-    name: Smoke shard ${{ matrix.shard }}/2
+    name: Smoke shard ${{ matrix.shard }}/3
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -249,7 +249,7 @@ jobs:
       # local stack networks nothing out); the `auth-healthz` job below is the
       # gate for those.
       - name: Smoke suite
-        run: npm run test:smoke -- --project=public --project=authed --shard=${{ matrix.shard }}/2
+        run: npm run test:smoke -- --project=public --project=authed --shard=${{ matrix.shard }}/3
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7

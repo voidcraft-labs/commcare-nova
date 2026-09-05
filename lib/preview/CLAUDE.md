@@ -70,6 +70,11 @@ backstop does not relax mutation admission, migration, or runtime parity: Nova
 must continue supporting the stored expression or migrate it faithfully before
 the old capability can be removed.
 
+Blur records touched state synchronously before queuing worker validation. A
+same-entry rebuild may retire that validation revision, but its snapshot must
+retain the answer the person just committed, including an intentionally cleared
+value. Never defer the ownership mark until the validation Promise settles.
+
 Each controller revision owns one worker evaluation world. Its first request
 copies the main structure plus the engine-lifetime secondary snapshots; later
 expressions reuse that world and carry only changed main-instance scalar

@@ -193,6 +193,6 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   reloads, launches the exact real case into the target form, and removes the
   point with route recovery. No endpoint, case read, or Preview launch is stubbed.
 
-CI runs two smoke shards against separate production servers and databases. Each
+CI runs three smoke shards against separate production servers and databases. Each
 shard retains one worker because tests within it share seeded data. Read
 `docs/testing.md` for boundary selection and asynchronous ownership.
