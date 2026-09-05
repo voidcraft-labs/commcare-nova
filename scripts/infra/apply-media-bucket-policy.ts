@@ -1,9 +1,8 @@
 /**
- * Deployment prerequisite for the complete media-bucket policy.
+ * Explicit maintenance entrypoint for the complete media-bucket policy.
  *
- * Cloud Build runs this as a blocking Cloud Run Job before migration/deploy,
- * so capture code never ships ahead of its staging lifecycle or signed-header
- * CORS allowlist.
+ * Ordinary deployment only reads the policy. Operators can apply it through
+ * this maintenance image entrypoint or manage-deployment.py media --apply.
  */
 
 import {

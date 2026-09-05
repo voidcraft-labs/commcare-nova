@@ -212,25 +212,45 @@ describe("deployment artifact and release contracts", () => {
 				.filter((line) => line.startsWith("!"))
 				.map((line) => line.slice(1)),
 		);
-		const bundle = await build({
-			entryPoints: entries,
-			bundle: true,
-			platform: "node",
-			target: "node24",
-			format: "cjs",
-			conditions: ["react-server"],
-			tsconfig: "tsconfig.json",
-			external: ["pg-native"],
-			outdir: ".deployment-policy-test-output",
-			metafile: true,
-			write: false,
-			logLevel: "silent",
-		});
-		expect(
-			Object.keys(bundle.metafile.inputs).filter(
-				(input) => input.startsWith("scripts/") && !allowlist.has(input),
-			),
-		).toEqual([]);
+		// Run the operator entrypoints outside the checkout so a missing bundled
+		// dependency cannot accidentally resolve from this repo's node_modules.
+		const directory = mkdtempSync(join(tmpdir(), "nova-maintenance-contract-"));
+		try {
+			const bundle = await build({
+				entryPoints: entries,
+				bundle: true,
+				platform: "node",
+				target: "node24",
+				format: "cjs",
+				conditions: ["react-server"],
+				tsconfig: "tsconfig.json",
+				external: ["pg-native"],
+				outdir: directory,
+				outbase: "scripts",
+				outExtension: { ".js": ".cjs" },
+				metafile: true,
+				logLevel: "silent",
+			});
+			expect(
+				Object.keys(bundle.metafile.inputs).filter(
+					(input) => input.startsWith("scripts/") && !allowlist.has(input),
+				),
+			).toEqual([]);
+			for (const entry of entries.filter((entry) =>
+				entry.startsWith("scripts/migrate-"),
+			)) {
+				const file = entry.replace(/^scripts\//, "").replace(/\.ts$/, ".cjs");
+				expect(
+					execFileSync(process.execPath, [join(directory, file), "--help"], {
+						cwd: directory,
+						encoding: "utf8",
+						timeout: 10_000,
+					}),
+				).toContain("Usage:");
+			}
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 
 	test("CI and Cloud Build use the same final-image command, with ephemeral secrets", () => {
