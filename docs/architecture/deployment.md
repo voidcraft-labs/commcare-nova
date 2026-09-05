@@ -56,7 +56,9 @@ Job provisioning requires an immutable image. Each release changes only the
 recurring Job image and verifies authority, command/arguments, environment,
 network, resources, task/retry counts, and timeout against the manifest.
 Migration submission uses the verified Job etag and sends the execution POST
-once. It then proves the immutable Execution and every task succeeded. A
+once. Cloud Run omits VPC fields from the Execution response, so the Job
+check and etag fence establish that part of the execution contract; any VPC
+fields returned on an Execution must still match. It then proves the immutable Execution and every task succeeded. A
 concurrent template change fails the fence instead of running unverified code.
 
 Cleanup remains scheduled every five minutes. After winning its exclusive

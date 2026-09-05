@@ -160,6 +160,28 @@ class InfrastructureTests(unittest.TestCase):
 
 
 class JobExecutionTests(unittest.TestCase):
+    def test_completed_execution_can_omit_vpc_after_fenced_job_validation(self):
+        job = job_fixture()
+        task = copy.deepcopy(job["template"]["template"])
+        del task["vpcAccess"]
+        execution = {"name": JOB + "/executions/run-1", "template": task,
+            "taskCount": 1, "parallelism": 1, "succeededCount": 1,
+            "completionTime": "2026-09-05T07:51:20Z"}
+        operation = {"name": "projects/commcare-nova/locations/us-central1/operations/run-1"}
+        with patch.object(deploy, "_access_token", return_value="synthetic"), patch.object(
+            deploy, "_run_api_request", side_effect=[job, operation,
+                {"done": True, "response": execution}, execution]) as api:
+            result = deploy._execute_job_exact(project="commcare-nova", region="us-central1",
+                job="commcare-nova-migrate", expected_image=IMAGE, execution_args=[], wait_seconds=1)
+            self.assertEqual(result, execution)
+            self.assertEqual(api.call_args_list[1].args[3], {"etag": "generation-3"})
+        task["vpcAccess"] = {"egress": "ALL_TRAFFIC"}
+        with self.assertRaises(deploy.DeploymentPolicyError):
+            deploy._assert_exact_execution_succeeded(execution, JOB, IMAGE, ["migrate.cjs"])
+        del job["template"]["template"]["vpcAccess"]
+        with self.assertRaises(deploy.DeploymentPolicyError):
+            deploy._exact_ready_job_etag(job, JOB, IMAGE)
+
     def test_configuration_drift_refuses_before_execution(self):
         for variant in ("image", "identity", "environment", "network", "generation", "retries"):
             job = job_fixture()
