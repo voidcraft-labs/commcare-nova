@@ -37,8 +37,8 @@ export interface PerTestDatabaseOptions {
 	databaseNamePrefix: string;
 	/** Clone the production migration result for behavior tests; omit for migration tests. */
 	schema?: "migrated";
-	/** Build expensive migration preconditions once, then clone them per test.
-	 * The migration under test must still run in each test body. */
+	/** Build shared expensive preconditions once, then clone them per test.
+	 * The behavior or migration under test must still run in each test body. */
 	prepareTemplate?: (db: Kysely<unknown>, pool: Pool) => Promise<void>;
 	/**
 	 * Explicitly identify this isolated database as the local migration target.

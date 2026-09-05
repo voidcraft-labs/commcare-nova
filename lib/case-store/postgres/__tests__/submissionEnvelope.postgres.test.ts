@@ -16,8 +16,9 @@
 // with authored relationships, and whole-envelope rollback across ordinary +
 // operation effects.
 
-import { type Kysely, sql } from "kysely";
-import { beforeEach, describe, expect, it } from "vitest";
+import { Kysely, PostgresDialect, type PostgresPool, sql } from "kysely";
+import { Client, Pool } from "pg";
+import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type CaseOperation,
@@ -46,7 +47,7 @@ import {
 } from "../../errors";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
-import type { Database } from "../../sql/database";
+import type { Database, JsonObject } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
 import type {
 	ApplySubmissionArgs,
@@ -55,25 +56,28 @@ import type {
 	SubmissionReceiptClaim,
 } from "../../submission";
 import { PostgresCaseStore } from "../store";
-import { storageValueFromEvaluation } from "../submissionEnvelope";
 
 // ---------------------------------------------------------------
 // Per-test database + store construction
 // ---------------------------------------------------------------
 
+// App/schema/index preconditions are built once using the production store,
+// then cloned per scenario. Submission effects still use real COMMIT/ROLLBACK.
 const dbHandle = setupPerTestDatabase({
 	schema: "migrated",
 	databaseNamePrefix: "envelope_test_",
-});
-
-beforeEach(async () => {
-	await sql`
+	prepareTemplate: async (db) => {
+		await sql`
 		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		VALUES
 			(${APP_ID}, ${ACTOR}, ${PROJECT_A}, 'Envelope app', 'envelope app'),
 			(${FOREIGN_APP_ID}, 'worker-2', ${PROJECT_B},
 			 'Foreign envelope app', 'foreign envelope app')
-	`.execute(dbHandle.db);
+	`.execute(db);
+		await seedSchemas(
+			makeStore(PROJECT_A, ACTOR, ACTOR, db as Kysely<Database>),
+		);
+	},
 });
 
 // `test-app` + the fixed form/operation uuids below reproduce the
@@ -143,12 +147,13 @@ function makeStore(
 	projectId = PROJECT_A,
 	actorUserId = ACTOR,
 	ownerId = actorUserId,
+	db: Kysely<Database> = dbHandle.db as Kysely<Database>,
 ) {
 	return new PostgresCaseStore({
 		projectId,
 		actorUserId,
 		ownerId,
-		db: dbHandle.db as unknown as Kysely<Database>,
+		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
 }
@@ -237,7 +242,7 @@ function operation(partial: Partial<CaseOperation>): CaseOperation {
 		caseType: "patient",
 		target: { kind: "session" },
 		...partial,
-	} as CaseOperation;
+	};
 }
 
 function envOp(
@@ -286,20 +291,15 @@ function rootProgram(
 	};
 }
 
-function followupOrdinary(patchProperties: Record<string, unknown> = {}): {
-	kind: "followup";
-	caseIds: string[];
-	selection: { kind: "single"; maximum: 1 };
-	caseType: string;
-	patch: { properties: Record<string, never> };
-	children: [];
-} {
+function followupOrdinary(
+	patchProperties: JsonObject = {},
+): Extract<ApplySubmissionArgs["ordinary"], { kind: "followup" | "close" }> {
 	return {
 		kind: "followup",
 		caseIds: [SESSION_CASE_ID],
 		selection: { kind: "single", maximum: 1 },
 		caseType: "patient",
-		patch: { properties: patchProperties as Record<string, never> },
+		patch: { properties: patchProperties },
 		children: [],
 	};
 }
@@ -310,8 +310,8 @@ async function rejection(
 	try {
 		await promise;
 	} catch (err) {
-		expect(err).toBeInstanceOf(SubmissionRejectedError);
-		return err as SubmissionRejectedError;
+		if (!(err instanceof SubmissionRejectedError)) throw err;
+		return err;
 	}
 	throw new Error("expected the envelope to reject, but it resolved");
 }
@@ -332,7 +332,6 @@ async function patientRow(store: PostgresCaseStore, caseId: string) {
 describe("authored create identity", () => {
 	it("derives the pinned nova-case-v1 vector id and stores the row under it", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		await submit(store, {
 			appId: APP_ID,
@@ -368,9 +367,8 @@ describe("authored create identity", () => {
 		expect(visits[0]?.status).toBe("open");
 	});
 
-	it("rejects a blank authored key before any DML", async () => {
+	it("rejects a blank authored key without committing effects", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		const err = await rejection(
 			submit(store, {
@@ -402,9 +400,8 @@ describe("authored create identity", () => {
 		).toHaveLength(0);
 	});
 
-	it("rejects an over-205-unit authored key before any DML", async () => {
+	it("rejects an over-205-unit authored key without committing effects", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		const err = await rejection(
 			submit(store, {
@@ -441,7 +438,6 @@ describe("authored create identity", () => {
 
 	it("merges a duplicate authored id onto the existing row (create-of-existing)", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		const submitExisting = (name: string, notes: string) =>
 			submit(store, {
 				appId: APP_ID,
@@ -485,7 +481,6 @@ describe("authored create identity", () => {
 
 	it("carries a non-UUID authored id through update, link, and close", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 		const authoredId = `${PINNED_VECTOR_PREFIX}url unsafe/&?id`;
 
@@ -587,9 +582,8 @@ describe("authored create identity", () => {
 // ---------------------------------------------------------------
 
 describe("whole-envelope atomicity", () => {
-	it("a three-operation program lands together or not at all", async () => {
+	it("an unresolved target rejects the whole three-operation program", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		const program = (thirdTarget: string) =>
@@ -650,7 +644,6 @@ describe("whole-envelope atomicity", () => {
 
 	it("rolls the operation program back when the ordinary close's child fails", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		await expect(
@@ -701,7 +694,6 @@ describe("whole-envelope atomicity", () => {
 describe("ordered selected-case batches", () => {
 	it("applies one ordinary patch to every selected case after advanced operations", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
 		await seedPatient(store, THIRD_SESSION_CASE_ID, "Carol", {
@@ -780,7 +772,6 @@ describe("ordered selected-case batches", () => {
 
 	it("keeps every selected case unchanged when the admitted patch is empty", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
 		await store.update({
@@ -822,16 +813,12 @@ describe("ordered selected-case batches", () => {
 		for (const caseId of [SESSION_CASE_ID, SECOND_SESSION_CASE_ID]) {
 			const prior = before.get(caseId);
 			const row = await patientRow(store, caseId);
-			expect(row?.case_name).toBe(prior?.case_name);
-			expect(row?.external_id).toBe(prior?.external_id);
-			expect(row?.properties).toEqual(prior?.properties);
-			expect(row?.modified_on).toEqual(prior?.modified_on);
+			expect(row).toEqual(prior);
 		}
 	});
 
 	it("rolls every selected-case patch back when a later child write fails", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
 		const submissionReceipt: SubmissionReceiptClaim = {
@@ -890,7 +877,6 @@ describe("ordered selected-case batches", () => {
 
 	it("rejects a retype of any selected case before the shared patch lands", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedPatient(store, SESSION_CASE_ID, "Alice", { notes: "alice" });
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob", { notes: "bob" });
 		const caseIds = [SESSION_CASE_ID, SECOND_SESSION_CASE_ID];
@@ -947,7 +933,6 @@ describe("ordered selected-case batches", () => {
 
 	it("runs form-level creates once per repeat before selected-case operations", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedPatient(store, SESSION_CASE_ID, "Alice");
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob");
 		const caseIds = [SECOND_SESSION_CASE_ID, SESSION_CASE_ID];
@@ -1068,7 +1053,6 @@ describe("ordered selected-case batches", () => {
 
 	it("runs repeat outer by selected case inner with one session anchor per case", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedPatient(store, SESSION_CASE_ID, "Alice");
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob");
 		const caseIds = [SESSION_CASE_ID, SECOND_SESSION_CASE_ID];
@@ -1135,7 +1119,6 @@ describe("ordered selected-case batches", () => {
 
 	it("fans children and close across the ordered selection", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedPatient(store, SESSION_CASE_ID, "Alice");
 		await seedPatient(store, SECOND_SESSION_CASE_ID, "Bob");
 		const caseIds = [SECOND_SESSION_CASE_ID, SESSION_CASE_ID];
@@ -1204,7 +1187,6 @@ describe("ordered selected-case batches", () => {
 
 	it("rolls back the receipt on stale selection and accepts an exact retry", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedPatient(store, SESSION_CASE_ID, "Alice");
 		const submissionReceipt: SubmissionReceiptClaim = {
 			entryKey: "multi-selection-retry",
@@ -1272,7 +1254,6 @@ describe("ordered selected-case batches", () => {
 describe("pre-submission snapshot", () => {
 	it("every expression evaluates against pre-effect values", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store, { notes: "original" });
 
 		await submit(store, {
@@ -1322,7 +1303,6 @@ describe("pre-submission snapshot", () => {
 describe("blank writes", () => {
 	it("an explicit blank external_id write stores an empty scalar, never a JSONB removal", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		await submit(store, {
@@ -1350,7 +1330,6 @@ describe("blank writes", () => {
 
 	it("a blank-evaluated typed write clears the stored key instead of failing", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		// `age` holds a value; `prior_age` is absent, so the int→int
 		// write below evaluates SQL NULL — the device's calculate writes
 		// `''` and commits; Nova's typed storage projects that blank as
@@ -1383,7 +1362,6 @@ describe("blank writes", () => {
 
 	it("a blank write on a fresh create never mints the key", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		await submit(store, {
 			appId: APP_ID,
@@ -1418,7 +1396,6 @@ describe("blank writes", () => {
 describe("conditions", () => {
 	it("a false condition skips the operation and its guarded consumers", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		const condition = eq(formField(FLAG_FIELD), literal("yes"));
 
 		const result = await submit(store, {
@@ -1469,7 +1446,6 @@ describe("conditions", () => {
 
 	it("a skipped authored-key create holds its blank-key failure", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		// The wire never runs an irrelevant block's calculate, so a blank
 		// key on a false-conditioned create must not reject the envelope
@@ -1511,7 +1487,6 @@ describe("conditions", () => {
 
 	it("a true condition executes the chain", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		const condition = eq(formField(FLAG_FIELD), literal("yes"));
 
 		const result = await submit(store, {
@@ -1559,7 +1534,6 @@ describe("conditions", () => {
 
 	it("a false write condition skips just that write", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		await submit(store, {
@@ -1613,7 +1587,6 @@ describe("expression target reauthorization", () => {
 		});
 
 		const storeA = makeStore();
-		await seedSchemas(storeA);
 		const err = await rejection(
 			submit(storeA, {
 				appId: APP_ID,
@@ -1651,7 +1624,6 @@ describe("expression target reauthorization", () => {
 
 	it("a wrong-type row reports case-type-mismatch after Project authorization", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		const visit = await store.insert({
 			appId: APP_ID,
 			row: {
@@ -1699,7 +1671,6 @@ describe("expression target reauthorization", () => {
 
 	it("a held case is unreachable as an expression target", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 		// Park a value on the session case — an active kept entry HOLDS
 		// the case out of every runtime read, this resolution included.
@@ -1752,7 +1723,6 @@ describe("expression target reauthorization", () => {
 describe("resolved sequence proof", () => {
 	it("rejects a self-link", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		const err = await rejection(
@@ -1788,7 +1758,6 @@ describe("resolved sequence proof", () => {
 
 	it("rejects a post-retype consumer expecting the old type", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		const err = await rejection(
@@ -1832,7 +1801,6 @@ describe("resolved sequence proof", () => {
 
 	it("rejects a retype of a merged duplicate-repeat authored identity", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		// Two iterations carrying the SAME key: both creates resolve to
 		// one concrete id. The correlated retype then makes iteration
@@ -1894,7 +1862,6 @@ describe("resolved sequence proof", () => {
 
 	it("expands distinct iterations with their own bindings, iteration-major", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		// Two iterations with DISTINCT keys, values, and condition
 		// outcomes: iteration one's consumer is skipped, iteration two's
@@ -1987,7 +1954,6 @@ describe("resolved sequence proof", () => {
 
 	it("merges duplicate repeat keys without a type transition", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		const result = await submit(store, {
 			appId: APP_ID,
@@ -2034,7 +2000,6 @@ describe("resolved sequence proof", () => {
 
 	it("rejects an advanced retype under a type-sensitive ordinary action", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		const err = await rejection(
@@ -2073,9 +2038,8 @@ describe("resolved sequence proof", () => {
 // ---------------------------------------------------------------
 
 describe("text facets", () => {
-	it("rejects a whitespace-only create name before any DML", async () => {
+	it("rejects a whitespace-only create name without committing effects", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		const err = await rejection(
 			submit(store, {
@@ -2109,7 +2073,6 @@ describe("text facets", () => {
 
 	it("rejects an over-255-unit rename", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		const err = await rejection(
@@ -2137,9 +2100,8 @@ describe("text facets", () => {
 		expect((await patientRow(store, SESSION_CASE_ID))?.case_name).toBe("Alice");
 	});
 
-	it("normalizes boundary whitespace exactly once, preserving the interior", async () => {
+	it("normalizes boundary whitespace while preserving the interior", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		await submit(store, {
@@ -2164,7 +2126,6 @@ describe("text facets", () => {
 
 	it("rejects an over-255-unit external_id before any effect", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		const err = await rejection(
@@ -2205,7 +2166,6 @@ describe("text facets", () => {
 describe("owner stamping", () => {
 	it("evaluates fixed and owner-relative place destinations in Preview", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 		const regionUuid = testUuid("11111111-1111-4111-8111-111111111119");
 		const facilityLevelUuid = testUuid("22222222-2222-4222-8222-222222222229");
@@ -2284,7 +2244,6 @@ describe("owner stamping", () => {
 
 	it("defaults a create's owner to the acting user and honors unowned", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 
 		await submit(store, {
 			appId: APP_ID,
@@ -2326,7 +2285,6 @@ describe("owner stamping", () => {
 	it("writes an explicit update owner and resolves acting-user as the worker, not the authorizing member", async () => {
 		const workerId = "persona-asha";
 		const store = makeStore(PROJECT_A, ACTOR, workerId);
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		await submit(store, {
@@ -2359,7 +2317,6 @@ describe("owner stamping", () => {
 describe("retype", () => {
 	it("executes the wirePortable subset: type flips, properties retained verbatim", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store, { notes: "kept", age: 30 });
 
 		await submit(store, {
@@ -2386,7 +2343,6 @@ describe("retype", () => {
 
 	it("applies destination-typed writes and the type change as one unit", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store, { notes: "kept" });
 
 		// `severity` is declared ONLY on the destination type — the
@@ -2431,7 +2387,6 @@ describe("retype", () => {
 
 	it("rejects a retype whose retained document the destination schema cannot hold", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		// `age` survives the retype but `narrow` declares only `notes` —
 		// executing it would need parking, which the wirePortable subset
 		// forbids.
@@ -2471,7 +2426,6 @@ describe("retype", () => {
 describe("links", () => {
 	it("upserts an identifier-keyed edge to an earlier create and removes it on null", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		const first = await submit(store, {
@@ -2550,10 +2504,11 @@ describe("links", () => {
 
 	it("a link-only operation advances the case's modified time", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
-		const before = (await patientRow(store, SESSION_CASE_ID))?.modified_on;
-		expect(before).not.toBeNull();
+		const before = new Date("2001-01-01T00:00:00Z");
+		await sql`UPDATE cases SET modified_on=${before} WHERE case_id=${SESSION_CASE_ID}`.execute(
+			dbHandle.db,
+		);
 
 		// Every emitted case block carries @date_modified — a pure index
 		// write still advances the case's modified time on device/HQ, and
@@ -2567,7 +2522,6 @@ describe("links", () => {
 				properties: "{}",
 			},
 		});
-		await new Promise((resolve) => setTimeout(resolve, 10));
 		await submit(store, {
 			appId: APP_ID,
 			ordinary: { kind: "none" },
@@ -2598,12 +2552,11 @@ describe("links", () => {
 		});
 
 		const after = (await patientRow(store, SESSION_CASE_ID))?.modified_on;
-		expect(after?.getTime()).toBeGreaterThan(before?.getTime() ?? 0);
+		expect(after?.getTime()).toBeGreaterThan(before.getTime());
 	});
 
 	it("a parent-identifier link maintains the denormalized first parent", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 		const household = await store.insert({
 			appId: APP_ID,
@@ -2684,7 +2637,6 @@ describe("links", () => {
 describe("multi-select writes", () => {
 	it("serializes a multi-select form answer to a JSONB array explicitly", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 
 		await submit(store, {
@@ -2718,39 +2670,8 @@ describe("multi-select writes", () => {
 // ---------------------------------------------------------------
 
 describe("combined submission", () => {
-	it("lands operations before the ordinary followup, atomically", async () => {
+	it("a missing session anchor rejects the operation-only envelope", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
-		await seedSessionPatient(store);
-
-		const result = await submit(store, {
-			appId: APP_ID,
-			ordinary: followupOrdinary({ notes: "from-form" }),
-			operations: rootProgram([
-				envOp(
-					operation({
-						uuid: OP_A,
-						action: "create",
-						caseType: "visit",
-						target: { kind: "new" },
-						name: term(literal("Companion visit")),
-					}),
-				),
-			]),
-		});
-
-		expect(result.primaryCaseIds).toEqual([SESSION_CASE_ID]);
-		expect(result.operations).toHaveLength(1);
-		expect(result.operations[0]?.executed).toBe(true);
-		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
-		expect(visits).toHaveLength(1);
-		const row = await patientRow(store, SESSION_CASE_ID);
-		expect(row?.properties).toMatchObject({ notes: "from-form" });
-	});
-
-	it("a missing session case fails the whole envelope with the ordinary not-found", async () => {
-		const store = makeStore();
-		await seedSchemas(store);
 
 		const err = await rejection(
 			submit(store, {
@@ -2858,7 +2779,6 @@ describe("transaction-captured case database patch", () => {
 describe("durable text-only submission receipt", () => {
 	it("claims the first registration, replays it without reallocating cases, and rejects a changed digest", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		const receipt: SubmissionReceiptClaim = {
 			entryKey: "text-registration-entry",
 			formUuid: FORM_UUID,
@@ -2951,7 +2871,6 @@ describe("durable text-only submission receipt", () => {
 
 	it("serializes concurrent first requests and allocates one generated advanced create", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		const receipt: SubmissionReceiptClaim = {
 			entryKey: "text-advanced-create-entry",
 			formUuid: FORM_UUID,
@@ -2979,25 +2898,64 @@ describe("durable text-only submission receipt", () => {
 			),
 		};
 
-		const [first, concurrentRetry] = await Promise.all([
-			submit(store, args),
-			submit(store, args),
-		]);
-		expect(concurrentRetry).toEqual(first);
-		expect(first.operations).toHaveLength(1);
-		const createdCaseId = first.operations[0]?.caseId;
-		expect(createdCaseId).toEqual(expect.any(String));
-		const visits = await store.query({ appId: APP_ID, caseType: "visit" });
-		expect(visits).toHaveLength(1);
-		expect(visits[0]).toMatchObject({
-			case_id: createdCaseId,
-			case_name: "Generated visit",
+		const pool = new Pool({ connectionString: dbHandle.uri, max: 3 });
+		const errors: Error[] = [];
+		pool.on("error", (error) => errors.push(error));
+		const db = new Kysely<Database>({
+			dialect: new PostgresDialect({ pool: pool as unknown as PostgresPool }),
 		});
+		const gate = new Client({ connectionString: dbHandle.uri });
+		const pending: Promise<PromiseSettledResult<unknown>[]>[] = [];
+		try {
+			await gate.connect();
+			const scope = `nova-form-attachment-entry:${APP_ID}:${ACTOR}:${receipt.entryKey}`;
+			await gate.query("SELECT pg_advisory_lock(hashtextextended($1,0))", [
+				scope,
+			]);
+			const concurrentStore = makeStore(PROJECT_A, ACTOR, ACTOR, db);
+			const work = Promise.allSettled([
+				submit(concurrentStore, args),
+				submit(concurrentStore, args),
+			]);
+			pending.push(work);
+			await vi.waitFor(async () => {
+				const waiters = await gate.query<{
+					count: number;
+				}>(`SELECT count(*)::int AS count FROM pg_stat_activity
+                    WHERE datname=current_database() AND cardinality(pg_blocking_pids(pid))>0`);
+				expect(waiters.rows[0]?.count).toBe(2);
+			});
+			await gate.query("SELECT pg_advisory_unlock(hashtextextended($1,0))", [
+				scope,
+			]);
+			const results = (await work).map((result) => {
+				if (result.status === "rejected") throw result.reason;
+				return result.value;
+			});
+			const [first, retry] = results;
+			expect(retry).toEqual(first);
+			expect(first.operations).toHaveLength(1);
+			expect(await store.query({ appId: APP_ID, caseType: "visit" })).toEqual([
+				expect.objectContaining({
+					case_id: first.operations[0]?.caseId,
+					case_name: "Generated visit",
+				}),
+			]);
+			const receipts = await dbHandle.pool.query(
+				"SELECT entry_key FROM form_submission_intents WHERE app_id=$1",
+				[APP_ID],
+			);
+			expect(receipts.rows).toEqual([{ entry_key: receipt.entryKey }]);
+		} finally {
+			await gate.end();
+			await Promise.all(pending);
+			await db.destroy();
+		}
+		expect(errors).toEqual([]);
 	});
 
 	it("rolls back an uncompleted receipt and every earlier case effect", async () => {
 		const store = makeStore();
-		await seedSchemas(store);
 		const receipt: SubmissionReceiptClaim = {
 			entryKey: "text-rollback-entry",
 			formUuid: FORM_UUID,
@@ -3127,7 +3085,6 @@ describe("atomic form-capture intent", () => {
 	it("replays a nonempty accepted submission after current capture/form removal before case effects", async () => {
 		const store = makeStore();
 		const capture = await seedPreparedCapture();
-		await seedSchemas(store);
 		await seedSessionPatient(store);
 		const args = {
 			appId: APP_ID,
@@ -3257,7 +3214,6 @@ describe("atomic form-capture intent", () => {
 	it("rolls the capture reservation and receipt back when the case envelope fails", async () => {
 		const store = makeStore();
 		const capture = await seedPreparedCapture();
-		await seedSchemas(store);
 
 		const err = await rejection(
 			submit(store, {
@@ -3361,80 +3317,5 @@ describe("atomic form-capture intent", () => {
 			"prepared",
 			"prepared",
 		]);
-	});
-});
-
-// ---------------------------------------------------------------
-// storageValueFromEvaluation — driver-shape → storage-lexical forms
-// ---------------------------------------------------------------
-
-describe("storageValueFromEvaluation", () => {
-	it("recovers a pg date's lexical day from local calendar parts", () => {
-		// node-postgres parses a `date` column at LOCAL midnight; reading
-		// UTC parts back would shift the stored day for any process zone
-		// east of UTC. The local-part read is the timezone-proof inverse.
-		const parsedByPg = new Date(2026, 6, 24);
-		expect(storageValueFromEvaluation(parsedByPg, "date")).toBe("2026-07-24");
-	});
-
-	it("canonicalizes a timestamptz to the stored ISO instant", () => {
-		const instant = new Date("2026-07-24T05:12:11.400Z");
-		expect(storageValueFromEvaluation(instant, "datetime")).toBe(
-			"2026-07-24T05:12:11.400Z",
-		);
-	});
-
-	it("tags an offset-less pg time for storage, keeping explicit offsets", () => {
-		// The wire's time answer is a wall clock with three fractional
-		// digits and no zone (`TimeData::uncast`); the `Z` is the tag the
-		// strict `format: "time"` schema requires on top of it.
-		expect(storageValueFromEvaluation("05:12:11", "time")).toBe(
-			"05:12:11.000Z",
-		);
-		expect(storageValueFromEvaluation("05:12:11+02:00", "time")).toBe(
-			"05:12:11.000+02:00",
-		);
-	});
-
-	it("stamps a naive datetime answer with the submitting viewer's zone", () => {
-		// A string (rather than a pg `Date`) is a form answer's wall clock,
-		// and the device stamps the zone it was entered in. Without a zone
-		// the caller gets the deterministic UTC reading.
-		expect(
-			storageValueFromEvaluation(
-				"2026-07-24T05:12:11",
-				"datetime",
-				"America/New_York",
-			),
-		).toBe("2026-07-24T05:12:11.000-04:00");
-		expect(storageValueFromEvaluation("2026-07-24T05:12:11", "datetime")).toBe(
-			"2026-07-24T05:12:11.000Z",
-		);
-	});
-
-	it("keeps numerics typed and coerces pg's numeric-string decimals", () => {
-		expect(storageValueFromEvaluation(30, "int")).toBe(30);
-		expect(storageValueFromEvaluation("2.5", "decimal")).toBe(2.5);
-	});
-
-	it("signals blank (SQL NULL, '', empty selection) as undefined for every type", () => {
-		// The wire's calculate writes '' for a blank source; Nova's
-		// storage projects that state as key-absent, so the executor
-		// omits the key on create and removes it on update.
-		expect(storageValueFromEvaluation(null, "text")).toBeUndefined();
-		expect(storageValueFromEvaluation("", "text")).toBeUndefined();
-		expect(storageValueFromEvaluation(null, "int")).toBeUndefined();
-		expect(storageValueFromEvaluation(null, "date")).toBeUndefined();
-		expect(storageValueFromEvaluation([], "multi_select")).toBeUndefined();
-		expect(storageValueFromEvaluation(null, "single_select")).toBeUndefined();
-	});
-
-	it("keeps a multi-select array and space-joins one aimed at text", () => {
-		expect(storageValueFromEvaluation(["a", "b"], "multi_select")).toEqual([
-			"a",
-			"b",
-		]);
-		// The XForms wire convention for a selection's string projection.
-		expect(storageValueFromEvaluation(["a", "b"], "text")).toBe("a b");
 	});
 });

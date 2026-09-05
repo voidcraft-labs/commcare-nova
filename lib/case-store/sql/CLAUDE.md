@@ -42,3 +42,19 @@ No dispatch entry point emits the outer-query `(app_id, project_id)` filter — 
 ## Barrel-only surface
 
 External consumers import from the package barrel. Internal helpers stay package-private — their existence is the dispatch shape, not part of the public contract.
+
+## Compiler test boundaries
+
+Execute value semantics against Postgres: assert returned values and rows, and use
+`pg_typeof` when the SQL type is itself the contract. Parameter counts and SQL
+fragments cannot prove tenant filtering, relation direction, casts, or correlation.
+Keep compile-only tests for preconditions and parameter binding; the large restore
+plan test intentionally inspects the planner because it protects a measured query
+cost regression.
+
+Adversarial tenant fixtures may explicitly defer only `cases_project_app_tenant_fk`
+inside the rollback harness to test compiler filtering independently of storage
+constraints. State that the rows are intentionally invalid and never commit them.
+Ordinary fixtures retain immediate constraint checking. At each relation hop,
+make a wrong identifier, depth, type, app, or Project change the expected result;
+do not use an alternate valid path that reaches the same destination.

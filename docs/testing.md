@@ -87,8 +87,8 @@ database cloned from a closed, immutable template built by the real migrations
 once per run. Do not replay the whole migration history in behavior-test hooks.
 
 Migration tests omit `schema` to clone an extensions-only database, then execute
-the migrations they are testing. Templates are never test targets. They contain
-no application fixture rows. This preserves real commits and test isolation
+the migrations they are testing. Templates are never test targets. The shared
+base templates contain no application fixture rows. This preserves real commits and test isolation
 without repeatedly installing PostGIS. Do not replace transaction tests with
 nested transactions or shared mutable tables to gain speed. Tests using the
 module-scoped database handle must stay sequential within their file.
@@ -99,9 +99,10 @@ Prove blocking with `pg_blocking_pids` or an equivalent database signal; two
 operations queued for one pool connection do not exercise database concurrency.
 Close those clients in `finally` after releasing and joining the operations.
 
-For an expensive historical migration precondition, `prepareTemplate(db, pool)`
-runs once per suite and closes that database to connections. Each test receives
-its own clone; the migration under test still executes in the test body. Do not
+For expensive shared preconditions, `prepareTemplate(db, pool)` runs once per
+suite and closes that database to connections. It can build a historical migration
+prefix or seed the apps and schemas needed by a submission suite. Each test
+receives its own clone; the behavior under test still executes in the test body. Do not
 move the behavior being asserted into template preparation or share a writable
 database across tests. `preparedTemplate.postgres.test.ts` verifies committed
 write isolation and cleanup, including the prepared template.

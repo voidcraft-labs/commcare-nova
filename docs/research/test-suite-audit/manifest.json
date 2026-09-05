@@ -3114,7 +3114,10 @@
 			"file": "lib/case-store/postgres/__tests__/submissionEnvelope.postgres.test.ts",
 			"lines": 3440,
 			"ciMs": 38951,
-			"status": "pending"
+			"status": "revised",
+			"review": "Prepare app/schema/index fixtures once per file; prove receipt contention with two blocked database transactions and owned cleanup; move seven pure storage-value cases to storageValueFromEvaluation.test.ts; remove duplicate combined case, sleeps, unsafe fixture casts, and unsupported pre-DML claims.",
+			"baselineSha256": "d7a51e0e6541dbb3e3566764a0a34a1429840f9e0a94460b6872bf13aa90ccee",
+			"reviewedSha256": "8a6efb8a29eb436a764421965e6f764d5a1c68fbc79726c511d36371ae279499"
 		},
 		{
 			"file": "lib/case-store/postgres/__tests__/temporalStorageShapes.test.ts",
@@ -3177,7 +3180,10 @@
 			"file": "lib/case-store/sql/__tests__/compileLookup.harness.postgres.test.ts",
 			"lines": 471,
 			"ciMs": 849,
-			"status": "pending"
+			"status": "revised",
+			"review": "Foreign row previously sorted after our winner and compound correlation was masked by first matching row. Make foreign and other-table rows sort first, reverse seed insertion with id tie check, and use north/east anchors to independently test both AND conditions. Move three compiler invariants to ordinary compileLookup.test.ts; simplify scalar execution.",
+			"baselineSha256": "3159a20a593686b83f6c6228dd82a8eb24f38296300c88bc1dfcf6ce43fbc8f0",
+			"reviewedSha256": "5c68674991d70772656bb531d2a026f48aafd5087f3da4ddbc075a4f9030c2ef"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compilePredicate.harness.postgres.test.ts",
@@ -3201,37 +3207,55 @@
 			"file": "lib/case-store/sql/__tests__/compileRelationPath.harness.postgres.test.ts",
 			"lines": 374,
 			"ciMs": 392,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replace five sparse examples with graph fixtures proving all joined arms, independent app/Project exclusion, type narrowing, identifiers, and depth at both ancestor hops; explicit tenant-FK deferral is only for intentionally corrupt compiler-boundary fixtures.",
+			"baselineSha256": "7641d16af2fbca82280db0b1f0494752b326ca8cc30d54e83934ecc386a690a0",
+			"reviewedSha256": "049a5573c9962b04b4aaa94a23d9d782fc9c63a4ee67506bab123a61f14ff4a9"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compileRelationPath.test.ts",
 			"lines": 465,
 			"ciMs": 243,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replace SQL-token, parameter-count, alias-format, and parenthesis assertions with actual joined results in the Postgres sibling; self behavior is exercised by term/compiler consumers.",
+			"baselineSha256": "5db37db7e0ed5b5373ddd3185895d2d3dbf613786565b71e62c64ae86ca67d6e",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compileRestoreScope.harness.postgres.test.ts",
 			"lines": 391,
 			"ciMs": 534,
-			"status": "pending"
+			"status": "revised",
+			"review": "Make transitive child/extension exclusion and NULL-status traversal observable; isolate app and Project gates and foreign bridging; type fixture overrides and remove needless empty-owner seed. Verified all 45 fixture graphs/outcomes against local HQ acceptance source.",
+			"baselineSha256": "63627505c0e4c5bf4026824e20cd40017f1225c222ccdf415a0174ad0f73ed67",
+			"reviewedSha256": "276e72955993890dfd81406ae89d9d90ef58d243c8f6ff7534ebcf97ff246d0e"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compileRestoreScope.planShape.postgres.test.ts",
 			"lines": 149,
 			"ciMs": 4050,
-			"status": "pending"
+			"status": "retained",
+			"review": "Full review of fixture, actual compiler, and EXPLAIN assertions: realistic 50k-case fixture intentionally protects documented tenant-scan regression; measured plan nodes are the contract, unlike incidental emitted-SQL text. Passes locally with the restore group.",
+			"baselineSha256": "339ecb3fc2edb1cc942a031a4fdc604439f521cf60e84ca81afb0b94f5088ecd",
+			"reviewedSha256": "339ecb3fc2edb1cc942a031a4fdc604439f521cf60e84ca81afb0b94f5088ecd"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compileTerm.harness.postgres.test.ts",
 			"lines": 658,
 			"ciMs": 840,
-			"status": "pending"
+			"status": "revised",
+			"review": "One seeded projection verifies every property value and actual PostgreSQL type; all temporal drafts/malformed values; all eight scalar metadata columns; actual correlated ancestor reads without test-supplied join; explicit self blank distinction; JSON array answers and present-null versus missing fallback.",
+			"baselineSha256": "418b34a01a708f7639ab0a9f376721a0e05475d0a81698fd47e9880d7e09b65e",
+			"reviewedSha256": "62962f0b4b5468df7abb113ba79b51b48fea3c7eee39e5bdc4688f7b7a7977cb"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compileTerm.test.ts",
 			"lines": 656,
 			"ciMs": 631,
-			"status": "pending"
+			"status": "revised",
+			"review": "Keep pure schema/binding preconditions and exact namespace/parameter ownership including SQL-like text; remove duplicate cast, alias, and scalar SQL-fragment pins now covered by actual values and pg_typeof in the Postgres sibling.",
+			"baselineSha256": "71e0fd86ab9dffb7fd1bce2c428fdb05f6546883d98f04eb03dd84b871de04e4",
+			"reviewedSha256": "e66293de464050fe9b1d730cd745ac6200166ea1297bb21ba0f34b5630bc451a"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/database.test.ts",
