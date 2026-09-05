@@ -4,8 +4,9 @@
 // (`auth_app_kysely_migration`) so it's independent of the case-store ledger and
 // Better Auth's introspection. Mirrors `lib/case-store/migrate.ts`'s shape.
 
-import type { Kysely } from "kysely";
+import { type Kysely, sql } from "kysely";
 import { Migrator } from "kysely/migration";
+import { MCP_RESOURCE_URL } from "@/lib/hostnames";
 import { authAppMigrationProvider } from "./migrations";
 
 export async function runAuthAppMigrations(db: Kysely<unknown>): Promise<void> {
@@ -18,7 +19,22 @@ export async function runAuthAppMigrations(db: Kysely<unknown>): Promise<void> {
 	const { error, results } = await migrator.migrateToLatest();
 
 	const failed = results?.find((r) => r.status === "Error");
-	if (error === undefined && failed === undefined) return;
+	if (error === undefined && failed === undefined) {
+		// This is ongoing resource configuration, not the retired 1.7 client
+		// backfill. New databases need the same resource the runtime registers
+		// clients against. Preserve any existing operator policy on that row.
+		await sql`
+			INSERT INTO public.auth_oauth_resource
+				(id, identifier, name, "accessTokenTtl", "refreshTokenTtl",
+				 "signingAlgorithm", "signingKeyId", "allowedScopes", "customClaims",
+				 "dpopBoundAccessTokensRequired", disabled, "policyVersion", metadata,
+				 "createdAt", "updatedAt")
+			VALUES (gen_random_uuid()::text, ${MCP_RESOURCE_URL}, ${MCP_RESOURCE_URL},
+				NULL, NULL, NULL, NULL, NULL, NULL, false, false, 1, NULL, now(), now())
+			ON CONFLICT (identifier) DO NOTHING
+		`.execute(db);
+		return;
+	}
 
 	const applied =
 		results?.map((r) => `${r.migrationName} (${r.status})`).join(", ") ??

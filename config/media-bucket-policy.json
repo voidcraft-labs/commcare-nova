@@ -1,0 +1,43 @@
+{
+	"lifecycle": {
+		"rule": [
+			{
+				"action": {
+					"type": "Delete"
+				},
+				"condition": {
+					"age": 1,
+					"matchesPrefix": ["pending/"]
+				}
+			},
+			{
+				"action": {
+					"type": "Delete"
+				},
+				"condition": {
+					"age": 7,
+					"matchesPrefix": ["captures-staged/"]
+				}
+			}
+		]
+	},
+	"softDeletePolicy": {
+		"retentionDurationSeconds": "0"
+	},
+	"versioning": {
+		"enabled": false
+	},
+	"defaultEventBasedHold": false,
+	"cors": [
+		{
+			"origin": ["https://commcare.app"],
+			"method": ["PUT", "OPTIONS"],
+			"responseHeader": [
+				"Content-Type",
+				"x-goog-content-length-range",
+				"x-goog-if-generation-match"
+			],
+			"maxAgeSeconds": 3600
+		}
+	]
+}

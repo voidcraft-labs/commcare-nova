@@ -11,8 +11,8 @@
 import { type Kysely, sql } from "kysely";
 import type { Database } from "../../lib/case-store/postgres/connection";
 import { indexScopeTag } from "../../lib/case-store/postgres/indexIdentity";
+import { buildCaseTypeMap } from "../../lib/case-store/store";
 import type { PersistableDoc } from "../../lib/domain";
-import { materializableCaseTypes } from "../../lib/domain";
 import { safePersistedSequence } from "../../lib/utils/persistedSequence";
 
 export type CaseTypeSchemaRetirementIssue =
@@ -38,9 +38,9 @@ export async function findCaseTypeSchemaRetirementFindings(
 	appId: string,
 	blueprint: PersistableDoc,
 ): Promise<readonly CaseTypeSchemaRetirementFinding[]> {
-	const currentTypes = new Set(
-		materializableCaseTypes(blueprint).map((caseType) => caseType.name),
-	);
+	// Storage also includes Nova's derived worker case. It is deliberately
+	// absent from the authoring catalog, but must never be retired as an orphan.
+	const currentTypes = new Set(buildCaseTypeMap(blueprint).keys());
 	const schemaRows = await db
 		.selectFrom("case_type_schemas")
 		.select([

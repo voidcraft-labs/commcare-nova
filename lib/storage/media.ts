@@ -24,8 +24,8 @@ import {
 	type LifecycleRule,
 	Storage,
 } from "@google-cloud/storage";
+import mediaBucketPolicy from "@/config/media-bucket-policy.json";
 import { STAGED_CAPTURE_PREFIX } from "@/lib/domain/captureFormats";
-import { PENDING_OBJECT_PREFIX } from "@/lib/domain/multimedia";
 
 let _storage: Storage | null = null;
 let _bucket: Bucket | null = null;
@@ -78,45 +78,13 @@ function getBucket(): Bucket {
 	return _bucket;
 }
 
-/**
- * Days a pending upload object lives before the bucket lifecycle rule
- * reaps it. GCS lifecycle `age` is day-granular (its minimum), so 1 day is
- * the tightest reap. Short by design: a confirm completes seconds after
- * the PUT, so anything still in `pending/` a day later is abandoned.
- */
-const PENDING_OBJECT_TTL_DAYS = 1;
-
-/**
- * Days a STAGED CAPTURE's bytes live before the bucket lifecycle rule
- * reaps them.
- *
- * A capture is staged while its form is being filled in, and Nova's
- * preview does not resume a partially-filled form — navigating away
- * discards the answers. Seven days bounds abandoned source bytes
- * independently of request traffic.
- *
- * Before submission acceptance, preparation copies a kept capture OUT of
- * this prefix and verifies it. The case transaction may accept only that
- * prepared generation, so this rule can never remove accepted evidence.
- */
-const STAGED_CAPTURE_TTL_DAYS = 7;
-
-const MEDIA_BUCKET_LIFECYCLE_RULES: LifecycleRule[] = [
-	{
-		action: { type: "Delete" },
-		condition: {
-			age: PENDING_OBJECT_TTL_DAYS,
-			matchesPrefix: [PENDING_OBJECT_PREFIX],
-		},
-	},
-	{
-		action: { type: "Delete" },
-		condition: {
-			age: STAGED_CAPTURE_TTL_DAYS,
-			matchesPrefix: [STAGED_CAPTURE_PREFIX],
-		},
-	},
-];
+// Shared with the read-only deployment prerequisite and explicit infra apply.
+const MEDIA_BUCKET_LIFECYCLE_RULES: LifecycleRule[] =
+	mediaBucketPolicy.lifecycle.rule.map((rule) => {
+		if (rule.action.type !== "Delete")
+			throw new Error("Unsupported media lifecycle action.");
+		return { ...rule, action: { type: rule.action.type } };
+	});
 
 /**
  * Prove the capture-maintenance identity can perform its complete storage
@@ -340,8 +308,7 @@ export async function probeCaptureStorageAuthority(): Promise<void> {
  * Idempotent: the PATCH sends the exact lifecycle and values every time, then
  * a fresh GET verifies them. `ifMetagenerationMatch` makes a concurrent
  * operator edit block the deploy rather than get overwritten. Operational,
- * not on the request path — the blocking media-policy Job applies it before
- * migrations or traffic movement.
+ * not on the request path — the explicit infrastructure command applies it when policy changes.
  */
 export async function applyMediaBucketStoragePolicy(): Promise<void> {
 	const bucket = getBucket();
@@ -532,18 +499,9 @@ export async function createSignedUploadUrl(args: {
  * the request path — run via `scripts/infra/apply-media-bucket-cors.ts`.
  */
 export async function applyMediaBucketCors(origins: string[]): Promise<void> {
-	await getBucket().setCorsConfiguration([
-		{
-			origin: origins,
-			method: ["PUT", "OPTIONS"],
-			responseHeader: [
-				"Content-Type",
-				"x-goog-content-length-range",
-				"x-goog-if-generation-match",
-			],
-			maxAgeSeconds: 3600,
-		},
-	]);
+	await getBucket().setCorsConfiguration(
+		mediaBucketPolicy.cors.map((rule) => ({ ...rule, origin: origins })),
+	);
 }
 
 /**

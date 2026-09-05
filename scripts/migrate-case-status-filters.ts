@@ -28,7 +28,7 @@ program
 	.option("--execute", "write the semantic repair")
 	.addHelpText(
 		"after",
-		"\nProduction writes run inside the immutable commcare-nova-migrate Cloud Run Job. There is intentionally no --prod writer shortcut.\n",
+		"\nProduction writes run inside the explicit commcare-nova-historical-repair Job using the maintenance image. There is intentionally no --prod writer shortcut.\n",
 	);
 program.parse();
 const options = program.opts<Options>();

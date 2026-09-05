@@ -11,6 +11,7 @@ import {
 	getCaseStorePool,
 } from "@/lib/case-store/postgres/connection";
 import {
+	finalizeBetterAuth17OauthClients,
 	migrateBetterAuthOauthClients,
 	renderBetterAuthOauthClientReport,
 	scanBetterAuthOauthClients,
@@ -19,6 +20,7 @@ import { runMain } from "@/scripts/lib/main";
 
 interface Options {
 	readonly execute?: boolean;
+	readonly finalize?: boolean;
 }
 
 const program = new Command();
@@ -31,9 +33,13 @@ program
 		"--execute",
 		"write the 1.7 client backfill, protected-resource links, and rolling-deploy guards",
 	)
+	.option(
+		"--finalize",
+		"remove retired columns and rolling-deploy guards after old requests drain; requires --execute to write",
+	)
 	.addHelpText(
 		"after",
-		"\nProduction writes run inside the immutable commcare-nova-migrate Cloud Run Job. There is intentionally no --prod writer shortcut.\n",
+		"\nProduction writes run inside the explicit commcare-nova-historical-repair Job using the maintenance image. There is intentionally no --prod writer shortcut.\n",
 	);
 program.parse();
 const options = program.opts<Options>();
@@ -43,7 +49,9 @@ async function main(): Promise<void> {
 		const pool = await getCaseStorePool();
 		const report =
 			options.execute === true
-				? await migrateBetterAuthOauthClients(pool)
+				? options.finalize === true
+					? await finalizeBetterAuth17OauthClients(pool)
+					: await migrateBetterAuthOauthClients(pool)
 				: await scanBetterAuthOauthClients(pool);
 		console.log(renderBetterAuthOauthClientReport(report));
 		if (options.execute !== true) {

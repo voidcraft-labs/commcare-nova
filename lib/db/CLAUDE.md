@@ -1047,16 +1047,14 @@ failure. After winning, the owner prewarms its second connection with a bounded
 retry so Kysely reuses that admitted session; a stuck reservation fails the
 Job.
 
-`captureCleanupSchemaProbe.ts` is the cleanup image's strict post-migration
-proof. Under the cleanup login it compares the ordered
-`form_attachments` column/type/nullability inventory to the checked-in final
-contract, then executes zero-row `SELECT`/`UPDATE`/`DELETE` statements and
-intentionally rolls the transaction back. `scripts/cleanup-form-attachments.ts
---probe-schema` runs only that proof, bundled into the image as
-`capture-cleanup.cjs`. Cloud Build verifies the scheduler's preexisting state
-was not changed by the Job update. It does NOT require the scheduler to be
-paused: pausing is the maintenance-cutover prestate, and on an ordinary deploy
-the scheduler is ENABLED while the probe runs.
+`captureCleanupSchemaProbe.ts` proves the cleanup schema and authority at the
+start of each scheduled execution, after the advisory lock and connection
+prewarm and before maintenance. Under the cleanup login it compares the ordered
+`form_attachments` column/type/nullability inventory to the checked-in contract,
+then executes zero-row `SELECT`/`UPDATE`/`DELETE` statements and intentionally
+rolls back. Failure stops that execution. The explicit `--probe-schema` CLI
+remains available to operators; ordinary deployment updates and verifies the
+worker image without launching a probe or changing Scheduler.
 
 GCS lifecycle remains the traffic-independent
 backstop for ordinary staged/browser-abandoned source bytes, but cannot

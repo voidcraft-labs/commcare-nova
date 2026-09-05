@@ -1,7 +1,7 @@
 /**
- * READ-ONLY DEPLOY GATE: verify current apps against the absolute XPath
- * carrier contract. The migration image runs this before traffic shifts, but
- * it never rewrites authored expressions.
+ * READ-ONLY VERIFICATION: inspect current apps against the absolute XPath
+ * carrier contract. This explicit operator command never rewrites authored
+ * expressions; recurring deployment uses the full runtime database probe.
  */
 
 import "dotenv/config";
@@ -23,7 +23,7 @@ program
 	.option("--app <appId>", "scope verification to one app")
 	.addHelpText(
 		"after",
-		"\nProduction verification runs inside the immutable commcare-nova-migrate Cloud Run Job. There is intentionally no writer mode.\n",
+		"\nProduction verification uses scripts/scan-xpath-carrier-compatibility.ts --prod. There is intentionally no writer mode.\n",
 	);
 program.parse();
 const options = program.opts<Options>();

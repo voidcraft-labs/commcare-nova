@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1.10.0
 # Base image pinned to an exact Node patch, shared by every stage so they
 # can't drift. The floating `node:22-alpine` tag previously advanced
 # 22.22.3 → 22.23.0 between two source rebuilds with no code change, and
@@ -19,83 +20,106 @@
 ARG NODE_IMAGE=node:24.18.1-alpine
 ARG NPM_VERSION=12.0.2
 
-# Node 24 still bundles npm 11. Install the reviewed npm major independently
-# for build-time dependency policy; the production runner invokes only `node`.
+# Dependency layers are independent of source and per-release identity.
 FROM ${NODE_IMAGE} AS build-base
 ARG NPM_VERSION
 RUN npm install --global "npm@${NPM_VERSION}" --ignore-scripts && \
-	test "$(npm --version)" = "${NPM_VERSION}"
+    test "$(npm --version)" = "${NPM_VERSION}"
 
-# --- Stage 1: Install dependencies ---
 FROM build-base AS deps
 WORKDIR /app
-
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci --ignore-scripts
 
-# --- Stage 2: Build the application ---
-FROM build-base AS builder
-WORKDIR /app
-
-COPY --from=deps /app/node_modules ./node_modules
+# Inherit dependency layers instead of copying the full node_modules tree.
+FROM deps AS sources
 COPY . .
+RUN node scripts/harden-agent-react-devtools.mjs
 
-# Next.js collects anonymous telemetry — disable in CI/build.
+FROM sources AS jobs
+RUN npx esbuild scripts/migrate.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=migrate.cjs
+RUN npx esbuild scripts/cleanup-form-attachments.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=capture-cleanup.cjs
+
+# Explicit operator build only; not an ancestor of the application runner.
+FROM sources AS maintenance-build
+RUN npx esbuild scripts/audit-canonical-identity-foundation.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=canonical-identity-audit.cjs
+RUN npx esbuild scripts/infra/apply-media-bucket-policy.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=media-bucket-policy.cjs
+RUN npx esbuild scripts/migrate-case-type-schema-retirement.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=case-type-schema-retirement.cjs
+RUN npx esbuild scripts/migrate-case-parent-relationships.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=case-parent-relationship-repair.cjs
+RUN npx esbuild scripts/migrate-schema-drift.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=schema-drift.cjs
+RUN npx esbuild scripts/migrate-legacy-preplan-builds.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=legacy-preplan-repair.cjs
+RUN npx esbuild scripts/migrate-language-identity.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=language-identity-repair.cjs
+RUN npx esbuild scripts/migrate-case-status-filters.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=case-status-filter-repair.cjs
+RUN npx esbuild scripts/migrate-better-auth-account-identity.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=better-auth-account-identity.cjs
+RUN npx esbuild scripts/migrate-better-auth-oauth-clients.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=better-auth-oauth-clients.cjs
+RUN npx esbuild scripts/migrate-select-option-values.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=select-option-value-repair.cjs
+
+FROM ${NODE_IMAGE} AS maintenance
+WORKDIR /app
+ENV NODE_ENV=production
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nextjs
+COPY --from=maintenance-build --chown=nextjs:nodejs /app/*.cjs ./
+USER nextjs
+# Safe default: the repair CLI scans unless an operator explicitly executes it.
+CMD ["node", "legacy-preplan-repair.cjs"]
+
+FROM sources AS builder
 ENV NEXT_TELEMETRY_DISABLED=1
-
-# Cloud Build doesn't set CI itself; next.config.ts keys the Sentry
-# plugin's verbosity on it (`silent: !process.env.CI`), so without this
-# the deploy log can't show whether the source-map upload succeeded.
 ENV CI=true
-
-# Sentry uploads source maps during `next build` when this is set. Cloud Build
-# passes it from Secret Manager (`nova-sentry`); a local `docker build` leaves
-# it empty and the Sentry plugin skips the upload without failing the build.
-# Only the builder stage sees it — nothing leaks into the pushed runner image.
-ARG SENTRY_AUTH_TOKEN
-
-# Google Maps config for the geopoint picker. `NEXT_PUBLIC_` vars are inlined
-# into the client bundle by `next build`, so they MUST be present here at build
-# time (a Cloud Run runtime env var would never reach them). Cloud Build passes
-# the key from Secret Manager (`nova-google_maps_api_key`, the prod browser key)
-# and the Map ID as a literal. A local `docker build` leaves them empty, and the
-# picker degrades to manual lat/lon entry. The key is a referrer-restricted
-# public key (it ships in the bundle by design), so this is not a secret leak.
 ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 ARG NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID
-
-# Server Action / asset version-skew protection. Both are consumed by
-# `next build`, not at runtime — a build ARG is visible to the RUN step's
-# `process.env`, exactly like SENTRY_AUTH_TOKEN above, so neither needs a
-# separate runtime lookup. `NOVA_BUILD_ID` is also intentionally exposed as
-# `NEXT_PUBLIC_NOVA_BUILD_ID`: the build UUID is non-secret deployment identity,
-# and stamping it into the browser bundle lets client errors name the exact
-# code that parsed a server response.
-#   • NEXT_SERVER_ACTIONS_ENCRYPTION_KEY pins the key Next derives Server Action
-#     IDs (and closure encryption) from. With it fixed, every UNCHANGED action
-#     keeps the same ID across builds, so an already-open builder tab keeps
-#     calling the new deploy's actions instead of getting "Failed to find Server
-#     Action". Cloud Build passes it from Secret Manager (`nova-server-actions-key`);
-#     a local `docker build` leaves it empty and Next falls back to a per-build
-#     random key (fine for dev — there are no rolling deploys locally). It is a
-#     server-side key (never shipped to the browser).
-#   • NEXT_DEPLOYMENT_ID (a per-build id; cloudbuild passes $BUILD_ID) feeds
-#     next.config.ts's `deploymentId`: on a deploy that DID change/remove an
-#     action, or when a stale JS chunk is requested, the client hard-reloads onto
-#     the consistent new build instead of erroring. Empty locally → skew
-#     protection off (no forced reload on a version mismatch).
-ARG NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
 ARG NEXT_DEPLOYMENT_ID
 ARG NOVA_BUILD_ID
 ENV NOVA_BUILD_ID="${NOVA_BUILD_ID}" \
     NEXT_PUBLIC_NOVA_BUILD_ID="${NOVA_BUILD_ID}"
 
-# The dependency stage intentionally suppresses third-party lifecycle scripts.
-# Run Nova's own exact-hash transformer here so the reviewed profiler artifact
-# is verified and hardened even in the image build before Next resolves it.
-RUN node scripts/harden-agent-react-devtools.mjs
-
-RUN npm run build
+# Next 16.3 persists its compiler cache by default. The caller provides only
+# .next/cache through a named context, never a previous build's assets or types.
+# Secrets are ephemeral mounts, not ARGs in exported BuildKit cache metadata.
+RUN --mount=type=bind,from=next-cache,target=/cache-seed \
+    --mount=type=secret,id=SENTRY_AUTH_TOKEN,env=SENTRY_AUTH_TOKEN \
+    --mount=type=secret,id=NEXT_SERVER_ACTIONS_ENCRYPTION_KEY,env=NEXT_SERVER_ACTIONS_ENCRYPTION_KEY,required=true \
+    mkdir -p .next/cache && cp -R /cache-seed/. .next/cache/ && npm run build
 
 # Publish one directly downloadable corresponding-source archive for the
 # OpenJDK-derived browser runtime. Preserve repo-root-relative paths so the
@@ -112,50 +136,10 @@ RUN mkdir -p public/third-party && \
       lib/preview/xpath/vendor/javaPatternRuntime.generated.d.ts \
       lib/preview/xpath/vendor/javaPatternNames.generated.ts
 
-# Bundle the standalone migration entrypoint. The Next standalone runner stage
-# carries no full node_modules, so esbuild inlines the migrator's deps (kysely,
-# pg, the Cloud SQL connector) into one self-contained CJS file the
-# `commcare-nova-migrate` Cloud Run Job runs with `node migrate.cjs`. This
-# replaces the former `atlas` binary copied from a separate image. `--tsconfig`
-# resolves the `@/*` path alias; `pg-native` is pg's optional native binding
-# (lazily required behind a guard) — left external so the bundle doesn't try to
-# resolve a module that isn't installed.
-RUN npx esbuild scripts/migrate.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=migrate.cjs
 
-# Bundle the deployment/maintenance jobs into the same immutable image.
-# `react-server` resolves the `server-only` marker to its no-op export; these
-# are server entrypoints, not browser bundles.
-RUN npx esbuild scripts/cleanup-form-attachments.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=capture-cleanup.cjs && \
-    npx esbuild scripts/audit-canonical-identity-foundation.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=canonical-identity-audit.cjs && \
-    npx esbuild scripts/infra/apply-media-bucket-policy.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json \
-      --outfile=media-bucket-policy.cjs && \
-    npx esbuild scripts/migrate-case-type-schema-retirement.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=case-type-schema-retirement.cjs && \
-    npx esbuild scripts/migrate-case-parent-relationships.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=case-parent-relationship-repair.cjs && \
-    npx esbuild scripts/migrate-schema-drift.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=schema-drift.cjs && \
-    npx esbuild scripts/migrate-legacy-preplan-builds.ts \
-      --bundle --platform=node --target=node24 --format=cjs \
-      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
-      --outfile=legacy-preplan-repair.cjs
+# Export only compiler cache to the private CI cache bucket after a good build.
+FROM scratch AS next-cache-export
+COPY --from=builder /app/.next/cache /
 
 # --- Stage 3: Production runner ---
 FROM ${NODE_IMAGE} AS runner
@@ -198,19 +182,9 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 # shared library it needs. Copy the platform's @img tree explicitly.
 COPY --from=deps --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@img
 
-# Self-contained migration entrypoint. The `commcare-nova-migrate` Cloud Run
-# Job reuses THIS image with a `node migrate.cjs` command override, so the
-# bundled migrator (kysely + pg + Cloud SQL connector, inlined by esbuild in
-# the builder stage) must be present. No external binary and no raw migration
-# files — the migration modules are bundled into `migrate.cjs`.
-COPY --from=builder --chown=nextjs:nodejs /app/migrate.cjs ./migrate.cjs
-COPY --from=builder --chown=nextjs:nodejs /app/capture-cleanup.cjs ./capture-cleanup.cjs
-COPY --from=builder --chown=nextjs:nodejs /app/canonical-identity-audit.cjs ./canonical-identity-audit.cjs
-COPY --from=builder --chown=nextjs:nodejs /app/media-bucket-policy.cjs ./media-bucket-policy.cjs
-COPY --from=builder --chown=nextjs:nodejs /app/case-type-schema-retirement.cjs ./case-type-schema-retirement.cjs
-COPY --from=builder --chown=nextjs:nodejs /app/case-parent-relationship-repair.cjs ./case-parent-relationship-repair.cjs
-COPY --from=builder --chown=nextjs:nodejs /app/schema-drift.cjs ./schema-drift.cjs
-COPY --from=builder --chown=nextjs:nodejs /app/legacy-preplan-repair.cjs ./legacy-preplan-repair.cjs
+# These are the only recurring Jobs. Maintenance tooling has its own target.
+COPY --from=jobs --chown=nextjs:nodejs /app/migrate.cjs ./migrate.cjs
+COPY --from=jobs --chown=nextjs:nodejs /app/capture-cleanup.cjs ./capture-cleanup.cjs
 
 USER nextjs
 

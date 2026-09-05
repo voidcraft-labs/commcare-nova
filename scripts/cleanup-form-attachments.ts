@@ -21,6 +21,9 @@ const MAX_BATCHES = 10;
 const TEARDOWN_TIMEOUT_MS = 10_000;
 
 async function runMaintenance(): Promise<void> {
+	// Run under the worker's own identity, after acquiring the advisory lock
+	// and prewarming its second connection. No separate deploy-time execution.
+	await runCaptureCleanupSchemaProbe();
 	let expiredRows = 0;
 	let transitionedExpiredRows = 0;
 	let objectDeleteFailures = 0;

@@ -16,6 +16,7 @@ import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
+import { buildCaseTypeMap } from "../../store";
 import { drainRetiredCaseTypeSchemaIndexes } from "../schemaRetirement";
 import { indexScopeTag, PostgresCaseStore, propertyIndexTag } from "../store";
 
@@ -69,6 +70,19 @@ beforeEach(async () => {
 });
 
 describe("durable case-schema index convergence", () => {
+	it("does not classify a derived worker schema as an orphaned authored case type", async () => {
+		const blueprint = buildSimpleBlueprint([], APP_ID);
+		await store().applySchemaChange({
+			appId: APP_ID,
+			caseType: "commcare-user",
+			caseTypeSchemas: buildCaseTypeMap(blueprint),
+			syncedSeq: 1,
+		});
+		expect(
+			await findCaseTypeSchemaRetirementFindings(db(), APP_ID, blueprint),
+		).toEqual([]);
+	});
+
 	it("does not overwrite a newer schema from a stale drift-repair snapshot", async () => {
 		const caseStore = store();
 		await caseStore.applySchemaChange({

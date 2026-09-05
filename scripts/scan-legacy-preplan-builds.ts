@@ -115,7 +115,7 @@ async function main(): Promise<void> {
 			console.log(
 				"\nRun the immutable write-capable Job after the deploy is green:\n" +
 					"  python3 scripts/rollout/deploy-cloud-run.py --execute-job --project=commcare-nova --region=us-central1 " +
-					"--job=commcare-nova-legacy-preplan-repair --service=commcare-nova --wait-seconds=960 " +
+					"--job=commcare-nova-legacy-preplan-repair --image=$NOVA_MAINTENANCE_IMAGE --wait-seconds=960 " +
 					"--execution-arg=legacy-preplan-repair.cjs --execution-arg=--execute",
 			);
 			console.log(

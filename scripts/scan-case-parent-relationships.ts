@@ -103,7 +103,7 @@ async function main(): Promise<void> {
 		console.log(
 			"\nAfter the new revision owns 100% traffic and every old request has drained, run the immutable write-capable Job:\n" +
 				"  python3 scripts/rollout/deploy-cloud-run.py --execute-job --project=commcare-nova --region=us-central1 " +
-				"--job=commcare-nova-case-parent-relationship-repair --service=commcare-nova --wait-seconds=3060 " +
+				"--job=commcare-nova-case-parent-relationship-repair --image=$NOVA_MAINTENANCE_IMAGE --wait-seconds=3060 " +
 				"--execution-arg=case-parent-relationship-repair.cjs --execution-arg=--execute " +
 				`--execution-arg=--confirm-old-revision-drained${options.app === undefined ? "" : ` --execution-arg=--app --execution-arg=${options.app}`}`,
 		);
