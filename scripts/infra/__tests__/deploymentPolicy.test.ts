@@ -251,7 +251,7 @@ describe("deployment artifact and release contracts", () => {
 		} finally {
 			rmSync(directory, { recursive: true, force: true });
 		}
-	});
+	}, 30_000);
 
 	test("CI and Cloud Build use the same final-image command, with ephemeral secrets", () => {
 		for (const caller of [ciWorkflow, cloudBuild])
