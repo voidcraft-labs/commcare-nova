@@ -44,7 +44,6 @@ import {
 	CasePropertiesValidationError,
 	SubmissionRejectedError,
 } from "../../errors";
-import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -63,11 +62,11 @@ import { storageValueFromEvaluation } from "../submissionEnvelope";
 // ---------------------------------------------------------------
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "envelope_test_",
 });
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	await sql`
 		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		VALUES

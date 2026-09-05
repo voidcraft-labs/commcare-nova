@@ -44,7 +44,6 @@ import {
 	SchemaNotSyncedError,
 } from "@/lib/case-store";
 import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
@@ -296,6 +295,7 @@ vi.mock("@/lib/db/appAccess", async () => {
 // ---------------------------------------------------------------
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "binding_test_",
 });
 
@@ -348,7 +348,6 @@ beforeEach(async () => {
 			};
 		},
 	);
-	await runCaseStoreMigrations(dbHandle.db);
 	await sql`
 		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		VALUES (

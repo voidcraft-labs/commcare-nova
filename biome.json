@@ -23,7 +23,8 @@
 			"!!e2e/.auth",
 			"!!e2e/test-results",
 			"!!e2e/playwright-report",
-			"!!react-profiles"
+			"!!react-profiles",
+			"!!test-results"
 		],
 		"ignoreUnknown": true
 	},
@@ -124,6 +125,33 @@
 					}
 				}
 			}
+		},
+		{
+			"includes": [
+				"**",
+				"!**/*.test.ts",
+				"!**/*.test.tsx",
+				"!**/*.spec.ts",
+				"!**/*.spec.tsx",
+				"!**/__tests__/**"
+			],
+			"linter": {
+				"rules": {
+					"nursery": {
+						"noFloatingPromises": "off",
+						"noMisusedPromises": "off"
+					}
+				}
+			}
 		}
-	]
+	],
+	"linter": {
+		"rules": {
+			"nursery": {
+				"noFloatingPromises": "error",
+				"noMisusedPromises": "error"
+			},
+			"recommended": true
+		}
+	}
 }

@@ -1121,3 +1121,10 @@ extension-independent Project/hash content session lock.
 those tables' creation; this package reads/writes them directly for the admin
 dashboard, revocation checks, and the OAuth consent surface. `admin.ts` joins
 the per-user usage/credits/app-count figures from this package's own tables.
+
+## Database tests
+
+Read `docs/testing.md` before adding or substantially changing tests. Test observable
+behavior at the smallest boundary that can catch the defect. Own and await async
+work through teardown, including failure paths; never copy sleeps or blanket
+cleanup from an existing test.

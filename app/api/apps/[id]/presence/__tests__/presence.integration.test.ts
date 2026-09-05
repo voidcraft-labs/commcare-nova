@@ -353,7 +353,7 @@ describe("/presence route (Postgres)", () => {
 					.query("SELECT pg_advisory_unlock($1)", [gateKey])
 					.catch(() => {});
 			}
-			await Promise.allSettled([post, ...(move ? [move] : [])]);
+			await Promise.allSettled([post, ...(move !== undefined ? [move] : [])]);
 			await gate.end().catch(() => {});
 			await moverDb.destroy();
 		}
@@ -402,7 +402,7 @@ describe("/presence route (Postgres)", () => {
 			await expect(post).resolves.toBe(200);
 		} finally {
 			allowMoveCommit();
-			await Promise.allSettled([move, ...(post ? [post] : [])]);
+			await Promise.allSettled([move, ...(post !== undefined ? [post] : [])]);
 			await observer.end().catch(() => {});
 			await moverDb.destroy();
 		}

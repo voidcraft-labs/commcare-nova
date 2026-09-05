@@ -1221,17 +1221,13 @@ The harness pins to two non-negotiable rules:
    raw `pg.Client.connect()` — your writes will leak across tests
    and the harness's contract breaks silently.
 
-   Tests that legitimately need a fresh-empty-database path (the
-   per-test database helper at `sql/__tests__/perTestDatabase.ts`)
-   are the documented exception: they create their own database
-   via `CREATE DATABASE` against the testcontainer's superuser URI
-   and drop it on cleanup. The motivating use case is
-   `PostgresCaseStore`'s transaction-using methods (`insert` /
-   `update` / `applySchemaChange`) — each method calls
-   `db.transaction()` which Kysely lowers to a literal `BEGIN`.
-   Postgres rejects nested BEGIN inside the harness's outer
-   transaction. Per-test databases give every test its own engine
-   state without any outer-transaction wrapping.
+   Tests whose code opens its own transactions use
+   `setupPerTestDatabase({ databaseNamePrefix, schema: "migrated" })`.
+   Each test clones a closed template built once using the real migrations,
+   then drops its private database in teardown. Do not replay migrations in
+   behavior-test hooks. Migration tests omit `schema` to get extensions without
+   application tables. `databaseTemplates.test.ts` proves committed-write
+   isolation and the distinction between the two templates. See `docs/testing.md`.
 
 The `harness-isolation.test.ts` sibling file exists specifically
 to catch a regression that splits one of these two rules: it
@@ -1254,9 +1250,7 @@ gates the merge run one engine, and `scripts/ci/print-test-image.mjs --check`
 (the `quality` job) fails the build if the two drift — a half-finished bump is
 otherwise invisible until a version-dependent behavior differs.
 
-Fourteen CI jobs boot the pinned image — four test shards, eight leak shards,
-the auth session-cookie contract, and the Compose-backed smoke suite — each on
-its own runner, so each would pull from Docker Hub independently. Docker Hub
+Database test and smoke shards each use their own runner and pull the image. Docker Hub
 answers some of those with a 500 or a timeout, which surfaces as a vitest
 unhandled error carrying no test output at all (or as a failed Compose boot)
 and reads like a broken build. So CI pre-pulls the image through

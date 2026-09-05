@@ -11,8 +11,8 @@
 // so an operator listing distinguishes stuck tests by call site.
 // The random suffix avoids collisions across workers.
 //
-// Extensions install into every per-test database for production
-// parity (the case-store compilers depend on all three).
+// Clone closed templates built once per run: extensions only by default,
+// production-migrated schema when explicitly requested by behavior tests.
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Client, Pool } from "pg";
@@ -35,6 +35,8 @@ export interface PerTestDatabaseHandle {
 export interface PerTestDatabaseOptions {
 	/** Postgres identifier rules: alphanumeric + underscore, lowercase, no leading digit. */
 	databaseNamePrefix: string;
+	/** Clone the production migration result for behavior tests; omit for migration tests. */
+	schema?: "migrated";
 	/**
 	 * Explicitly identify this isolated database as the local migration target.
 	 *
@@ -45,8 +47,6 @@ export interface PerTestDatabaseOptions {
 	 */
 	establishLocalMigrationAuthority?: true;
 }
-
-const REQUIRED_EXTENSIONS = ["pg_trgm", "fuzzystrmatch", "postgis"] as const;
 
 /**
  * Wire `beforeEach` / `afterEach` to create + drop a fresh
@@ -69,7 +69,10 @@ export function setupPerTestDatabase(
 	} | null = null;
 
 	beforeEach(async () => {
-		const created = await createIsolatedDatabase(options.databaseNamePrefix);
+		const created = await createIsolatedDatabase(
+			options.databaseNamePrefix,
+			options.schema,
+		);
 		const built = buildIsolatedDb(created.uri);
 		const previousLocalDatabaseUrl = process.env.NOVA_DB_LOCAL_URL;
 		if (options.establishLocalMigrationAuthority === true) {
@@ -163,14 +166,10 @@ function urlForDatabase(baseUri: string, databaseName: string): string {
 	return `${pathPart.slice(0, lastSlash + 1)}${databaseName}${queryPart}`;
 }
 
-/**
- * `CREATE DATABASE <prefix><rand>` against the superuser
- * connection from globalSetup, then install the three required
- * extensions (`pg_trgm`, `fuzzystrmatch`, `postgis`) the case-store
- * compiler stack depends on.
- */
+/** Clone an immutable template into a database owned by this test. */
 async function createIsolatedDatabase(
 	databaseNamePrefix: string,
+	schema?: "migrated",
 ): Promise<{ databaseName: string; uri: string }> {
 	const baseUri = inject("postgresTestUrl");
 	const databaseName = `${databaseNamePrefix}${Math.random().toString(36).slice(2, 10)}`;
@@ -178,24 +177,18 @@ async function createIsolatedDatabase(
 	const adminClient = new Client({ connectionString: baseUri });
 	await adminClient.connect();
 	try {
-		await adminClient.query(`CREATE DATABASE ${databaseName}`);
+		const template =
+			schema === "migrated"
+				? inject("postgresMigratedTemplate")
+				: inject("postgresExtensionsTemplate");
+		await adminClient.query(
+			`CREATE DATABASE ${databaseName} TEMPLATE ${template}`,
+		);
 	} finally {
 		await adminClient.end();
 	}
 
 	const targetUri = urlForDatabase(baseUri, databaseName);
-	const targetClient = new Client({ connectionString: targetUri });
-	await targetClient.connect();
-	try {
-		for (const extension of REQUIRED_EXTENSIONS) {
-			// Identifier interpolation is safe — every value comes
-			// from the static `REQUIRED_EXTENSIONS` tuple.
-			await targetClient.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
-		}
-	} finally {
-		await targetClient.end();
-	}
-
 	return { databaseName, uri: targetUri };
 }
 

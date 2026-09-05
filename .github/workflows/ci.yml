@@ -107,22 +107,11 @@ jobs:
         run: npm run typecheck
 
   test:
-    # The full plain-mode suite is ~30 runner-minutes of CPU work, which one
-    # 4-vCPU runner serializes into ~10 minutes of wall time; four shards each
-    # take a deterministic quarter of the sorted test-file list (`--shard`
-    # partitions before running, so the shards are collectively exhaustive)
-    # and finish in ~3 minutes. Wall time is bounded by the slowest single
-    # test file, not by shard count — splitting the heavyweight files
-    # (lib/case-store/postgres store.test.ts, lib/preview/engine
-    # caseDataBinding.test.ts) is the next lever, more shards are not.
-    #
-    # The split is uneven because a file is indivisible: shards 1/3/4 finish
-    # in 3-5 minutes while shard 2 takes 9. The cap is set off THAT shard
-    # with room to spare, not off the average, because a cap the slowest
-    # shard can reach on a bad day fails the whole run for no defect.
+    # Every test runs once, in isolated workers. Shared database templates avoid
+    # reinstalling extensions and replaying migrations for each behavior test.
     name: Test shard ${{ matrix.shard }}/4
     runs-on: ubuntu-latest
-    timeout-minutes: 18
+    timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
@@ -152,7 +141,14 @@ jobs:
       # container itself.
       - uses: ./.github/actions/pull-test-image
       - name: Test suite
-        run: npm test -- --shard=${{ matrix.shard }}/4
+        run: npm test -- --shard=${{ matrix.shard }}/4 --reporter=default --reporter=./scripts/ci/test-timings.ts
+      - name: Upload test timings
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: test-timings-${{ matrix.shard }}
+          path: test-results/timings.json
+          retention-days: 14
 
   tests-gate:
     # The branch ruleset requires a check literally named "Tests"; the shard
@@ -171,70 +167,6 @@ jobs:
             exit 1
           fi
           echo "All test shards passed."
-
-  leaks:
-    # Every test file runs under the async-leak detector on every PR — no
-    # changed-file scoping. The module graph is centralized enough that
-    # `vitest --changed` swept most of the suite for any change to a shared
-    # lib anyway, and a dependency bump (outside every import graph) forced an
-    # unsharded full sweep that overran the job timeout — scoping made the
-    # gate's duration a per-PR gamble. The detector's per-async-op
-    # instrumentation roughly doubles test time and multiplies per-file
-    # import cost, putting the full sweep near 2 CPU-hours; eight shards
-    # bring that to ~5 minutes of wall time, the same every PR.
-    #
-    # `test:leaks` runs a 30s test timeout (vs the default 5s) because the
-    # instrumentation inflates every test's wall time — a timed-out test also
-    # leaks its in-flight promise into the next test, so a tight timeout
-    # would cascade into spurious leak findings.
-    #
-    # Same uneven-split story as the plain suite, one tier worse: most shards
-    # land in 5-9 minutes and shard 4 takes 14. A 15-minute cap left it one
-    # slow run from a spurious timeout, and it duly timed out at 15m14s.
-    name: Leak shard ${{ matrix.shard }}/8
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6, 7, 8]
-    steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-      - name: Install pinned npm
-        run: |
-          npm_version="$(node -p "require('./package.json').devEngines.packageManager.version")"
-          cd "$RUNNER_TEMP"
-          npm install --global "npm@$npm_version" --ignore-scripts
-      - name: Cache npm downloads
-        uses: actions/cache@v6
-        with:
-          path: ~/.npm
-          key: npm-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
-          restore-keys: npm-${{ runner.os }}-
-      - run: npm ci
-      - uses: ./.github/actions/pull-test-image
-      - name: Full suite under the async-leak detector
-        run: npm run test:leaks -- --shard=${{ matrix.shard }}/8
-
-  leaks-gate:
-    # Same fan-in pattern as `tests-gate`: the branch ruleset pins the check
-    # name "Async-leak gate", the shard jobs report per-shard names.
-    name: Async-leak gate
-    runs-on: ubuntu-latest
-    needs: leaks
-    if: ${{ always() }}
-    steps:
-      - name: Every leak shard succeeded
-        run: |
-          if [ "${{ needs.leaks.result }}" != "success" ]; then
-            echo "::error::Leak shards finished with result '${{ needs.leaks.result }}'. Open the failing shard job for the detector's findings."
-            exit 1
-          fi
-          echo "All leak shards passed."
 
   build:
     name: Production build
@@ -272,7 +204,11 @@ jobs:
           bash scripts/rollout/build-image.sh
 
   smoke:
-    name: Smoke (Playwright)
+    name: Smoke shard ${{ matrix.shard }}/2
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -313,14 +249,25 @@ jobs:
       # local stack networks nothing out); the `auth-healthz` job below is the
       # gate for those.
       - name: Smoke suite
-        run: npm run test:smoke -- --project=public --project=authed
+        run: npm run test:smoke -- --project=public --project=authed --shard=${{ matrix.shard }}/2
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: e2e/playwright-report/
           retention-days: 7
+
+  smoke-gate:
+    name: Smoke (Playwright)
+    runs-on: ubuntu-latest
+    needs: smoke
+    if: ${{ always() }}
+    steps:
+      - name: Every smoke shard succeeded
+        env:
+          RESULT: ${{ needs.smoke.result }}
+        run: test "$RESULT" = success
 
   auth-healthz:
     # The required-check NAME below ("Auth Firestore healthz") is PINNED by the

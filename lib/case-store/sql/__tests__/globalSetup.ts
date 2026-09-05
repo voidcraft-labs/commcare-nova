@@ -52,6 +52,8 @@ import { applyMigrations } from "./applyMigrations";
 declare module "vitest" {
 	export interface ProvidedContext {
 		postgresTestUrl: string;
+		postgresExtensionsTemplate: string;
+		postgresMigratedTemplate: string;
 	}
 }
 
@@ -145,7 +147,41 @@ export async function setup(project: TestProject): Promise<void> {
 		await extClient.end();
 	}
 
+	// Snapshot extensions separately so migration tests still start without tables.
+	const admin = new Client({
+		connectionString: container
+			.getConnectionUri()
+			.replace("/case_store_test", "/postgres"),
+	});
+	await admin.connect();
+	try {
+		// No sessions may connect to a template while PostgreSQL clones it.
+		await admin.query(
+			"CREATE DATABASE nova_extensions TEMPLATE case_store_test",
+		);
+		await admin.query("ALTER DATABASE nova_extensions ALLOW_CONNECTIONS false");
+	} finally {
+		await admin.end();
+	}
 	await applyMigrations(connectionString);
+	const snapshot = new Client({
+		connectionString: container
+			.getConnectionUri()
+			.replace("/case_store_test", "/postgres"),
+	});
+	await snapshot.connect();
+	try {
+		await snapshot.query(
+			"CREATE DATABASE nova_migrated TEMPLATE case_store_test",
+		);
+		await snapshot.query(
+			"ALTER DATABASE nova_migrated ALLOW_CONNECTIONS false",
+		);
+	} finally {
+		await snapshot.end();
+	}
+	project.provide("postgresExtensionsTemplate", "nova_extensions");
+	project.provide("postgresMigratedTemplate", "nova_migrated");
 
 	// `project.provide` is the typed channel for cross-process
 	// state in Vitest 4. Env vars would lose the type augmentation

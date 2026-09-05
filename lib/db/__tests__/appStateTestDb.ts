@@ -6,12 +6,12 @@
 // per test, the `db.transaction()`-safe path the guarded-commit + claim
 // transactions need) with three extra jobs every app-state suite shares:
 //
-//   1. apply the case-store migrations (`runCaseStoreMigrations`) so the
+//   1. clone the production-migrated database template so the
 //      per-test database carries the `apps` / `blueprint_entities` /
 //      `app_changes` / credit-ledger / media tables;
 //   2. point `getAppDb()` at the per-test handle via `__setAppDbForTests`
 //      (cleared in `afterEach`, so no injected handle leaks across files —
-//      the async-leak gate's contract);
+//      each test owns its injected handle);
 //   3. hand the suite typed seed/read helpers for the two rows the run
 //      lifecycle turns on — the `apps` row (with its nullable reservation +
 //      run-lock column groups reassembled from the `AppReservation` /
@@ -34,7 +34,6 @@ import type { Pool } from "pg";
 import { afterEach, beforeEach } from "vitest";
 import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
 import { up as installAuthMemberSerialization } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import {
@@ -231,11 +230,13 @@ export function canonicalTestBlueprint(
  * returned helpers are only valid inside a test body.
  */
 export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
-	const handle = setupPerTestDatabase({ databaseNamePrefix: prefix });
+	const handle = setupPerTestDatabase({
+		schema: "migrated",
+		databaseNamePrefix: prefix,
+	});
 	let injected: Kysely<AppDatabase> | null = null;
 
 	beforeEach(async () => {
-		await runCaseStoreMigrations(handle.db);
 		await handle.pool.query(`
 			CREATE TABLE auth_member (
 				id text PRIMARY KEY,
