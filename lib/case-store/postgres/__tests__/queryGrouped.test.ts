@@ -30,7 +30,6 @@ import type { CaseType } from "@/lib/domain";
 import { eq, literal, prop, term } from "@/lib/domain/predicate/builders";
 import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
-import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -50,11 +49,11 @@ const VISIT: CaseType = {
 };
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "grouped_test_",
 });
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	await dbHandle.pool.query(`
 		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		VALUES ('${APP_ID}', 'owner-a', '${PROJECT_ID}', 'Grouped', 'grouped')

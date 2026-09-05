@@ -176,8 +176,8 @@ function wirePathSet(
 describe("binding-resolution emitter totality (property-based fuzz)", () => {
 	it("every schema-valid doc compiles to a CCZ whose XPath references all resolve", {
 		timeout: FUZZ_TIMEOUT_MS,
-	}, () => {
-		fc.assert(
+	}, async () => {
+		await fc.assert(
 			fc.property(blueprintDocArbitrary, (doc) => {
 				prepareAndGuard(doc);
 

@@ -346,7 +346,7 @@ describe("atomic Project move", () => {
 					.query("SELECT pg_advisory_unlock($1)", [gateKey])
 					.catch(() => {});
 			}
-			await Promise.allSettled([schema, ...(move ? [move] : [])]);
+			await Promise.allSettled([schema, ...(move !== undefined ? [move] : [])]);
 			await gate.end().catch(() => {});
 			await schemaDb.destroy();
 		}
@@ -394,7 +394,10 @@ describe("atomic Project move", () => {
 			await expect(schema).resolves.toMatchObject({ migrated: 0 });
 		} finally {
 			allowMoveCommit();
-			await Promise.allSettled([move, ...(schema ? [schema] : [])]);
+			await Promise.allSettled([
+				move,
+				...(schema !== undefined ? [schema] : []),
+			]);
 			await observer.end().catch(() => {});
 			await schemaDb.destroy();
 		}
@@ -453,7 +456,7 @@ describe("atomic Project move", () => {
 					.query("SELECT pg_advisory_unlock($1)", [gateKey])
 					.catch(() => {});
 			}
-			await Promise.allSettled([write, ...(move ? [move] : [])]);
+			await Promise.allSettled([write, ...(move !== undefined ? [move] : [])]);
 			await gate.end().catch(() => {});
 			await writerDb.destroy();
 		}
@@ -510,7 +513,7 @@ describe("atomic Project move", () => {
 			});
 		} finally {
 			allowMoveCommit();
-			await Promise.allSettled([move, ...(write ? [write] : [])]);
+			await Promise.allSettled([move, ...(write !== undefined ? [write] : [])]);
 			await observer.end().catch(() => {});
 			await writerDb.destroy();
 		}

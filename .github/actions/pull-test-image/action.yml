@@ -4,9 +4,8 @@ description: >
   Compose smoke suite boot, through a temporary registry mirror and past
   Docker Hub's sustained bad windows.
 
-# Fourteen jobs in this workflow boot the pinned Postgres image — four test
-# shards, eight leak shards, the auth session-cookie contract, and the Compose
-# smoke suite — and each runs on its own fresh runner, so each pulls the image
+# Database test shards, the auth session-cookie contract, and Compose smoke
+# shards each run on a fresh runner, so each pulls the image
 # independently. Docker Hub answers some of those with a 500 or lets the
 # connection time out.
 #

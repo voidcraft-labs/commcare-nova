@@ -868,9 +868,9 @@ function reverseDisplayOrder(doc: BlueprintDoc, formUuid: Uuid): void {
 // ── The property ──────────────────────────────────────────────────────
 
 describe("diffDocsToMutations — diff(prev, next) replayed on prev ≡ next", () => {
-	it("holds over random (prev, next) pairs across every seed", () => {
+	it("holds over random (prev, next) pairs across every seed", async () => {
 		let iterations = 0;
-		fc.assert(
+		await fc.assert(
 			fc.property(
 				fc.nat({ max: SEEDS.length - 1 }),
 				fc.array(opArb, { minLength: 0, maxLength: 16 }),

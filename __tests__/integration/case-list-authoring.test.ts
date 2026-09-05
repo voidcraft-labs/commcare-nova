@@ -43,7 +43,6 @@ import { reorderCaseListColumnsTool } from "@/lib/agent/tools/case-list-config/r
 import { updateCaseListColumnTool } from "@/lib/agent/tools/case-list-config/updateCaseListColumn";
 import { updateSearchInputTool } from "@/lib/agent/tools/case-list-config/updateSearchInput";
 import { buildCaseTypeMap, type CaseStore } from "@/lib/case-store";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
@@ -112,6 +111,7 @@ beforeEach(() => {
 // drop cost.
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "case_list_int_",
 });
 
@@ -1175,7 +1175,6 @@ describe("sort-priority collision admission", () => {
 
 describe("preview rendering (PostgresCaseStore.query against v2 caseListConfig)", () => {
 	beforeEach(async () => {
-		await runCaseStoreMigrations(dbHandle.db);
 		await sql`
 			INSERT INTO apps
 				(id, owner, project_id, app_name, app_name_lower)

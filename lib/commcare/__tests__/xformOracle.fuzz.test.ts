@@ -136,8 +136,8 @@ describe("XForm emitter totality (property-based fuzz)", () => {
 
 	it("every form of every schema-valid doc emits oracle-clean XForm", {
 		timeout: FUZZ_TIMEOUT_MS,
-	}, () => {
-		fc.assert(
+	}, async () => {
+		await fc.assert(
 			fc.property(blueprintDocArbitrary, (doc) => {
 				prepareAndGuard(doc);
 
@@ -183,7 +183,7 @@ describe("XForm emitter totality (property-based fuzz)", () => {
 
 	it("compileCcz never trips its post-case-block-injection oracle re-check", {
 		timeout: FUZZ_TIMEOUT_MS,
-	}, () => {
+	}, async () => {
 		// The SECOND oracle call site: `compiler.ts` splices <case>/<subcase>
 		// blocks into each case-bearing form's XForm, then re-runs `validateXForm`
 		// and THROWS if the spliced output is invalid. Driving compileCcz here
@@ -194,7 +194,7 @@ describe("XForm emitter totality (property-based fuzz)", () => {
 		// Media-on path: thread the same fuzz manifest through compile so the
 		// case-block splice runs against media-bearing forms too, exercising
 		// the media path through the second oracle invocation.
-		fc.assert(
+		await fc.assert(
 			fc.property(blueprintDocArbitrary, (doc) => {
 				prepareAndGuard(doc);
 				// `compileCcz` requires bytes per the buildMediaBundle contract —

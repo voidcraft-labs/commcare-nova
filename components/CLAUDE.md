@@ -189,3 +189,10 @@ spinner per call. The conversation stays pinned throughout the shared
 near-bottom range; only moving beyond it reveals the scroll-to-latest button,
 and browser scroll anchoring stays disabled because `ChatScrollController` is
 the sole owner of transcript following.
+
+## Component tests
+
+Read `docs/testing.md` before adding or substantially changing tests. Test observable
+behavior at the smallest boundary that can catch the defect. Own and await async
+work through teardown, including failure paths; never copy sleeps or blanket
+cleanup from an existing test.

@@ -26,7 +26,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { signSessionCookie } from "@/lib/auth/sessionCookie";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 
 const TEST_SECRET = "x".repeat(32);
@@ -35,6 +34,7 @@ const TEST_EMAIL = "session-contract@dimagi.com";
 const SESSION_COOKIE = "better-auth.session_token";
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "auth_session_contract_",
 	establishLocalMigrationAuthority: true,
 });
@@ -101,7 +101,6 @@ describe("session-cookie contract", () => {
 	let auth: ReturnType<typeof createTestAuth>;
 
 	beforeEach(async () => {
-		await runCaseStoreMigrations(dbHandle.db);
 		const { runMigrations } = await getMigrations(
 			authMigrateOptions(dbHandle.pool),
 		);

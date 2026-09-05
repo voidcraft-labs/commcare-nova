@@ -32,7 +32,6 @@
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseStore, TransactionalSchemaCaseStore } from "@/lib/case-store";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import {
 	indexScopeTag,
 	PostgresCaseStore,
@@ -77,11 +76,8 @@ const { materializeCaseStoreSchemas } = await import(
 // ── Postgres harness ──────────────────────────────────────────────
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "matsync_test_",
-});
-
-beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 });
 
 beforeEach(() => {

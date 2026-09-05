@@ -28,8 +28,8 @@ export default defineConfig({
 		// OUTSIDE every test's import graph yet change how all tests execute
 		// (installed deps — including a lockfile-only bump that leaves
 		// package.json untouched — this config, the global logger/motion
-		// stubs, the shared Postgres container). CI never scopes: both CI
-		// suites (plain and async-leak) run every test file, sharded.
+		// stubs, the shared Postgres container). CI never scopes: its test
+		// jobs run every test file, sharded.
 		// Patterns match the absolute paths `vitest --changed` feeds
 		// picomatch; note the no-trailing-`/**` form — vitest's own default
 		// trigger appends `/**`, which silently fails to match a bare config
@@ -77,43 +77,6 @@ export default defineConfig({
 			"**/.claude/worktrees/**",
 			"e2e/tests/**",
 			"e2e/react-profile/**",
-			// Under the async-leak gate ONLY, skip three suites that drive AI SDK
-			// code whose internals pipe web streams. Node's web-streams
-			// `pipeThrough`/`pipeTo` machinery leaves internal promises pending
-			// FOREVER even after the pipe is fully drained and closed (reduced
-			// to a two-line repro with no app or SDK code: drain
-			// `new Response("x").body.pipeThrough(new TextDecoderStream())`
-			// → 3 flagged promises; a trailing settle delay does not clear
-			// them). That is the same benign-but-unfixable class the global
-			// Sentry / motion mocks in vitest.setup.ts handle at the module
-			// boundary — but here the pipes are per-call inside the library
-			// under test, so the boundary is the gate itself:
-			//  - transportContract drives the REAL `WorkflowChatTransport`,
-			//    whose SSE parser calls
-			//    `response.body.pipeThrough(new TextDecoderStream())`;
-			//  - clientCancel drives the REAL chat POST, whose returned
-			//    response IS `createUIMessageStreamResponse`'s pipe chain
-			//    (`JsonToSseTransformStream` → `TextEncoderStream`) — any
-			//    full-POST test flags those internals, cancelled or drained.
-			//  - designBuild drives that same REAL chat POST through completed,
-			//    paused, and failed design-session outcomes and fully drains every
-			//    response; the identical AI SDK pipe chain remains flagged.
-			// Both suites still run in every normal `vitest run` / CI test
-			// job; only `--detect-async-leaks` skips them — and the exemption
-			// blinds the gate ONLY to the SDK's stream internals: the resume
-			// ROUTE's own async discipline (timers, LISTEN subscriptions,
-			// stream teardown) stays fully leak-gated via
-			// streamResume.integration.test.ts, and the thread persistence
-			// layer via threads.test.ts, neither of which touches the SDK's
-			// pipes. Remove when Node's pipe internals (or the detector) stop
-			// flagging a drained pipe.
-			...(process.argv.includes("--detect-async-leaks")
-				? [
-						"**/transportContract.integration.test.ts",
-						"**/clientCancel.integration.test.ts",
-						"**/designBuild.integration.test.ts",
-					]
-				: []),
 		],
 	},
 	resolve: {

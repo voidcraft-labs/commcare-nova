@@ -19,32 +19,8 @@
 // progress` and the inner SQL leaks into the outer transaction's
 // state, corrupting per-test isolation.
 //
-// Per-test databases give every test its own engine state without
-// any outer-transaction wrapping. Each test pays for `CREATE
-// DATABASE` + `CREATE EXTENSION` + `runCaseStoreMigrations` once
-// (~50 ms on a modern laptop) but the store's transaction-using
-// methods execute as authored.
-//
-// `setupPerTestDatabase` is the canonical fresh-database helper in
-// this package; see `lib/case-store/sql/__tests__/perTestDatabase.ts`
-// for the contract.
-//
-// ## Why migrations run inside `beforeEach`, not the helper
-//
-// `setupPerTestDatabase` provisions the database + installs
-// extensions; it does NOT apply migrations. The store needs every
-// case-store table to exist before any method runs, so this file
-// calls `runCaseStoreMigrations(dbHandle.db)` (Kysely's `Migrator`,
-// in process, reusing the per-test handle's pool) in a sibling
-// `beforeEach` after the database handle is provisioned.
-//
-// The split mirrors the production split between Cloud SQL
-// provisioning (extensions installed at provisioning time under
-// `cloudsqlsuperuser`) and migration application (the
-// `commcare-nova-migrate` Cloud Run Job applies the migrations
-// per deploy under the IAM-auth runtime SA). In tests, the helper
-// plays the role of the superuser provisioning; `runCaseStoreMigrations`
-// plays the role of the per-deploy migration Job.
+// Each test clones the production-migrated template. Real COMMIT and DDL
+// behavior stays intact without replaying extensions and migrations per case.
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { Pool } from "pg";
@@ -63,7 +39,6 @@ import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { runStoreContract } from "../../__tests__/storeContract";
 import { CaseNotFoundError, CasePropertiesValidationError } from "../../errors";
-import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { POSTGRES_CAST_FOR_DATA_TYPE } from "../../sql";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
@@ -96,41 +71,13 @@ function idxName(
 // Per-test database lifecycle
 // ---------------------------------------------------------------
 //
-// `setupPerTestDatabase` wires `beforeEach` / `afterEach` for
-// `CREATE DATABASE store_test_<rand>` + `DROP DATABASE WITH
-// (FORCE)`. The default extension set (`pg_trgm`,
-// `fuzzystrmatch`, `postgis`) is what the store's compiler stack
-// expects — production parity.
-//
-// The handle's `db` field is a `Kysely<unknown>` from the helper;
-// the store's constructor wants `Kysely<Database>`. The cast at
-// the construction call site is the established pattern —
-// `Kysely<unknown>` is the schema-mid-creation shape; once the
-// migrations have applied, the database matches `Database`'s
-// contract.
-
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "store_test_",
 });
 
-// ---------------------------------------------------------------
-// Apply migrations before every test
-// ---------------------------------------------------------------
-//
-// The contract harness exercises every method on the live
-// database. All four case-store tables (`cases`,
-// `case_type_schemas`, `case_indices`, `parked_case_values`) must
-// exist before the first method call — `runCaseStoreMigrations` is
-// the canonical path that creates them.
-//
-// The call runs inside `beforeEach` so each test starts with a
-// fresh-migrated database. Vitest fires this `beforeEach` AFTER the
-// helper's own `beforeEach` (Vitest hooks run in registration
-// order); when this body executes, `dbHandle.db` is bound to the
-// freshly-created per-test database.
-
+// Seed only the rows this contract needs; the fixture supplies the schema.
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	await dbHandle.pool.query(`
 		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		VALUES

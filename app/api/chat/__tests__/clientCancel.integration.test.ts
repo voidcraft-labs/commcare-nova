@@ -40,7 +40,6 @@ import type { LanguageModelUsage, UIMessageChunk } from "ai";
 import type { Insertable, Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GenerationContext } from "@/lib/agent";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
 import {
@@ -251,7 +250,10 @@ const PAUSED_USAGE = {
 	},
 } as unknown as LanguageModelUsage;
 
-const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_cancel_" });
+const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
+	databaseNamePrefix: "chat_cancel_",
+});
 
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
@@ -676,7 +678,6 @@ async function expectSerializeWaitSnapshotFailure(errorType: string) {
 }
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	harness = createPerTestAppDb(dbHandle.uri);
 	appDb = harness.appDb;
 	__setAppDbForTests(appDb);

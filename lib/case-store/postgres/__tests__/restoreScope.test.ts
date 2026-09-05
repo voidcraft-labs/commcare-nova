@@ -24,13 +24,15 @@ import {
 } from "@/lib/domain/predicate/builders";
 import type { RelationPath } from "@/lib/domain/predicate/types";
 import { proseText } from "@/lib/domain/prose";
-import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 import { PostgresCaseStore } from "../store";
 
-const h = setupPerTestDatabase({ databaseNamePrefix: "restore_store_" });
+const h = setupPerTestDatabase({
+	schema: "migrated",
+	databaseNamePrefix: "restore_store_",
+});
 
 const APP_ID = "restore-scope-app";
 const PROJECT_ID = "restore-scope-project";
@@ -59,7 +61,6 @@ const schemas = new Map<string, CaseType>([
 ]);
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(h.db);
 	await h.pool.query(
 		`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		 VALUES ($1, 'member', $2, 'Restore', 'restore')`,

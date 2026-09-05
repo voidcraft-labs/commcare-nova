@@ -736,11 +736,11 @@ export class FormEngine {
 		path: string,
 		evaluateAsync: FormEngineAsyncEvaluator,
 	): Promise<void> {
+		this.markTouched(path);
 		const current = this.store.getState()[path];
-		if (!current || current.touched) return;
-		const touched = { ...current, touched: true };
-		const updates: EngineStoreState = { [path]: touched };
-		await this.validateAndCollectAsync(path, touched, updates, evaluateAsync);
+		if (!current) return;
+		const updates: EngineStoreState = { [path]: current };
+		await this.validateAndCollectAsync(path, current, updates, evaluateAsync);
 		this.store.setState(updates);
 	}
 
@@ -1190,6 +1190,14 @@ export class FormEngine {
 		if (keys.length > count) keys.length = count;
 		this.repeatInstanceKeys.set(repeatPath, keys);
 		return keys;
+	}
+
+	/** Record blur before asynchronous validation can be superseded by a rebuild. */
+	markTouched(path: string): void {
+		const current = this.store.getState()[path];
+		if (current && !current.touched) {
+			this.store.setState({ [path]: { ...current, touched: true } });
+		}
 	}
 
 	/**

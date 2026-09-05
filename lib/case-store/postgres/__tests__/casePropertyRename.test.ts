@@ -2,7 +2,6 @@ import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database, JsonObject } from "../../sql/database";
@@ -10,6 +9,7 @@ import { CasePropertyRenameStorageConflictError } from "../../store";
 import { indexScopeTag, PostgresCaseStore, propertyIndexTag } from "../store";
 
 const database = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "case_property_rename_",
 });
 const APP_ID = "rename-app";
@@ -44,7 +44,6 @@ function schemas(
 }
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(database.db);
 	await sql`
 		INSERT INTO apps
 			(id, owner, project_id, app_name, app_name_lower)

@@ -249,7 +249,7 @@ describe("transactional media deletion", () => {
 			}
 			await Promise.allSettled([
 				publication,
-				...(rejection ? [rejection] : []),
+				...(rejection !== undefined ? [rejection] : []),
 			]);
 			await gate.end().catch(() => {});
 			await publisherDb.destroy();
@@ -412,7 +412,10 @@ describe("transactional media deletion", () => {
 			await expect(deletion).resolves.toMatchObject({ kind: "deleted" });
 		} finally {
 			allowPublication();
-			await Promise.allSettled([publication, ...(deletion ? [deletion] : [])]);
+			await Promise.allSettled([
+				publication,
+				...(deletion !== undefined ? [deletion] : []),
+			]);
 			await observer.end().catch(() => {});
 			await Promise.all([publisherDb.destroy(), deleterDb.destroy()]);
 		}
@@ -484,7 +487,7 @@ describe("transactional media deletion", () => {
 			allowDeleteCommit();
 			await Promise.allSettled([
 				deletion,
-				...(publication ? [publication] : []),
+				...(publication !== undefined ? [publication] : []),
 			]);
 			await observer.end().catch(() => {});
 			await Promise.all([publisherDb.destroy(), deleterDb.destroy()]);
@@ -591,7 +594,10 @@ describe("transactional media deletion", () => {
 					.query("SELECT pg_advisory_unlock($1)", [gateKey])
 					.catch(() => {});
 			}
-			await Promise.allSettled([relocation, ...(deletion ? [deletion] : [])]);
+			await Promise.allSettled([
+				relocation,
+				...(deletion !== undefined ? [deletion] : []),
+			]);
 			await gate.end().catch(() => {});
 			await contender.destroy();
 		}
@@ -710,7 +716,10 @@ describe("transactional media deletion", () => {
 					.query("SELECT pg_advisory_unlock($1)", [gateKey])
 					.catch(() => {});
 			}
-			await Promise.allSettled([removal, ...(deletion ? [deletion] : [])]);
+			await Promise.allSettled([
+				removal,
+				...(deletion !== undefined ? [deletion] : []),
+			]);
 			await gate.end().catch(() => {});
 			await contender.destroy();
 		}
@@ -770,7 +779,10 @@ describe("transactional media deletion", () => {
 					.query("SELECT pg_advisory_unlock($1)", [gateKey])
 					.catch(() => {});
 			}
-			await Promise.allSettled([attach, ...(deletion ? [deletion] : [])]);
+			await Promise.allSettled([
+				attach,
+				...(deletion !== undefined ? [deletion] : []),
+			]);
 			await gate.end().catch(() => {});
 			await contender.destroy();
 		}
@@ -833,7 +845,10 @@ describe("transactional media deletion", () => {
 			await expect(attach).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		} finally {
 			allowCommit();
-			await Promise.allSettled([deletion, ...(attach ? [attach] : [])]);
+			await Promise.allSettled([
+				deletion,
+				...(attach !== undefined ? [attach] : []),
+			]);
 			await contender.destroy();
 		}
 		expect((await loadApp(appId))?.blueprint.logo).toBeUndefined();

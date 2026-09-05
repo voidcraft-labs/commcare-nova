@@ -132,7 +132,7 @@ describe("expression round-trip law", () => {
 		expect(canonical("/ data / grp / inner")).toBe("/data/grp/inner");
 	});
 
-	it("holds over grammar-shaped composites", () => {
+	it("holds over grammar-shaped composites", async () => {
 		const ref = fc.constantFrom(
 			"#form/age",
 			"#form/grp/inner",
@@ -187,7 +187,7 @@ describe("expression round-trip law", () => {
 			.tuple(ws, expr, ws)
 			.map(([lead, e, trail]) => `${lead}${e}${trail}`);
 
-		fc.assert(
+		await fc.assert(
 			fc.property(composite, (source) => {
 				expectCanonicalLaw(source);
 			}),
@@ -195,8 +195,8 @@ describe("expression round-trip law", () => {
 		);
 	});
 
-	it("holds over arbitrary strings (opaque passthrough included)", () => {
-		fc.assert(
+	it("holds over arbitrary strings (opaque passthrough included)", async () => {
+		await fc.assert(
 			fc.property(fc.string({ maxLength: 80 }), (source) => {
 				expectCanonicalLaw(source);
 			}),

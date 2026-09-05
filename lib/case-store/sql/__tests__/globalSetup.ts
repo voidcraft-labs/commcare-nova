@@ -52,6 +52,8 @@ import { applyMigrations } from "./applyMigrations";
 declare module "vitest" {
 	export interface ProvidedContext {
 		postgresTestUrl: string;
+		postgresExtensionsTemplate: string;
+		postgresMigratedTemplate: string;
 	}
 }
 
@@ -131,13 +133,27 @@ export async function setup(project: TestProject): Promise<void> {
 	const container = await startContainer();
 
 	runningContainer = container;
+	try {
+		await prepareDatabases(project, container);
+	} catch (error) {
+		// Vitest cannot register a teardown returned by a setup that throws.
+		// Close our container even when provisioning or migration fails.
+		await teardown();
+		throw error;
+	}
+}
+
+async function prepareDatabases(
+	project: TestProject,
+	container: StartedPostgreSqlContainer,
+): Promise<void> {
 	const connectionString = container.getConnectionUri();
 
 	// The container's default postgres user is a superuser, so
 	// `CREATE EXTENSION` succeeds without IAM auth.
 	const extClient = new Client({ connectionString });
-	await extClient.connect();
 	try {
+		await extClient.connect();
 		for (const extension of REQUIRED_EXTENSIONS) {
 			await extClient.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
 		}
@@ -145,7 +161,28 @@ export async function setup(project: TestProject): Promise<void> {
 		await extClient.end();
 	}
 
-	await applyMigrations(connectionString);
+	// Snapshot extensions separately so migration tests still start without tables.
+	// Connect to the administration database: cloning requires no open sessions
+	// on the source, including our own. Templates never accept test connections.
+	const adminUri = new URL(connectionString);
+	adminUri.pathname = "/postgres";
+	const admin = new Client({ connectionString: adminUri.toString() });
+	try {
+		await admin.connect();
+		await admin.query(
+			`CREATE DATABASE nova_extensions TEMPLATE ${DATABASE_NAME}`,
+		);
+		await admin.query("ALTER DATABASE nova_extensions ALLOW_CONNECTIONS false");
+		await applyMigrations(connectionString);
+		await admin.query(
+			`CREATE DATABASE nova_migrated TEMPLATE ${DATABASE_NAME}`,
+		);
+		await admin.query("ALTER DATABASE nova_migrated ALLOW_CONNECTIONS false");
+	} finally {
+		await admin.end();
+	}
+	project.provide("postgresExtensionsTemplate", "nova_extensions");
+	project.provide("postgresMigratedTemplate", "nova_migrated");
 
 	// `project.provide` is the typed channel for cross-process
 	// state in Vitest 4. Env vars would lose the type augmentation

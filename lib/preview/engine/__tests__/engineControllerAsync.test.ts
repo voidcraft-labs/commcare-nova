@@ -143,6 +143,30 @@ describe("EngineController async runtime", () => {
 		ctrl.dispose();
 	});
 
+	it("retains a cleared answer when a rebuild supersedes pending blur validation", async () => {
+		const ctrl = controller({
+			uuid: FIELD_UUID,
+			id: "answer",
+			kind: "text",
+			label: proseText("Answer"),
+			default_value: xp("'original'"),
+		});
+		try {
+			await ctrl.activateFormAsync(FORM_UUID);
+			const edit = ctrl.onValueChangeAsync(FIELD_UUID, "");
+			const blur = ctrl.onTouchAsync(FIELD_UUID);
+			const rebuild = ctrl.rebuildActiveFormAsync(FORM_UUID);
+			await Promise.all([edit, blur, rebuild]);
+			expect(ctrl.store.getState()[FIELD_UUID]).toMatchObject({
+				value: "",
+				touched: true,
+			});
+			expect(ctrl.entryStore.getState().fault).toBeUndefined();
+		} finally {
+			ctrl.dispose();
+		}
+	});
+
 	it("settles a staged value before a superseding blur validates it", async () => {
 		const ctrl = controller(
 			{
