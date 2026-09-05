@@ -66,7 +66,13 @@
 // cross-layer round-trip (filter narrowing, write-through, reset) once
 // per concern.
 
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+	act,
+	fireEvent,
+	render,
+	screen,
+	waitFor,
+} from "@testing-library/react";
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -495,7 +501,7 @@ function renderFormScreen(doc: BlueprintDoc, formUuid: Uuid, caseId?: string) {
 }
 
 async function readySubmitButton(): Promise<HTMLButtonElement> {
-	return await waitFor(() => {
+	const readReady = () => {
 		expect(
 			document.querySelector('[data-preview-engine-ready="true"]'),
 		).not.toBeNull();
@@ -504,7 +510,12 @@ async function readySubmitButton(): Promise<HTMLButtonElement> {
 		}) as HTMLButtonElement;
 		expect(button.disabled).toBe(false);
 		return button;
-	});
+	};
+	await waitFor(readReady);
+	// The resolved row enables Submit before its passive effect rebuilds the
+	// preview with the preload. Commit that React work before the gesture.
+	await act(async () => {});
+	return await waitFor(readReady);
 }
 
 // ── Setup ────────────────────────────────────────────────────────
@@ -1008,10 +1019,7 @@ describe("FormScreen close submit — closed_on stamps on the bound row", () => 
 		const submit = await readySubmitButton();
 		fireEvent.click(submit);
 
-		// The submission now validates and hashes the exact reconciled blueprint
-		// before dispatch. A saturated full leak shard has taken just over twenty-
-		// five seconds here without changing the UI readiness contract. Give that
-		// instrumented path room while retaining a bounded assertion.
+		// Wait for admission before reading its transactional case-store effects.
 		await waitFor(
 			() => {
 				expect(vi.mocked(submitFormAction)).toHaveBeenCalled();

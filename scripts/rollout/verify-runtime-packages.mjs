@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
 import { readdirSync } from "node:fs";
+import { createRequire } from "node:module";
+import { resolve } from "node:path";
 
 for (const [name, member] of [
 	["@google-cloud/kms", "KeyManagementServiceClient"],
@@ -57,6 +59,66 @@ const audio = await (await import("music-metadata")).parseBuffer(wav, {
 });
 assert.equal(audio.format.sampleRate, 8000);
 
+// Run the actual generated instrumentation against its traced native SDK. The
+// transport remains entirely local; this check sends no event to Sentry.
+const runtimeRequire = createRequire(resolve("server.js"));
+const Sentry = runtimeRequire("@sentry/nextjs");
+const envelopes = [];
+const originalInit = Sentry.init;
+Sentry.init = (options) =>
+	originalInit({
+		...options,
+		enabled: true,
+		transport: () => ({
+			send: async (envelope) => {
+				envelopes.push(envelope);
+				return { statusCode: 200 };
+			},
+			flush: async () => true,
+		}),
+	});
+try {
+	const instrumentation = runtimeRequire(
+		resolve(".next/server/instrumentation.js"),
+	);
+	await instrumentation.register();
+	assert.ok(Sentry.getClient().getIntegrationByName("DistDirRewriteFrames"));
+	const error = new Error("Native SDK contract");
+	error.stack = `Error: Native SDK contract\n    at contract (${resolve(".next/server/chunks/nova-runtime-contract.js")}:1:1)`;
+	instrumentation.onRequestError(
+		error,
+		{ path: "/contract", method: "GET", headers: {} },
+		{ routerKind: "App Router", routePath: "/contract", routeType: "route" },
+	);
+	await Sentry.flush(3000);
+	const event = envelopes
+		.flatMap((envelope) => envelope[1])
+		.find(
+			([header, payload]) =>
+				header.type === "event" &&
+				payload.exception?.values?.some(
+					(value) => value.value === error.message,
+				),
+		)?.[1];
+	assert.ok(
+		event,
+		"Generated instrumentation did not capture the request error",
+	);
+	assert.equal(event.release, process.env.NOVA_BUILD_ID);
+	assert.equal(event.transaction, "GET /contract");
+	assert.equal(
+		event.exception.values[0].mechanism.type,
+		"auto.function.nextjs.on_request_error",
+	);
+	assert.equal(
+		event.exception.values[0].stacktrace.frames[0].filename,
+		"app:///_next/server/chunks/nova-runtime-contract.js",
+	);
+} finally {
+	await Sentry.close(3000);
+	Sentry.init = originalInit;
+}
+
 for (const directory of [".next/server", ".next/static"]) {
 	assert.ok(
 		!readdirSync(directory, { recursive: true }).some((name) =>
@@ -66,5 +128,5 @@ for (const directory of [".next/server", ".next/static"]) {
 	);
 }
 console.log(
-	"Verified standalone cloud SDKs, workbook/document/audio parsing, and source-map removal.",
+	"Verified standalone cloud SDKs, parsers, Sentry request capture and frame rewriting, and source-map removal.",
 );

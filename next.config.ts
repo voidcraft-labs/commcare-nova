@@ -72,6 +72,11 @@ const nextConfig: NextConfig = {
 	 * externally keeps it unminified, so the class name — and the check —
 	 * survive. */
 	serverExternalPackages: [
+		// Keep the server SDK native. Its entrypoint also imports build tooling;
+		// compiling it expands both the module graph and private source maps.
+		// The image check exercises the generated instrumentation with a local
+		// transport, including release and request metadata.
+		"@sentry/nextjs",
 		"@google-cloud/kms",
 		// These Node SDKs include generated API clients. Loading their published
 		// packages avoids compiling and duplicating them into server source maps.

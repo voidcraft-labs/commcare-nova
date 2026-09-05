@@ -147,6 +147,9 @@ RUN --mount=type=bind,from=next-cache,target=/seed \
     cp -a /seed/. /cache/ && touch /cache-ready
 
 FROM sources AS builder
+# The default shared-core worker benefits from fewer compiler threads. These
+# controls reduced measured CPU work; they never enter the runtime image.
+ENV RAYON_NUM_THREADS=1 TOKIO_WORKER_THREADS=1 GOMAXPROCS=1
 COPY --from=cache-seed /cache-ready /cache-ready
 ENV NEXT_TELEMETRY_DISABLED=1
 ENV CI=true

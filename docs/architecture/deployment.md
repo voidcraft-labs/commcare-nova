@@ -59,18 +59,23 @@ cache artifacts expire after fourteen days and are never deployable images.
 
 The build runs Next, the native production type check, and Sentry upload in
 sequence. Parallel type checking and source-map processing caused CPU
-contention on the default worker. CI continues to type-check the whole repo;
-the production configuration covers runtime code and Next's generated route
+contention on the default worker. The compiler processes use one Rayon, Tokio,
+and Go worker to reduce measured contention without changing the Cloud Build
+machine. These settings belong only to the builder stage. CI continues to
+type-check the whole repo; the production configuration covers runtime code and Next's generated route
 types. Turbopack generates native debug IDs and indexed maps with embedded
 source content. Sentry accepts those maps directly (`--no-rewrite`); its
 symbolication reader flattens indexed maps when needed. The upload retains the
 SDK's exact manifest exclusions, including the private Server Action manifest.
 Only after successful upload and release finalization are source maps and
 mapping URLs removed from public, server, and standalone output. Cloud SQL,
-Storage, KMS, and the document/media parsers use their published native Node
-packages instead of being compiled into server chunks; complete-image
-verification loads those packages and round-trips a workbook in the standalone
-artifact.
+Storage, KMS, the document/media parsers, and Sentry's server SDK use their
+published native Node packages instead of being compiled into server chunks.
+The Sentry server configuration carries the SDK's injected distribution-directory
+value into its native global fallback, preserving frame-path rewriting.
+Complete-image verification exercises workbook, document, and audio parsing plus
+the generated instrumentation's error capture, release, transaction, and rewritten
+stack frame through a local transport that never sends telemetry.
 
 ## Migration admission
 
