@@ -5,9 +5,15 @@ import {
 	readJsonBody,
 } from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
+import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import { isCommCareServer } from "@/lib/commcare/servers";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
 import { attachmentUrlTargetFor } from "@/lib/deployment/attachmentTarget";
+import {
+	downloadDeploymentTarget,
+	downloadRuntimeTarget,
+} from "@/lib/deployment/runtimeTarget";
 import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import type { PersistableDoc } from "@/lib/domain";
@@ -31,6 +37,7 @@ import type { AttachmentTargetState } from "@/lib/publish/exportAdvisories";
  * somewhere different than "several do".
  */
 export type PreparedCompileRequest = PreparedExportBoundary & {
+	readonly runtimeTarget: RuntimeTarget;
 	readonly attachmentTargetState: AttachmentTargetState;
 };
 
@@ -100,7 +107,27 @@ export async function prepareCompileRequest(
 		actorUserId: access.actorUserId,
 	};
 	const attachmentDeploymentTarget = await attachmentDeploymentTargetFor(scope);
+	const server = (body as { server?: unknown } | null)?.server;
+	if (
+		server !== undefined &&
+		(typeof server !== "string" || !isCommCareServer(server))
+	) {
+		throw new ApiError("Choose US, India, or EU as the CommCare server.", 400);
+	}
+	const runtimeTarget = downloadRuntimeTarget(
+		attachmentDeploymentTarget,
+		server,
+	);
+	if (!runtimeTarget)
+		throw new ApiError(
+			"Choose a CommCare server for this download, then try again.",
+			422,
+		);
 
+	const selectedDeployment = downloadDeploymentTarget(
+		attachmentDeploymentTarget,
+		server,
+	);
 	const boundary = await prepareExportBoundary({
 		mode,
 		access: {
@@ -110,7 +137,7 @@ export async function prepareCompileRequest(
 		},
 		doc: docWithParent,
 		compiledAtSeq: app.mutation_seq,
-		attachmentTarget: attachmentUrlTargetFor(attachmentDeploymentTarget),
+		attachmentTarget: attachmentUrlTargetFor(selectedDeployment),
 	});
 	if (!boundary.ok) {
 		// The concise builder copy on the detail lines: this is a
@@ -125,6 +152,7 @@ export async function prepareCompileRequest(
 
 	return {
 		...boundary.prepared,
-		attachmentTargetState: attachmentDeploymentTarget.kind,
+		runtimeTarget,
+		attachmentTargetState: selectedDeployment.kind,
 	};
 }

@@ -605,3 +605,39 @@ store. A Project move re-tenants these rows in the same transaction that flips
 `apps.project_id` (`lib/db/apps.ts::commitAppProjectMoveInTransaction`), and
 `projectMove.integration.test.ts` asserts the row actually moved rather than
 that the move merely succeeded.
+
+
+## Deep links are freshly checked release observations
+
+`entryPointManifest.ts` compiles the exact prepared upload snapshot and records
+its entry-point UUID, destination UUIDs, external ID, required selections and
+suite navigation signature. `content_generation` is invalidated before the
+first remote dependency/app write. Completion binds a manifest only to the
+same generation and active remote app; an obsolete completion invalidates
+newer evidence because remote write order is then uncertain. These remain
+short transactions, without locks across HQ requests.
+
+`getEntryPointLink` is the shared Builder/MCP service. It authorizes a selected
+server target, checks Deep links support, resolves an exact released build,
+reads its profile and suite with redirects disabled, compares the endpoint's
+reachable command/menu/selection definitions, checks required dependency
+mappings and remote presence, and compares generation/mapping again before
+recording the observation. Resource URL normalization accepts only the known
+working/build IDs and preserves host/domain. A transient failure retains old
+observations as history but never returns a newly verified URL.
+
+The returned HQ link names the working app. “Released build checked” describes
+copy-time evidence, not a pinned build or an atomic remote snapshot. HQ controls
+recipient authentication, available builds and claim/sync behavior. Never probe
+the endpoint itself: opening it can claim cases. Multiple selections use HQ's
+comma transport, with empty, duplicate, excessive and comma-containing IDs
+refused before any request. These are external HQ IDs, never substituted Nova
+case IDs.
+
+
+A checked link names the current committed authoring snapshot. Its sequence
+must equal the manifest's uploaded sequence before HQ reads begin and must
+still match under the final app-row lock. This covers changed selection
+cardinality, bypass, filters, topology and endpoint removal without a second
+partial authoring fingerprint. Even unrelated committed edits require a new
+publish before another checked copy; existing URLs retain HQ's behavior.

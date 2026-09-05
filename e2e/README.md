@@ -198,3 +198,18 @@ stack, so it would catch nothing the prod `get-session` probe doesn't.
 container, not a dev Mac, or they false-fail constantly. Left as a follow-up: generate
 baselines in CI with `npm run test:smoke -- --update-snapshots`, commit them, then add
 the assertions.
+
+## Deep-link authoring and Preview
+
+The authenticated deep-link journey uses a dedicated app and two real case rows
+per attempt. It creates and renames an entry point through App setup, reloads its
+UUID detail URL, selects the second patient rather than the first available row,
+and verifies that Preview opens the requested form with that patient. Removal
+recovers both the current detail and a reopened stale URL to the overview.
+
+```bash
+npm run test:smoke -- --project=authed --grep "deep links are authored"
+```
+
+The normal `authed` project includes this spec. It uses the same production build,
+local Postgres, seeded session, and browser error guard as the existing suite.

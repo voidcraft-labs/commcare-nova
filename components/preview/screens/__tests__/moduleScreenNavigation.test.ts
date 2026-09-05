@@ -126,3 +126,15 @@ describe("formLaunch", () => {
 		).toEqual({ kind: "open-form" });
 	});
 });
+
+it("retains the actual module-menu step for a bare module endpoint", () => {
+	expect(
+		moduleScreenLanding({
+			hasModule: true,
+			isBareCaseList: true,
+			isCaseFirst: true,
+			mode: "preview",
+			preserveEntryPointMenu: true,
+		}),
+	).toEqual({ kind: "form-menu" });
+});

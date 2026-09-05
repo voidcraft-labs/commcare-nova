@@ -304,11 +304,13 @@ only after a search completes with nothing found. The form opens with that
 search's answers, so a field can start from what the worker typed: a
 default value of `#search/patient_name` seeds the name from the name search
 field, and a hidden search field's value, such as a search time, can be saved
-to a case property as a record that the search happened. After submit the
-form returns to Results showing the case it just registered (a module with no
-forms of its own returns to Search, or to its automatic Results), so it has
-no after-submit destination, no after-submit links, and no display condition,
-and no other form can link to it. One such form per module. Setting the entry
+to a case property as a record that the search happened. After submit, choose
+**App home**, or let the form return to Results showing the case it just
+registered (a module with no forms of its own returns to Search, or to its
+automatic Results). A module with multiple-case selection requires **App home**
+because CommCare cannot return the newly registered case as a multiple-case
+selection. The form has no after-submit links and no display condition, and
+no other form can link to it. One such form per module. Setting the entry
 turns **Search first** on for the module if it was off. Clearing it (in Nova's
 tools, `entry: null`) makes the form a menu form again and turns **Search
 first** off with it, because a menu registration form cannot open on Search,

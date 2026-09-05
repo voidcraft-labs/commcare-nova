@@ -63,6 +63,7 @@ import {
 import { registerGetAgentPrompt } from "./tools/getAgentPrompt";
 import { registerGetApp } from "./tools/getApp";
 import { registerGetAppHqFeatureFlagsCompatibility } from "./tools/getAppHqFeatureFlagsCompatibility";
+import { registerGetEntryPointLink } from "./tools/getEntryPointLink";
 import { registerGetHqConnection } from "./tools/getHqConnection";
 import { registerInviteMember } from "./tools/inviteMember";
 import { registerListApps } from "./tools/listApps";
@@ -110,6 +111,7 @@ export function registerNovaTools(server: McpServer, ctx: ToolContext): void {
 	registerUploadAppToHq(server, ctx);
 	registerGetDeployment(server, ctx);
 	registerRefreshDeployment(server, ctx);
+	registerGetEntryPointLink(server, ctx);
 	registerProvisionWorkers(server, ctx);
 	registerUploadMediaAsset(server, ctx);
 	registerListProjects(server, ctx);

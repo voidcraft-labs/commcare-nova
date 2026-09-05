@@ -34,7 +34,7 @@ import {
 describe("emitClaimPost — structural shape", () => {
 	it("emits the canonical multi-select claim body for all missing selected ids", () => {
 		expect(emitClaimPost(true)).toBe(
-			`<post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/" relevant="$case_id != &apos;&apos;">` +
+			`<post url="https://__COMMCARE_HOST__/a/__DOMAIN__/phone/claim-case/" relevant="$case_id != &apos;&apos;">` +
 				`<data key="case_id" nodeset="instance(&apos;search_selected_cases&apos;)/results/value" exclude="count(instance(&apos;casedb&apos;)/casedb/case[@case_id=current()/.]) = 1" ref="."/>` +
 				`</post>`,
 		);
@@ -46,7 +46,7 @@ describe("emitClaimPost — structural shape", () => {
 		// (`'casedb'`, `'commcaresession'`) round-trip as `&apos;`
 		// inside the double-quoted `relevant` / `ref` attributes.
 		expect(xml).toBe(
-			`<post url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"` +
+			`<post url="https://__COMMCARE_HOST__/a/__DOMAIN__/phone/claim-case/"` +
 				` relevant="count(instance(&apos;casedb&apos;)/casedb/case[@case_id=instance(&apos;commcaresession&apos;)/session/data/search_case_id]) = 0">` +
 				`<data key="case_id" ref="instance(&apos;commcaresession&apos;)/session/data/search_case_id"/>` +
 				`</post>`,
@@ -62,10 +62,10 @@ describe("emitClaimPost — structural shape", () => {
 		// replaces; direct .ccz sideload is not a current Nova path.
 		const xml = emitClaimPost();
 		expect(xml).toContain(
-			`url="https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/"`,
+			`url="https://__COMMCARE_HOST__/a/__DOMAIN__/phone/claim-case/"`,
 		);
 		expect(CLAIM_URL_TEMPLATE).toBe(
-			"https://www.commcarehq.org/a/__DOMAIN__/phone/claim-case/",
+			"https://__COMMCARE_HOST__/a/__DOMAIN__/phone/claim-case/",
 		);
 	});
 

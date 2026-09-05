@@ -35,6 +35,8 @@ import { reportMediaAttach } from "@/lib/media/uploadOutcome";
 import { readOrganization } from "@/lib/organization/service";
 import type { StoredLocation } from "@/lib/organization/types";
 import type { ProjectSpaceCompatibilityReport } from "@/lib/publish/projectSpaceCompatibility";
+import { publishedEntryPoints } from "./entryPointManifest";
+import type { PublishedEntryPointManifest } from "./entryPointTypes";
 import { DeploymentError } from "./errors";
 import { observeDeployment } from "./observe";
 import type { LocationPushPlan, LookupPushPlan } from "./preflight";
@@ -52,8 +54,10 @@ import {
 import { deploymentIsObservable } from "./stateMachine";
 import {
 	applyDeploymentObservation,
+	beginDeploymentContentWrite,
 	type DeploymentScope,
 	type DeploymentTargetKey,
+	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
 	type RecordRemoteResourceInput,
 	readDeployment,
@@ -486,178 +490,257 @@ export async function publishAppToHq(
 
 	const { creds, domain, prepared, lookupPush, locationPush, locations } =
 		preflight.ready;
-	input.onUploadStarted?.();
+	const contentGeneration = await beginDeploymentContentWrite(
+		input.scope,
+		target,
+	);
+	let entryPointManifest: PublishedEntryPointManifest | null = null;
+	try {
+		input.onUploadStarted?.();
 
-	// ── Put everything the app depends on there first ───────────────
-	// The app's selects read these tables by name at runtime and its
-	// owner rules address these places, so an app that arrived first
-	// would be installable and broken. Nothing about the app itself has
-	// been sent at this point, which is what makes a failure here
-	// resumable without re-importing anything.
-	//
-	// A resources refusal reads the same whichever half produced it, so
-	// one shape says it: the record is folded, the attempt reports it, and
-	// a republish that stumbled on the data still has last time's app over
-	// there with a link that still works.
-	const resourcesRefused = async (
-		failure: DeploymentFailure,
-	): Promise<PublishOutcome> => {
-		deployment = await foldDeploymentAttempt(input.scope, target, "resources", {
-			status: "failed",
-			at: new Date().toISOString(),
-			failure,
-		});
-		return {
-			landed: false,
-			refusal: { phase: "resources", failure, resourceConflicts: [] },
-			deployment,
-			checks: preflight.checks,
-			artifact: await setupArtifactFor(
+		// ── Put everything the app depends on there first ───────────────
+		// The app's selects read these tables by name at runtime and its
+		// owner rules address these places, so an app that arrived first
+		// would be installable and broken. Nothing about the app itself has
+		// been sent at this point, which is what makes a failure here
+		// resumable without re-importing anything.
+		//
+		// A resources refusal reads the same whichever half produced it, so
+		// one shape says it: the record is folded, the attempt reports it, and
+		// a republish that stumbled on the data still has last time's app over
+		// there with a link that still works.
+		const resourcesRefused = async (
+			failure: DeploymentFailure,
+		): Promise<PublishOutcome> => {
+			deployment = await foldDeploymentAttempt(
 				input.scope,
+				target,
+				"resources",
+				{
+					status: "failed",
+					at: new Date().toISOString(),
+					failure,
+				},
+			);
+			return {
+				landed: false,
+				refusal: { phase: "resources", failure, resourceConflicts: [] },
 				deployment,
-				input.doc,
-				locations,
-			),
-			warnings: [],
-			projectSpaceCompatibility: preflight.projectSpaceCompatibility,
-			hqAppUrl: hqAppUrlFor(
-				input.server,
-				input.domain,
-				activeRemoteApp(deployment)?.remoteId ?? null,
-			),
+				checks: preflight.checks,
+				artifact: await setupArtifactFor(
+					input.scope,
+					deployment,
+					input.doc,
+					locations,
+				),
+				warnings: [],
+				projectSpaceCompatibility: preflight.projectSpaceCompatibility,
+				hqAppUrl: hqAppUrlFor(
+					input.server,
+					input.domain,
+					activeRemoteApp(deployment)?.remoteId ?? null,
+				),
+			};
 		};
-	};
 
-	if (lookupPush !== null) {
-		const pushed = await pushLookupTables(
-			input.scope,
-			target,
-			creds,
-			domain,
-			lookupPush,
-		);
-		/* Even a refused push can have left tables over there — CommCare
-		 * HQ's `warning` verdict means it took part of the workbook — and
-		 * `pushLookupTables` records those before it returns. Reading its
-		 * view back keeps the refusal's report honest about what the
-		 * project space now holds. */
-		deployment = pushed.deployment ?? deployment;
-		if (pushed.failure !== null) return resourcesRefused(pushed.failure);
-	}
+		if (lookupPush !== null) {
+			const pushed = await pushLookupTables(
+				input.scope,
+				target,
+				creds,
+				domain,
+				lookupPush,
+			);
+			/* Even a refused push can have left tables over there — CommCare
+			 * HQ's `warning` verdict means it took part of the workbook — and
+			 * `pushLookupTables` records those before it returns. Reading its
+			 * view back keeps the refusal's report honest about what the
+			 * project space now holds. */
+			deployment = pushed.deployment ?? deployment;
+			if (pushed.failure !== null) return resourcesRefused(pushed.failure);
+		}
 
-	/* Places after tables, and both before the app. The order between the
-	 * two does not matter to CommCare HQ; it is stable so that a partial
-	 * publish always stops at the same rung and a retry always resumes at
-	 * the same one. */
-	if (locationPush !== null) {
-		const pushed = await pushLocations(
-			input.scope,
-			target,
-			creds,
-			domain,
-			locationPush,
-		);
-		deployment = pushed.deployment ?? deployment;
-		if (pushed.failure !== null) return resourcesRefused(pushed.failure);
-	}
+		/* Places after tables, and both before the app. The order between the
+		 * two does not matter to CommCare HQ; it is stable so that a partial
+		 * publish always stops at the same rung and a retry always resumes at
+		 * the same one. */
+		if (locationPush !== null) {
+			const pushed = await pushLocations(
+				input.scope,
+				target,
+				creds,
+				domain,
+				locationPush,
+			);
+			deployment = pushed.deployment ?? deployment;
+			if (pushed.failure !== null) return resourcesRefused(pushed.failure);
+		}
 
-	/* An app that used to carry resources and no longer does. The ledger
-	 * only learns that from a publish, and until it does, those tables and
-	 * places sit on the project space under Nova's own claim with nothing
-	 * reporting them. Superseding the mappings is the whole fix: nothing is
-	 * deleted on CommCare HQ, Nova just stops claiming them and starts
-	 * naming them in the left-behind report. */
-	const droppedKinds: DeploymentResourceKind[] = [
-		...(lookupPush === null ? (["lookup-table"] as const) : []),
-		...(locationPush === null ? (["location"] as const) : []),
-	];
-	if (
-		droppedKinds.some((kind) =>
-			deployment.active.some((resource) => resource.kind === kind),
-		)
-	) {
-		deployment = await recordPushedResources(input.scope, target, [], {
-			status: "complete",
-			kinds: droppedKinds,
-			pushedAt: new Date().toISOString(),
+		/* An app that used to carry resources and no longer does. The ledger
+		 * only learns that from a publish, and until it does, those tables and
+		 * places sit on the project space under Nova's own claim with nothing
+		 * reporting them. Superseding the mappings is the whole fix: nothing is
+		 * deleted on CommCare HQ, Nova just stops claiming them and starts
+		 * naming them in the left-behind report. */
+		const droppedKinds: DeploymentResourceKind[] = [
+			...(lookupPush === null ? (["lookup-table"] as const) : []),
+			...(locationPush === null ? (["location"] as const) : []),
+		];
+		if (
+			droppedKinds.some((kind) =>
+				deployment.active.some((resource) => resource.kind === kind),
+			)
+		) {
+			deployment = await recordPushedResources(input.scope, target, [], {
+				status: "complete",
+				kinds: droppedKinds,
+				pushedAt: new Date().toISOString(),
+			});
+		}
+
+		if (lookupPush !== null || locationPush !== null) {
+			input.onResourcesPushed?.({
+				tables: lookupPush?.pushes.length ?? 0,
+				places: locationPush?.placeCount ?? 0,
+			});
+		}
+
+		/* Update in place, or create. The predicate and its rationale live in
+		 * `plannedInPlaceUpdate` (`resources.ts`), which the publish dialog
+		 * also reads to say which will happen before the button is pressed. */
+		const updateTarget = plannedInPlaceUpdate(deployment);
+		const hqAppAction = updateTarget === null ? "created" : "updated";
+
+		// ── Send it ─────────────────────────────────────────────────────
+		// The upload consumes the exact prepared generation preflight
+		// validated, so the bytes that passed are the bytes that go out.
+		/* The naming has to travel with the app, not just with the data. A
+		 * lookup-backed select compiles to an `instance(...)` reference whichever
+		 * mode is emitting, and `buildXForm` refuses without it. */
+		const generatedHqJson = expandDoc(prepared.doc, {
+			runtimeTarget: {
+				server: target.server,
+				domain: target.domain,
+				...(updateTarget && { appId: updateTarget.remoteId }),
+			},
+			assets: prepared.assets,
+			attachmentTarget: prepared.attachmentTarget,
+			...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
 		});
-	}
-
-	if (lookupPush !== null || locationPush !== null) {
-		input.onResourcesPushed?.({
-			tables: lookupPush?.pushes.length ?? 0,
-			places: locationPush?.placeCount ?? 0,
-		});
-	}
-
-	/* Update in place, or create. The predicate and its rationale live in
-	 * `plannedInPlaceUpdate` (`resources.ts`), which the publish dialog
-	 * also reads to say which will happen before the button is pressed. */
-	const updateTarget = plannedInPlaceUpdate(deployment);
-	const hqAppAction = updateTarget === null ? "created" : "updated";
-
-	// ── Send it ─────────────────────────────────────────────────────
-	// The upload consumes the exact prepared generation preflight
-	// validated, so the bytes that passed are the bytes that go out.
-	/* The naming has to travel with the app, not just with the data. A
-	 * lookup-backed select compiles to an `instance(...)` reference whichever
-	 * mode is emitting, and `buildXForm` refuses without it. */
-	const generatedHqJson = expandDoc(prepared.doc, {
-		assets: prepared.assets,
-		attachmentTarget: prepared.attachmentTarget,
-		...(prepared.lookupNaming && { lookupNaming: prepared.lookupNaming }),
-	});
-	const derivedProfileTargetState: DerivedProfileTargetState = (() => {
-		if (!hasEffectiveSearch(prepared.doc)) return "not-needed";
-		const advisory = preflight.projectSpaceCompatibility.advisories.find(
-			(item) => item.id === "large-search-performance",
-		);
-		return advisory?.state === "available" || advisory?.state === "missing"
-			? advisory.state
-			: "unverified";
-	})();
-	let hqJson = generatedHqJson;
-	let preImportFailure: CommCareApiError | undefined;
-	if (updateTarget === null) {
-		hqJson = projectNewAppProfileForTarget(
-			generatedHqJson,
-			derivedProfileTargetState,
-		).application;
-	} else {
-		/* This read intentionally sits immediately before import. HQ shallow-
-		 * replaces the complete `profile` field when it is present, so Nova
-		 * cannot safely update one derived key from a stale or invented bag. */
-		const source = await readHqAppSourceProfile(
-			creds,
-			domain,
-			updateTarget.remoteId,
-		);
-		if ("success" in source) {
-			if (source.status === 404) {
-				/* The source endpoint is authoritative about the same mapped app
-				 * import would update. Route its 404 through the existing missing-app
-				 * observation below so the next publish creates a fresh app instead
-				 * of retrying this deleted id forever. */
-				preImportFailure = source;
+		const derivedProfileTargetState: DerivedProfileTargetState = (() => {
+			if (!hasEffectiveSearch(prepared.doc)) return "not-needed";
+			const advisory = preflight.projectSpaceCompatibility.advisories.find(
+				(item) => item.id === "large-search-performance",
+			);
+			return advisory?.state === "available" || advisory?.state === "missing"
+				? advisory.state
+				: "unverified";
+		})();
+		let hqJson = generatedHqJson;
+		let preImportFailure: CommCareApiError | undefined;
+		if (updateTarget === null) {
+			hqJson = projectNewAppProfileForTarget(
+				generatedHqJson,
+				derivedProfileTargetState,
+			).application;
+		} else {
+			/* This read intentionally sits immediately before import. HQ shallow-
+			 * replaces the complete `profile` field when it is present, so Nova
+			 * cannot safely update one derived key from a stale or invented bag. */
+			const source = await readHqAppSourceProfile(
+				creds,
+				domain,
+				updateTarget.remoteId,
+			);
+			if ("success" in source) {
+				if (source.status === 404) {
+					/* The source endpoint is authoritative about the same mapped app
+					 * import would update. Route its 404 through the existing missing-app
+					 * observation below so the next publish creates a fresh app instead
+					 * of retrying this deleted id forever. */
+					preImportFailure = source;
+				} else {
+					const permissions = source.status === 401 || source.status === 403;
+					const failure: DeploymentFailure = {
+						code: "hq_app_state_unknown",
+						message: permissions
+							? `Nova couldn't read the current app on “${domain}”, so it left that app unchanged. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again.`
+							: `Nova couldn't safely read the current app on “${domain}”, so it left that app unchanged. Check that the app still opens in CommCare HQ, then publish again.`,
+						details: [],
+					};
+					deployment = await foldDeploymentAttempt(
+						input.scope,
+						target,
+						"upload",
+						{
+							status: "failed",
+							at: new Date().toISOString(),
+							failure,
+						},
+					);
+					return {
+						landed: false,
+						refusal: { phase: "upload", failure, resourceConflicts: [] },
+						deployment,
+						checks: preflight.checks,
+						artifact: await setupArtifactFor(
+							input.scope,
+							deployment,
+							input.doc,
+							locations,
+						),
+						warnings: [],
+						projectSpaceCompatibility: preflight.projectSpaceCompatibility,
+						hqAppUrl: hqAppUrlFor(input.server, domain, updateTarget.remoteId),
+					};
+				}
 			} else {
-				const permissions = source.status === 401 || source.status === 403;
+				hqJson = projectUpdatedAppProfileForTarget(
+					generatedHqJson,
+					source.profile,
+					derivedProfileTargetState,
+				).application;
+			}
+		}
+
+		const result =
+			preImportFailure ??
+			(await importApp(
+				creds,
+				domain,
+				input.appName,
+				hqJson,
+				updateTarget?.remoteId,
+			));
+		if (!result.success) {
+			if (updateTarget !== null && result.status === 404) {
+				/* The source read or update import named the mapped app, and the
+				 * 404 is an authoritative answer ABOUT THE TARGET: that app is gone
+				 * — the same answer observation's versions read gives.
+				 * So it folds as an observation against the mapping this publish
+				 * read, not as an attempt outcome (which deliberately writes
+				 * nothing on a reached target). The pushed-at token keeps a slow
+				 * publish's 404 from clobbering a concurrent publish that landed
+				 * the same remote id meanwhile. The NEXT publish sees the failed
+				 * upload phase and takes the create path, superseding this
+				 * mapping with the fresh app's. */
 				const failure: DeploymentFailure = {
-					code: "hq_app_state_unknown",
-					message: permissions
-						? `Nova couldn't read the current app on “${domain}”, so it left that app unchanged. Reading it needs permission to edit apps in CommCare HQ. Check the connected account, then publish again.`
-						: `Nova couldn't safely read the current app on “${domain}”, so it left that app unchanged. Check that the app still opens in CommCare HQ, then publish again.`,
+					code: "remote_app_missing",
+					message: `The app Nova published to “${domain}” isn't there any more: CommCare HQ reported it gone when Nova tried to update it. It may have been deleted there. Publish again to create a fresh one.`,
 					details: [],
 				};
-				deployment = await foldDeploymentAttempt(
-					input.scope,
-					target,
-					"upload",
-					{
-						status: "failed",
-						at: new Date().toISOString(),
-						failure,
-					},
-				);
+				const observed = await applyDeploymentObservation(input.scope, target, {
+					observedRemoteId: updateTarget.remoteId,
+					observedPushedAt: updateTarget.pushedAt,
+					outcomes: [
+						[
+							"upload",
+							{ status: "failed", at: new Date().toISOString(), failure },
+						],
+					],
+					remoteRevision: null,
+				});
+				deployment = observed.view;
 				return {
 					landed: false,
 					refusal: { phase: "upload", failure, resourceConflicts: [] },
@@ -671,55 +754,23 @@ export async function publishAppToHq(
 					),
 					warnings: [],
 					projectSpaceCompatibility: preflight.projectSpaceCompatibility,
-					hqAppUrl: hqAppUrlFor(input.server, domain, updateTarget.remoteId),
+					hqAppUrl: null,
 				};
 			}
-		} else {
-			hqJson = projectUpdatedAppProfileForTarget(
-				generatedHqJson,
-				source.profile,
-				derivedProfileTargetState,
-			).application;
-		}
-	}
-	const result =
-		preImportFailure ??
-		(await importApp(
-			creds,
-			domain,
-			input.appName,
-			hqJson,
-			updateTarget?.remoteId,
-		));
-	if (!result.success) {
-		if (updateTarget !== null && result.status === 404) {
-			/* The source read or update import named the mapped app, and the
-			 * 404 is an authoritative answer ABOUT THE TARGET: that app is gone
-			 * — the same answer observation's versions read gives.
-			 * So it folds as an observation against the mapping this publish
-			 * read, not as an attempt outcome (which deliberately writes
-			 * nothing on a reached target). The pushed-at token keeps a slow
-			 * publish's 404 from clobbering a concurrent publish that landed
-			 * the same remote id meanwhile. The NEXT publish sees the failed
-			 * upload phase and takes the create path, superseding this
-			 * mapping with the fresh app's. */
+			/* CommCare HQ refusing THIS upload says nothing about the app
+			 * already on the project space; the fold leaves a reached record
+			 * alone and moves an unreached one to `incomplete` at `upload`,
+			 * which is exactly what a retry resumes from. */
 			const failure: DeploymentFailure = {
-				code: "remote_app_missing",
-				message: `The app Nova published to “${domain}” isn't there any more: CommCare HQ reported it gone when Nova tried to update it. It may have been deleted there. Publish again to create a fresh one.`,
+				code: "hq_rejected_upload",
+				message: importRejectionMessage(result),
 				details: [],
 			};
-			const observed = await applyDeploymentObservation(input.scope, target, {
-				observedRemoteId: updateTarget.remoteId,
-				observedPushedAt: updateTarget.pushedAt,
-				outcomes: [
-					[
-						"upload",
-						{ status: "failed", at: new Date().toISOString(), failure },
-					],
-				],
-				remoteRevision: null,
+			deployment = await foldDeploymentAttempt(input.scope, target, "upload", {
+				status: "failed",
+				at: new Date().toISOString(),
+				failure,
 			});
-			deployment = observed.view;
 			return {
 				landed: false,
 				refusal: { phase: "upload", failure, resourceConflicts: [] },
@@ -736,23 +787,72 @@ export async function publishAppToHq(
 				hqAppUrl: null,
 			};
 		}
-		/* CommCare HQ refusing THIS upload says nothing about the app
-		 * already on the project space; the fold leaves a reached record
-		 * alone and moves an unreached one to `incomplete` at `upload`,
-		 * which is exactly what a retry resumes from. */
-		const failure: DeploymentFailure = {
-			code: "hq_rejected_upload",
-			message: importRejectionMessage(result),
-			details: [],
-		};
-		deployment = await foldDeploymentAttempt(input.scope, target, "upload", {
-			status: "failed",
-			at: new Date().toISOString(),
-			failure,
+
+		// ── Record what it gave back, before anything else can fail ─────
+		// The mapping and the `uploaded` state land in one transaction. A
+		// publish that recorded neither would leave an app sitting on the
+		// project space that Nova has no memory of: no update target for the
+		// next publish, and no way to name it if that publish creates afresh.
+		// On an update the returned id is the one asked for, so this is the
+		// store's same-remote-id arm — the live row updates in place.
+		deployment = await recordRemoteResource(input.scope, target, {
+			kind: "app",
+			novaResourceId: input.scope.appId,
+			remoteId: result.appId,
+			ownership: "nova-created",
+			pushedRevision: input.compiledAtSeq,
+			remoteRevision: result.version,
+			uploadedAt: new Date().toISOString(),
 		});
+
+		const entries = publishedEntryPoints(prepared, hqJson, input.appName, {
+			server: target.server,
+			domain: target.domain,
+			appId: result.appId,
+		});
+
+		entryPointManifest = {
+			generation: contentGeneration,
+			remoteAppId: result.appId,
+			sourceSequence: input.compiledAtSeq,
+			entries,
+			dependencies: deployment.active.flatMap((resource) =>
+				resource.kind === "lookup-table" || resource.kind === "location"
+					? [
+							{
+								kind: resource.kind,
+								novaResourceId: resource.novaResourceId,
+								remoteId: resource.remoteId,
+								pushedIdentity: resource.pushedIdentity,
+							},
+						]
+					: [],
+			),
+		};
+		log.info("[deployment] app imported", {
+			domain,
+			hqAppId: result.appId,
+			appId: input.scope.appId,
+			action: hqAppAction,
+		});
+
+		const warnings = [...result.warnings];
+		if (prepared.assets.size > 0) {
+			warnings.push(
+				...(await uploadMediaBytes(
+					creds,
+					domain,
+					result.appId,
+					prepared,
+					input.scope.appId,
+				)),
+			);
+		}
+
 		return {
-			landed: false,
-			refusal: { phase: "upload", failure, resourceConflicts: [] },
+			landed: true,
+			refusal: null,
+			hqAppAction,
 			deployment,
 			checks: preflight.checks,
 			artifact: await setupArtifactFor(
@@ -761,65 +861,18 @@ export async function publishAppToHq(
 				input.doc,
 				locations,
 			),
-			warnings: [],
+			warnings,
 			projectSpaceCompatibility: preflight.projectSpaceCompatibility,
-			hqAppUrl: null,
+			hqAppUrl: hqAppUrlFor(input.server, domain, result.appId),
 		};
-	}
-
-	// ── Record what it gave back, before anything else can fail ─────
-	// The mapping and the `uploaded` state land in one transaction. A
-	// publish that recorded neither would leave an app sitting on the
-	// project space that Nova has no memory of: no update target for the
-	// next publish, and no way to name it if that publish creates afresh.
-	// On an update the returned id is the one asked for, so this is the
-	// store's same-remote-id arm — the live row updates in place.
-	deployment = await recordRemoteResource(input.scope, target, {
-		kind: "app",
-		novaResourceId: input.scope.appId,
-		remoteId: result.appId,
-		ownership: "nova-created",
-		pushedRevision: input.compiledAtSeq,
-		remoteRevision: result.version,
-		uploadedAt: new Date().toISOString(),
-	});
-
-	log.info("[deployment] app imported", {
-		domain,
-		hqAppId: result.appId,
-		appId: input.scope.appId,
-		action: hqAppAction,
-	});
-
-	const warnings = [...result.warnings];
-	if (prepared.assets.size > 0) {
-		warnings.push(
-			...(await uploadMediaBytes(
-				creds,
-				domain,
-				result.appId,
-				prepared,
-				input.scope.appId,
-			)),
+	} finally {
+		await finishDeploymentContentWrite(
+			input.scope,
+			target,
+			contentGeneration,
+			entryPointManifest,
 		);
 	}
-
-	return {
-		landed: true,
-		refusal: null,
-		hqAppAction,
-		deployment,
-		checks: preflight.checks,
-		artifact: await setupArtifactFor(
-			input.scope,
-			deployment,
-			input.doc,
-			locations,
-		),
-		warnings,
-		projectSpaceCompatibility: preflight.projectSpaceCompatibility,
-		hqAppUrl: hqAppUrlFor(input.server, domain, result.appId),
-	};
 }
 
 /**

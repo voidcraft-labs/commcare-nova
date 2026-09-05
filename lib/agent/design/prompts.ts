@@ -13,14 +13,16 @@ import type { DesignSourcePackage } from "@/lib/agent/design/sourcePackage";
 import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
-	agent: "design-agent-v23",
-	reviewer: "design-reviewer-v16",
-	planner: "design-plan-v5",
+	agent: "design-agent-v24",
+	reviewer: "design-reviewer-v17",
+	planner: "design-plan-v6",
 } as const;
 
 const DOMAIN_PREAMBLE = `## The domain
 
 Nova builds one CommCare app from a conversation. CommCare apps are form-and-case shaped: workers register and update durable records through forms, work from lists and searches, and may relate records through parent/child or other explicit links. Apps can be offline-first, online-first, or mixed.
+
+When the user needs a named entry point, explicitly enable entryPoint on its module or form composition, or caseListEntryPoint on a module with forms and a case list. Supply an id only when its external spelling matters; otherwise the compiler generates it from the destination name. A form entryPoint may explicitly ignoreDisplayConditions when requested; this changes visibility, never access. Search-first lists cannot be direct pre-selection destinations, queue-only modules offer a module-menu entry rather than a direct list, and flattened modules and no-matches registration forms cannot have entry points. HQ links require a verified released deployment and open through normal HQ authentication; Preview tests navigation with available real cases, without claiming or syncing HQ cases. Do not promise registry smart links or arbitrary session variables.
 
 Nova is not a general software platform. It creates the app represented by the capability catalog in this conversation. It does not create Projects or CommCare HQ spaces, provision workers, upload media, generate audio, operate external systems, or build several apps in one design session.`;
 

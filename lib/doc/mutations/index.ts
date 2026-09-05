@@ -1,3 +1,4 @@
+import { applyEntryPointMutation } from "./entryPoints";
 /**
  * Mutation dispatcher. Every way the doc can change flows through here.
  *
@@ -59,6 +60,11 @@ function dispatchMutation(
 	mut: Mutation,
 ): MutationResult {
 	switch (mut.kind) {
+		case "addEntryPoint":
+		case "updateEntryPoint":
+		case "removeEntryPoint":
+			applyEntryPointMutation(draft, mut);
+			return;
 		case "setAppName":
 		case "setConnectType":
 		case "setAppLogo":

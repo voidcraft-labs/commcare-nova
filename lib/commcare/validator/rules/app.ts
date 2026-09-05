@@ -1,3 +1,5 @@
+import { entryPointIdSchema, entryPointInventory } from "@/lib/domain";
+import { entryPointProjectionIssue } from "../../entryPointProjection";
 /**
  * App-level validation rules.
  *
@@ -693,7 +695,42 @@ function connectNoParticipatingForms(doc: BlueprintDoc): ValidationError[] {
 	];
 }
 
+function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
+	const ids = new Set<string>();
+	return entryPointInventory(doc).flatMap(({ target, entryPoint }) => {
+		const reason = !entryPointIdSchema.safeParse(entryPoint.id).success
+			? "id-format"
+			: target.kind !== "form" &&
+					entryPoint.ignoreDisplayConditions !== undefined
+				? "display-conditions"
+				: ids.has(entryPoint.id)
+					? "duplicate-id"
+					: "destination";
+		const issue = !entryPointIdSchema.safeParse(entryPoint.id).success
+			? "Entry point IDs use lowercase letters, numbers, underscores, or hyphens."
+			: target.kind !== "form" &&
+					entryPoint.ignoreDisplayConditions !== undefined
+				? "Only form entry points can ignore display conditions."
+				: ids.has(entryPoint.id)
+					? "Entry point IDs must be unique within the app."
+					: entryPointProjectionIssue(doc, target);
+		ids.add(entryPoint.id);
+		return issue
+			? [
+					validationError(
+						"ENTRY_POINT_INVALID",
+						"app",
+						issue,
+						{ moduleUuid: target.moduleUuid },
+						{ entryPointUuid: entryPoint.uuid, reason },
+					),
+				]
+			: [];
+	});
+}
+
 export const APP_RULES = [
+	validEntryPoints,
 	closedBlueprintTopology,
 	catalogXPathCompatible,
 	globallyUniqueEntityUuids,

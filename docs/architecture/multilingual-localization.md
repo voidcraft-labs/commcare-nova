@@ -759,7 +759,7 @@ fleet postcondition scan asserts zero old-shape occurrences remain. A tag the
 mechanical rules cannot decide lands in a reviewed explicit-mapping table, and
 the migrate refuses to run while an entry is missing.
 
-## Documentation and plugin release
+## Documentation and client contracts
 
 The Nova surface documents this capability in:
 
@@ -775,12 +775,7 @@ name the identifiers to use; names and direction derive and are never
 authored. Tool allowlists and copied schemas/prose remain in parity. The
 plugin manifest version is bumped with each contract change.
 
-Nova merges and deploys first. After the exact Nova merge is healthy in
-production and the new MCP surface is live, the dependent plugin PR merges and
-publishes immediately. The plugin must never go live first and teach clients to
-call a surface production does not yet expose.
-
-## Verification and completion
+## Verification
 
 The capability holds only while all of the following remain true:
 

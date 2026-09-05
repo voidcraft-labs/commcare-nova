@@ -113,6 +113,8 @@ export function searchAnswerDefaultsOf(
  * Set or clear the form's entry, landing a module the gate accepts either
  * way.
  *
+ * Existing explicit App home navigation is preserved; a multiple-selection
+ * host requires that explicit choice before the commit gate accepts the form.
  * Setting it opens the module on Search when it does not already, and
  * moves the menu shape with the form: a module whose only menu form this
  * was becomes a case list with no menu forms (`caseListOnly`, the one valid
@@ -221,6 +223,7 @@ function searchAnswerExpression(input: SearchInputDef) {
 export function noMatchesRegistrationFormMutations(
 	doc: BlueprintDoc,
 	moduleUuid: Uuid,
+	options: { readonly postSubmit?: "app_home" } = {},
 ): { mutations: Mutation[]; formUuid: Uuid; formName: string } | null {
 	const mod = doc.modules[moduleUuid];
 	if (mod?.caseType === undefined) return null;
@@ -256,6 +259,9 @@ export function noMatchesRegistrationFormMutations(
 							...mutation.form,
 							name: formName,
 							entry: { kind: "search-no-matches" },
+							...(options.postSubmit !== undefined && {
+								postSubmit: options.postSubmit,
+							}),
 						},
 					},
 				];

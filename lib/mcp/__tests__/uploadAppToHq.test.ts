@@ -59,6 +59,8 @@ vi.mock("@/lib/deployment/store", () => {
 	});
 	return {
 		readDeployment: vi.fn(async () => null),
+		beginDeploymentContentWrite: vi.fn(async () => "content-generation"),
+		finishDeploymentContentWrite: vi.fn(async () => true),
 		foldDeploymentAttempt: vi.fn(
 			async (
 				_scope: unknown,
@@ -136,6 +138,8 @@ import {
 import type { AppDoc } from "@/lib/db/types";
 import {
 	applyDeploymentObservation,
+	beginDeploymentContentWrite,
+	finishDeploymentContentWrite,
 	foldDeploymentAttempt,
 	recordRemoteResource,
 } from "@/lib/deployment/store";
@@ -333,6 +337,8 @@ const toolCtx: ToolContext = {
 };
 
 beforeEach(() => {
+	vi.mocked(beginDeploymentContentWrite).mockClear();
+	vi.mocked(finishDeploymentContentWrite).mockClear();
 	vi.mocked(loadAppBlueprint).mockReset();
 	vi.mocked(resolveUploadTarget).mockReset();
 	vi.mocked(importApp).mockReset();
@@ -470,6 +476,24 @@ describe("registerUploadAppToHq — happy path", () => {
 		/* Uploading is not releasing: the state a successful publish reaches
 		 * is `uploaded`, and a client that reported it as live would be
 		 * wrong. The setup artifact rides along so it can say what is left. */
+		expect(
+			vi.mocked(beginDeploymentContentWrite).mock.invocationCallOrder[0],
+		).toBeLessThan(
+			vi.mocked(importApp).mock.invocationCallOrder[0] ??
+				Number.POSITIVE_INFINITY,
+		);
+		expect(finishDeploymentContentWrite).toHaveBeenCalledWith(
+			expect.anything(),
+			expect.anything(),
+			"content-generation",
+			{
+				generation: "content-generation",
+				remoteAppId: "hq-123",
+				sourceSequence: 0,
+				entries: [],
+				dependencies: [],
+			},
+		);
 		expect(parsed.deployment_state).toBe("uploaded");
 		expect(parsed.deployment).toMatchObject({
 			state: "uploaded",
@@ -745,6 +769,7 @@ describe("registerUploadAppToHq — media upload ordering", () => {
 		 * space, so the address its attachment links resolve against is the
 		 * one being published to. */
 		expect(expandDoc).toHaveBeenCalledWith(fixtureBlueprint(), {
+			runtimeTarget: { server: "production", domain: "acme-research" },
 			assets: FAKE_MANIFEST,
 			attachmentTarget: {
 				origin: "https://www.commcarehq.org",

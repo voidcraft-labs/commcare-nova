@@ -1751,3 +1751,72 @@ describe("BuilderSession held provisioning outcomes", () => {
 		expect(store.getState().provisioningOutcomes).toEqual({});
 	});
 });
+
+describe("entry-point Preview launch", () => {
+	const formUuid = testUuid("launch-form");
+	const launch = {
+		entryPointUuid: testUuid("launch-endpoint"),
+		expectedSeq: 7,
+		location: {
+			kind: "form" as const,
+			moduleUuid: testUuid("launch-module"),
+			formUuid,
+		},
+		personaUuid: testUuid("launch-persona"),
+		menuSelections: {},
+		formTarget: { formUuid, cases: [{ caseId: "exact" }] },
+		ignoreDisplayConditions: true,
+	};
+	it("installs the identity and complete navigation context in one notification", () => {
+		const store = createBuilderSessionStore();
+		const observed: unknown[] = [];
+		const unsubscribe = store.subscribe((s) =>
+			observed.push({
+				previewing: s.previewing,
+				persona: s.previewPersonaUuid,
+				target: s.previewCaseTarget,
+				launch: s.previewEntryPointLaunch,
+			}),
+		);
+		store.getState().installEntryPointLaunch(launch);
+		unsubscribe();
+		expect(observed).toEqual([
+			{
+				previewing: true,
+				persona: launch.personaUuid,
+				target: launch.formTarget,
+				launch,
+			},
+		]);
+		expect(store.getState().previewSearchStates).toEqual({});
+		expect(store.getState().sidebars.chat).toEqual({
+			open: false,
+			stashed: true,
+		});
+	});
+	it("retires the endpoint grant while preserving ordinary navigation bindings", () => {
+		const store = createBuilderSessionStore();
+		store.getState().installEntryPointLaunch(launch);
+		store.getState().clearEntryPointLaunch();
+		expect(store.getState().previewEntryPointLaunch).toBeUndefined();
+		expect(store.getState().previewCaseTarget).toBe(launch.formTarget);
+		store.getState().installEntryPointLaunch(launch);
+		const successor = {
+			formUuid: testUuid("successor"),
+			cases: [{ caseId: "next" }],
+		};
+		store.getState().setPreviewCaseTarget(successor);
+		store.getState().clearEntryPointLaunch();
+		expect(store.getState().previewCaseTarget).toBe(successor);
+	});
+	it("retires a launch on worker changes and Preview exit", () => {
+		const store = createBuilderSessionStore();
+		store.getState().installEntryPointLaunch(launch);
+		store.getState().setPreviewPersonaUuid(undefined);
+		expect(store.getState().previewEntryPointLaunch).toBeUndefined();
+		store.getState().installEntryPointLaunch(launch);
+		store.getState().setPreviewing(false);
+		expect(store.getState().previewEntryPointLaunch).toBeUndefined();
+		expect(store.getState().sidebars.chat.open).toBe(true);
+	});
+});

@@ -1,3 +1,4 @@
+import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 // lib/commcare/suite/case-search/remoteRequest.ts
 //
 // Top-level orchestrator for `<remote-request>`. Walks one module
@@ -84,6 +85,7 @@ export interface RemoteRequestBuild {
  */
 export function buildRemoteRequest(args: {
 	readonly module: Module;
+	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleIndex: number;
 	readonly platformContext?: PlatformContext;
 	readonly typeContext?: TypeContext;
@@ -147,6 +149,7 @@ export function buildRemoteRequest(args: {
 		),
 		typeContext: args.typeContext,
 		lookupNaming: args.lookupNaming,
+		runtimeTarget: args.runtimeTarget,
 	});
 
 	// Instance declarations — sort the accumulated id set so the wire
@@ -177,7 +180,7 @@ export function buildRemoteRequest(args: {
 	// fixture
 	// `~/code/commcare-hq/.../tests/data/suite/search_command_detail.xml`.
 	const remoteRequestEl = el("remote-request", {}, [
-		buildClaimPost(multiple),
+		buildClaimPost(multiple, args.runtimeTarget),
 		commandEl,
 		...instanceElements,
 		sessionEmission.element,
@@ -208,6 +211,7 @@ export function buildRemoteRequest(args: {
  */
 export function emitRemoteRequest(args: {
 	readonly module: Module;
+	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleIndex: number;
 	readonly platformContext?: PlatformContext;
 	readonly typeContext?: TypeContext;

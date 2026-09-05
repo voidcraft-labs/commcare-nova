@@ -21,6 +21,7 @@ export * from "./columnApplicability";
 export * from "./commCareDatePattern";
 export * from "./dateFormats";
 export * from "./effectiveCaseTypes";
+export * from "./entryPoints";
 export * from "./expressionSource";
 export * from "./externalUserProperty";
 export * from "./fields";

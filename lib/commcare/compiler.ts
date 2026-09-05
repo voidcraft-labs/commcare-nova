@@ -1,3 +1,5 @@
+import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+import { buildEntryPointSuite } from "./entryPointSuite";
 // lib/commcare/compiler.ts
 //
 // HqApplication + BlueprintDoc → .ccz Buffer.
@@ -125,6 +127,7 @@ import {
  *  bare `<text>` nav nodes — the same archive shape with no media
  *  artifacts). */
 export interface CompileOptions {
+	readonly runtimeTarget?: RuntimeTarget;
 	assets?: AssetManifest;
 	/**
 	 * Prepared lookup wire from the export boundary: identity naming plus
@@ -329,6 +332,7 @@ export function compileCcz(
 		});
 	});
 	const linkContext = formLinkProjectionContext(doc, {
+		runtimeTarget: opts.runtimeTarget,
 		formActions: (formUuid) => {
 			const actions = actionsByForm.get(formUuid);
 			if (actions === undefined) {
@@ -515,6 +519,7 @@ export function compileCcz(
 			const remoteRequestEmission =
 				caseSearchConfig && !searchFirst
 					? buildRemoteRequest({
+							runtimeTarget: opts.runtimeTarget,
 							module: { ...mod, caseSearchConfig },
 							moduleIndex: mIdx,
 							typeContext: moduleTypeContext(mod, doc),
@@ -724,6 +729,7 @@ export function compileCcz(
 			const post =
 				searchFirst && ownCaseDatumId !== undefined
 					? buildInlineClaimPost({
+							runtimeTarget: opts.runtimeTarget,
 							sessionVar: ownCaseDatumId,
 							collection: ownCaseDatum?.maxSelectValue !== undefined,
 							...(parentSelectModuleUuid(doc, linkContext, moduleUuid) !==
@@ -743,8 +749,10 @@ export function compileCcz(
 					: undefined;
 			// The no-matches form's return frame: after submit, back to the
 			// host's Results showing the case it registered.
+			const resetToAppHome =
+				synthetic !== undefined && form.postSubmit === "app_home";
 			const returnFrame =
-				synthetic === undefined
+				synthetic === undefined || resetToAppHome
 					? undefined
 					: caseListFormReturnFrame(
 							doc,
@@ -754,6 +762,7 @@ export function compileCcz(
 							synthetic.caseType,
 						);
 			const entryDef = deriveEntryDefinition({
+				...(resetToAppHome && { resetToAppHome }),
 				formXmlns: xmlns,
 				moduleIndex: mIdx,
 				formIndex: fIdx,
@@ -1011,14 +1020,17 @@ export function compileCcz(
 	const suiteFixtures = (opts.lookup?.fixtures.fixtures ?? []).map(
 		(fixture) => fixture.element,
 	);
+	const entryPointSuite = buildEntryPointSuite(doc, linkContext);
 	const suiteRoot = el("suite", { version: "1" }, [
 		...suiteResources,
 		...localeResources,
 		...suiteDetails,
 		...suiteRemoteRequests,
+		...entryPointSuite.remoteRequests,
 		...suiteEntries,
 		...suiteMenus,
 		...suiteFixtures,
+		...entryPointSuite.endpoints,
 	]);
 	// `dom-serializer` does not emit XML declarations — the leading
 	// `<?xml version="1.0"?>` literal is the only template string in the

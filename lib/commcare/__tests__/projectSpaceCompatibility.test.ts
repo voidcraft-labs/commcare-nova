@@ -446,3 +446,33 @@ describe("project-space compatibility reports", () => {
 		).toEqual(report);
 	});
 });
+
+describe("Deep links capability", () => {
+	it("requires verified target support only when an entry point is authored", () => {
+		const mod = module({
+			entryPoint: { uuid: testUuid("entry"), id: "patients" },
+		});
+		const plan = projectSpaceCompatibilityProbePlan(
+			doc({ modules: { [mod.uuid]: mod } }),
+		);
+		const capability = plan.capabilities.find(
+			(p) => p.capability.id === "deep-links",
+		);
+		if (!capability) throw new Error("Missing Deep links requirement");
+		expect(capability.featureFlags.map((f) => f.slug)).toEqual([
+			"session_endpoints",
+		]);
+		expect(
+			projectSpaceCompatibilityForTarget(
+				"acme",
+				[{ capability: capability.capability, state: "unverified" }],
+				[],
+			).status,
+		).toBe("blocked");
+		expect(
+			requiredProjectSpaceCapabilities(doc()).some(
+				(c) => c.id === "deep-links",
+			),
+		).toBe(false);
+	});
+});

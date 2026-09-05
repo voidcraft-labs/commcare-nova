@@ -37,6 +37,7 @@ import {
 	useDeploymentRecordsRevision,
 	useRequestPublishDialog,
 } from "@/lib/session/hooks";
+import { DeploymentEntryPointLinks } from "./DeploymentEntryPointLinks";
 import {
 	applyRecordUpsert,
 	beginRecordsLoad,
@@ -235,6 +236,7 @@ export function PublishingSection() {
 											/>
 										}
 									/>
+									<DeploymentEntryPointLinks appId={appId ?? ""} view={view} />
 									{retryDomain !== null ? (
 										<div className="mt-3 border-t border-nova-border pt-2">
 											<Button

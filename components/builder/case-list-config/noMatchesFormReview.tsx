@@ -33,6 +33,7 @@ import {
 } from "@/lib/doc/searchNoMatchesForm";
 import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import {
+	caseSelectionCardinality,
 	menuFormUuidsOf,
 	moduleOpensOnSearch,
 	noMatchesFormOf,
@@ -64,11 +65,13 @@ export interface NoMatchesFormReview {
 	 *  decides where the registration returns (Results with the new case,
 	 *  or the module's Search). */
 	readonly hostKeepsMenuForms: boolean;
+	readonly appHomeAfterSubmit: boolean;
 	/** The gate's refusals for the exact batch; empty when it would commit. */
 	readonly blockers: readonly string[];
 }
 
 interface PlannedChoice {
+	readonly formUuid: Uuid;
 	readonly mutations: Mutation[];
 	readonly formName: string;
 }
@@ -80,15 +83,27 @@ function planChoice(
 ): PlannedChoice | null {
 	switch (choice.kind) {
 		case "create": {
-			const planned = noMatchesRegistrationFormMutations(doc, moduleUuid);
+			const module = doc.modules[moduleUuid];
+			const planned = noMatchesRegistrationFormMutations(
+				doc,
+				moduleUuid,
+				module && caseSelectionCardinality(module) === "multiple"
+					? { postSubmit: "app_home" }
+					: {},
+			);
 			return planned === null
 				? null
-				: { mutations: planned.mutations, formName: planned.formName };
+				: {
+						mutations: planned.mutations,
+						formName: planned.formName,
+						formUuid: planned.formUuid,
+					};
 		}
 		case "existing": {
 			const form = doc.forms[choice.formUuid];
 			if (form === undefined) return null;
 			return {
+				formUuid: form.uuid,
 				mutations: noMatchesFormEntryMutations(
 					doc,
 					moduleUuid,
@@ -104,6 +119,7 @@ function planChoice(
 			const form = noMatchesFormOf(doc, moduleUuid);
 			if (form === undefined) return null;
 			return {
+				formUuid: form.uuid,
 				mutations: noMatchesFormEntryMutations(
 					doc,
 					moduleUuid,
@@ -145,6 +161,21 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 			);
 			const clearing = choice.kind === "clear";
 			const current = clearing ? noMatchesFormOf(doc, moduleUuid) : undefined;
+			let appHomeAfterSubmit =
+				doc.forms[planned.formUuid]?.postSubmit === "app_home";
+			for (const mutation of planned.mutations) {
+				if (
+					mutation.kind === "addForm" &&
+					mutation.form.uuid === planned.formUuid
+				)
+					appHomeAfterSubmit = mutation.form.postSubmit === "app_home";
+				if (
+					mutation.kind === "updateForm" &&
+					mutation.uuid === planned.formUuid &&
+					Object.hasOwn(mutation.patch, "postSubmit")
+				)
+					appHomeAfterSubmit = mutation.patch.postSubmit === "app_home";
+			}
 			return {
 				choice,
 				formName: planned.formName,
@@ -155,6 +186,7 @@ export function useNoMatchesFormEntry(moduleUuid: Uuid | undefined) {
 						? 0
 						: searchAnswerDefaultsOf(doc, moduleUuid, current.uuid).length,
 				hostKeepsMenuForms: menuForms.length > 0,
+				appHomeAfterSubmit,
 				blockers,
 			};
 		},
@@ -295,8 +327,7 @@ export function NoMatchesFormReviewDialog({
 								<p className="rounded-xl border border-nova-amber/25 bg-nova-amber/[0.05] p-3">
 									Search first turns off. A menu registration form cannot open
 									on Search, so the module opens on its case list with a Search
-									button, and its forms return to the previous screen after
-									submit.
+									button. Existing after-submit choices stay the same.
 								</p>
 							)}
 							{review.defaultsCleared > 0 && (
@@ -313,16 +344,17 @@ export function NoMatchesFormReviewDialog({
 							{review.turnsSearchFirstOn && (
 								<p className="rounded-xl border border-nova-amber/25 bg-nova-amber/[0.05] p-3">
 									Search first turns on. People search before they see any
-									cases, Results shows only what a search finds, and the
-									module's forms return to Search after submit.
+									cases, and Results shows only what a search finds.
 								</p>
 							)}
 							<p className="rounded-xl border border-white/[0.07] bg-nova-surface/20 p-3">
 								“{review.formName}” leaves the menu. It opens only from Results
-								after a search finds nothing, and after submit it returns to{" "}
-								{review.hostKeepsMenuForms
-									? "Results showing the case it registered."
-									: "Search, since the module has no other forms."}
+								after a search finds nothing, and after submit it opens{" "}
+								{review.appHomeAfterSubmit
+									? "App home."
+									: review.hostKeepsMenuForms
+										? "Results showing the case it registered."
+										: "Search, since the module has no other forms."}
 							</p>
 							{creating && (
 								<p className="rounded-xl border border-white/[0.07] bg-nova-surface/20 p-3">

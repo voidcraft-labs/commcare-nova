@@ -45,6 +45,7 @@ import { Spinner } from "@/components/shadcn/spinner";
 import type { Uuid } from "@/lib/doc/types";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import { type PreviewScreen, screenKey } from "@/lib/preview/engine/types";
+import { useEntryPointLaunchLifecycle } from "@/lib/preview/hooks/useEntryPointLaunch";
 import { usePreviewScreenForLocation } from "@/lib/preview/hooks/usePreviewScreenForLocation";
 import { useSelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
@@ -157,6 +158,7 @@ const CaseListScreen = dynamic(
 );
 
 export function PreviewShell() {
+	useEntryPointLaunchLifecycle();
 	const { direction } = useBuilderLanguage();
 	/* ── Location → PreviewScreen adapter ─────────────────────────────
 	 * Read the URL location and translate to the legacy index-based screen

@@ -224,3 +224,18 @@ once it is released.
 
 If that happens, open the app's Settings on CommCare HQ and tick **Web App**.
 You do not need to publish again.
+
+## Sharing deep links
+
+An app can have named entry points for modules, case lists, and forms. After
+publishing and releasing the app, its Publishing card lets you generate and
+copy a link. Nova checks the released entry point each time you generate or
+copy it. Cases for these links use IDs from that CommCare HQ project space.
+See [Deep links](/docs/deep-links) for Preview testing and release behavior.
+
+## Choosing a server for downloads
+
+Downloads use the selected CommCare server for Search and case claims. When an
+app has one published destination, Nova can use it. Otherwise the download
+asks you to choose US, India, or EU. A server choice does not verify a project
+space's capabilities; publishing performs that check against the destination.

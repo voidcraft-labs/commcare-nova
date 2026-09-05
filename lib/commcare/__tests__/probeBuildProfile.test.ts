@@ -10,7 +10,7 @@
  */
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { probeBuildProfile } from "../client";
+import { probeBuildProfile, readBuildXml } from "../client";
 
 const CREDS = { username: "u", apiKey: "k", server: "production" } as const;
 
@@ -47,5 +47,35 @@ describe("what the probe treats as a verdict on the build", () => {
 		respondWith(200);
 		const result = await probeBuildProfile(CREDS as never, "acme", "hq-1");
 		expect(result).toEqual({ ok: true });
+	});
+});
+
+describe("exact-build resource reads", () => {
+	it("preserves the selected server and never follows redirects", async () => {
+		respondWith(302);
+		expect(
+			await readBuildXml(
+				{ ...CREDS, server: "eu" },
+				"acme",
+				"build-1",
+				"suite.xml",
+			),
+		).toEqual({ success: false, status: 302 });
+		expect(fetch).toHaveBeenCalledWith(
+			"https://eu.commcarehq.org/a/acme/apps/download/build-1/suite.xml",
+			expect.objectContaining({ redirect: "manual", cache: "no-store" }),
+		);
+	});
+	it("rejects path-shaped build identifiers before fetching", async () => {
+		respondWith(200);
+		expect(
+			await readBuildXml(
+				CREDS,
+				"acme",
+				"../working?latest=true",
+				"profile.ccpr",
+			),
+		).toEqual({ success: false, status: 400 });
+		expect(fetch).not.toHaveBeenCalled();
 	});
 });

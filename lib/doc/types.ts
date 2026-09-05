@@ -64,6 +64,11 @@ import {
 	userTypeSchema,
 	uuidSchema,
 } from "@/lib/domain";
+import {
+	entryPointIdSchema,
+	entryPointTargetSchema,
+	formEntryPointSchema,
+} from "@/lib/domain/entryPoints";
 import { predicateSchema } from "@/lib/domain/predicate";
 
 /**
@@ -477,6 +482,8 @@ const userDataValuePatchSchema = z
 
 const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 	.omit({
+		entryPoint: true,
+		caseListEntryPoint: true,
 		id: true,
 		name: true,
 		parentModuleUuid: true,
@@ -492,6 +499,7 @@ const canonicalModuleUpdatePatchSchema = clearablePartialPatch(moduleSchema)
 		caseSearchConfig: z.null().optional(),
 	});
 const canonicalFormUpdatePatchSchema = clearablePartialPatch(formSchema).omit({
+	entryPoint: true,
 	id: true,
 	name: true,
 	caseOperations: true,
@@ -749,6 +757,35 @@ function createMutationSchema({
 	predicate: mutationPredicateSchema,
 }: MutationSchemaFamily) {
 	const mutationArms = [
+		z
+			.object({
+				kind: z.literal("addEntryPoint"),
+				target: entryPointTargetSchema,
+				entryPoint: formEntryPointSchema,
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("updateEntryPoint"),
+				entryPointUuid: uuidSchema,
+				patch: z
+					.object({
+						id: entryPointIdSchema.optional(),
+						ignoreDisplayConditions: z.literal(true).nullable().optional(),
+					})
+					.strict()
+					.refine(
+						(p) => Object.keys(p).length > 0,
+						"Choose a setting to change.",
+					),
+			})
+			.strict(),
+		z
+			.object({
+				kind: z.literal("removeEntryPoint"),
+				entryPointUuid: uuidSchema,
+			})
+			.strict(),
 		// Module
 		z.object({
 			kind: z.literal("addModule"),

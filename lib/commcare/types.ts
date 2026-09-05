@@ -483,6 +483,8 @@ export type HqFormLink =
 	  };
 
 export interface HqForm {
+	session_endpoint_id?: string;
+	respect_relevancy?: boolean;
 	doc_type: "Form";
 	form_type: string;
 	unique_id: string;
@@ -512,6 +514,8 @@ export interface HqForm {
 }
 
 export interface HqModule {
+	session_endpoint_id?: string;
+	case_list_session_endpoint_id?: string;
 	doc_type: "Module";
 	module_type: string;
 	unique_id: string;

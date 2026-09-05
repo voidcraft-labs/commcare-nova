@@ -37,6 +37,12 @@ import { configureConnectTool } from "@/lib/agent/tools/configureConnect";
 import { createFormTool } from "@/lib/agent/tools/createForm";
 import { createModuleTool } from "@/lib/agent/tools/createModule";
 import { editFieldTool } from "@/lib/agent/tools/editField";
+import {
+	addEntryPointTool,
+	getEntryPointsTool,
+	removeEntryPointTool,
+	updateEntryPointTool,
+} from "@/lib/agent/tools/entry-points";
 import { addFormLinksTool } from "@/lib/agent/tools/form-links/addFormLinks";
 import { moveFormLinkTool } from "@/lib/agent/tools/form-links/moveFormLink";
 import { removeFormLinkTool } from "@/lib/agent/tools/form-links/removeFormLink";
@@ -547,6 +553,34 @@ export const SHARED_TOOL_REGISTRY = [
 		saName: "addFormLinks",
 		mcpName: "add_form_links",
 		tool: addFormLinksTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "getEntryPoints",
+		mcpName: "get_entry_points",
+		tool: getEntryPointsTool,
+		requires: "view",
+		policy: READ_POLICY,
+	},
+	{
+		saName: "addEntryPoint",
+		mcpName: "add_entry_point",
+		tool: addEntryPointTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "updateEntryPoint",
+		mcpName: "update_entry_point",
+		tool: updateEntryPointTool,
+		requires: "edit",
+		policy: BLUEPRINT_WRITE_POLICY,
+	},
+	{
+		saName: "removeEntryPoint",
+		mcpName: "remove_entry_point",
+		tool: removeEntryPointTool,
 		requires: "edit",
 		policy: BLUEPRINT_WRITE_POLICY,
 	},

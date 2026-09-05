@@ -121,7 +121,10 @@ function uniqueInRegistryOrder(names: ReadonlySet<string>): string[] {
 
 export function deriveExecutorToolProfile(
 	slice: Pick<BuildSlice, "constructionGroups">,
-	options: { readonly configureCaseSelection?: boolean } = {},
+	options: {
+		readonly configureCaseSelection?: boolean;
+		readonly entryPoints?: boolean;
+	} = {},
 ): ExecutorToolProfile {
 	const areas = new Set<BlueprintArea>();
 	for (const group of slice.constructionGroups) {
@@ -155,6 +158,20 @@ export function deriveExecutorToolProfile(
 				"Executor tool profile references unknown tool configureCaseSelection.",
 			);
 		mutations.add("configureCaseSelection");
+	}
+	if (options.entryPoints === true) {
+		for (const name of [
+			"getEntryPoints",
+			"addEntryPoint",
+			"updateEntryPoint",
+			"removeEntryPoint",
+		]) {
+			if (!CHANGE_SET_TOOL_REGISTRY.has(name))
+				throw new Error(
+					`Executor tool profile references unknown tool ${name}.`,
+				);
+			(name === "getEntryPoints" ? reads : mutations).add(name);
+		}
 	}
 	const readTools = uniqueInRegistryOrder(reads);
 	const mutationTools = uniqueInRegistryOrder(mutations);

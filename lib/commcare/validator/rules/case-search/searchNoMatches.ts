@@ -12,8 +12,8 @@
  *   - `SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION`: CommCare HQ's build
  *     validator admits only a registration form of the module's case type
  *     as a case-list form (`ModuleBaseValidator.validate_case_list_form`).
- *   - `SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION`: after submit is fixed to
- *     Results (`post_form_workflow: case_list`), and the form is never on a
+ *   - `SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION`: after submit is Results
+ *     or explicit App home, and the form is never on a
  *     menu, so after-submit links, an after-submit choice, and a display
  *     condition have nowhere to act.
  *   - `SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM`: the Register
@@ -35,6 +35,7 @@ import {
 } from "@/lib/commcare/formLinkProjection";
 import {
 	type BlueprintDoc,
+	caseSelectionCardinality,
 	type Form,
 	isNoMatchesForm,
 	type Module,
@@ -79,9 +80,26 @@ export function searchNoMatchesEntry(
 			),
 		);
 	}
+	// HQ retains the target's collection transport when matching its return query
+	// to this form's scalar uuid() datum. Core cannot hydrate that as selected entities.
+	if (
+		caseSelectionCardinality(mod) === "multiple" &&
+		form.postSubmit !== "app_home"
+	) {
+		errors.push(
+			validationError(
+				"SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN",
+				"form",
+				`Form "${form.name}" registers one case, but "${mod.name}" selects several cases. CommCare cannot carry that new case back into the collection search. Set this form's after-submit destination to App home, or change the module to one-case selection.`,
+				loc,
+			),
+		);
+	}
 	const navigation = [
 		...((form.formLinks?.length ?? 0) > 0 ? ["after-submit links"] : []),
-		...(form.postSubmit !== undefined ? ["an after-submit destination"] : []),
+		...(form.postSubmit !== undefined && form.postSubmit !== "app_home"
+			? ["an after-submit destination other than App home"]
+			: []),
 		...(form.displayCondition !== undefined ? ["a display condition"] : []),
 	];
 	if (navigation.length > 0) {
@@ -89,7 +107,7 @@ export function searchNoMatchesEntry(
 			validationError(
 				"SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION",
 				"form",
-				`Form "${form.name}" opens after a search finds no matches, so after submit it always returns to the module's search and is never on a menu; it cannot carry ${navigation.join(", ")}. Remove them, or clear the form's entry.`,
+				`Form "${form.name}" opens after a search finds no matches, so after submit it can return to the module's search or App home and is never on a menu; it cannot carry ${navigation.join(", ")}. Remove them, or clear the form's entry.`,
 				loc,
 			),
 		);

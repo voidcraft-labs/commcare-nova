@@ -35,7 +35,17 @@ function loaded(
 	appName = "Vaccine Tracker",
 ) {
 	return {
-		doc,
+		doc: {
+			appId: "app-1",
+			appName,
+			caseTypes: null,
+			forms: {},
+			moduleOrder: Object.values(doc.modules).map((module) => module.uuid),
+			formOrder: {},
+			fieldOrder: {},
+			fieldParent: {},
+			...doc,
+		} satisfies BlueprintDoc,
 		app: { app_name: appName },
 		access: {
 			projectId: "project-1",

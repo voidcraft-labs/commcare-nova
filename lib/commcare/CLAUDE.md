@@ -58,6 +58,19 @@ its only consumers are the wire plan and the language-identity migration
 script. An `eng`-only app — including every app with an absent localization
 root — emits byte-identical output to the historical `en`-only shape.
 
+### Runtime request destinations
+
+`runtimeTarget.ts` is the sole origin/domain/app projection for Search, case
+claim, and known-case hydration URLs. `expandDoc`, `compileCcz`, and the shared
+navigation context carry the same target. Direct publishing supplies its
+selected server and domain. Download routes and MCP `compile_app` reuse a unique
+deployed space or require an explicit server; an explicit choice also scopes
+attachment URL resolution to that server. Multiple spaces on the selected
+server leave domain/app placeholders in the portable import artifact. Unbound
+internal compiler calls use a neutral `__COMMCARE_HOST__` placeholder, never an
+implicit US server. These portable placeholders require HQ import/build before
+runtime use.
+
 ### CommCare HQ project-space compatibility
 
 Public surfaces speak only semantic capabilities from
@@ -769,7 +782,7 @@ The shape is a different suite, not a flag on the remote-request one, and
   (`suite/case-list/columns.ts::instanceRootFor`) so a calculated column's
   `current()/../case[...]` sibling walk resolves inside the results roster.
 - **Links into a search-first module** carry HQ's `WorkflowQueryMeta` child:
-  `<query id="results:inline" value="https://www.commcarehq.org/a/__DOMAIN__/phone/case_fixture/__APP_ID__/"><data key="case_type" ref="'t'"/><data key="case_id" ref="instance('commcaresession')/session/data/<source>"/></query>`
+  `<query id="results:inline" value="https://__COMMCARE_HOST__/a/__DOMAIN__/phone/case_fixture/__APP_ID__/"><data key="case_type" ref="'t'"/><data key="case_id" ref="instance('commcaresession')/session/data/<source>"/></query>`
   (`formLinkProjection.ts::queryChild`, `CASE_FIXTURE_URL_TEMPLATE`;
   `test_form_linking_to_inline_search_module_from_registration_form`). The
   query is `requiresSelection` only without prompts and with `default_search`,
@@ -793,6 +806,18 @@ because there is no search to open on.
 `caseSearchConfig.searchButtonDisplayCondition` is orthogonal to that flag decision. It emits as the case-list Search action's `relevant` predicate, not as a Results-row filter and not as the `auto_launch` expression itself. Core first removes irrelevant actions and then evaluates auto-launch among the remaining actions, so the predicate gates the automatic transition only in the web filter-plus-zero-input shape; in every list-first shape it gates the manual Search action. Preview and authoring copy must preserve that distinction rather than treating any input-free search config as a generic “go to Results” rule.
 
 ### No-matches registration lowering
+
+Explicit `postSubmit: "app_home"` on a no-matches form emits HQ `root` and
+one empty local `<create/>`. HQ's `WorkflowHelper._get_stack_frames` uses a
+nonempty explicit end-of-form workflow instead of `CaseListFormWorkflow`, so
+this reset bypasses the implicit return to Results. The implicit return stays
+unchanged for single-case hosts. A multiple-selection host requires explicit
+App home: HQ's `WorkflowQueryMeta.clone_to_match` retains the target collection
+transport while using the registration's scalar new-case id; Core cannot load
+that scalar `uuid()` as a selected-entities instance. Admission reports
+`SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN`; never widen the instance allowlist
+or locally scalarize a query that HQ regenerates as a collection.
+
 
 `Form.entry = { kind: "search-no-matches" }` (`lib/domain/forms.ts::isNoMatchesForm`)
 is Nova's whole authoring of CommCare's `case_list_form`; the wire vocabulary
@@ -987,3 +1012,29 @@ HQ features the pipeline does not cover yet — the validator's `app`/`module`/`
 
 Validation stubs that activate when features land:
 - `previous` + `multi_select`
+
+### Named entry points
+
+`entryPointProjection.ts` shares the form-link frame machinery and projects
+against the emission document, so hidden no-matches forms never change the
+common selection prefix. Module endpoints include the destination's common
+selections; case-list endpoints omit only the final selection, and are refused
+when that does not faithfully open a list. A formless module keeps its actual
+module command. No-matches registration forms never admit an endpoint.
+
+`entryPointSuite.ts` mirrors HQ `EndpointsHelper`: one argument per selectable
+case datum, ordered claim push frames and resolvable remote-request commands,
+then a navigation push. Collection arguments use the selected-entities instance;
+computed datums remain owned by their entry. Only form endpoints can bypass
+relevancy. Inline-search destinations hydrate a known case through the selected
+target's case-fixture URL and reuse their entry's claim behavior. Current HQ
+hardcodes `$case_id` for scalar endpoint query hydration; a query whose next
+selection is another datum cannot be offered as an endpoint. Pre-selection
+search-list endpoints likewise cannot bind that argument and are refused.
+
+HQ JSON always emits the owned endpoint IDs (empty after removal) and a form's
+relevancy policy (true after reset), so overlay imports remove previous settings.
+`entryPointSignature.ts` checks released XML strictly and fingerprints the
+endpoint plus referenced navigation definitions. It normalizes only explicitly
+provided working/build app IDs in known search/fixture URL slots, preserving the
+server and project space; labels do not define endpoint identity.

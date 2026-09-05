@@ -84,6 +84,7 @@ export interface RehydratedChangeSet {
 const AUTHORED_KIND_BY_STAGED_KIND: Readonly<
 	Record<StagedEntityKind, BlueprintAuthoredIdentityKind>
 > = {
+	entry_point: "entryPoint",
 	module: "module",
 	form: "form",
 	field: "field",

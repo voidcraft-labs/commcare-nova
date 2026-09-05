@@ -1,6 +1,7 @@
 "use client";
 import { Icon } from "@iconify/react/offline";
 import tablerX from "@iconify-icons/tabler/x";
+import { EntryPointSettingsShortcut } from "@/components/builder/app-setup/EntryPointSettingsShortcut";
 import { DisplayConditionSection } from "@/components/builder/conditions/DisplayConditionSection";
 import { Button } from "@/components/shadcn/button";
 import { useForm } from "@/lib/doc/hooks/useEntity";
@@ -11,6 +12,7 @@ import { CloseConditionSection } from "./CloseConditionSection";
 import { ConnectSection } from "./ConnectSection";
 import { FormAppearanceSection } from "./FormAppearanceSection";
 import { FormEntrySection } from "./FormEntrySection";
+import { NoMatchesAfterSubmitSection } from "./NoMatchesAfterSubmitSection";
 import type { FormSettingsSectionProps } from "./types";
 
 /** Shell prop shape: the standard section props plus a dismiss callback
@@ -27,9 +29,9 @@ interface FormSettingsPanelProps extends FormSettingsSectionProps {
  * order. Each section decides whether it renders (close forms only for
  * `CloseConditionSection`, non-null `connectType` for `ConnectSection`,
  * registration forms with somewhere to be offered from for
- * `FormEntrySection`). A no-matches registration form has no after-submit
- * choice and no display condition (its entry decides both), so those rows
- * give way to the entry row's explanation.
+ * `FormEntrySection`). A no-matches registration form has a restricted after-submit choice
+ * and no display condition. Its native search return is scalar-only;
+ * App home is the explicit destination for either selection cardinality.
  */
 export function FormSettingsPanel({
 	moduleUuid,
@@ -62,8 +64,19 @@ export function FormSettingsPanel({
 				<CloseConditionSection moduleUuid={moduleUuid} formUuid={formUuid} />
 
 				<FormEntrySection moduleUuid={moduleUuid} formUuid={formUuid} />
-
 				{!noMatches && (
+					<EntryPointSettingsShortcut
+						target={{ kind: "form", moduleUuid, formUuid }}
+						onNavigateAway={onClose}
+					/>
+				)}
+
+				{noMatches ? (
+					<NoMatchesAfterSubmitSection
+						moduleUuid={moduleUuid}
+						formUuid={formUuid}
+					/>
+				) : (
 					<AfterSubmitSection
 						moduleUuid={moduleUuid}
 						formUuid={formUuid}

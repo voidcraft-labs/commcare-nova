@@ -10,6 +10,7 @@ export const BLUEPRINT_AUTHORED_IDENTITY_KINDS = [
 	"searchInput",
 	"caseOperation",
 	"formLink",
+	"entryPoint",
 	"userProperty",
 	"userType",
 	"persona",
@@ -49,6 +50,13 @@ export function authoredBlueprintIdentities(
 	const identities: BlueprintAuthoredIdentity[] = [];
 	for (const module of Object.values(doc.modules)) {
 		identities.push({ uuid: module.uuid, kind: "module" });
+		for (const entryPoint of [module.entryPoint, module.caseListEntryPoint])
+			if (entryPoint)
+				identities.push({
+					uuid: entryPoint.uuid,
+					kind: "entryPoint",
+					ownerUuid: module.uuid,
+				});
 		for (const column of module.caseListConfig?.columns ?? []) {
 			identities.push({
 				uuid: column.uuid,
@@ -66,6 +74,12 @@ export function authoredBlueprintIdentities(
 	}
 	for (const form of Object.values(doc.forms)) {
 		identities.push({ uuid: form.uuid, kind: "form" });
+		if (form.entryPoint)
+			identities.push({
+				uuid: form.entryPoint.uuid,
+				kind: "entryPoint",
+				ownerUuid: form.uuid,
+			});
 		for (const operation of form.caseOperations ?? []) {
 			identities.push({
 				uuid: operation.uuid,

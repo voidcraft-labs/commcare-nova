@@ -3,9 +3,9 @@
 // How a registration form is reached: from the module menu, or from
 // Results after a search finds nothing (the module's no-matches form,
 // `Form.entry`). On a no-matches form this row also says what the missing
-// After submit and display-condition rows would have said, because both
-// are decided by the entry: the form returns to the search, and it is
-// never on a menu. The action's label and the carried answers are edited
+// display-condition row would have said: it is never on a menu. Its
+// restricted after-submit destination is also named here. The action's
+// label and the carried answers are edited
 // here, next to the form they belong to.
 
 "use client";
@@ -24,12 +24,14 @@ import { useForm, useModule } from "@/lib/doc/hooks/useEntity";
 import { useOrderedForms } from "@/lib/doc/hooks/useModuleIds";
 import { carrySearchAnswersMutations } from "@/lib/doc/searchNoMatchesForm";
 import {
+	caseSelectionCardinality,
 	effectiveCaseSearchConfig,
 	isNoMatchesForm,
 	menuFormUuidsOf,
 } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
 import { InlineField } from "./InlineField";
+import { noMatchesAfterSubmitModel } from "./noMatchesAfterSubmit";
 import type { FormSettingsSectionProps } from "./types";
 
 export function FormEntrySection({
@@ -104,10 +106,12 @@ export function FormEntrySection({
 				</h3>
 				<p className="mt-1 text-[13px] leading-relaxed text-nova-text-muted">
 					{noMatches
-						? `From Results, after a search finds no matches. It opens with the search's answers, it is not on the menu, and after submit it returns to ${
-								hostKeepsMenuForms
-									? "Results showing the case it registered"
-									: "Search"
+						? `From Results, after a search finds no matches. It opens with the search's answers, it is not on the menu, and after submit it opens ${
+								noMatchesAfterSubmitModel({
+									appHome: form.postSubmit === "app_home",
+									multiple: caseSelectionCardinality(mod) === "multiple",
+									hasMenuForms: hostKeepsMenuForms,
+								}).destination
 							}.`
 						: other !== undefined
 							? `From the module menu. “${other.name}” is the form Results offers after a search finds no matches.`

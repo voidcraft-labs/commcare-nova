@@ -997,6 +997,10 @@ export const NON_REFERENCE_FORM_PATHS: Readonly<
 	Record<string, NonReferenceReason>
 > = {
 	uuid: "identity",
+	// An owned entry point declares identity and an external name; it has no expression or foreign reference.
+	"entryPoint.uuid": "identity",
+	"entryPoint.id": "declaration",
+	"entryPoint.ignoreDisplayConditions": "config",
 	id: "declaration",
 	name: "display-text",
 	type: "discriminator",
@@ -1033,6 +1037,10 @@ export const NON_REFERENCE_MODULE_PATHS: Readonly<
 	Record<string, NonReferenceReason>
 > = {
 	uuid: "identity",
+	"entryPoint.uuid": "identity",
+	"entryPoint.id": "declaration",
+	"caseListEntryPoint.uuid": "identity",
+	"caseListEntryPoint.id": "declaration",
 	id: "declaration",
 	name: "display-text",
 	caseListOnly: "config",

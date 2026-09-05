@@ -336,6 +336,18 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"A persona has the same place more than once. Keep one main place and list each additional place once.",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: (e) =>
 		`${q(formName(e))} assigns new cases to one particular place, and the exported rule names that place by Nova's own id, which CommCare HQ doesn't recognize, so the rule would match nobody. Assign to a place beneath the current case owner instead, or remove this owner rule.`,
+	ENTRY_POINT_INVALID: (e) => {
+		switch (e.details?.reason) {
+			case "duplicate-id":
+				return "Two deep links use the same ID. Give one of them a different ID.";
+			case "id-format":
+				return "This deep link ID needs lowercase letters, numbers, underscores, or hyphens.";
+			case "display-conditions":
+				return "Only a link to a form can skip display conditions. Keep display conditions enabled for this destination.";
+			default:
+				return "This change would leave a deep link without a usable destination. In Deep links, choose a compatible destination or remove that link first.";
+		}
+	},
 	AUTOMATION_INVALID: () =>
 		"This automation no longer fits the app. Open it and replace any case, form, place, or worker information that has changed.",
 
@@ -574,7 +586,9 @@ const USER_MESSAGE_BY_CODE: Partial<
 	SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION: (e) =>
 		`${q(formName(e))} opens when a search finds nothing, so it needs to register a new case. Make it a registration form, or make it a menu form again.`,
 	SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION: (e) =>
-		`${q(formName(e))} opens when a search finds nothing and always returns to the search, so it can't have after-submit links, an after-submit choice, or a display condition. Clear those, or make it a menu form again.`,
+		`${q(formName(e))} opens when a search finds nothing. It can return to Results or App home, but cannot have after-submit links or a display condition. Clear those settings, or make it a menu form again.`,
+	SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN: (e) =>
+		`${q(formName(e))} registers one case, but ${q(modName(e))} selects several. Choose App home after submit, or change the module to one-case selection.`,
 	SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM: (e) =>
 		`${q(formName(e))} opens when a search finds nothing in ${q(modName(e))}, which picks a parent case first, but the module has no menu form to carry that parent into the registration. Add a menu form to the module, or make ${q(formName(e))} a menu form again.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>

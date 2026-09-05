@@ -505,7 +505,7 @@ export async function loadCaseCountAction(args: {
  * index, and the clustering map takes that as an ordinary key, so every
  * one of these lands in a single group on the device. Which cases those
  * are is runtime data, so the commit gate cannot speak to it
- * (`docs/plans/complex-app/00-contracts.md` § What the commit gate may
+ * (`docs/architecture/contracts.md` § What the commit gate may
  * read) — the author is told the number instead.
  *
  * Held rows are counted: this answers a question about the stored data

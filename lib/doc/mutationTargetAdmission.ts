@@ -8,10 +8,13 @@ import {
 	type BlueprintDoc,
 	collectTranslationUnits,
 	effectiveAppLocalization,
+	entryPointAt,
+	entryPointByUuid,
 	fieldKindDeclaresKey,
 	getConvertibleTypes,
 	isContainer,
 	languageTag,
+	ownRecordValue,
 	type TranslationEntry,
 	translationValueIntegrityIssue,
 } from "@/lib/domain";
@@ -35,6 +38,47 @@ export function mutationTargetsInvalid(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): boolean {
+	// Entry points are owned singletons: simulate the complete ordered batch so
+	// same-batch owner births/removals and singleton replacements cannot go stale.
+	if (
+		mutations.some(
+			(m) =>
+				m.kind === "addEntryPoint" ||
+				m.kind === "updateEntryPoint" ||
+				m.kind === "removeEntryPoint",
+		)
+	) {
+		if (mutationIdentityAdmissionIssue(doc, mutations) !== undefined)
+			return true;
+		if (mutationSequenceAdmissionIssue(doc, mutations) !== undefined)
+			return true;
+		let current = doc;
+		for (const mutation of mutations) {
+			if (mutation.kind === "addEntryPoint") {
+				const target = mutation.target;
+				if (
+					!ownRecordValue(current.modules, target.moduleUuid) ||
+					entryPointAt(current, target)
+				)
+					return true;
+				if (
+					target.kind === "form" &&
+					(!ownRecordValue(current.forms, target.formUuid) ||
+						!current.formOrder[target.moduleUuid]?.includes(target.formUuid))
+				)
+					return true;
+			} else if (
+				mutation.kind === "updateEntryPoint" ||
+				mutation.kind === "removeEntryPoint"
+			) {
+				if (!entryPointByUuid(current, mutation.entryPointUuid)) return true;
+			} else if (mutationTargetsInvalid(current, [mutation])) return true;
+			current = produce(current, (draft) => {
+				applyMutations(draft, [mutation]);
+			});
+		}
+		return false;
+	}
 	/* A scalar field edit cannot create, remove, move, or claim an authored
 	 * identity. It also cannot alter a sequence. The general admission path
 	 * below materializes every live collection in the document so it can
@@ -365,6 +409,10 @@ export function mutationTargetsInvalid(
 	};
 	for (const m of mutations) {
 		switch (m.kind) {
+			case "addEntryPoint":
+			case "updateEntryPoint":
+			case "removeEntryPoint":
+				break;
 			case "addModule":
 				{
 					const parent = m.module.parentModuleUuid ?? null;

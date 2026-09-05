@@ -207,7 +207,7 @@ describe("POST /api/compile — boundary gate", () => {
 			],
 		} as never);
 
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		const body = (await res.json()) as { error: string; details?: string[] };
 
 		expect(res.status).toBe(422);
@@ -223,7 +223,7 @@ describe("POST /api/compile — boundary gate", () => {
 			new Error("lookup database unavailable"),
 		);
 
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		const body = (await res.json()) as { error: string };
 
 		expect(res.status).toBe(500);
@@ -235,7 +235,7 @@ describe("POST /api/compile — boundary gate", () => {
 
 describe("POST /api/compile — inline archive return", () => {
 	it("returns the compiled .ccz bytes inline (octet-stream) when the boundary gate is clean", async () => {
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 
 		expect(res.status).toBe(200);
 		expect(res.headers.get("content-type")).toBe("application/octet-stream");
@@ -265,7 +265,7 @@ describe("POST /api/compile — inline archive return", () => {
 	it("threads the loaded `mutation_seq` into compileCcz as `compiledAtSeq`", async () => {
 		loadsDoc(validDoc(), 99);
 
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		expect(res.status).toBe(200);
 		// Read the body so the response stream closes (async-leak gate).
 		await res.arrayBuffer();
@@ -283,7 +283,7 @@ describe("POST /api/compile — inline archive return", () => {
 
 	it("returns unchecked destination compatibility without changing CCZ bytes", async () => {
 		loadsDoc(docWithCaseSearch());
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		const report = decodeProjectSpaceCompatibilityReport(
 			res.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
 		);
@@ -305,7 +305,7 @@ describe("POST /api/compile — inline archive return", () => {
  */
 describe("POST /api/compile — attachment link target", () => {
 	it("hands the emitter nothing while no project space holds the app", async () => {
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		// Read the body so the response stream closes (async-leak gate).
 		await res.arrayBuffer();
 
@@ -339,7 +339,7 @@ describe("POST /api/compile — attachment link target", () => {
 	it("says what the file could not carry, without changing the bytes", async () => {
 		loadsDoc(docWithAttachmentLink());
 
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		const advisories = decodeExportAdvisories(
 			res.headers.get(EXPORT_ADVISORY_HEADER),
 		);
@@ -353,7 +353,7 @@ describe("POST /api/compile — attachment link target", () => {
 	});
 
 	it("stays quiet on an app with no attachment links", async () => {
-		const res = await POST(reqWith({ appId: "a1" }));
+		const res = await POST(reqWith({ appId: "a1", server: "production" }));
 		const header = res.headers.get(EXPORT_ADVISORY_HEADER);
 		await res.arrayBuffer();
 

@@ -512,6 +512,22 @@ export interface AppLocationReferencesTable {
  * these rows in the same transaction.
  */
 export interface AppDeploymentsTable {
+	content_generation: ColumnType<
+		string | null,
+		string | null | undefined,
+		string | null
+	>;
+	entry_point_manifest: JSONColumnType<
+		| import("@/lib/deployment/entryPointTypes").PublishedEntryPointManifest
+		| null,
+		string | null | undefined,
+		string | null
+	>;
+	entry_point_observation: JSONColumnType<
+		import("@/lib/deployment/entryPointTypes").EntryPointObservation | null,
+		string | null | undefined,
+		string | null
+	>;
 	id: DefaultedUuidV7Column<string>;
 	app_id: string;
 	project_id: string;

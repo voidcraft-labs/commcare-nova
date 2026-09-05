@@ -144,6 +144,19 @@ describe("userFacingError — voice", () => {
 		expect(line).toContain("on our end");
 	});
 
+	it("names the repair for a duplicate deep link ID", () => {
+		const line = userFacingError(
+			validationError(
+				"ENTRY_POINT_INVALID",
+				"app",
+				"Internal detail",
+				{},
+				{ reason: "duplicate-id" },
+			),
+		);
+		expect(line).toContain("Give one of them a different ID");
+	});
+
 	it("gives duplicate worker-information choices a direct repair", () => {
 		const line = userFacingError(
 			validationError(

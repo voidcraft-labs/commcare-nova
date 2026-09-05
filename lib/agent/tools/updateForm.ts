@@ -96,7 +96,7 @@ export const updateFormInputSchema = formAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Post-submit destination: "app_home", "module" (its form list), or "previous". null resets to the form-type default ("module" for a case form in a module that opens on Search, where "previous" is refused). With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
+				'Post-submit destination: "app_home", "module" (its form list), or "previous". null resets to the form-type default ("module" for a case form in a module that opens on Search, where "previous" is refused). For entry search-no-matches, only explicit app_home is supported; null restores return to Results, which requires single-case selection. With conditional after-submit links and no otherwise link this is where the form goes when none match, and it must be explicit.',
 			),
 		connect: connectFormPatchSchema
 			.nullable()
@@ -190,12 +190,11 @@ export const updateFormTool = {
 				patch.postSubmit = post_submit as PostSubmitDestination;
 			}
 			if (entry != null) {
-				/* The no-matches form's after-submit is fixed and it is on no
-				 * menu, so the three navigation slots are refused in the same
-				 * call rather than left for the gate to name one at a time. */
+				/* No-matches registration can return to Results or explicitly to App home. */
+				const effectivePostSubmit =
+					post_submit === undefined ? existing.postSubmit : post_submit;
 				const carried = [
-					...(post_submit != null ||
-					(post_submit === undefined && existing.postSubmit !== undefined)
+					...(effectivePostSubmit != null && effectivePostSubmit !== "app_home"
 						? ["post_submit"]
 						: []),
 					...(displayCondition != null ||
@@ -212,7 +211,7 @@ export const updateFormTool = {
 						kind: "mutate" as const,
 						mutations: [],
 						result: {
-							error: `Form "${existing.name}" cannot open after a search finds no matches while it carries ${carried.join(", ")}: that form always returns to Results showing the case it registered and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, remove_form_link) in this call or before, then set entry.`,
+							error: `Form "${existing.name}" cannot open after a search finds no matches while it carries ${carried.join(", ")}: that form can return to Results or App home and is on no menu. Clear ${carried.length === 1 ? "it" : "them"} (post_submit: null, displayCondition: null, remove_form_link) in this call or before, then set entry.`,
 						},
 					};
 				}

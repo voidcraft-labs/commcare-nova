@@ -314,6 +314,43 @@ export function validateDesignGraph(
 			`This id is already used at ${collision.priorPath.join(".")}.`,
 		);
 
+	const endpointIds = new Set<string>();
+	for (const [index, composition] of contract.moduleCompositions.entries()) {
+		if (
+			composition.caseListEntryPoint !== undefined &&
+			composition.role !== "form-and-queue"
+		) {
+			issue(
+				ctx,
+				["moduleCompositions", index, "caseListEntryPoint"],
+				"A direct case-list entry needs a module with forms and a case list. For a queue-only module, enable its module entry instead.",
+			);
+		}
+	}
+	for (const [collection, compositions] of [
+		["moduleCompositions", contract.moduleCompositions],
+		["formCompositions", contract.formCompositions],
+	] as const) {
+		compositions.forEach((composition, index) => {
+			for (const slot of ["entryPoint", "caseListEntryPoint"] as const) {
+				const entry =
+					slot === "entryPoint"
+						? composition.entryPoint
+						: "caseListEntryPoint" in composition
+							? composition.caseListEntryPoint
+							: undefined;
+				if (entry?.id === undefined) continue;
+				if (endpointIds.has(entry.id))
+					issue(
+						ctx,
+						[collection, index, slot, "id"],
+						"Entry point IDs must be unique throughout the app.",
+					);
+				endpointIds.add(entry.id);
+			}
+		});
+	}
+
 	const actors = new Set(contract.actors.map((value) => value.id));
 	const records = new Map(contract.records.map((value) => [value.id, value]));
 	const properties = new Map(

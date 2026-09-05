@@ -183,3 +183,12 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **Gating needs required checks.** Deploy is Cloud Build on push-to-main; CI (incl.
   this) runs on PRs, so the `smoke` / `auth-healthz` / `auth-contract` jobs only gate as
   required checks in the branch ruleset (they are) — otherwise they inform without blocking.
+
+- **The deep-link journey owns an app and two cases per attempt.**
+  `DEEP_LINKS_FIXTURE_COUNT` and `seed.deepLinks[testInfo.retry]` isolate authored
+  entry points across retries. The dedicated fixture reuses the after-submit
+  blueprint shape but has independent rows: an alphabetically first distractor
+  and the selected patient. `deep-links.spec.ts` runs in the `authed` project,
+  authors an entry point, changes its external ID without changing its UUID URL,
+  reloads, launches the exact real case into the target form, and removes the
+  point with route recovery. No endpoint, case read, or Preview launch is stubbed.

@@ -1,0 +1,65 @@
+---
+title: Deep links
+description: Give a module, case list, or form a stable entry point, try it in Preview, and share a checked CommCare HQ link.
+---
+
+A deep link opens a named place in your app. In **App setup → Deep links**, you
+can add an entry point to an eligible module, case list, or form. Module and
+form settings also have a shortcut to their entry point.
+
+## Choose a destination
+
+Each destination can have one entry point. Nova gives it a **Link ID** that
+stays the same when you rename or move the destination. Changing that ID can
+break links you have already shared. Removing a destination removes its entry
+point too; undo restores both.
+
+Nova shows the cases each entry point needs, including parent cases and the
+order and maximum for several-case selections. A module link opens that
+module's menu. For a module that exists to select cases for another module,
+this does not promise an immediate case list.
+
+Some destinations cannot be opened directly. A case list that starts with
+Search still needs its Search workflow, and a registration form shown only
+when Search has no matches cannot be a link destination. Nova explains the
+restriction when you choose a destination.
+
+Form entry points have an **Open even when display conditions hide the form**
+setting. It applies only to entry through that link. Workers still need access
+to the app and cases; the setting does not grant permissions.
+
+## Try it in Preview
+
+Choose a Preview worker and the required cases, then open the entry point.
+Preview uses real Nova case data available to that worker. It checks the
+selected cases, parent relationships, and display conditions before opening
+anything. When a case is unavailable, Nova asks you to choose again.
+
+Preview does not claim or sync cases from CommCare HQ. Its case choices test
+your app in Nova; they do not fill the case IDs for a shared HQ link.
+
+## Share a CommCare HQ link
+
+After publishing the app and making and releasing a version on CommCare HQ,
+open **App setup → Publishing**. Under the project space, choose the deep link
+and supply any required **case IDs from that CommCare HQ project space**. For
+several cases, use one ID per line in selection order.
+
+Any committed app edits, including label changes, need to be published before
+Nova can create a new checked link. This keeps the case selections and destination
+you see in Nova matched to the published app. If the app changes during a check,
+Nova asks you to try again. Previously copied links continue to follow HQ.
+
+Nova checks the entry point in the released build before generating or copying
+the link. If the published app, required data, or release no longer matches,
+Nova explains what needs attention. A saved publishing status alone does not
+prove that a link is ready.
+
+The recipient signs in to CommCare HQ and needs access to the app and cases.
+The URL follows CommCare HQ's build selection when opened: normally the latest
+released version, but a recipient or project configured to use the latest
+build may open an unreleased one. The link is not pinned to the version Nova
+checked, and a later release can change its behavior.
+
+If you change or remove an entry point, publish and release the updated app
+before expecting the change on CommCare HQ.

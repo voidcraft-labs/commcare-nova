@@ -1,3 +1,8 @@
+import {
+	type AcceptedEntryPointIssue,
+	acceptedEntryPointIssues,
+	realizedEntryPointTarget,
+} from "./acceptedEntryPointParity";
 /**
  * The slice executor loop (the plan's §13.5–§13.9) — the bounded, server-owned
  * machine that turns one accepted Build Slice into one committed canonical
@@ -1928,6 +1933,11 @@ export async function runSliceExecutor(
 							executionHandles,
 						);
 						const acceptedIssues = [
+							...acceptedEntryPointIssues(
+								workspace.currentSnapshot().doc,
+								brief,
+								executionHandles,
+							),
 							...requirementIssues,
 							...placementIssues,
 							...selectionIssues,
@@ -2309,6 +2319,35 @@ export function compositionAdmissionIssue(
 	if (object === null) return null;
 	const snapshot = workspace.currentSnapshot().doc;
 	const executionHandles = workspace.currentExecutionCheckpoint().handles;
+	if (toolName === "addEntryPoint") {
+		const target = rawObject(object.target);
+		const moduleUuid = resolveCheckpointIdentity(target?.moduleUuid, workspace);
+		const formUuid =
+			target?.kind === "form"
+				? resolveCheckpointIdentity(target.formUuid, workspace)
+				: undefined;
+		const accepted = brief.entryPointRealizations?.find((entry) => {
+			const expected = realizedEntryPointTarget(
+				snapshot,
+				entry,
+				executionHandles,
+			);
+			return (
+				expected !== null &&
+				expected.kind === target?.kind &&
+				expected.moduleUuid === moduleUuid &&
+				(expected.kind !== "form" || expected.formUuid === formUuid)
+			);
+		});
+		if (
+			accepted === undefined ||
+			object.id !== accepted.id ||
+			(object.ignoreDisplayConditions === true) !==
+				(accepted.ignoreDisplayConditions === true)
+		)
+			return "addEntryPoint must use an exact entryPointRealization destination, ID, and display-condition behavior from this brief.";
+		return null;
+	}
 	if (toolName === "generateSchema") {
 		const caseTypes = Array.isArray(object.caseTypes) ? object.caseTypes : [];
 		const expectedByKey = new Map(
@@ -2453,8 +2492,16 @@ export function compositionAdmissionIssue(
 					(entry) =>
 						entry.moduleCompositionId === realization.compositionId &&
 						entry.name === nested.name &&
-						entry.blueprintFormType === nested.type,
+						entry.blueprintFormType === nested.type &&
+						(entry.blueprintFormHandle === undefined ||
+							rawCheckpointHandle(nested.formUuid) ===
+								entry.blueprintFormHandle),
 				);
+				if (
+					expected?.blueprintFormHandle !== undefined &&
+					rawCheckpointHandle(nested.formUuid) !== expected.blueprintFormHandle
+				)
+					return "Declare the accepted blueprintFormHandle in this nested form's formUuid so its entry point retains exact identity.";
 				if (expected === undefined) {
 					return "A form nested in this module does not match an accepted form name, mode, and module composition for this workflow slice.";
 				}
@@ -2527,6 +2574,8 @@ export function compositionAdmissionIssue(
 			(entry) =>
 				entry.blueprintFormType === object.type &&
 				entry.name === object.name &&
+				(entry.blueprintFormHandle === undefined ||
+					rawCheckpointHandle(object.formUuid) === entry.blueprintFormHandle) &&
 				realizedModuleUuid(
 					snapshot,
 					brief,
@@ -2534,6 +2583,11 @@ export function compositionAdmissionIssue(
 					executionHandles,
 				) === moduleUuid,
 		);
+		if (
+			expected?.blueprintFormHandle !== undefined &&
+			rawCheckpointHandle(object.formUuid) !== expected.blueprintFormHandle
+		)
+			return "Declare the accepted blueprintFormHandle in formUuid so its entry point retains exact identity.";
 		const moduleComposition =
 			expected === undefined
 				? undefined
@@ -2618,6 +2672,7 @@ function projectDiagnostics(
 		| AcceptedInputRequirementIssue
 		| AcceptedModulePlacementIssue
 		| AcceptedSelectionRealizationIssue
+		| AcceptedEntryPointIssue
 	)[] = [],
 ): unknown {
 	const MAX_REPORTED_FINDINGS = 20;

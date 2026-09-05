@@ -925,3 +925,31 @@ emits a `preview-project-space` frame, and `DeploymentTargetProvider`
 subscribes through the reconciler's `subscribePreviewProjectSpace` seam.
 Every value on every path is the SERVER's resolution; a client-asserted one
 would bypass the ambiguity rule only the server can apply.
+
+## Entry-point launch
+
+`entryPointLaunchAction.ts` resolves the committed app, actor, Project, and optional
+persona through the ordinary authorized Preview context. Its sequence must match
+the caller's saved revision before reads and a fresh authorized snapshot after
+reads. Case bindings come from one mandatory restore-scoped device snapshot; the
+pure `prepareEntryPointLaunch` checks shared endpoint selection requirements,
+ordered distinct IDs, case types, direct child indices, and prospective navigation
+visibility. It never claims cases, records a completed search, or fabricates Search
+answers. A case absent from that worker's restore refuses the launch.
+
+The session installer publishes the complete identity and case bindings together.
+The launch hook discards a response after a document, scope, identity, or request
+generation change. The shell owns launch lifetime after the setup picker unmounts:
+an edited document or changed persona retires the endpoint and returns to setup;
+normal navigation expires its display-condition bypass while preserving the
+ordinary menu selections needed by the next screen. A bypass applies only to an
+explicit form entry point at its exact active destination, never to a normal URL.
+A bare module entry point keeps the actual module menu, with Cases as a separate
+choice; ordinary bare-module navigation retains its existing list shortcut.
+
+An explicitly authored `postSubmit: "app_home"` on a no-matches registration
+returns to App home and retires that search/form/parent request, matching HQ's
+empty root frame. It never records the newly registered scalar case as a
+completed-search result. With no explicit override, the existing registered-case
+Results return remains; admission excludes that implicit return for a
+multiple-selection host.

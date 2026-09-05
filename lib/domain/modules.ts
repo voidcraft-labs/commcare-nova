@@ -37,6 +37,7 @@ import { moduleIconRefSchema } from "./builtinIcons";
 import { authoredCasePropertyNameSchema } from "./casePropertyName";
 import type { CasePropertyDataType } from "./casePropertyTypes";
 import { COMMCARE_DATE_PATTERN_REGEX } from "./commCareDatePattern";
+import { entryPointSchema } from "./entryPoints";
 import {
 	persistableJsonNonnegativeIntegerSchema,
 	persistableJsonPositiveIntegerSchema,
@@ -2634,6 +2635,8 @@ export function caseSearchConfigAfterFinalInputRemoval(
 
 export const moduleSchema = z
 	.object({
+		entryPoint: entryPointSchema.optional(),
+		caseListEntryPoint: entryPointSchema.optional(),
 		uuid: uuidSchema,
 		id: z.string(), // semantic id (snake_case display slug)
 		name: z.string(),

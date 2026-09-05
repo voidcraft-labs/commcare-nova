@@ -1156,7 +1156,7 @@ describe("automation domain and projections", () => {
 		expect(text).not.toContain("50,000");
 		for (const path of [
 			"content/docs/automations.mdx",
-			"docs/plans/complex-app-plan.md",
+			"docs/architecture/complex-apps.md",
 			"docs/research/advanced-case-actions.md",
 		]) {
 			const source = readFileSync(path, "utf8");
@@ -1169,7 +1169,7 @@ describe("automation domain and projections", () => {
 		expect(publicDocs).not.toContain("\u2014");
 		for (const path of [
 			"content/docs/automations.mdx",
-			"docs/plans/complex-app-plan.md",
+			"docs/architecture/complex-apps.md",
 			"docs/research/advanced-case-actions.md",
 			"docs/research/commcare-locations.md",
 		]) {

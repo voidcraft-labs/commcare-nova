@@ -244,3 +244,15 @@ the scroll memory does (coming back to a form lands on the page you left; Clear
 form returns the running form to its first page). It is not a shadow of the
 doc: a page the form no longer has, or one with nothing to show right now, is
 simply re-anchored by both readers rather than trusted.
+
+## Endpoint launch lifetime
+
+`previewEntryPointLaunch` is a verified local launch intent, never authored data.
+`installEntryPointLaunch` atomically installs Preview mode, selected persona, the
+ordered menu selections and exact form target, and clears unrelated search/parent
+requests. `clearEntryPointLaunch` expires the launch-specific display-condition
+bypass when navigation proceeds; ordinary case selections remain available to
+the next form. Preview exit, reset, persona changes, and a confirmed Project
+change clear the entire launch with the other running facts. The Preview shell
+retires a launch on a document change and prevents a stale launch from turning
+into an ordinary form's first-case convenience fallback.

@@ -108,7 +108,7 @@ export const createFormInputSchema = moduleAddressSchema
 			.nullable()
 			.optional()
 			.describe(
-				'Where the user goes after submitting. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Only set to override.',
+				'Where the user goes after submitting. Defaults to "previous" for followup/close ("module" when the module opens on Search), "app_home" for registration/survey. Only set to override. With entry search-no-matches, omission returns to Results and explicit app_home returns home; multiple-selection modules require app_home.',
 			),
 		close_condition: closeConditionInputSchema
 			.nullable()
@@ -224,12 +224,12 @@ export const createFormTool = {
 				};
 			}
 			const closeCondition = resolveCloseCondition(close_condition);
-			if (entry != null && post_submit != null) {
+			if (entry != null && post_submit != null && post_submit !== "app_home") {
 				return {
 					kind: "mutate" as const,
 					mutations: [],
 					result: {
-						error: `Form "${name}" cannot carry post_submit with entry search-no-matches: it always returns to Results showing the case it registered. Leave post_submit out.`,
+						error: `Form "${name}" can return to Results or App home after an empty-search registration. Leave post_submit out to return to Results, or set post_submit to app_home.`,
 					},
 				};
 			}

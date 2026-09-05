@@ -1,3 +1,4 @@
+import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 /**
  * After-submit links: the ONE projection both wire paths and the validator
  * read.
@@ -110,6 +111,7 @@ export interface FrameDatum {
 	readonly id: string;
 	/** A nodeset datum the person selects; a function datum is computed. */
 	readonly requiresSelection: boolean;
+	readonly maximum?: number;
 	/** The case type the datum selects or creates; absent when it has none. */
 	readonly caseType?: string;
 	/** Stable Preview bridge for a selectable datum after root alignment and
@@ -137,6 +139,7 @@ export interface FrameDatum {
 		/** The datum that reads the results, whose session value the frame's
 		 *  query fetches (`source_id`). */
 		readonly nextDatumId: string;
+		readonly caseFixtureUrl: string;
 		/** Whether that datum is a multiple selection (`instance-datum`). */
 		readonly nextDatumIsCollection: boolean;
 	};
@@ -172,6 +175,7 @@ export function sessionDataRef(datumId: string): string {
  * expanded actions (the datum list depends on which cases the form opens).
  */
 export interface FormLinkProjectionContext {
+	readonly runtimeTarget?: RuntimeTarget;
 	readonly moduleOrder: readonly Uuid[];
 	readonly formOrder: Readonly<Record<string, readonly Uuid[]>>;
 	readonly formActions: (formUuid: Uuid) => FormActions;
@@ -215,6 +219,7 @@ export function moduleCaseTypeForActions(
 export function formLinkProjectionContext(
 	doc: BlueprintDoc,
 	opts: {
+		readonly runtimeTarget?: RuntimeTarget;
 		readonly attachmentTarget?: AttachmentUrlTarget | null;
 		readonly lookupNaming?: LookupWireNaming;
 		/** Already-expanded actions, when the caller has them (the compiler). */
@@ -251,6 +256,7 @@ export function formLinkProjectionContext(
 			return built;
 		});
 	return {
+		runtimeTarget: opts.runtimeTarget,
 		moduleOrder,
 		formOrder,
 		formActions,
@@ -281,6 +287,7 @@ export function inlineSearchFor(
 	const ancestorCaseType =
 		parentUuid === undefined ? undefined : doc.modules[parentUuid]?.caseType;
 	const built = buildInlineSearch({
+		runtimeTarget: ctx.runtimeTarget,
 		module: mod,
 		moduleIndex: moduleIndexOf(ctx, moduleUuid),
 		typeContext: moduleTypeContext(mod, doc),
@@ -367,7 +374,10 @@ function toFrameDatum(
 	datum: SessionDatum,
 	ctx: Pick<
 		FormLinkProjectionContext,
-		"selectionSourceModules" | "fromParentModuleDatums" | "queryNextDatums"
+		| "selectionSourceModules"
+		| "fromParentModuleDatums"
+		| "queryNextDatums"
+		| "runtimeTarget"
 	>,
 ): FrameDatum {
 	const selectionSourceModuleUuid = ctx.selectionSourceModules.get(datum);
@@ -381,6 +391,7 @@ function toFrameDatum(
 			caseType: datum.query.caseType,
 			query: {
 				nextDatumId: next?.id ?? datum.id,
+				caseFixtureUrl: runtimeUrls(ctx.runtimeTarget).caseFixture,
 				nextDatumIsCollection: next?.maxSelectValue !== undefined,
 			},
 		};
@@ -388,6 +399,9 @@ function toFrameDatum(
 	return {
 		id: datum.id,
 		requiresSelection: datum.nodeset !== undefined,
+		...(datum.maxSelectValue !== undefined && {
+			maximum: datum.maxSelectValue,
+		}),
 		...(datum.caseType !== undefined && { caseType: datum.caseType }),
 		...(selectionSourceModuleUuid !== undefined && {
 			selectionSourceModuleUuid,
@@ -710,7 +724,7 @@ export function entrySelectionDatumSources(
 }
 
 /** Longest common prefix of several datum lists, compared by id. */
-function commonPrefixById(
+export function commonPrefixById(
 	lists: readonly (readonly FrameDatum[])[],
 ): FrameDatum[] {
 	if (lists.length === 0) return [];
@@ -850,7 +864,7 @@ function queryChild(datum: FrameDatum, sourceId: string): PendingChild {
 	return {
 		type: "query",
 		id: datum.id,
-		value: CASE_FIXTURE_URL_TEMPLATE,
+		value: query.caseFixtureUrl,
 		data: [
 			{ key: "case_type", ref: `'${datum.caseType ?? ""}'` },
 			query.nextDatumIsCollection
@@ -866,8 +880,7 @@ function queryChild(datum: FrameDatum, sourceId: string): PendingChild {
 
 /** CCHQ's `case_fixture` endpoint, the search URL with `/phone/search/`
  *  swapped for `/phone/case_fixture/`; placeholders as in `SEARCH_URL_TEMPLATE`. */
-export const CASE_FIXTURE_URL_TEMPLATE =
-	"https://www.commcarehq.org/a/__DOMAIN__/phone/case_fixture/__APP_ID__/";
+export const CASE_FIXTURE_URL_TEMPLATE = runtimeUrls().caseFixture;
 
 function functionChild(datum: FrameDatum): PendingChild {
 	return {

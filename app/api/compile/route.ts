@@ -32,6 +32,7 @@ import { prepareCompileRequest } from "./prepareCompileRequest";
 export async function POST(req: NextRequest) {
 	try {
 		const {
+			runtimeTarget,
 			doc,
 			assets,
 			compiledAtSeq,
@@ -51,11 +52,13 @@ export async function POST(req: NextRequest) {
 		// prepared lookup wire carries the identity naming and budget-checked
 		// fixture blocks from the boundary's validated snapshot.
 		const hqJson = expandDoc(doc, {
+			runtimeTarget,
 			assets,
 			attachmentTarget,
 			...(lookupNaming && { lookupNaming }),
 		});
 		const buffer = compileCcz(hqJson, doc.appName, doc, {
+			runtimeTarget,
 			assets,
 			compiledAtSeq,
 			...(lookupWire && { lookup: lookupWire }),

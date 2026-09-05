@@ -583,3 +583,28 @@ describe("searchAnswerFields", () => {
 		expect(fields[0]?.id).toBe("patient_name_3");
 	});
 });
+
+it("creates a multiple-selection no-matches form only with explicit App home", () => {
+	const doc = fixture({ register: false, searchFirst: true });
+	const config = doc.modules[MODULE].caseListConfig;
+	if (!config) throw new Error("Missing case list");
+	doc.modules[MODULE].caseListConfig = {
+		...config,
+		selection: { kind: "multiple", maximum: 5 },
+	};
+	const implicit = noMatchesRegistrationFormMutations(doc, MODULE);
+	const explicit = noMatchesRegistrationFormMutations(doc, MODULE, {
+		postSubmit: "app_home",
+	});
+	if (!implicit || !explicit) throw new Error("Missing registration plan");
+	expect(
+		mutationCommitVerdict(doc, implicit.mutations, LOOKUP_CONTEXT_UNAVAILABLE)
+			.ok,
+	).toBe(false);
+	const verdict = mutationCommitVerdict(
+		doc,
+		explicit.mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict));
+});

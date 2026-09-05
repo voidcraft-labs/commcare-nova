@@ -155,7 +155,7 @@ describe("searchNoMatchesEntry", () => {
 					fields: [f({ kind: "text", id: "note", label: proseText("Note") })],
 				},
 				registerForm({
-					postSubmit: "app_home",
+					postSubmit: "module",
 					displayCondition: eq(sessionUser("username"), literal("ada")),
 					formLinks: [
 						{
@@ -322,5 +322,31 @@ describe("INVALID_SEARCH_REF", () => {
 		const messages = codes(doc, "INVALID_SEARCH_REF");
 		expect(messages).toHaveLength(1);
 		expect(messages[0]).toContain("a Search prompt this module no longer has");
+	});
+});
+
+describe("no-matches registration return cardinality", () => {
+	it("requires explicit App home for a multiple-selection host", () => {
+		const doc = docWith({
+			forms: [
+				{
+					uuid: VISIT,
+					name: "Visit",
+					type: "followup",
+					fields: [f({ kind: "text", id: "note" })],
+				},
+				registerForm({}),
+			],
+		});
+		doc.modules[MODULE].caseListConfig = {
+			...searchList(),
+			selection: { kind: "multiple", maximum: 5 },
+		};
+		expect(codes(doc, "SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN")).toHaveLength(
+			1,
+		);
+		doc.forms[REGISTER].postSubmit = "app_home";
+		expect(codes(doc, "SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN")).toEqual([]);
+		expect(codes(doc, "SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION")).toEqual([]);
 	});
 });

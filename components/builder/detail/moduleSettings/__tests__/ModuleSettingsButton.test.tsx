@@ -25,6 +25,12 @@ vi.mock(
 	"@/components/builder/detail/moduleSettings/MenuPlacementSection",
 	() => ({ MenuPlacementSection: () => <div>Menu placement section</div> }),
 );
+vi.mock("@/components/builder/app-setup/EntryPointSettingsShortcut", () => ({
+	EntryPointSettingsShortcut: ({ target }: { target: { kind: string } }) => (
+		<div>{target.kind} deep link section</div>
+	),
+}));
+
 vi.mock("@/components/builder/conditions/DisplayConditionSection", () => ({
 	DisplayConditionSection: () => <div>Display condition section</div>,
 }));
@@ -62,6 +68,9 @@ describe("ModuleSettingsButton", () => {
 		// own snug display tracking is the opposite of that and is expected.
 		expect(title.className).not.toContain("uppercase");
 		expect(title.className).not.toMatch(/tracking-(wide|wider|widest|etched)/);
+
+		expect(screen.getByText("module deep link section")).toBeDefined();
+		expect(screen.getByText("case-list deep link section")).toBeDefined();
 
 		const close = screen.getByRole("button", {
 			name: "Close module settings",

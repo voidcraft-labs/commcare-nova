@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { projectSpaceCapabilityUse } from "@/lib/publish/projectSpaceCompatibility";
 import { loadAppBlueprint } from "../loadApp";
 import { checkProjectSpaceCompatibility } from "../tools/checkProjectSpaceCompatibility";
@@ -31,19 +32,18 @@ describe("released-client compatibility tool", () => {
 	it("keeps no-domain autonomous handoffs working with semantic requirements", async () => {
 		vi.mocked(loadAppBlueprint).mockResolvedValueOnce({
 			app: { app_name: "Patients" },
-			doc: {
-				connectType: null,
-				fields: {},
-				modules: {
-					patients: {
+			doc: buildDoc({
+				appName: "Patients",
+				modules: [
+					{
 						uuid: "patients",
 						id: "patients",
 						name: "Patients",
 						caseType: "patient",
 						caseSearchConfig: {},
 					},
-				},
-			},
+				],
+			}),
 		} as never);
 		const { server, capture } = makeFakeServer();
 		registerGetAppHqFeatureFlagsCompatibility(server, toolCtx);

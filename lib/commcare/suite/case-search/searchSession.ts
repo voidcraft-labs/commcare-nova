@@ -1,3 +1,4 @@
+import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 // lib/commcare/suite/case-search/searchSession.ts
 //
 // `<session>` body of a `<remote-request>`. Wraps `<query>` (search-
@@ -43,14 +44,9 @@ import {
 	composeXPathQueryEmission,
 } from "./xpathQuery";
 
-/**
- * The CCHQ `app_aware_remote_search` endpoint URL with `__DOMAIN__`
- * / `__APP_ID__` placeholders. CCHQ's `Application.create_suite`
- * substitutes both at build time; the literal placeholders never
- * reach a runtime (same path as `CLAIM_URL_TEMPLATE`).
- */
-export const SEARCH_URL_TEMPLATE =
-	"https://www.commcarehq.org/a/__DOMAIN__/phone/search/__APP_ID__/";
+/** Portable URL used only by unbound structural emission and fixture tests.
+ * Actual exports supply their resolved selected-server runtime target. */
+export const SEARCH_URL_TEMPLATE = runtimeUrls().search;
 
 /**
  * CCHQ wire-key for the excluded-owners filter, lifted verbatim
@@ -116,6 +112,7 @@ export interface SearchQueryEmission {
 }
 
 export interface SearchQueryArgs {
+	readonly runtimeTarget?: RuntimeTarget;
 	readonly caseListConfig: CaseListConfig;
 	readonly caseSearchConfig: OrdinaryCaseSearchConfig;
 	readonly wire: WireShape;
@@ -381,7 +378,7 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 	const queryEl = el(
 		"query",
 		{
-			url: SEARCH_URL_TEMPLATE,
+			url: runtimeUrls(args.runtimeTarget).search,
 			default_search: wire.defaultSearch ? "true" : "false",
 			"storage-instance": storageInstance,
 			template: "case",

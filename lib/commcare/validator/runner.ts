@@ -107,6 +107,7 @@ export interface RunValidationOptions {
  * locations (`formUuid` always present).
  */
 const SCOPE_EXEMPT_CODES: ReadonlySet<ValidationErrorCode> = new Set([
+	"ENTRY_POINT_INVALID",
 	// APP_RULES products.
 	"NO_MODULES",
 	"EMPTY_APP_NAME",

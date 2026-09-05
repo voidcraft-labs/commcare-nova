@@ -1133,7 +1133,8 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 			announced = true;
 			args.announceWrite();
 		};
-		/* A no-matches registration form returns to its module as the wire's
+		/* Unless it explicitly returns to App home, a no-matches registration
+		 * form returns to its module as the wire's
 		 * return frame does; the gate keeps such a form free of links, so
 		 * this is decided first. A host with menu forms lands on Results
 		 * showing the case it registered (the frame re-keys the search to
@@ -1172,6 +1173,19 @@ export function FormScreen({ screen, onBack }: FormScreenProps) {
 				? { moduleUuid: submitted.moduleUuid, caseId: result.caseId }
 				: undefined;
 		if (noMatchesRegistration !== undefined) {
+			// An explicitly authored App home destination is HQ's empty root
+			// frame. It discards the scalar registration return rather than feeding
+			// that scalar into a host that may require a multiple-case selection.
+			if (submittedForm?.postSubmit === "app_home") {
+				announceWrite();
+				setPreviewSearchState(noMatchesRegistration.moduleUuid, undefined);
+				setPreviewSelectedCase(undefined);
+				setPreviewCaseTarget(undefined);
+				session.getState().setPreviewParentCaseRequest(undefined);
+				settleAttempt({ kind: "idle" });
+				dispatchPostSubmit("app_home", noMatchesRegistration.moduleUuid);
+				return;
+			}
 			landOnResultsWithRegisteredCase(
 				noMatchesRegistration.moduleUuid,
 				noMatchesRegistration.caseId,

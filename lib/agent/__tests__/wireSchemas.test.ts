@@ -190,8 +190,10 @@ describe("compact provider expression schemas", () => {
 		 * tool growth is a deliberate, visible spend (396k chars when set;
 		 * 447k before the Search prompts grew to seven arms, which put the
 		 * three search-input tools at 460k with their slot descriptions
-		 * already cut to a clause each). */
-		expect(total).toBeLessThan(475_000);
+		 * already cut to a clause each). The four explicit entry-point tools
+		 * bring the measured registry to 477,803 chars; keep their deliberate
+		 * growth bounded without relaxing cycle or AST isolation checks. */
+		expect(total).toBeLessThan(480_000);
 	});
 
 	it("keeps the exact UUID pattern on every identity-bearing AST property", () => {

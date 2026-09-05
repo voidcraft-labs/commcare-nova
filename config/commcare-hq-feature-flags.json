@@ -150,6 +150,21 @@
 					"contains": "if toggles.CUSTOM_PROPERTIES.enabled(self.domain) and \"custom_properties\" in self__profile:"
 				}
 			]
+		},
+		{
+			"id": "deep-links",
+			"capability": "deep-links",
+			"role": "required",
+			"slug": "session_endpoints",
+			"symbol": "SESSION_ENDPOINTS",
+			"expectedTag": "TAG_FROZEN",
+			"expectedNamespaces": ["NAMESPACE_DOMAIN"],
+			"upstreamEvidence": [
+				{
+					"path": "corehq/apps/app_manager/feature_support.py",
+					"contains": "or toggles.SESSION_ENDPOINTS.enabled(self.domain)"
+				}
+			]
 		}
 	]
 }

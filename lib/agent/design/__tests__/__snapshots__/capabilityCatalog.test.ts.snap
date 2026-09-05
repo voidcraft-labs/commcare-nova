@@ -13,7 +13,7 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "multi_select",
     "geopoint",
   ],
-  "catalogDigest": "9a9b4336c37567c16164ec282515eaf114650519b6f5da31e1ec4943cbc9cff7",
+  "catalogDigest": "f4b152d9a9e3040bac439e0e253b50c1bdf46ddc5e0917a2bed11989b073dfea",
   "constraintCodes": [
     "PREVIEW_AUTOMATIONS_NOT_EXECUTED",
     "NO_MATCHES_REGISTRATION_IS_WEB_APPS_ONLY",
@@ -35,7 +35,6 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     "SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET",
     "DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
     "ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
-    "GAP_SESSION_ENDPOINTS_DEEP_LINKS",
   ],
   "fieldKinds": [
     "text",
@@ -77,6 +76,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "add_case_operations",
       "saName": "addCaseOperations",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "add_entry_point",
+      "saName": "addEntryPoint",
       "staging": "allowed",
     },
     {
@@ -225,6 +230,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
     },
     {
       "effect": "read-blueprint",
+      "mcpName": "get_entry_points",
+      "saName": "getEntryPoints",
+      "staging": "allowed",
+    },
+    {
+      "effect": "read-blueprint",
       "mcpName": "get_field",
       "saName": "getField",
       "staging": "allowed",
@@ -329,6 +340,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "remove_case_operation",
       "saName": "removeCaseOperation",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "remove_entry_point",
+      "saName": "removeEntryPoint",
       "staging": "allowed",
     },
     {
@@ -515,6 +532,12 @@ exports[`capability catalog > matches the reviewed snapshot (tool surface, vocab
       "effect": "mutate-blueprint",
       "mcpName": "update_case_operation",
       "saName": "updateCaseOperation",
+      "staging": "allowed",
+    },
+    {
+      "effect": "mutate-blueprint",
+      "mcpName": "update_entry_point",
+      "saName": "updateEntryPoint",
       "staging": "allowed",
     },
     {

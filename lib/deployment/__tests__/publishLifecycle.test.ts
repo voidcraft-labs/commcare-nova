@@ -78,12 +78,17 @@ vi.mock("@/lib/media/manifest", () => ({
 vi.mock("@/lib/organization/service", () => ({
 	readOrganization: vi.fn(),
 }));
+vi.mock("../entryPointManifest", () => ({
+	publishedEntryPoints: vi.fn(() => []),
+}));
 vi.mock("../observe", () => ({ observeDeployment: vi.fn() }));
 /* Exactly the store surface `service.ts` imports — no more, no less. A
  * mock naming something the module never imports proves nothing, and one
  * missing a name the module DOES import fails as `undefined is not a
  * function` deep inside the code under test rather than at the mock. */
 vi.mock("../store", () => ({
+	beginDeploymentContentWrite: vi.fn(async () => "generation"),
+	finishDeploymentContentWrite: vi.fn(async () => true),
 	applyDeploymentObservation: vi.fn(),
 	foldDeploymentAttempt: vi.fn(),
 	readDeployment: vi.fn(),

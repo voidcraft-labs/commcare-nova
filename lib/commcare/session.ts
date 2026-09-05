@@ -934,6 +934,8 @@ export interface EntryDefinitionInput extends SessionDatumsInput {
 	readonly formXmlns: string;
 	readonly formIndex: number;
 	readonly postSubmit: PostSubmitDestination;
+	/** Native root frame overrides the otherwise implicit case-list-form return. */
+	readonly resetToAppHome?: boolean;
 	/**
 	 * The form's projected after-submit links (`formLinkProjection.ts::
 	 * projectFormLinks`). Present, the stack is one exclusive `<create>` per
@@ -1128,34 +1130,36 @@ export function deriveEntryDefinition(
 	// frame. `app_home` (HQ `default`) contributes no frame either way, so a
 	// form with no links and `app_home` emits no `<stack>` at all — CommCare
 	// pops the form frame and lands home.
-	const operations = [
-		...(formLinks !== undefined
-			? deriveFormLinkStack(
-					formLinks,
-					postSubmit,
-					moduleIndex,
-					previousFrame,
-					moduleFrame,
-				)
-			: derivePostSubmitStack(
-					postSubmit,
-					moduleIndex,
-					previousFrame,
-					moduleFrame,
-				)),
-		// End-of-form frames win over the case-list-form frame, so it is
-		// last (`WorkflowHelper.add_form_workflow` appends
-		// `case_list_forms_frames` after the workflow's own).
-		...(args.returnFrame === undefined
-			? []
-			: [
-					{
-						op: "create" as const,
-						ifClause: args.returnFrame.ifClause,
-						children: args.returnFrame.children.map(toStackChild),
-					},
-				]),
-	];
+	const operations: StackOperation[] = args.resetToAppHome
+		? [{ op: "create", children: [] }]
+		: [
+				...(formLinks !== undefined
+					? deriveFormLinkStack(
+							formLinks,
+							postSubmit,
+							moduleIndex,
+							previousFrame,
+							moduleFrame,
+						)
+					: derivePostSubmitStack(
+							postSubmit,
+							moduleIndex,
+							previousFrame,
+							moduleFrame,
+						)),
+				// The compiler supplies this only for the implicit no-matches
+				// return. Explicit App home selects the root-reset branch above,
+				// matching HQ WorkflowHelper._get_stack_frames precedence.
+				...(args.returnFrame === undefined
+					? []
+					: [
+							{
+								op: "create" as const,
+								ifClause: args.returnFrame.ifClause,
+								children: args.returnFrame.children.map(toStackChild),
+							},
+						]),
+			];
 	for (const operation of operations) {
 		for (const child of operation.children) {
 			for (const expression of stackChildExpressions(child)) {

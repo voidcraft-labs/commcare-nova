@@ -29,9 +29,9 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BuilderLocalizationProvider } from "@/components/builder/localization/BuilderLocalizationProvider";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-
 import type { SelectedPreviewIdentityState } from "@/lib/preview/hooks/useSelectedPreviewIdentity";
 import type { Location } from "@/lib/routing/types";
+import { BuilderSessionProvider } from "@/lib/session/provider";
 import type {
 	PreviewCaseTarget,
 	PreviewMenuCaseSelection,
@@ -269,9 +269,11 @@ function renderShell(options: { hideStructuralParent?: boolean } = {}) {
 				},
 			}}
 		>
-			<BuilderLocalizationProvider>
-				<PreviewShell />
-			</BuilderLocalizationProvider>
+			<BuilderSessionProvider>
+				<BuilderLocalizationProvider>
+					<PreviewShell />
+				</BuilderLocalizationProvider>
+			</BuilderSessionProvider>
 		</BlueprintDocProvider>,
 	);
 }
@@ -466,9 +468,11 @@ describe("PreviewShell — case-list workspace dispatch", () => {
 					fieldOrder: {},
 				}}
 			>
-				<BuilderLocalizationProvider>
-					<PreviewShell />
-				</BuilderLocalizationProvider>
+				<BuilderSessionProvider>
+					<BuilderLocalizationProvider>
+						<PreviewShell />
+					</BuilderLocalizationProvider>
+				</BuilderSessionProvider>
 			</BlueprintDocProvider>,
 		);
 		// Workspace is still mounted (Activity-hidden); legacy is

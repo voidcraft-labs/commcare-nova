@@ -1,3 +1,4 @@
+import { uniqueSlug } from "@/lib/domain/idSlug";
 /** Exact, derived execution context for one workflow slice. */
 
 import {
@@ -157,7 +158,9 @@ export interface SliceExecutionBrief {
 		readonly icon: ModuleComposition["icon"];
 		readonly formCompositionIds: readonly DesignId[];
 	}[];
+	readonly entryPointRealizations?: readonly EntryPointRealization[];
 	readonly formRealizations: readonly {
+		readonly blueprintFormHandle?: ChangeSetHandle;
 		readonly compositionId: DesignId;
 		readonly moduleCompositionId: DesignId;
 		readonly blueprintFormType:
@@ -207,6 +210,76 @@ const RESERVED_BLUEPRINT_CASE_TYPE_KEYS = new Set([
 	"parent",
 	"user",
 ]);
+
+export interface EntryPointRealization {
+	readonly kind: "module" | "case-list" | "form";
+	readonly moduleCompositionId: DesignId;
+	readonly blueprintModuleHandle: ChangeSetHandle;
+	readonly blueprintFormHandle?: ChangeSetHandle;
+	readonly id: string;
+	readonly ignoreDisplayConditions?: true;
+}
+
+export function blueprintFormHandle(compositionId: DesignId): ChangeSetHandle {
+	return changeSetHandleSchema.parse(
+		`@form_${compositionId.replaceAll("-", "")}`,
+	);
+}
+
+/** Derive once from complete accepted composition, reserving authored IDs before
+ * allocating defaults so a generated name never steals an explicit identity. */
+export function acceptedEntryPointRealizations(
+	contract: AppDesignContract,
+): EntryPointRealization[] {
+	const taken = new Set(
+		[
+			...contract.moduleCompositions.flatMap((item) => [
+				item.entryPoint?.id,
+				item.caseListEntryPoint?.id,
+			]),
+			...contract.formCompositions.map((item) => item.entryPoint?.id),
+		].filter((id): id is string => id !== undefined),
+	);
+	const result: EntryPointRealization[] = [];
+	const add = (
+		kind: EntryPointRealization["kind"],
+		moduleCompositionId: DesignId,
+		name: string,
+		intent: { id?: string; ignoreDisplayConditions?: true },
+		formId?: DesignId,
+	) => {
+		const id = intent.id ?? uniqueSlug(name, "entry_point", taken);
+		taken.add(id);
+		result.push({
+			kind,
+			moduleCompositionId,
+			blueprintModuleHandle: blueprintModuleHandle(moduleCompositionId),
+			id,
+			...(formId === undefined
+				? {}
+				: { blueprintFormHandle: blueprintFormHandle(formId) }),
+			...(intent.ignoreDisplayConditions === true
+				? { ignoreDisplayConditions: true }
+				: {}),
+		});
+	};
+	for (const item of contract.moduleCompositions) {
+		if (item.entryPoint !== undefined)
+			add("module", item.id, item.name, item.entryPoint);
+		if (item.caseListEntryPoint !== undefined)
+			add("case-list", item.id, `${item.name} list`, item.caseListEntryPoint);
+	}
+	for (const item of contract.formCompositions)
+		if (item.entryPoint !== undefined)
+			add(
+				"form",
+				item.moduleCompositionId,
+				item.name,
+				item.entryPoint,
+				item.id,
+			);
+	return result;
+}
 
 /** Lower a semantic module identity into the executor's existing durable
  * handle vocabulary. Full DesignId bits keep the mapping injective without a
@@ -357,7 +430,6 @@ const CONSTRAINT_AREAS: Readonly<
 	SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET: [],
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
-	GAP_SESSION_ENDPOINTS_DEEP_LINKS: ["navigation"],
 };
 
 function checklistRequirement(
@@ -540,7 +612,12 @@ export function deriveSliceExecutionBrief(args: {
 	const orderedPlanWorkflowIds = args.plan.slices.map(
 		(planSlice) => planSlice.workflowId,
 	);
+	const entryPointRealizations =
+		orderedPlanWorkflowIds.at(-1) === workflow.id
+			? acceptedEntryPointRealizations(args.contract)
+			: [];
 	const relevantModuleCompositionIds = new Set<string>([
+		...entryPointRealizations.map((entry) => entry.moduleCompositionId),
 		...formCompositions.map(
 			(composition) => composition.moduleCompositionId as string,
 		),
@@ -719,6 +796,9 @@ export function deriveSliceExecutionBrief(args: {
 		};
 	});
 	const formRealizations = formCompositions.map((composition) => ({
+		...(composition.entryPoint === undefined
+			? {}
+			: { blueprintFormHandle: blueprintFormHandle(composition.id) }),
 		compositionId: composition.id,
 		moduleCompositionId: composition.moduleCompositionId,
 		blueprintFormType:
@@ -744,6 +824,7 @@ export function deriveSliceExecutionBrief(args: {
 	);
 	const catalog = buildCapabilityCatalog();
 	const toolProfile = deriveExecutorToolProfile(executableSlice, {
+		entryPoints: entryPointRealizations.length > 0,
 		configureCaseSelection: moduleRealizations.some(
 			(realization) =>
 				realization.selectionRealization?.action === "configure-after-forms",
@@ -833,6 +914,7 @@ export function deriveSliceExecutionBrief(args: {
 		navigation,
 		moduleCompositions,
 		formCompositions,
+		...(entryPointRealizations.length === 0 ? {} : { entryPointRealizations }),
 		moduleRealizations,
 		formRealizations,
 		externalRequirements: args.contract.externalRequirements.filter(
@@ -948,6 +1030,14 @@ export function renderBriefMessage(brief: SliceExecutionBrief): string {
 		jsonSection("Navigation", brief.navigation),
 		jsonSection("Module composition", brief.moduleCompositions),
 		jsonSection("Form composition", brief.formCompositions),
+		...(brief.entryPointRealizations === undefined
+			? []
+			: [
+					jsonSection(
+						"Entry points to create after all navigation and forms exist",
+						brief.entryPointRealizations,
+					),
+				]),
 		jsonSection(
 			"Module and selection realization instructions",
 			brief.moduleRealizations,

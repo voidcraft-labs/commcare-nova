@@ -1,3 +1,7 @@
+import type {
+	EntryPointTarget,
+	FormEntryPoint,
+} from "@/lib/domain/entryPoints";
 /**
  * Diff two `BlueprintDoc`s into the minimal-enough `Mutation[]` whose
  * replay on the FIRST doc reproduces the SECOND. It supports endpoint-only
@@ -362,6 +366,8 @@ function propertyPatch(
 // would clobber a concurrent collection edit. An explicit config removal still
 // travels as `updateModule{caseListConfig:null}`.
 const MODULE_PATCH_SKIP = new Set<string>([
+	"entryPoint",
+	"caseListEntryPoint",
 	"icon",
 	"audioLabel",
 	"name",
@@ -371,6 +377,7 @@ const MODULE_PATCH_SKIP = new Set<string>([
 	"caseSearchConfig",
 ]);
 const FORM_PATCH_SKIP = new Set<string>([
+	"entryPoint",
 	"icon",
 	"audioLabel",
 	"name",
@@ -657,6 +664,17 @@ export function diffDocsToMutations(
 	for (const uuid of moduleDelta.common) {
 		const prevModule = ownRecordValue(prev.modules, uuid) as Module;
 		const nextModule = ownRecordValue(next.modules, uuid) as Module;
+		updates.push(
+			...diffEntryPoint(prevModule.entryPoint, nextModule.entryPoint, {
+				kind: "module",
+				moduleUuid: uuid,
+			}),
+			...diffEntryPoint(
+				prevModule.caseListEntryPoint,
+				nextModule.caseListEntryPoint,
+				{ kind: "case-list", moduleUuid: uuid },
+			),
+		);
 		const p = prevModule as unknown as Record<string, unknown>;
 		const n = nextModule as unknown as Record<string, unknown>;
 		if (p.name !== n.name) {
@@ -692,6 +710,17 @@ export function diffDocsToMutations(
 	for (const uuid of formDelta.common) {
 		const prevForm = ownRecordValue(prev.forms, uuid) as Form;
 		const nextForm = ownRecordValue(next.forms, uuid) as Form;
+		const moduleUuid = Object.keys(next.formOrder).find((key) =>
+			next.formOrder[asUuid(key)]?.includes(uuid),
+		);
+		if (moduleUuid)
+			updates.push(
+				...diffEntryPoint(prevForm.entryPoint, nextForm.entryPoint, {
+					kind: "form",
+					moduleUuid: asUuid(moduleUuid),
+					formUuid: uuid,
+				}),
+			);
 		const p = prevForm as unknown as Record<string, unknown>;
 		const n = nextForm as unknown as Record<string, unknown>;
 		if (p.name !== n.name) {
@@ -2722,4 +2751,29 @@ function userPatch<T extends Record<string, unknown>>(
 	return patch as {
 		[K in Exclude<keyof T, "uuid" | "order">]?: T[K] | null;
 	};
+}
+
+function diffEntryPoint(
+	before: FormEntryPoint | undefined,
+	after: FormEntryPoint | undefined,
+	target: EntryPointTarget,
+): Mutation[] {
+	if (!before && !after) return [];
+	if (!before && after)
+		return [{ kind: "addEntryPoint", target, entryPoint: after }];
+	if (before && !after)
+		return [{ kind: "removeEntryPoint", entryPointUuid: before.uuid }];
+	if (!before || !after) return [];
+	if (before.uuid !== after.uuid)
+		return [
+			{ kind: "removeEntryPoint", entryPointUuid: before.uuid },
+			{ kind: "addEntryPoint", target, entryPoint: after },
+		];
+	const patch: Extract<Mutation, { kind: "updateEntryPoint" }>["patch"] = {};
+	if (before.id !== after.id) patch.id = after.id;
+	if (before.ignoreDisplayConditions !== after.ignoreDisplayConditions)
+		patch.ignoreDisplayConditions = after.ignoreDisplayConditions ?? null;
+	return Object.keys(patch).length
+		? [{ kind: "updateEntryPoint", entryPointUuid: before.uuid, patch }]
+		: [];
 }

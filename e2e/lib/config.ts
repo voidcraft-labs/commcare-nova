@@ -28,3 +28,6 @@ export const FORM_LINKS_FIXTURE_COUNT = SMOKE_RETRIES + 1;
 /** The search-first journey registers a case from an empty search, so a
  *  retry needs an app whose search still finds nothing for that name. */
 export const SEARCH_FIRST_FIXTURE_COUNT = SMOKE_RETRIES + 1;
+
+/** Entry-point authoring mutates the doc, so retries own separate apps. */
+export const DEEP_LINKS_FIXTURE_COUNT = SMOKE_RETRIES + 1;

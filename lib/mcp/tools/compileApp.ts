@@ -1,3 +1,8 @@
+import { COMMCARE_SERVER_IDS } from "@/lib/commcare/servers";
+import {
+	downloadDeploymentTarget,
+	downloadRuntimeTarget,
+} from "@/lib/deployment/runtimeTarget";
 /**
  * `nova.compile_app` — produce the CommCare HQ wire format for an owned app.
  *
@@ -79,6 +84,12 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 			description:
 				'Compile an owned app to CommCare HQ format. `format: "json"` returns the HQ JSON as text, or, when the app has media or Project data, a base64-encoded zip bundle so every companion artifact travels with it. `format: "ccz"` returns the binary archive base64-encoded. A download has no selected CommCare HQ project space, so `_meta["nova/projectSpaceCompatibility"]` reports semantic app capabilities as `not_checked` without blocking the compile. When the report is relevant, a `nova_project_space_compatibility` text block appears before the artifact so a large base64 result cannot hide it. Check one actual destination later with `check_project_space_compatibility`, or let `upload_app_to_hq` perform its authoritative pre-write check.',
 			inputSchema: z.object({
+				server: z
+					.enum(COMMCARE_SERVER_IDS)
+					.optional()
+					.describe(
+						"CommCare server for the download. Required when this app has no unique deployed project space.",
+					),
 				app_id: z
 					.string()
 					.describe(
@@ -127,9 +138,19 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 					role: access.role,
 					actorUserId: access.actorUserId,
 				});
-				const attachmentTarget = attachmentUrlTargetFor(
+				const runtimeTarget = downloadRuntimeTarget(
 					attachmentDeploymentTarget,
+					args.server,
 				);
+				if (!runtimeTarget)
+					throw new McpInvalidInputError(
+						"Choose a CommCare server for this download, then try again.",
+					);
+				const selectedDeployment = downloadDeploymentTarget(
+					attachmentDeploymentTarget,
+					args.server,
+				);
+				const attachmentTarget = attachmentUrlTargetFor(selectedDeployment);
 				const boundary = await prepareExportBoundary({
 					mode,
 					access,
@@ -171,7 +192,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 				 * complete for the target Nova could name. */
 				const advisories = exportAdvisories(
 					preparedDoc,
-					attachmentDeploymentTarget.kind,
+					selectedDeployment.kind,
 				);
 				const advisoryContent = exportAdvisoryContent(advisories);
 				const advisoryMeta =
@@ -202,6 +223,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 							},
 						};
 						const hqJson = expandDoc(preparedDoc, {
+							runtimeTarget,
 							attachmentTarget,
 							...(hasMedia && { assets }),
 							...(lookupNaming && { lookupNaming }),
@@ -255,6 +277,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * lossless escape, and the `encoding` field inside the
 						 * wrapper tells the caller to decode it. */
 						const hqJson = expandDoc(preparedDoc, {
+							runtimeTarget,
 							assets,
 							attachmentTarget,
 							...(lookupNaming && { lookupNaming }),
@@ -263,6 +286,7 @@ export function registerCompileApp(server: McpServer, ctx: ToolContext): void {
 						 * `cc-content-version` so the archive names the exact
 						 * document version it was built from. */
 						const cczBuf = compileCcz(hqJson, app.app_name, preparedDoc, {
+							runtimeTarget,
 							assets,
 							compiledAtSeq,
 							...(lookupWire && { lookup: lookupWire }),

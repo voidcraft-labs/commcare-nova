@@ -1084,3 +1084,43 @@ export async function probeBuildProfile(
 	} catch {}
 	return { ok: true };
 }
+
+/** Read an exact BUILD resource. Never resolves working apps or follows redirects. */
+export async function readBuildXml(
+	creds: CommCareCredentials,
+	domain: string,
+	buildId: string,
+	resource: "profile.ccpr" | "suite.xml",
+): Promise<{ readonly xml: string } | CommCareApiError> {
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(buildId))
+		return { success: false, status: 400 };
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 30_000);
+	try {
+		const response = await fetch(
+			`${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/${resource}`,
+			{
+				headers: {
+					Authorization: authHeader(creds),
+					Accept: "application/xml",
+				},
+				redirect: "manual",
+				cache: "no-store",
+				signal: controller.signal,
+			},
+		);
+		if (!response.ok) {
+			await response.body?.cancel();
+			return { success: false, status: response.status };
+		}
+		const xml = await response.text();
+		// A HTML login page with status 200 is not a build resource.
+		if (!xml.trim() || xml.length > 20_000_000)
+			return { success: false, status: 502 };
+		return { xml };
+	} catch {
+		return { success: false, status: 503 };
+	} finally {
+		clearTimeout(timer);
+	}
+}

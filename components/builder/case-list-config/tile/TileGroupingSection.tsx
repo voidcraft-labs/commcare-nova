@@ -17,7 +17,7 @@
 //      it as an ordinary key, so they cluster together. Which cases
 //      those are is stored data, not document structure, so the commit
 //      gate cannot speak to it: the surface MEASURES it and states the
-//      consequence instead (`docs/plans/complex-app/00-contracts.md`
+//      consequence instead (`docs/architecture/contracts.md`
 //      § What the commit gate may read). Measured, measured zero, and
 //      not-yet-known stay three different sentences.
 //

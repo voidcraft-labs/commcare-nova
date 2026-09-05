@@ -71,3 +71,8 @@ shared field link and back/forward history must reopen in the same locale.
 For a `caseListOnly` module that has neither forms nor child menus, the module IS its Results screen, so its trail collapses: the module crumb points at `{kind:"cases"}` and the redundant trailing "Results" crumb is dropped. A `caseListOnly` module with children instead points at `{kind:"module"}` so its menu remains reachable, with Results as a separate destination. The same identity drives `recoverLocation` (`location.ts`): a Search / Results / Details location whose module has no case type (e.g. the type was cleared, which also drops the `caseListOnly` flag) degrades to `{kind:"module"}` rather than stranding the user on a blank workspace.
 
 **`previewCaseTargetBindsLocation(loc, target)` is the one predicate both consumers gate on** — `PreviewShell` grafts the bound `caseId` onto the form with it, the breadcrumb names the bound case with it. Anything that reads `previewCaseTarget` to decide "is this form's case the active one?" MUST go through it, or the loaded case and the displayed case can drift again (the original bug: a follow-up's case named on a register form that never loaded it). A case-loading form's crumb carries `reselectCaseFor`, so clicking it re-opens the case list rather than re-navigating to the form you're already on.
+
+App setup's **Deep links** section owns `/setup/deep-links/{entryPointUuid}`.
+The optional entry-point UUID selects its detail; it is not ephemeral local
+state. Removing the point or its owner recovers to the overview, and renaming
+its external link ID leaves its authoring URL unchanged.

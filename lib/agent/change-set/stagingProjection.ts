@@ -32,6 +32,7 @@ export type StagingProjectionDecision = "handle-eligible" | "canonical-only";
 export const STAGING_PROJECTION_DECISIONS: Readonly<
 	Record<AuthorableIdentityFamily, StagingProjectionDecision>
 > = {
+	"entry-point": "handle-eligible",
 	module: "handle-eligible",
 	form: "handle-eligible",
 	field: "handle-eligible",
@@ -72,6 +73,7 @@ export const STAGING_PROJECTION_DECISIONS: Readonly<
 export const HANDLE_ENTITY_KIND_BY_FAMILY: Readonly<
 	Partial<Record<AuthorableIdentityFamily, StagedEntityKind>>
 > = {
+	"entry-point": "entry_point",
 	module: "module",
 	form: "form",
 	field: "field",

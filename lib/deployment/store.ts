@@ -12,6 +12,7 @@ import {
 	withAppTx,
 } from "@/lib/db/pg";
 import { projectRoleForInTransaction } from "@/lib/db/projectMembership";
+import { safePersistedSequence } from "@/lib/utils/persistedSequence";
 import { deploymentNotFound } from "./errors";
 import {
 	applyAttemptOutcome,
@@ -930,6 +931,135 @@ export async function applyDeploymentObservation(
 					.execute();
 			}
 			return { view: await loadWithinTransaction(tx, row.id), applied: true };
+		},
+	);
+}
+
+/** Invalidate link evidence BEFORE any remote dependency or app mutation. */
+export async function beginDeploymentContentWrite(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+): Promise<string> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			const generation = crypto.randomUUID();
+			await tx
+				.updateTable("app_deployments")
+				.set({ content_generation: generation, entry_point_manifest: null })
+				.where("id", "=", row.id)
+				.execute();
+			return generation;
+		},
+	);
+}
+
+/** Superseded completion proves the remote write order uncertain. Fail closed. */
+export async function finishDeploymentContentWrite(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	generation: string,
+	manifest: import("./entryPointTypes").PublishedEntryPointManifest | null,
+): Promise<boolean> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			if (row.content_generation !== generation) {
+				await tx
+					.updateTable("app_deployments")
+					.set({
+						content_generation: crypto.randomUUID(),
+						entry_point_manifest: null,
+					})
+					.where("id", "=", row.id)
+					.execute();
+				return false;
+			}
+			const active = await tx
+				.selectFrom("app_deployment_resources")
+				.select("remote_id")
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", "app")
+				.where("superseded_at", "is", null)
+				.executeTakeFirst();
+			const accepted =
+				manifest !== null && active?.remote_id === manifest.remoteAppId;
+			await tx
+				.updateTable("app_deployments")
+				.set({
+					entry_point_manifest: accepted ? JSON.stringify(manifest) : null,
+				})
+				.where("id", "=", row.id)
+				.execute();
+			return accepted;
+		},
+	);
+}
+
+export async function readEntryPointEvidence(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+) {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (_tx, row) => ({
+			generation: row.content_generation,
+			manifest: row.entry_point_manifest,
+			observation: row.entry_point_observation,
+		}),
+	);
+}
+
+/** The observed mapping and content generation must still be current. */
+export async function recordEntryPointObservation(
+	scope: DeploymentScope,
+	target: DeploymentTargetKey,
+	observation: import("./entryPointTypes").EntryPointObservation,
+): Promise<boolean> {
+	return withDeploymentRow(
+		scope,
+		target,
+		{ ensure: false },
+		async (tx, row) => {
+			const app = await tx
+				.selectFrom("apps")
+				.select("mutation_seq")
+				.where("id", "=", scope.appId)
+				.executeTakeFirst();
+			if (
+				app === undefined ||
+				safePersistedSequence(
+					app.mutation_seq,
+					"entry point observation app.mutation_seq",
+				) !== observation.sourceSequence ||
+				row.entry_point_manifest?.sourceSequence !== observation.sourceSequence
+			)
+				return false;
+			if (
+				row.content_generation !== observation.generation ||
+				row.entry_point_manifest?.generation !== observation.generation
+			)
+				return false;
+			const active = await tx
+				.selectFrom("app_deployment_resources")
+				.select("remote_id")
+				.where("deployment_id", "=", row.id)
+				.where("kind", "=", "app")
+				.where("superseded_at", "is", null)
+				.executeTakeFirst();
+			if (active?.remote_id !== observation.remoteAppId) return false;
+			await tx
+				.updateTable("app_deployments")
+				.set({ entry_point_observation: JSON.stringify(observation) })
+				.where("id", "=", row.id)
+				.execute();
+			return true;
 		},
 	);
 }

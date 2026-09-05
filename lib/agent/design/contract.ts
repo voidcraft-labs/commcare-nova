@@ -23,6 +23,7 @@ import {
 } from "@/lib/agent/design/lookupChoiceAttestation";
 import { FORM_ICON_SLUGS, MODULE_ICON_SLUGS } from "@/lib/domain/builtinIcons";
 import type { CasePropertyDataType } from "@/lib/domain/casePropertyTypes";
+import { entryPointIdSchema } from "@/lib/domain/entryPoints";
 import type { FieldKind } from "@/lib/domain/fields";
 import { identityIssues } from "@/lib/domain/languageRegistry";
 import { languageDescriptor } from "@/lib/domain/languageRegistry/names";
@@ -629,6 +630,10 @@ export type ModuleSelection = z.infer<typeof moduleSelectionSchema>;
 /** One deliberate home-screen/menu container. These are product-composition
  * decisions, not Blueprint modules: every reference stays in Design IDs and
  * the deterministic compiler later chooses construction ownership. */
+const designEntryPointSchema = z
+	.object({ id: entryPointIdSchema.optional() })
+	.strict();
+
 export const moduleCompositionSchema = z
 	.object({
 		id: designIdSchema,
@@ -637,6 +642,8 @@ export const moduleCompositionSchema = z
 		parentModuleCompositionId: designIdSchema.optional(),
 		role: z.enum(["form-host", "queue-only", "form-and-queue"]),
 		selection: moduleSelectionSchema.optional(),
+		entryPoint: designEntryPointSchema.optional(),
+		caseListEntryPoint: designEntryPointSchema.optional(),
 		workflowIds: z.array(designIdSchema).min(1).max(32),
 		hostRecordId: designIdSchema.optional(),
 		actorIds: z.array(designIdSchema).min(1).max(32),
@@ -716,6 +723,9 @@ export type FormCompositionLayout = z.infer<typeof formCompositionLayoutSchema>;
 /** Exact worker-facing form composition for one complete workflow variant. */
 export const formCompositionSchema = z
 	.object({
+		entryPoint: designEntryPointSchema
+			.extend({ ignoreDisplayConditions: z.literal(true).optional() })
+			.optional(),
 		id: designIdSchema,
 		workflowId: designIdSchema,
 		moduleCompositionId: designIdSchema,

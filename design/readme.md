@@ -162,3 +162,16 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 | `readme.md` | This guide: the brand, the voice, the visual foundations |
 | `tokens/` | `colors.css` · `typography.css` · `spacing.css` · `fonts.css` · `base.css` |
 | `components/core/` | Per-primitive contracts (`*.prompt.md`) |
+
+## Deep link authoring
+
+Deep links are named destinations in App setup, with their own URL-selected
+details and direct shortcuts from destination settings. Authoring copy describes
+what opens and which case selections it needs. Link ID edits explain their effect
+on shared links before the author applies them. A form's display-condition bypass
+names the visible effect and never promises broader access.
+
+Local testing belongs beside authoring and uses Preview's real Project cases.
+External link generation belongs to a selected Publishing target and asks for
+that HQ project space's case IDs. Its evidence reads “Released build checked” with
+a time; it makes no guarantee about the build HQ later chooses for a recipient.
