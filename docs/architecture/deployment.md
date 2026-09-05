@@ -25,7 +25,9 @@ pins change, then update the digest in both Cloud Build configurations. The
 application pipeline never builds its own tooling. The worker machine size is
 the Cloud Build default.
 
-A private registry cache holds dependency/source/migration layers. A separate
+A private registry cache holds dependency/source/migration layers. npm download
+archives stay in a disposable cache mount, so they do not duplicate installed
+packages in those exported layers. A separate
 OCI image holds only `.next/cache`, including Turbopack and native TypeScript
 incremental state. BuildKit seeds its writable cache mount directly from that
 image; the compiler cache never enters the host source context or an
@@ -52,7 +54,8 @@ cache export reuses the completed build instead of compiling again. Private
 cache artifacts expire after fourteen days and are never deployable images.
 
 The build runs Next, the native production type check, and Sentry upload in
-sequence. Parallel type checking and source-map processing caused CPU
+sequence. Static-page generation uses both cores on a two-core worker; larger
+machines keep Next's spare coordinator core. Parallel type checking and source-map processing caused CPU
 contention on the default worker. CI continues to type-check the whole repo;
 the production configuration covers runtime code and Next's generated route
 types. Turbopack generates native debug IDs and indexed maps with embedded

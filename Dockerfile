@@ -23,13 +23,17 @@ ARG NPM_VERSION=12.0.2
 # Dependency layers are independent of source and per-release identity.
 FROM ${NODE_IMAGE} AS build-base
 ARG NPM_VERSION
-RUN npm install --global "npm@${NPM_VERSION}" --ignore-scripts && \
+RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
+    npm install --global "npm@${NPM_VERSION}" --ignore-scripts --no-audit --no-fund && \
     test "$(npm --version)" = "${NPM_VERSION}"
 
 FROM build-base AS deps
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
-RUN npm ci --ignore-scripts
+# Download archives are disposable, not a second copy of node_modules in the
+# exported dependency layer. A fresh worker still installs from the lockfile.
+RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
+    npm ci --ignore-scripts --no-audit --no-fund
 
 # Inherit dependency layers instead of copying the full node_modules tree.
 FROM deps AS sources

@@ -20,9 +20,12 @@ assert.equal(
 	buildId,
 );
 const staticDirectory = path.join(directory, "static");
-const clientFiles = readdirSync(staticDirectory, { recursive: true }).filter(
-	(name) => name.endsWith(".js"),
+const staticFiles = readdirSync(staticDirectory, { recursive: true });
+assert.ok(
+	!staticFiles.some((name) => name.endsWith(".map")),
+	"Public source maps must not enter the runtime image",
 );
+const clientFiles = staticFiles.filter((name) => name.endsWith(".js"));
 assert.ok(
 	clientFiles.some((name) =>
 		readFileSync(path.join(staticDirectory, name), "utf8").includes(buildId),

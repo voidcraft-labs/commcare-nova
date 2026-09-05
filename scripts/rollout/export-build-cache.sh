@@ -10,7 +10,7 @@ trap finish_cache_export EXIT
 export_dependency_cache() {
 if [[ -n "${NOVA_DOCKER_CACHE_TO:-}" ]]; then
 	docker buildx build "${base_arguments[@]}" --target migration-build --output type=cacheonly \
-		--cache-to "type=registry,ref=$NOVA_DOCKER_CACHE_TO,mode=max,compression=zstd,compression-level=1,force-compression=true,ignore-error=true" . || \
+		--cache-to "type=registry,ref=$NOVA_DOCKER_CACHE_TO,mode=max,compression=zstd,compression-level=1,ignore-error=true" . || \
 		echo 'Dependency cache export failed; the application image is valid.' >&2
 fi
 }

@@ -1,3 +1,4 @@
+import { availableParallelism } from "node:os";
 import { fileURLToPath } from "node:url";
 import { withSentryConfig } from "@sentry/nextjs";
 import { createMDX } from "fumadocs-mdx/next";
@@ -14,6 +15,14 @@ const reactProfiler = readReactProfilerConfig();
 const buildRoot = fileURLToPath(new URL(".", import.meta.url));
 
 const nextConfig: NextConfig = {
+	// Next reserves a core for coordination even on a two-core worker. Page
+	// generation can use both; larger machines retain that spare core.
+	experimental: {
+		cpus: Math.max(
+			1,
+			availableParallelism() - Number(availableParallelism() > 2),
+		),
+	},
 	/* Keep the retired docs URL working while clients and bookmarks move to the
 	 * semantic project-space guidance. Config redirects run before proxy host
 	 * routing, so constrain this one to the docs hostname. */
