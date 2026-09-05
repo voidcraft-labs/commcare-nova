@@ -45,6 +45,8 @@ steps:
         docker create --name nova-benchmark-output "$${NOVA_IMAGE_TAG}" >/dev/null
         docker cp nova-benchmark-output:/app/.nova-build-id /workspace/baked-build-id
         docker cp nova-benchmark-output:/app/.next/server/server-reference-manifest.json /workspace/actions.json
+        docker cp nova-benchmark-output:/app/.next/required-server-files.json /workspace/required-server-files.json
+        docker cp nova-benchmark-output:/app/.next/static /workspace/static
         docker rm nova-benchmark-output >/dev/null
         test "$$(cat /workspace/baked-build-id)" = "$BUILD_ID"
   - id: verify-image

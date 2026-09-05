@@ -36,6 +36,7 @@ Read-only production scans found:
 - Better Auth accounts: 38 current identities, no repair findings.
 - Better Auth OAuth: 51 current clients linked to the canonical resource, no
   legacy columns or rolling-deploy bridge triggers.
+- Project backfill: 396 case rows, no missing/mismatched Project IDs or orphaned apps.
 - Case-type retirement: 491 apps, zero candidates after fixing the scanner's
   treatment of valid derived worker case schemas. The original scanner's four
   findings were false positives; two schemas retained real case rows. No repair
@@ -73,3 +74,43 @@ $0.0156/minute for e2-highcpu-8 in us-central1. Queued time is excluded from
 compute billing. The comparison uses list cost before free-tier credit and
 excludes cache storage/network charges. Larger-machine adoption requires at
 least 20% median end-to-end improvement and at most 25% higher compute cost.
+
+The narrowed registry cache manifest and BuildKit configuration were inspected
+for snapshot `581a91fe-7e43-4599-8b6d-4efc7a5171b9`: 12 cache records, with no
+synthetic Action key or secret-value assignments in 7,659 bytes of metadata.
+
+## Narrowed-cache result
+
+The first warm comparison showed that exporting per-release compiler-result
+layers cost about 80 seconds on the default machine. Those layers cannot be
+reused under the next build ID. The final helper therefore exports registry
+cache only through the reusable `jobs` stage and carries `.next/cache` through
+GCS. Its first complete pair measured:
+
+| Machine | Build-only total | Image build and cache export | Cache restore | GCS publication |
+| --- | ---: | ---: | ---: | ---: |
+| Default | 7m 03s | 4m 50s | 1m 07s | 0m 53s |
+| E2_HIGHCPU_8 | 4m 12s | 2m 25s | 0m 48s | 0m 52s |
+
+Build IDs: default `581a91fe-7e43-4599-8b6d-4efc7a5171b9`, larger machine
+`8797e8a3-abba-4076-8f04-bea3eccdd799`. These samples cost about $0.042 and
+$0.065 in build compute respectively, before free-tier credit. The larger
+machine improves time but exceeds the 25% cost ceiling in this pair. The
+pipeline retains the default machine. Repeated measurements and final CI
+results are recorded in [PR #563](https://github.com/voidcraft-labs/commcare-nova/pull/563).
+
+The build-only total includes cache publication. Production publishes that GCS
+cache in parallel with image push and deployment work, so it is not generally
+on the traffic-movement critical path. Conversely the benchmark omits Sentry
+upload and all deployment work; it does not establish a new live-release time.
+The additional artifact check inspects the compiled server deployment ID and
+client release ID as well as runtime image configuration and Action encryption.
+
+Offline tests cover changed dependency namespaces, unavailable/corrupt caches,
+unsafe archives, and concurrent Job-template changes. Fresh and repeated auth
+setup, cleanup schema/lease authority, and case-type retirement have integration
+coverage. The full changed suite exposed a hard-coded OAuth test resource;
+using the canonical resource passes the scoped integration and leak checks.
+CI also exposed a popup geometry assertion reading a 4px inset during a scale
+transition. The smoke test now waits for settled scale before measuring; the
+layout requirement is unchanged.

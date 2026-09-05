@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const [directory, buildId] = process.argv.slice(2);
@@ -15,6 +15,20 @@ for (const secret of [
 ]) {
 	assert.ok(!config.Env.some((entry) => entry.startsWith(`${secret}=`)));
 }
+assert.equal(
+	JSON.parse(read("required-server-files.json")).config.deploymentId,
+	buildId,
+);
+const staticDirectory = path.join(directory, "static");
+const clientFiles = readdirSync(staticDirectory, { recursive: true }).filter(
+	(name) => name.endsWith(".js"),
+);
+assert.ok(
+	clientFiles.some((name) =>
+		readFileSync(path.join(staticDirectory, name), "utf8").includes(buildId),
+	),
+	"Client assets must carry this build's fresh release identity",
+);
 const actions = JSON.parse(read("actions.json"));
 assert.equal(
 	actions.encryptionKey,

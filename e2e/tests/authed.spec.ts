@@ -1661,6 +1661,9 @@ test.describe("authenticated builder", () => {
 		await expect(
 			menu.getByRole("heading", { name: "Add information" }),
 		).toBeVisible();
+		// Visibility precedes the popup's scale transition. Geometry assertions
+		// need its settled size, otherwise a 4px inset briefly reads as 3.94px.
+		await expect(menu).toHaveCSS("scale", "none");
 		const [openMenuBox, triggerBox] = await Promise.all([
 			menu.boundingBox(),
 			addInformation.boundingBox(),
