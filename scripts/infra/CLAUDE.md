@@ -1,9 +1,12 @@
 # Deployment infrastructure
 
-Nova has one deployment path: Cloud Build constructs and pushes one image,
-resolves that pushed tag once to its complete `repository@sha256` identity,
-then passes only that immutable reference to the blocking migration Job,
-capture-cleanup Job, and direct service deployment. Stable infrastructure is
+Nova has one deployment path: Cloud Build pushes the complete application
+image directly from BuildKit and deploys its immutable digest. A separately
+built reproducible migration image must have a verified successful Execution
+before the service update. The gate reuses unchanged successful artifacts only
+with the full Job contract, latest Execution identity, and etag still matching;
+changed artifacts run the full migration and runtime probe while the app builds.
+The capture worker is built and updated explicitly outside application releases. Stable infrastructure is
 managed explicitly by `manage-deployment.py` (plan by default, `--apply` to
 change it); see `docs/architecture/deployment.md`. Do not add
 traffic controllers, candidate services, rollout accounts, compatibility
@@ -31,7 +34,7 @@ terminal.
 `provision-deployment-identities.sh` is plan-only unless passed `--apply`. It
 reconciles these permanent identities:
 
-- `nova-build` builds, pushes, changes recurring Job images, and deploys the
+- `nova-build` builds, pushes, changes migration Job images, and deploys the
   service. It reads scheduler and media metadata to check prerequisites; it
   never connects to Postgres. It reads only the build-time secrets used by
   `cloudbuild.yaml`. Disposable private caches have separate bucket/repository
@@ -131,8 +134,8 @@ rejects mutable images and traffic tags, requires the exact candidate to own
 100% of both desired and observed traffic, and permits revision GC only for
 untagged zero-traffic revisions. Ordinary deployment requires automatic scaling before and after deployment,
 creates exactly one new revision, and never pauses cleanup or changes ingress.
-Completed historical cutover labels have no behavioral effect. The migration
-Job must succeed before either the worker image or the service changes.
+Completed historical cutover labels have no behavioral effect. Migration admission must succeed before the service changes. Worker image
+updates are explicit infrastructure maintenance, outside the application pipeline.
 
 The Cloud Build trigger switch is safe only after its service account has all
 listed grants. A custom trigger identity overrides any `serviceAccount` field

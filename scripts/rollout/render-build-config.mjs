@@ -153,15 +153,17 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		chatStream,
 		dbConstants,
 		nodeVersion,
+		buildTools,
 	] = await Promise.all([
 		readText("cloudbuild.yaml"),
 		readText(".github/workflows/ci.yml"),
-		readText("scripts/rollout/build-image.sh"),
+		readText("scripts/rollout/build-common.sh"),
 		readText("Dockerfile"),
 		readText("app/api/apps/[id]/stream/route.ts"),
 		readText("app/api/chat/[streamId]/stream/route.ts"),
 		readText("lib/db/constants.ts"),
 		readText(".nvmrc"),
+		readText("scripts/infra/Dockerfile.build-tools"),
 	]);
 
 	requireExactlyOnce(
@@ -170,16 +172,15 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		"cloudbuild.yaml",
 		issues,
 	);
-	requireExactlyTwice(
-		cloudBuild,
-		"source /workspace/rollout.env",
-		"cloudbuild.yaml",
-		issues,
-	);
+	if (count(cloudBuild, "source /workspace/rollout.env") !== 2) {
+		issues.push(
+			"cloudbuild.yaml must load runtime declarations for build and deploy",
+		);
+	}
 	requireExactlyOnce(
-		cloudBuild,
-		`name: node:${nodeVersion.trim()}-alpine`,
-		"cloudbuild.yaml",
+		buildTools,
+		`FROM node:${nodeVersion.trim()}-alpine@sha256:`,
+		"scripts/infra/Dockerfile.build-tools",
 		issues,
 	);
 
@@ -213,12 +214,11 @@ async function checkRepositoryWiring(manifest, manifestHash, manifestSource) {
 		".github/workflows/ci.yml",
 		issues,
 	);
-	requireExactlyTwice(
-		dockerfile,
-		`ARG ${RUNTIME_BUILD_ID_ENV_KEY}`,
-		"Dockerfile",
-		issues,
-	);
+	if (count(dockerfile, `ARG ${RUNTIME_BUILD_ID_ENV_KEY}`) !== 3) {
+		issues.push(
+			"Dockerfile must declare build identity for compilation, cache admission, and the runtime image",
+		);
+	}
 	requireExactlyTwice(
 		dockerfile,
 		`ENV ${RUNTIME_BUILD_ID_ENV_KEY}="\${${RUNTIME_BUILD_ID_ENV_KEY}}"`,

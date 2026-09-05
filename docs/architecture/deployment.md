@@ -1,38 +1,98 @@
 # Build and deployment
 
-Cloud Build builds one complete production image, pushes it, resolves its
-immutable digest, runs one migration execution, then updates the cleanup worker
-and deploys one service revision. Migration failure blocks both updates. The
-service verifier requires automatic scaling, one new Ready revision, and 100%
-desired and observed traffic at the exact digest. App, docs, and MCP public
-probes finish the deployment. No ordinary release changes bucket policy,
-Scheduler configuration, ingress attachments, or historical repair Jobs.
+Cloud Build pushes one complete production application image directly from
+BuildKit, admits its independently built migration artifact, and deploys one
+service revision. The migration gate blocks the service update. The verifier
+requires automatic scaling, one new Ready revision, and 100% desired and
+observed traffic at the exact image digest. App, docs, and MCP public probes
+finish the deployment. Ordinary releases do not build or update the recurring
+cleanup worker, bucket policy, Scheduler, or historical repair Jobs.
 
 ## Build caches and identity
 
 `scripts/rollout/build-image.sh` is the shared production-image boundary for PR
-CI and Cloud Build. It uses a private Docker-container Buildx builder, removed
-on exit, with pinned Buildx and BuildKit versions. CI builds the complete runner
-with synthetic configuration and never publishes an application image.
+CI and Cloud Build. Both build the complete runner and migration image with a
+private Docker-container Buildx builder. CI uses synthetic configuration and
+loads the images for validation; production pushes the application directly
+from BuildKit and reads its immutable digest from the exporter's metadata.
+Build, migration, cache, and maintenance targets are fixed in their respective
+helpers. The application helper does not accept target overrides.
 
-Production restores a private registry `mode=max` cache of dependency, source,
-and Job layers and a separate
-GCS archive of `.next/cache`. The compatibility namespace includes cache format,
-platform, Node/npm configuration, the dependency lockfile, Dockerfile, and Next
-configuration. Source changes reuse the compatible compiler cache. Every build
-still receives its unique Cloud Build ID for deployment, runtime provenance,
-and Sentry release identity. Server Action encryption uses the pinned secret
-version; secrets enter through BuildKit secret mounts. The final image does not
-retain the token/key as image environment variables.
+Cloud Build uses one immutable tool image containing the pinned Cloud SDK,
+Docker CLI, Buildx, and Node versions. Its independent build recipe is
+`scripts/infra/Dockerfile.build-tools`; build and push it explicitly when those
+pins change, then update the digest in both Cloud Build configurations. The
+application pipeline never builds its own tooling. The worker machine size is
+the Cloud Build default.
 
-Writers publish immutable archives and then completion manifests. Concurrent
-builds cannot overwrite a snapshot. Missing, corrupt, inaccessible, or
-incompatible caches produce a cold build. Cache export/publication failures do
-not invalidate a successfully built image. The registry cache stops at the `jobs` stage; per-release runner and compiler
-result layers are not exported because the next build ID cannot reuse them.
-Registry cache layers contain intermediate build inputs and Job artifacts; access is restricted like other build artifacts.
-Both cache stores expire after fourteen days. They contain no release pointer
-and are never a source of a deployable image.
+A private registry cache holds one installed-dependency tar archive. Both npm
+downloads and the installation tree stay in disposable mounts; registry export
+processes the archive instead of walking the complete installed file tree.
+Each build expands that archive inside BuildKit before compilation. A separate
+OCI image holds only `.next/cache`, including Turbopack and native TypeScript
+incremental state. BuildKit seeds its writable cache mount directly from that
+image; the compiler cache never enters the host source context or an
+application layer. Zstandard level 1 keeps publication inexpensive. GCS stores
+only a small completion manifest, published after the immutable cache image.
+There are no host gzip archives, extraction passes, or multi-gigabyte GCS
+transfers. Cache publication overlaps service deployment.
+
+The compatibility namespace includes format, platform, production/benchmark
+profile, Node/npm configuration, dependency lockfile, Dockerfile, Next and
+production TypeScript configuration, and the build helper. Source edits reuse
+compatible compiler state. Every build still receives its unique Cloud Build
+ID for deployment, runtime provenance, and Sentry release identity. Server
+Action encryption uses the pinned secret version; secrets enter through
+BuildKit secret mounts and are absent from image environment variables.
+
+Missing, corrupt, inaccessible, or incompatible cache images fall back to an
+empty seed before application compilation begins. An application compile,
+type-check, source-map upload, or image-export failure is terminal; it never
+triggers a retry disguised as a cold build. Cache export/publication failure
+does not invalidate a successfully built application. Generated Cloud Build
+control and verification files are excluded from the Docker source context.
+Cache export has no application-build dependency and receives no application
+build credentials. It requires an exact Build ID marker written into the cache
+mount only after the complete build succeeds, so publication cannot invoke a
+second compilation. Private
+cache artifacts expire after fourteen days and are never deployable images.
+
+The build runs Next, the native production type check, and Sentry upload in
+sequence. Parallel type checking and source-map processing caused CPU
+contention on the default worker. The compiler processes use one Rayon, Tokio,
+and Go worker to reduce measured contention without changing the Cloud Build
+machine. These settings belong only to the builder stage. CI continues to
+type-check the whole repo; the production configuration covers runtime code and Next's generated route
+types. Turbopack generates native debug IDs and indexed maps with embedded
+source content. Sentry accepts those maps directly (`--no-rewrite`); its
+symbolication reader flattens indexed maps when needed. The upload retains the
+SDK's exact manifest exclusions, including the private Server Action manifest.
+Only after successful upload and release finalization are source maps and
+mapping URLs removed from public, server, and standalone output. Cloud SQL,
+Storage, KMS, the document/media parsers, and Sentry's server SDK use their
+published native Node packages instead of being compiled into server chunks.
+The Sentry server configuration carries the SDK's injected distribution-directory
+value into its native global fallback, preserving frame-path rewriting.
+Complete-image verification exercises workbook, document, and audio parsing plus
+the generated instrumentation's error capture, release, transaction, and rewritten
+stack frame through a local transport that never sends telemetry.
+
+## Migration admission
+
+The migration image contains the bundled migration entrypoint and its complete
+transitive runtime dependencies. Its reproducible timestamps make unchanged
+migration code retain the same digest across application build IDs. The
+capture worker has a separate explicit image target. Neither bundle is in the
+application runner.
+
+`scripts/rollout/migration-gate.py` reuses a prior successful immutable Execution
+only when the candidate digest, full Job contract, latest Execution identity,
+and Job etag still match. It checks the Job again after reading the Execution.
+Missing or failed evidence requires a real run. An active execution can be
+joined only for the exact candidate artifact; another artifact refuses
+admission. A changed artifact updates only the image with an etag fence and
+executes the full migration/probe while the application compiles. This is an
+artifact proof, not a commit-path heuristic or a compiler-cache success flag.
 
 ## Stable infrastructure
 
@@ -52,8 +112,8 @@ python3 scripts/infra/manage-deployment.py job \
 `check` reads media policy and Scheduler configuration without changing them.
 Drift fails deployment with the command that repairs it. Media updates require
 the observed metageneration and refuse to remove an operator retention policy.
-Job provisioning requires an immutable image. Each release changes only the
-recurring Job image and verifies authority, command/arguments, environment,
+Job provisioning requires an immutable image. Migration admission verifies
+authority, command/arguments, environment,
 network, resources, task/retry counts, and timeout against the manifest.
 Migration submission uses the verified Job etag and sends the execution POST
 once. Cloud Run omits VPC fields from the Execution response, so the Job
@@ -64,7 +124,9 @@ concurrent template change fails the fence instead of running unverified code.
 Cleanup remains scheduled every five minutes. After winning its exclusive
 advisory lock and prewarming its work connection, each execution proves its
 schema and zero-row read/update/delete authority before maintenance. There is
-no separately launched deployment probe.
+no separately launched deployment probe. Build the `capture-worker` target and
+update its Job explicitly when worker code changes; ordinary releases leave
+its image and schedule alone.
 
 IAM setup remains `provision-deployment-identities.sh` (plan first, `--apply`
 to execute). The build identity needs scheduler viewer, media metadata reader,
@@ -73,7 +135,8 @@ Grant new read permissions before switching pipelines. After the simplified
 pipeline is successfully serving, remove its obsolete `roles/cloudscheduler.admin`
 and `projects/commcare-nova/roles/novaDeploymentIngressMaintenance` project
 bindings, plus `roles/iam.serviceAccountUser` on `nova-media-policy` and
-`nova-capture-scheduler`. Do not revoke them while the old pipeline can run.
+`nova-capture-scheduler`, and `nova-capture-cleanup`. Do not revoke them while
+the old pipeline can run.
 The separate media policy identity remains available for explicit maintenance.
 
 ## Historical repairs
@@ -101,7 +164,7 @@ python3 scripts/rollout/deploy-cloud-run.py --execute-job \
 ```
 
 Use each scanner's `--help` for its paired Job and arguments. The maintenance
-image must be supplied explicitly; the service image has only recurring Job
+image must be supplied explicitly; the service image contains no Job
 bundles. Worker case schemas are valid derived storage even when absent from
 the authored case-type catalog; the retirement scanner includes those types.
 Archive completed Job definitions, execution evidence, and immutable image
@@ -111,8 +174,9 @@ release no longer refreshes them. Historical schema migrations are immutable.
 ## Benchmarking
 
 `cloudbuild.benchmark.yaml` builds and inspects the full final image with a fresh
-build ID and synthetic Action key. It does not push an app image, upload Sentry
-maps, run database jobs, or deploy. It may publish disposable compiler caches.
+build ID, real public configuration, pinned Action key, and real Sentry map
+uploads. It does not push an app image, execute a database Job, or deploy. It
+pushes a private benchmark migration artifact and disposable compiler caches.
 
 ```bash
 gcloud builds submit --project=commcare-nova --region=us-central1 \
@@ -122,10 +186,8 @@ gcloud builds submit --project=commcare-nova --region=us-central1 \
   --substitutions=_CACHE_MODE=warm
 ```
 
-Use `_CACHE_MODE=cold` for a cache-free control and `--machine-type=E2_HIGHCPU_8`
-for the larger-machine comparison. Compare complete build timing, including
-restore/export costs, and account for the benchmark's omitted Sentry upload.
-Keep the default machine unless the larger machine improves median end-to-end
-time by at least 20% while increasing estimated compute cost by no more than
-25%. Production deployment timing is verified after merge, not inferred from
-a build-only benchmark.
+Use `_CACHE_MODE=cold` for a cache-free control. Measure cold and warm builds on
+the same default machine and include cache restore/export costs. The release
+targets are under eight minutes cold and under four minutes warm, measured
+through successful production deployment and public verification. A build-only
+benchmark cannot establish either release target.

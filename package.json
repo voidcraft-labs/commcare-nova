@@ -34,7 +34,7 @@
 		"verify:java-pattern-runtime": "node scripts/java-pattern-runtime/verify.mjs",
 		"build:xpath-worker": "node scripts/build-xpath-worker.mjs",
 		"prebuild": "npm run verify:java-pattern-runtime && npm run build:xpath-worker",
-		"build": "NEXT_TELEMETRY_DISABLED=1 next build && tsc --noEmit",
+		"build": "node scripts/build-app.mjs",
 		"start": "node scripts/start-standalone.mjs",
 		"lint": "biome check --error-on-warnings",
 		"format": "biome check --write",

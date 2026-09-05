@@ -71,7 +71,22 @@ const nextConfig: NextConfig = {
 	 * `toProto3JSON: don't know how to convert value <n>`. Loading the SDK
 	 * externally keeps it unminified, so the class name — and the check —
 	 * survive. */
-	serverExternalPackages: ["@google-cloud/kms"],
+	serverExternalPackages: [
+		// Keep the server SDK native. Its entrypoint also imports build tooling;
+		// compiling it expands both the module graph and private source maps.
+		// The image check exercises the generated instrumentation with a local
+		// transport, including release and request metadata.
+		"@sentry/nextjs",
+		"@google-cloud/kms",
+		// These Node SDKs include generated API clients. Loading their published
+		// packages avoids compiling and duplicating them into server source maps.
+		// The complete standalone image verifies the native imports.
+		"@google-cloud/cloud-sql-connector",
+		"@google-cloud/storage",
+		"xlsx",
+		"mammoth",
+		"music-metadata",
+	],
 
 	/* Built-in icon bytes (public/nova-icons/*.png) are read at runtime via `fs`
 	 * by the export pipeline (`lib/media/builtinIconAssets.ts` → the .ccz compile,
@@ -151,6 +166,13 @@ export default withSentryConfig(withMDX(nextConfig), {
 	 * as a Docker build arg); without a token the plugin skips the upload
 	 * and the build still succeeds. */
 	widenClientFileUpload: true,
+
+	/* The production build uploads native-debug-ID maps after the type check,
+	 * then removes them before the image is assembled. */
+	sourcemaps: {
+		deleteSourcemapsAfterUpload:
+			process.env.NOVA_DEFER_SENTRY_UPLOAD !== "true",
+	},
 
 	/* Browser events POST to this same-origin path and the server forwards
 	 * them to Sentry ingest, so ad-blockers can't drop them and the CSP

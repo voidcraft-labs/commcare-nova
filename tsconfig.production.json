@@ -1,0 +1,32 @@
+{
+	"extends": "./tsconfig.json",
+	"compilerOptions": {
+		"tsBuildInfoFile": ".next/cache/typecheck.tsbuildinfo"
+	},
+	"include": [
+		"next-env.d.ts",
+		"next.config.ts",
+		"proxy.ts",
+		"instrumentation*.ts",
+		"sentry.*.config.ts",
+		"app/**/*.ts",
+		"app/**/*.tsx",
+		"components/**/*.ts",
+		"components/**/*.tsx",
+		"lib/**/*.ts",
+		"lib/**/*.tsx",
+		"lib/**/*.mts",
+		"config/**/*.ts",
+		"scripts/migrate.ts",
+		"scripts/cleanup-form-attachments.ts",
+		".next/types/**/*.ts"
+	],
+	"exclude": [
+		"node_modules",
+		"**/__tests__/**",
+		"**/*.test.ts",
+		"**/*.test.tsx",
+		"**/*.spec.ts",
+		"**/*.spec.tsx"
+	]
+}

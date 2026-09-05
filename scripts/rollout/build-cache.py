@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Best-effort compiler caches. No deployable output or credentials in GCS.
+"""Private immutable BuildKit caches; GCS stores only completion manifests.
 
-Each successful build publishes an immutable manifest last. Readers select the
-newest complete snapshot in their compatibility namespace; concurrent writers
-never overwrite each other's cache. Only main's build identity can write here.
+Compiler state travels directly between Artifact Registry and BuildKit. There
+is no host extraction, gzip archive, or compiler cache in an application layer.
 """
 from __future__ import annotations
 
@@ -11,22 +10,21 @@ import argparse
 import datetime
 import hashlib
 import json
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 import re
 import shlex
 import shutil
 import subprocess
-import tarfile
 
-CACHE_FORMAT = "v1"
+CACHE_FORMAT = "v2"
 PLATFORM = "linux/amd64"
-MAX_CACHE_BYTES = 2 * 1024**3
 BUILD_ID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+DIGEST_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
 
 
-def cache_key(root: Path) -> str:
-    digest = hashlib.sha256(f"{CACHE_FORMAT}\n{PLATFORM}\n".encode())
-    for name in (".nvmrc", ".npmrc", "package-lock.json", "Dockerfile", "next.config.ts"):
+def cache_key(root: Path, profile: str = "production") -> str:
+    digest = hashlib.sha256(f"{CACHE_FORMAT}\n{PLATFORM}\n{profile}\n".encode())
+    for name in (".nvmrc", ".npmrc", "package-lock.json", "Dockerfile", "next.config.ts", "tsconfig.production.json", "scripts/build-app.mjs"):
         digest.update(name.encode() + b"\0" + (root / name).read_bytes() + b"\0")
     return f"{CACHE_FORMAT}-{digest.hexdigest()[:24]}"
 
@@ -37,113 +35,59 @@ def gcloud(*args: str) -> str:
     return result.stdout.strip()
 
 
-def file_sha256(path: Path) -> str:
-    digest = hashlib.sha256()
-    with path.open("rb") as stream:
-        for chunk in iter(lambda: stream.read(1024 * 1024), b""):
-            digest.update(chunk)
-    return digest.hexdigest()
-
-
-def extract_cache(archive: Path, destination: Path) -> None:
-    # Validate the whole archive before writing, including links and total size.
-    with tarfile.open(archive, "r:gz") as source:
-        members = source.getmembers()
-        total = 0
-        for member in members:
-            path = PurePosixPath(member.name)
-            if path.is_absolute() or ".." in path.parts or not (member.isfile() or member.isdir()):
-                raise ValueError("Cache archive contains an unsafe entry")
-            total += member.size
-            if total > MAX_CACHE_BYTES:
-                raise ValueError("Cache archive exceeds 2 GiB")
-        for member in members:
-            target = destination / member.name
-            if member.isdir():
-                target.mkdir(parents=True, exist_ok=True)
-            else:
-                target.parent.mkdir(parents=True, exist_ok=True)
-                stream = source.extractfile(member)
-                if stream is None:
-                    raise ValueError("Missing cache file contents")
-                with stream, target.open("wb") as out:
-                    shutil.copyfileobj(stream, out)
-                target.chmod(0o600)
+def next_repository(args: argparse.Namespace) -> str:
+    return args.repository.rsplit("/", 1)[0] + "/next"
 
 
 def restore(args: argparse.Namespace) -> None:
     args.directory.mkdir(parents=True, exist_ok=True)
     seed = args.directory / "input"
-    # This directory belongs solely to this invocation; never trust a partial
-    # extraction from an earlier failed attempt.
     if seed.exists():
         shutil.rmtree(seed)
     seed.mkdir()
-    key = cache_key(args.root)
-    prefix = f"gs://{args.bucket}/{key}"
+    for name in ("seed-context", "next-image.json", "app-image.json", "migration-image.json"):
+        (args.directory / name).unlink(missing_ok=True)
+    key = cache_key(args.root, args.profile)
     docker_prefix = f"{args.repository}:{key}-"
     environment = {
         "NOVA_BUILD_CACHE_DIRECTORY": str(args.directory.resolve()),
         "NOVA_DOCKER_CACHE_TO": f"{docker_prefix}{args.build_id}",
-        "NOVA_EXPORT_NEXT_CACHE": "true",
+        "NOVA_NEXT_CACHE_TO": f"{next_repository(args)}:{key}-{args.build_id}",
     }
     try:
-        if getattr(args, "cold", False):
-            raise ValueError("Cold benchmark requested")
-        manifests = sorted(gcloud("storage", "ls", f"{prefix}/snapshots/*.json").splitlines())
+        if args.cold:
+            raise ValueError("Cold build requested")
+        manifests = sorted(gcloud("storage", "ls", f"gs://{args.bucket}/{key}/snapshots/*.json").splitlines())
         if not manifests:
             raise ValueError("No snapshot")
         manifest = json.loads(gcloud("storage", "cat", manifests[-1]))
         snapshot_id = manifest["buildId"]
-        if not BUILD_ID_RE.fullmatch(snapshot_id) or manifest["key"] != key:
+        if not BUILD_ID_RE.fullmatch(snapshot_id) or manifest["key"] != key or not DIGEST_RE.fullmatch(manifest["nextDigest"]):
             raise ValueError("Invalid snapshot identity")
-        archive_uri = f"{prefix}/archives/{snapshot_id}.tgz"
-        archive = args.directory / "restored.tgz"
-        gcloud("storage", "cp", archive_uri, str(archive))
-        if file_sha256(archive) != manifest["sha256"]:
-            raise ValueError("Cache checksum mismatch")
-        extract_cache(archive, seed)
         environment["NOVA_DOCKER_CACHE_FROM"] = f"{docker_prefix}{snapshot_id}"
-        print(f"Restored Next.js and Docker cache snapshot {snapshot_id}")
-    except (subprocess.SubprocessError, ValueError, KeyError, OSError, tarfile.TarError):
-        shutil.rmtree(seed)
-        seed.mkdir()
+        environment["NOVA_NEXT_CACHE_FROM"] = f"{next_repository(args)}@{manifest['nextDigest']}"
+        print(f"Selected immutable build cache {snapshot_id}; compiler bytes stay in BuildKit.")
+    except (subprocess.SubprocessError, ValueError, KeyError, TypeError, OSError):
         print("No usable build cache; building cold.")
     args.environment.write_text("".join(f"export {key}={shlex.quote(value)}\n"
                                         for key, value in environment.items()))
 
 
 def publish(args: argparse.Namespace) -> None:
-    output = args.directory / "output"
-    if not output.is_dir():
-        print("No compiler cache exported; skipping cache publication.")
-        return
-    key = cache_key(args.root)
-    prefix = f"gs://{args.bucket}/{key}"
+    key = cache_key(args.root, args.profile)
     try:
-        files = list(output.rglob("*"))
-        if any(path.is_symlink() for path in files):
-            raise ValueError("Cache contains a link")
-        if sum(path.stat().st_size for path in files if path.is_file()) > MAX_CACHE_BYTES:
-            raise ValueError("Cache exceeds 2 GiB")
-        archive = args.directory / "published.tgz"
-        with tarfile.open(archive, "w:gz", compresslevel=1) as dest:
-            dest.add(output, arcname=".")
-        manifest = {
-            "buildId": args.build_id,
-            "key": key,
-            "sha256": file_sha256(archive),
-        }
+        metadata = json.loads((args.directory / "next-image.json").read_text())
+        digest = metadata["containerimage.digest"]
+        if not DIGEST_RE.fullmatch(digest):
+            raise ValueError("Invalid exported compiler cache digest")
+        manifest = {"buildId": args.build_id, "key": key, "nextDigest": digest}
         manifest_path = args.directory / "manifest.json"
         manifest_path.write_text(json.dumps(manifest) + "\n")
-        # Creating a new object is atomic. The manifest is the completion marker.
-        gcloud("storage", "cp", "--if-generation-match=0", str(archive),
-               f"{prefix}/archives/{args.build_id}.tgz")
         timestamp = datetime.datetime.now(datetime.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
         gcloud("storage", "cp", "--if-generation-match=0", str(manifest_path),
-               f"{prefix}/snapshots/{timestamp}-{args.build_id}.json")
-        print(f"Published compiler cache snapshot {args.build_id}")
-    except (subprocess.SubprocessError, ValueError, OSError, tarfile.TarError) as error:
+               f"gs://{args.bucket}/{key}/snapshots/{timestamp}-{args.build_id}.json")
+        print(f"Published {manifest_path.stat().st_size}-byte completion manifest for {args.build_id}.")
+    except (subprocess.SubprocessError, ValueError, KeyError, TypeError, OSError) as error:
         print(f"Cache publication skipped ({type(error).__name__}); the build remains valid.")
 
 
@@ -151,7 +95,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("mode", choices=("restore", "publish"))
     parser.add_argument("--build-id", required=True)
-    parser.add_argument("--cold", action="store_true", help="benchmark without restoring previous caches")
+    parser.add_argument("--cold", action="store_true", help="do not restore prior build caches")
+    parser.add_argument("--profile", choices=("production", "benchmark"), default="production")
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--bucket", default="commcare-nova-build-cache")
     parser.add_argument("--repository", default="us-central1-docker.pkg.dev/commcare-nova/nova-build-cache/compiler")

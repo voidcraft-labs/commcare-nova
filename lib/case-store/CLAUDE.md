@@ -1101,8 +1101,9 @@ The scheduled cleanup worker runs `runCaptureCleanupSchemaProbe` after winning
 its exclusive advisory lock and prewarming the second connection, before any
 maintenance. It asserts the exact ordered column/type/nullability contract and
 zero-row read/update/delete authority in a rollback. Schema or authority drift
-fails the execution. Deployment updates and verifies the worker template after
-migration; it does not launch a separate probe execution or alter Scheduler.
+fails the execution. Worker code ships through the explicit `capture-worker`
+image target and Job update. Ordinary application deployment does not build,
+update, or invoke this worker, or alter Scheduler.
 
 Ordinary deployment requires automatic scaling and creates exactly one Ready
 revision at 100% desired and observed traffic. Completed admission-cutover
@@ -1130,7 +1131,10 @@ migrations it runs Better Auth's own migrator (`getMigrations(...)
 MCP-free `lib/auth-migrate-options.ts`, then the Nova-owned auth-app
 migrations (`lib/auth/migrate.ts`, the `auth_oauth_grant_revocation`
 watermark, canonical MCP resource initialization, and cross-schema invariants such as the apps→Project FK). Both are
-idempotent and run on every deploy, local and prod alike.
+idempotent and run on every migration invocation. Production reuses the latest
+verified successful Execution only for an identical reproducible migration
+artifact and unchanged full Job contract/etag. Changed migration artifacts run
+this complete entrypoint, including the runtime fleet probe, before deployment.
 
 ### Checking prod migration state
 

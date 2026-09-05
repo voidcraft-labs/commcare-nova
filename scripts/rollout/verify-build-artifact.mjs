@@ -20,9 +20,12 @@ assert.equal(
 	buildId,
 );
 const staticDirectory = path.join(directory, "static");
-const clientFiles = readdirSync(staticDirectory, { recursive: true }).filter(
-	(name) => name.endsWith(".js"),
+const staticFiles = readdirSync(staticDirectory, { recursive: true });
+assert.ok(
+	!staticFiles.some((name) => name.endsWith(".map")),
+	"Public source maps must not enter the runtime image",
 );
+const clientFiles = staticFiles.filter((name) => name.endsWith(".js"));
 assert.ok(
 	clientFiles.some((name) =>
 		readFileSync(path.join(staticDirectory, name), "utf8").includes(buildId),
@@ -30,9 +33,11 @@ assert.ok(
 	"Client assets must carry this build's fresh release identity",
 );
 const actions = JSON.parse(read("actions.json"));
-assert.equal(
-	actions.encryptionKey,
-	"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+assert.ok(
+	actions.encryptionKey ===
+		(process.env.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY ||
+			"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+	"Server Action identity must match the pinned build input",
 );
 console.log(
 	`Verified final image identity ${buildId}, runtime configuration, and Server Action key.`,
