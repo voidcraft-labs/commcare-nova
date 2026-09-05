@@ -23,7 +23,7 @@ program
 	.option("--app <appId>", "scope verification to one app")
 	.addHelpText(
 		"after",
-		"\nProduction verification runs inside the immutable commcare-nova-migrate Cloud Run Job. There is intentionally no writer mode.\n",
+		"\nProduction verification uses scripts/scan-xpath-carrier-compatibility.ts --prod. There is intentionally no writer mode.\n",
 	);
 program.parse();
 const options = program.opts<Options>();

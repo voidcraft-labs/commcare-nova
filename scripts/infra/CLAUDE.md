@@ -2,8 +2,10 @@
 
 Nova has one deployment path: Cloud Build constructs and pushes one image,
 resolves that pushed tag once to its complete `repository@sha256` identity,
-then passes only that immutable reference to the media-policy Job, blocking
-migration Job, capture-cleanup Job, and direct service deployment. Do not add
+then passes only that immutable reference to the blocking migration Job,
+capture-cleanup Job, and direct service deployment. Stable infrastructure is
+managed explicitly by `manage-deployment.py` (plan by default, `--apply` to
+change it); see `docs/architecture/deployment.md`. Do not add
 traffic controllers, candidate services, rollout accounts, compatibility
 paths, or deploy-time maintenance gates.
 
@@ -29,22 +31,17 @@ terminal.
 `provision-deployment-identities.sh` is plan-only unless passed `--apply`. It
 reconciles these permanent identities:
 
-- `nova-build` builds, pushes, configures Jobs, and deploys the service. Its
-  narrow deployment-ingress custom role can read/update backend services and
-  use the regional serverless NEG so an admission cutover can detach and
-  restore Nova's public backend; it has no broad Compute role. It can act as
-  the Job/runtime identities but never connects to Postgres. It reads only the
-  build-time secrets used by `cloudbuild.yaml`.
-- `nova-migrate` connects as the migration database owner and runs the Kysely,
-  Better Auth, and Nova auth migrations plus privilege convergence. It also
-  owns the separately configured one-off case-type-retirement and
-  case-parent-relationship-repair Jobs: Cloud Build pins both Jobs to the exact
-  image only after the service deploy, but never executes either. Their stored
-  args are dry-run only. After old-revision requests drain, an operator uses
-  `deploy-cloud-run.py --execute-job
-  --service=commcare-nova` with explicit writer args; that path applies the
-  same service-image, Job-generation, authority/template, etag, effective-args,
-  Execution-image, and task-success proofs as deployment Jobs.
+- `nova-build` builds, pushes, changes recurring Job images, and deploys the
+  service. It reads scheduler and media metadata to check prerequisites; it
+  never connects to Postgres. It reads only the build-time secrets used by
+  `cloudbuild.yaml`. Disposable private caches have separate bucket/repository
+  grants and expire after fourteen days.
+- `nova-migrate` connects as the migration database owner and runs Kysely,
+  Better Auth, Nova auth initialization, privilege convergence, and the full
+  runtime database probe. Historical repairs live in the explicit Docker
+  `maintenance` target, not the serving image. Operators scan first, configure
+  a maintenance Job with its immutable image, and execute it through
+  `deploy-cloud-run.py --execute-job --image=REPOSITORY@sha256:...`.
 - `nova-media-policy` owns only bucket metadata get/update and applies the exact
   capture retention/CORS policy. It never connects to Postgres.
 - `nova-capture-cleanup` has no runtime-role membership. In Postgres it receives
@@ -66,7 +63,7 @@ sweeps expired rows without application traffic. Every dispatch runs the same
 bounded worker. A Postgres session advisory lock collapses at-least-once or
 overlapping delivery to one active execution; a held lock or a pre-lock
 SQLSTATE `53300` skips that dispatch. After winning, the worker prewarms its
-second pool connection before maintenance; admission failure after lock
+second pool connection and proves its schema and database authority before maintenance; admission failure after lock
 ownership fails the Job. There is no alternate mode, deploy-time invocation, or
 storage probe.
 
@@ -132,24 +129,10 @@ migration Job.
 `scripts/rollout/deploy-cloud-run.py` is the permanent service policy. It
 rejects mutable images and traffic tags, requires the exact candidate to own
 100% of both desired and observed traffic, and permits revision GC only for
-untagged zero-traffic revisions. A maintenance run keeps a `try/finally`
-recovery arm live until terminal success; every failure detaches ingress,
-restores manual zero, runs the exact-image migration Job's runtime-session
-fence, pauses cleanup, and re-verifies the complete maintenance posture. Every
-recovery action is attempted even if an earlier action fails; errors are
-aggregated without replacing the original deployment failure.
-
-An admission rule that an old serving revision does not enforce uses the
-one-time labelled maintenance cutover in `cloudbuild.yaml`. The immutable
-migration Job is configured first; if the service lacks that gate's version
-label, deployment policy pauses cleanup, detaches ingress, scales the old
-revision to zero, and terminates its runtime database sessions before the
-fleet verifier runs. Candidate deployment retains manual zero until the exact
-new revision owns traffic, then restores automatic scaling, ingress, and the
-cleanup scheduler. Only that terminal success writes the version label. A
-failed deployment stays in the verified maintenance posture for a safe retry,
-and a failed label write repeats the cutover safely; the completed label
-prevents downtime on later ordinary deploys.
+untagged zero-traffic revisions. Ordinary deployment requires automatic scaling before and after deployment,
+creates exactly one new revision, and never pauses cleanup or changes ingress.
+Completed historical cutover labels have no behavioral effect. The migration
+Job must succeed before either the worker image or the service changes.
 
 The Cloud Build trigger switch is safe only after its service account has all
 listed grants. A custom trigger identity overrides any `serviceAccount` field

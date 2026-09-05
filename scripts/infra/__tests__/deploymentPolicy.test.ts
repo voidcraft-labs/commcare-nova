@@ -1,299 +1,29 @@
-import { execFileSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { build } from "esbuild";
 import { describe, expect, test } from "vitest";
+import jobs from "@/config/deployment-jobs.json";
 
-const cloudBuild = readFileSync("cloudbuild.yaml", "utf8");
-const packageJson = readFileSync("package.json", "utf8");
-const packageScripts = JSON.parse(packageJson).scripts as Record<
-	string,
-	string
->;
-const dockerfile = readFileSync("Dockerfile", "utf8");
-const ciWorkflow = readFileSync(".github/workflows/ci.yml", "utf8");
-const imageBuilder = readFileSync("scripts/rollout/build-image.sh", "utf8");
-const nextConfig = readFileSync("next.config.ts", "utf8");
-const sentryClientConfig = readFileSync("instrumentation-client.ts", "utf8");
-const sentryServerConfig = readFileSync("sentry.server.config.ts", "utf8");
-const sentryEdgeConfig = readFileSync("sentry.edge.config.ts", "utf8");
-const dockerignore = readFileSync(".dockerignore", "utf8");
-const browserXPathWorker = readFileSync(
-	"lib/preview/xpath/browserWorkerClient.ts",
-	"utf8",
-);
-const provisioning = readFileSync(
-	"scripts/infra/provision-deployment-identities.sh",
-	"utf8",
-);
-const cloudSqlProvisioning = readFileSync(
-	"scripts/infra/provision-cloud-sql.sh",
-	"utf8",
-);
-const prodDb = readFileSync("scripts/lib/prodDb.ts", "utf8");
-const migrateEntrypoint = readFileSync("scripts/migrate.ts", "utf8");
-const xpathCarrierVerifier = readFileSync(
-	"scripts/lib/xpathCarrierCompatibilityRepair.ts",
-	"utf8",
-);
-const xpathCarrierScanner = readFileSync(
-	"scripts/scan-xpath-carrier-compatibility.ts",
-	"utf8",
-);
-const auditEntrypoint = readFileSync(
-	"scripts/audit-canonical-identity-foundation.ts",
-	"utf8",
-);
-const cleanupEntrypoint = readFileSync(
-	"scripts/cleanup-form-attachments.ts",
-	"utf8",
-);
-const captureBucketPolicy = readFileSync(
-	"scripts/infra/capture-bucket-policy.mjs",
-	"utf8",
-);
-const deployPolicy = readFileSync(
-	"scripts/rollout/deploy-cloud-run.py",
-	"utf8",
-);
-const schemaDriftScanner = readFileSync("scripts/scan-schema-drift.ts", "utf8");
-const caseParentScanner = readFileSync(
-	"scripts/scan-case-parent-relationships.ts",
-	"utf8",
-);
-const caseParentMigration = readFileSync(
-	"scripts/migrate-case-parent-relationships.ts",
-	"utf8",
-);
+const read = (path: string) => readFileSync(path, "utf8");
+const cloudBuild = read("cloudbuild.yaml");
+const dockerfile = read("Dockerfile");
+const ciWorkflow = read(".github/workflows/ci.yml");
+const imageBuilder = read("scripts/rollout/build-image.sh");
+const dockerignore = read(".dockerignore");
+const migrate = read("scripts/migrate.ts");
+const cleanup = read("scripts/cleanup-form-attachments.ts");
+const policy = read("scripts/rollout/deploy-cloud-run.py");
 
-function stepOffset(id: string): number {
-	const offset = cloudBuild.indexOf(`  - id: ${id}\n`);
-	expect(offset, `missing Cloud Build step ${id}`).toBeGreaterThanOrEqual(0);
-	return offset;
+function step(id: string): string {
+	const source = cloudBuild.split(`  - id: ${id}\n`)[1];
+	expect(source, `missing Cloud Build step ${id}`).toBeDefined();
+	return source.split("  - id: ")[0];
 }
 
-describe("durable deployment policy", () => {
-	test("the XPath admission cutover includes restorable tombstones", () => {
-		expect(xpathCarrierVerifier).toContain('select(["id", "mutation_seq"])');
-		expect(xpathCarrierVerifier).not.toContain(
-			'.where("deleted_at", "is", null)',
-		);
-		expect(xpathCarrierScanner).not.toContain(
-			'.where("deleted_at", "is", null)',
-		);
-		expect(xpathCarrierVerifier).toContain("Stability is proved per app");
-		expect(xpathCarrierVerifier).not.toContain("sameAppVersions");
-	});
-
-	test("verifies and isolates the Java compatibility runtime before every production build", () => {
-		expect(packageScripts["verify:java-pattern-runtime"]).toBe(
-			"node scripts/java-pattern-runtime/verify.mjs",
-		);
-		expect(packageScripts["build:xpath-worker"]).toBe(
-			"node scripts/build-xpath-worker.mjs",
-		);
-		expect(packageScripts.prebuild).toBe(
-			"npm run verify:java-pattern-runtime && npm run build:xpath-worker",
-		);
-		expect(packageScripts.build).toContain("next build");
-		expect(dockerfile).toContain("RUN npm run build");
-		expect(ciWorkflow).not.toContain("run: npm run build");
-		expect(dockerignore).toContain("!scripts/java-pattern-runtime/**");
-		expect(dockerignore).toContain("!scripts/build-xpath-worker.mjs");
-		expect(dockerfile).toContain(
-			"public/third-party/java-pattern-runtime-source.tar.gz",
-		);
-		expect(dockerfile).toContain("scripts/java-pattern-runtime");
-		expect(dockerfile).toContain("lib/preview/xpath/openJdk17DoubleString.ts");
-		expect(dockerfile).toContain(
-			"lib/preview/xpath/vendor/javaPatternRuntime.generated.js",
-		);
-		expect(dockerfile).toContain(
-			"lib/preview/xpath/vendor/javaMathRuntime.generated.js",
-		);
-		expect(readFileSync("proxy.ts", "utf8")).toContain("third-party/");
-		expect(readFileSync("proxy.ts", "utf8")).toContain("xpath-worker/");
-		expect(browserXPathWorker).toContain(
-			"/xpath-worker/xpath-worker.js?build=",
-		);
-		expect(browserXPathWorker).toContain("XPATH_WORKER_BUILD_ID");
-		expect(browserXPathWorker).not.toContain("new Worker(new URL(");
-		expect(readFileSync("scripts/build-xpath-worker.mjs", "utf8")).toContain(
-			'"process.env.NEXT_PUBLIC_NOVA_BUILD_ID": JSON.stringify(workerBuildId)',
-		);
-		expect(
-			readFileSync(
-				"lib/preview/xpath/vendor/javaPatternRuntime.generated.js",
-				"utf8",
-			),
-		).toMatch(/^\/\*! OpenJDK 17 Pattern derivative/);
-		expect(
-			readFileSync(
-				"lib/preview/xpath/vendor/javaMathRuntime.generated.js",
-				"utf8",
-			),
-		).toMatch(/^\/\*! OpenJDK 17 fdlibm derivative/);
-		expect(
-			execFileSync("node", ["scripts/java-pattern-runtime/verify.mjs"], {
-				encoding: "utf8",
-			}),
-		).toMatch(
-			/^java-pattern-runtime pattern_sha256=[a-f0-9]{64} pattern_bytes=\d+ math_sha256=[a-f0-9]{64} math_bytes=\d+ names_sha256=[a-f0-9]{64} names_bytes=\d+\n$/,
-		);
-	});
-
-	test("builds the same complete Docker image in CI and Cloud Build", () => {
-		const requiredImageEnvironment = [
-			"NOVA_IMAGE_TAG",
-			"NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
-			"NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID",
-			"NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
-			"NEXT_DEPLOYMENT_ID",
-			"NOVA_BUILD_ID",
-			"NOVA_CLOUD_RUN_REQUEST_SECONDS",
-			"NOVA_EDIT_RUN_LEASE_SECONDS",
-			"NOVA_BUILD_STALENESS_SECONDS",
-			"NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH",
-		];
-		const builderBuildArguments = [
-			"SENTRY_AUTH_TOKEN",
-			"NEXT_PUBLIC_GOOGLE_MAPS_API_KEY",
-			"NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID",
-			"NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
-			"NEXT_DEPLOYMENT_ID",
-			"NOVA_BUILD_ID",
-		];
-		const runtimeBuildArguments = [
-			"NOVA_BUILD_ID",
-			"NOVA_CLOUD_RUN_REQUEST_SECONDS",
-			"NOVA_EDIT_RUN_LEASE_SECONDS",
-			"NOVA_BUILD_STALENESS_SECONDS",
-			"NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH",
-		];
-		const expectedImageBuildCommand = [
-			"docker build \\",
-			`\t--tag "\${NOVA_IMAGE_TAG}" \\`,
-			`\t--build-arg "SENTRY_AUTH_TOKEN=\${SENTRY_AUTH_TOKEN:-}" \\`,
-			`\t--build-arg "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=\${NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}" \\`,
-			`\t--build-arg "NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=\${NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID}" \\`,
-			`\t--build-arg "NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=\${NEXT_SERVER_ACTIONS_ENCRYPTION_KEY}" \\`,
-			`\t--build-arg "NEXT_DEPLOYMENT_ID=\${NEXT_DEPLOYMENT_ID}" \\`,
-			`\t--build-arg "NOVA_BUILD_ID=\${NOVA_BUILD_ID}" \\`,
-			`\t--build-arg "NOVA_CLOUD_RUN_REQUEST_SECONDS=\${NOVA_CLOUD_RUN_REQUEST_SECONDS}" \\`,
-			`\t--build-arg "NOVA_EDIT_RUN_LEASE_SECONDS=\${NOVA_EDIT_RUN_LEASE_SECONDS}" \\`,
-			`\t--build-arg "NOVA_BUILD_STALENESS_SECONDS=\${NOVA_BUILD_STALENESS_SECONDS}" \\`,
-			`\t--build-arg "NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH=\${NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH}" \\`,
-			"\t-f Dockerfile \\",
-			"\t.",
-		].join("\n");
-		expect(
-			cloudBuild.match(/bash scripts\/rollout\/build-image\.sh/g),
-		).toHaveLength(1);
-		expect(
-			ciWorkflow.match(/bash scripts\/rollout\/build-image\.sh/g),
-		).toHaveLength(1);
-		expect(ciWorkflow).toContain("Build deployable image");
-		expect(imageBuilder.endsWith(`${expectedImageBuildCommand}\n`)).toBe(true);
-		expect(imageBuilder.match(/\bdocker\b/g)).toHaveLength(1);
-		expect(imageBuilder).not.toContain("buildx");
-		for (const forbiddenOption of ["--push", "--output", "--target"]) {
-			expect(imageBuilder).not.toContain(forbiddenOption);
-		}
-		for (const variable of requiredImageEnvironment) {
-			expect(imageBuilder).toMatch(new RegExp(`\\t${variable}\\n`));
-		}
-		const builderStageStart = dockerfile.indexOf("FROM build-base AS builder");
-		const runnerStageStart = dockerfile.indexOf(
-			`FROM \${NODE_IMAGE} AS runner`,
-		);
-		expect(builderStageStart).toBeGreaterThanOrEqual(0);
-		expect(runnerStageStart).toBeGreaterThan(builderStageStart);
-		const builderStage = dockerfile.slice(builderStageStart, runnerStageStart);
-		const runnerStage = dockerfile.slice(runnerStageStart);
-		const appBuildOffset = builderStage.indexOf("RUN npm run build");
-		expect(appBuildOffset).toBeGreaterThanOrEqual(0);
-		for (const variable of builderBuildArguments) {
-			const declarationOffset = builderStage.indexOf(`ARG ${variable}`);
-			expect(declarationOffset).toBeGreaterThanOrEqual(0);
-			expect(declarationOffset).toBeLessThan(appBuildOffset);
-		}
-		for (const variable of runtimeBuildArguments) {
-			expect(runnerStage).toContain(`ARG ${variable}`);
-			expect(runnerStage).toContain(`${variable}="\${${variable}}"`);
-		}
-		expect(ciWorkflow).not.toContain("docker push");
-		expect(imageBuilder).not.toContain("docker push");
-	});
-
-	test("ships the reviewed React profiler hardener into the Docker builder", () => {
-		const hardenerCommand = "RUN node scripts/harden-agent-react-devtools.mjs";
-		expect(dockerignore).toContain("!scripts/harden-agent-react-devtools.mjs");
-		expect(dockerfile).toContain(hardenerCommand);
-		expect(dockerfile.indexOf(hardenerCommand)).toBeLessThan(
-			dockerfile.indexOf("RUN npm run build"),
-		);
-	});
-
-	test("uses one blocking migration and one direct service deployment", () => {
-		expect(stepOffset("runtime-capabilities")).toBeLessThan(
-			stepOffset("build"),
-		);
-		expect(stepOffset("build")).toBeLessThan(stepOffset("push"));
-		expect(stepOffset("push")).toBeLessThan(stepOffset("resolve-image"));
-		expect(stepOffset("resolve-image")).toBeLessThan(
-			stepOffset("deployment-prestate"),
-		);
-		expect(stepOffset("deployment-prestate")).toBeLessThan(
-			stepOffset("media-policy"),
-		);
-		expect(stepOffset("media-policy")).toBeLessThan(
-			stepOffset("configure-migrate"),
-		);
-		expect(stepOffset("configure-migrate")).toBeLessThan(
-			stepOffset("xpath-admission-cutover"),
-		);
-		expect(stepOffset("xpath-admission-cutover")).toBeLessThan(
-			stepOffset("migrate"),
-		);
-		expect(stepOffset("migrate")).toBeLessThan(stepOffset("capture-cleanup"));
-		expect(stepOffset("capture-cleanup")).toBeLessThan(stepOffset("deploy"));
-		expect(stepOffset("deploy")).toBeLessThan(
-			stepOffset("xpath-admission-cutover-complete"),
-		);
-		expect(stepOffset("xpath-admission-cutover-complete")).toBeLessThan(
-			stepOffset("legacy-preplan-repair-job"),
-		);
-		expect(stepOffset("legacy-preplan-repair-job")).toBeLessThan(
-			stepOffset("verify"),
-		);
-		expect(stepOffset("deploy")).toBeLessThan(stepOffset("verify"));
-
-		for (const removedMechanism of [
-			"capacity-precap",
-			"capacity-audit",
-			"capacity-preflight",
-			"NOVA_CAPTURE_CLEANUP_MODE",
-			"--no-traffic",
-			"nova-rollout",
-			"update-traffic",
-		]) {
-			expect(cloudBuild).not.toContain(removedMechanism);
-		}
-		expect(dockerfile).not.toContain("rollout.cjs");
-		expect(dockerfile).not.toContain("capacity-preflight.cjs");
-		expect(cloudBuild).toContain("python3 scripts/rollout/deploy-cloud-run.py");
-		const migrateStep = cloudBuild.slice(
-			stepOffset("configure-migrate"),
-			stepOffset("xpath-admission-cutover"),
-		);
-		expect(migrateStep).toContain("--max-retries=0");
-		expect(migrateStep).not.toContain("--max-retries=1");
-		expect(dockerignore).toContain("!scripts/infra/databaseOwnerBootstrap.ts");
-		expect(cloudBuild).toContain("https://commcare.app/");
-		expect(cloudBuild).toContain("https://docs.commcare.app/");
-		expect(cloudBuild).toContain("https://mcp.commcare.app/mcp");
-	});
-
-	test("pins one image and the final runtime platform limits", () => {
+describe("deployment artifact and release contracts", () => {
+	test("verifies runtime declarations and keeps per-build skew/Sentry identities", () => {
 		expect(
 			execFileSync(
 				"node",
@@ -301,52 +31,126 @@ describe("durable deployment policy", () => {
 				{ encoding: "utf8" },
 			),
 		).toContain("Runtime capability manifest and build wiring are valid");
+		expect(cloudBuild).toContain("nova-server-actions-key/versions/1");
 		expect(cloudBuild).not.toContain("app:$COMMIT_SHA");
-		expect(cloudBuild.match(/app:\$BUILD_ID/g)).toHaveLength(3);
-		expect(cloudBuild.match(/\$\${NOVA_IMMUTABLE_IMAGE}/g)).toHaveLength(11);
-		expect(cloudBuild).toContain("--resolve-image");
-		expect(cloudBuild).toContain("--output=/workspace/image.env");
-		expect(imageBuilder).toContain(
-			`--build-arg "NOVA_BUILD_ID=\${NOVA_BUILD_ID}"`,
+		expect(cloudBuild).toContain('export NEXT_DEPLOYMENT_ID="$BUILD_ID"');
+		expect(dockerfile).toContain(
+			`NEXT_PUBLIC_NOVA_BUILD_ID="\${NOVA_BUILD_ID}"`,
 		);
-		expect(dockerfile).toMatch(
-			/NEXT_PUBLIC_NOVA_BUILD_ID="\$\{NOVA_BUILD_ID\}"/,
+		expect(read("next.config.ts")).toContain(
+			"release: { name: process.env.NOVA_BUILD_ID }",
 		);
-		expect(sentryClientConfig).toContain(
+		expect(read("instrumentation-client.ts")).toContain(
 			"release: process.env.NEXT_PUBLIC_NOVA_BUILD_ID || undefined",
 		);
-		for (const serverRuntimeConfig of [sentryServerConfig, sentryEdgeConfig]) {
-			expect(serverRuntimeConfig).toContain(
+		for (const file of ["sentry.server.config.ts", "sentry.edge.config.ts"]) {
+			expect(read(file)).toContain(
 				"release: process.env.NOVA_BUILD_ID || undefined",
 			);
 		}
-		expect(nextConfig).toContain(
-			"release: { name: process.env.NOVA_BUILD_ID }",
-		);
-		expect(cloudBuild).toContain(
-			'--timeout="$${NOVA_CLOUD_RUN_REQUEST_SECONDS}s"',
-		);
-		expect(cloudBuild).toContain(
-			"--no-default-url --ingress=internal-and-cloud-load-balancing",
-		);
-		expect(cloudBuild).toContain(
-			"--min=1 --max=4 --min-instances=1 --max-instances=4",
-		);
-		expect(cloudSqlProvisioning).toContain(
-			"readonly CLOUD_RUN_MAX_INSTANCES=4",
-		);
-		expect(cloudSqlProvisioning).toContain("readonly MAX_CONNECTIONS=25");
-		expect(cloudSqlProvisioning).toContain(
-			`readonly DATABASE_FLAGS="cloudsql.enable_pgaudit=on,cloudsql.iam_authentication=on,max_connections=\${MAX_CONNECTIONS},pgaudit.log=all"`,
-		);
-		expect(cloudSqlProvisioning).toContain('--max="$CLOUD_RUN_MAX_INSTANCES"');
-		expect(cloudSqlProvisioning).toContain(
-			'--max-instances="$CLOUD_RUN_MAX_INSTANCES"',
-		);
-		expect(cloudSqlProvisioning).toContain("NOVA_DB_WORKLOAD=service");
 	});
 
-	test("preserves manual-zero until the exact candidate owns traffic", () => {
+	test("requires one migration execution before application and worker image updates", () => {
+		expect(step("migrate")).toContain(
+			"waitFor: [resolve-image, prerequisites]",
+		);
+		expect(step("deploy")).toContain("waitFor: [migrate]");
+		expect(step("capture-cleanup")).toContain("waitFor: [migrate]");
+		expect(step("verify")).toContain("waitFor: [deploy, capture-cleanup]");
+		expect(cloudBuild.match(/--execute-job/g)).toHaveLength(1);
+		expect(step("capture-cleanup")).toContain("--verify-job");
+		for (const forbidden of [
+			"jobs deploy",
+			"scheduler jobs update",
+			"add-iam-policy-binding",
+			"--enter-maintenance",
+			"--update-labels",
+			"--execution-arg=--probe-schema",
+			"--no-traffic",
+			"update-traffic",
+		]) {
+			expect(cloudBuild).not.toContain(forbidden);
+		}
+		expect(step("prerequisites")).toContain("manage-deployment.py check");
+		expect(step("prerequisites")).toContain("waitFor: ['-']");
+		for (const host of [
+			"https://commcare.app/",
+			"https://docs.commcare.app/",
+			"https://mcp.commcare.app/mcp",
+		])
+			expect(step("verify")).toContain(host);
+		expect(step("verify")).toContain("resource_metadata=");
+	});
+
+	test("keeps current migrations and the complete runtime probe, but retires recurring historical repairs", () => {
+		for (const required of [
+			"runCaseStoreMigrationsWithReport",
+			"getMigrations",
+			"runAuthAppMigrations",
+			"drainAllPendingIndexConvergence",
+			"convergeDatabasePrivileges",
+			"runCanonicalRuntimeDatabaseProbe",
+		])
+			expect(migrate).toContain(required);
+		for (const retired of [
+			"runLanguageIdentityRepair",
+			"runCaseStatusFilterRepair",
+			"runSelectOptionValueRepair",
+			"runXPathCarrierCompatibilityVerification",
+			"migrateBetterAuthAccountIdentity",
+			"migrateBetterAuthOauthClients",
+			"terminateAndAssertNoRuntimeDatabaseSessions",
+		])
+			expect(migrate).not.toContain(retired);
+		const worker = cleanup.slice(
+			cleanup.indexOf("async function runMaintenance"),
+			cleanup.indexOf("async function main"),
+		);
+		expect(worker.indexOf("runCaptureCleanupSchemaProbe()")).toBeLessThan(
+			worker.indexOf("purgeExpiredFormAttachments("),
+		);
+		expect(cleanup).toContain(
+			"withExclusiveCaptureCleanupWorker(runMaintenance)",
+		);
+	});
+
+	test("retains exact Job authority, database targets, and resource budgets outside deploy", () => {
+		expect(jobs["commcare-nova-migrate"]).toMatchObject({
+			serviceAccount: "nova-migrate@commcare-nova.iam.gserviceaccount.com",
+			args: ["migrate.cjs"],
+			tasks: 1,
+			parallelism: 1,
+			maxRetries: 0,
+			vpc: true,
+			env: {
+				NOVA_DB_WORKLOAD: "migration",
+				NOVA_DB_USER: "nova-migrate@commcare-nova.iam",
+			},
+		});
+		expect(jobs["commcare-nova-capture-cleanup"]).toMatchObject({
+			serviceAccount:
+				"nova-capture-cleanup@commcare-nova.iam.gserviceaccount.com",
+			args: ["capture-cleanup.cjs"],
+			maxRetries: 0,
+			env: {
+				NOVA_DB_WORKLOAD: "capture-cleanup",
+				NOVA_DB_USER: "nova-capture-cleanup@commcare-nova.iam",
+			},
+		});
+		expect(step("deploy")).toContain(
+			"--min=1 --max=4 --min-instances=1 --max-instances=4",
+		);
+		expect(step("deploy")).toContain("--no-cpu-throttling");
+		expect(step("deploy")).toContain(
+			"--no-default-url --ingress=internal-and-cloud-load-balancing",
+		);
+		expect(step("deploy")).toContain("--startup-probe=httpGet.path=/warmup");
+		expect(read("scripts/infra/provision-cloud-sql.sh")).toContain(
+			`readonly DATABASE_FLAGS="cloudsql.enable_pgaudit=on,cloudsql.iam_authentication=on,max_connections=\${MAX_CONNECTIONS},pgaudit.log=all"`,
+		);
+	});
+
+	test("rejects wrong images, authority, failed tasks, and extra revisions", () => {
 		expect(
 			execFileSync(
 				"python3",
@@ -354,134 +158,62 @@ describe("durable deployment policy", () => {
 				{ encoding: "utf8" },
 			),
 		).toContain("policy self-test passed");
-		expect(deployPolicy).toContain(
-			'"Cloud Run deploy accepts only automatic scaling or manual scaling "',
-		);
-		expect(deployPolicy).toContain(
-			'"The exact candidate must own 100% traffic and every old revision "',
-		);
-		expect(deployPolicy).toContain(
-			'"Cloud Run removed a tagged or traffic-owning revision: "',
-		);
-		expect(deployPolicy).toContain(
-			'"Cloud Run revision inventory added an unexpected revision: "',
-		);
-		expect(deployPolicy).toContain("RECOVERABLE_PHASES");
-		expect(deployPolicy).toContain("finally:");
-		expect(deployPolicy).toContain('"etag": etag');
-		expect(deployPolicy).toContain("_run_all_recovery_actions");
-		expect(deployPolicy).toContain("attempted_recovery_actions =");
-		expect(deployPolicy).toContain("RETRYABLE_HTTP_STATUSES");
-		expect(deployPolicy).toContain('method == "GET"');
-		expect(deployPolicy).toContain('f"ready immutable Job contract for {job}"');
-		expect(deployPolicy).toContain('"--scaling=auto"');
-		expect(deployPolicy).toContain('f"--min={args.expected_min}"');
-		expect(deployPolicy).toContain('f"--max={args.expected_max}"');
-		expect(deployPolicy).toContain("NOVA_DEPLOY_PRESTATE=");
-		expect(deployPolicy).toContain("NOVA_DEPLOY_CANDIDATE=");
-		expect(deployPolicy).toContain("NOVA_DEPLOY_RESULT=");
-		expect(deployPolicy).toContain("NOVA_MAINTENANCE_ENTERED=");
-		expect(deployPolicy).toContain("_attach_ingress(args)");
-		expect(deployPolicy).toContain("_resume_cleanup(args)");
-		const deploymentPrestate = cloudBuild.slice(
-			stepOffset("deployment-prestate"),
-			stepOffset("media-policy"),
-		);
-		expect(deploymentPrestate).toContain("automatic|manual-zero");
-		expect(deploymentPrestate).not.toContain("scheduler");
-		const maintenanceRetryBranch = deployPolicy.slice(
-			deployPolicy.indexOf('if prestate == "manual-zero":'),
-			deployPolicy.indexOf('elif prestate == "automatic":'),
-		);
-		expect(maintenanceRetryBranch).toContain(
-			'_recover_maintenance(args, api, "manual-zero")',
-		);
-		expect(maintenanceRetryBranch).not.toContain(
-			"_assert_maintenance_posture(args, api)",
-		);
-		const cutoverStep = cloudBuild.slice(
-			stepOffset("xpath-admission-cutover"),
-			stepOffset("migrate"),
-		);
-		expect(cutoverStep).toContain("--enter-maintenance");
-		expect(cutoverStep).toContain("nova-xpath-carrier-gate");
-		const deployStep = cloudBuild.slice(
-			stepOffset("deploy"),
-			stepOffset("xpath-admission-cutover-complete"),
-		);
-		expect(deployStep).not.toMatch(/^\s+--scaling=/m);
-		expect(deployStep).not.toContain("nova-xpath-carrier-gate");
-		const completionStep = cloudBuild.slice(
-			stepOffset("xpath-admission-cutover-complete"),
-			stepOffset("legacy-preplan-repair-job"),
-		);
-		expect(completionStep).toContain(
-			"--update-labels=nova-xpath-carrier-gate=v1",
-		);
-		expect(cloudBuild).not.toContain("--no-deploy-health-check");
-		expect(cloudBuild).not.toMatch(/^\s*status=/m);
+		expect(policy).toContain('"etag": etag');
+		expect(policy).toContain('method == "GET"');
+		expect(policy).not.toContain("_enter_maintenance_mode");
+		expect(policy).not.toContain("_automatic_scaling_update_command");
 	});
 
-	test("preserves the exact Cloud SQL flags and dedicated database identities", () => {
-		const liveDatabaseFlags = [
-			{ name: "pgaudit.log", value: "all" },
-			{ name: "max_connections", value: "25" },
-			{ name: "cloudsql.iam_authentication", value: "on" },
-			{ name: "cloudsql.enable_pgaudit", value: "on" },
-		];
-		expect(
-			liveDatabaseFlags
-				.map((flag) => `${flag.name}=${flag.value}`)
-				.sort()
-				.join(","),
-		).toBe(
-			"cloudsql.enable_pgaudit=on,cloudsql.iam_authentication=on,max_connections=25,pgaudit.log=all",
+	test("keeps Java verification and the audited profiler hardener in the production build", () => {
+		const scripts = JSON.parse(read("package.json")).scripts;
+		expect(scripts.prebuild).toBe(
+			"npm run verify:java-pattern-runtime && npm run build:xpath-worker",
 		);
-		expect(cloudSqlProvisioning).toContain(
-			'--database-flags="$DATABASE_FLAGS"',
+		expect(scripts.build).toBe(
+			"NEXT_TELEMETRY_DISABLED=1 next build && tsc --noEmit",
+		);
+		expect(dockerfile).toContain("&& npm run build");
+		expect(
+			dockerfile.indexOf("RUN node scripts/harden-agent-react-devtools.mjs"),
+		).toBeLessThan(dockerfile.indexOf("FROM sources AS builder"));
+		expect(dockerfile).toContain(
+			"public/third-party/java-pattern-runtime-source.tar.gz",
 		);
 		expect(
-			cloudSqlProvisioning.match(/--database-flags="\\?\$DATABASE_FLAGS"/g),
-		).toHaveLength(1);
-		expect(cloudSqlProvisioning).toContain(
-			'--database-flags="$expected_database_flags"',
-		);
-		expect(cloudSqlProvisioning).toContain('MIGRATION_SA_EMAIL="nova-migrate@');
-		expect(cloudSqlProvisioning).toContain('RUNTIME_SA_EMAIL="commcare-nova@');
-		expect(cloudSqlProvisioning).toContain(
-			'CAPTURE_CLEANUP_SA_EMAIL="nova-capture-cleanup@',
-		);
-		expect(cloudSqlProvisioning).toContain('AUDIT_SA_EMAIL="nova-audit@');
-		expect(cloudSqlProvisioning).toContain('assign-roles "$RUNTIME_SA_DBUSER"');
-		expect(cloudSqlProvisioning).toContain(
-			'assign-roles "$CAPTURE_CLEANUP_SA_DBUSER"',
-		);
-		expect(cloudSqlProvisioning).toContain('assign-roles "$AUDIT_SA_DBUSER"');
-		expect(cloudSqlProvisioning).not.toContain("compute@developer");
+			execFileSync("node", ["scripts/java-pattern-runtime/verify.mjs"], {
+				encoding: "utf8",
+			}),
+		).toContain("java-pattern-runtime pattern_sha256=");
 	});
 
-	test("ships only the final deployment and maintenance Job entrypoints", async () => {
-		const esbuildEntrypoints = [
+	test("packages maintenance only in its explicit target and keeps every bundle input in Docker context", async () => {
+		const entries = [
 			...dockerfile.matchAll(/npx esbuild (scripts\/[^\s\\]+)/g),
 		].map((match) => match[1]);
-		expect(esbuildEntrypoints).toEqual([
-			"scripts/migrate.ts",
-			"scripts/cleanup-form-attachments.ts",
-			"scripts/audit-canonical-identity-foundation.ts",
-			"scripts/infra/apply-media-bucket-policy.ts",
-			"scripts/migrate-case-type-schema-retirement.ts",
-			"scripts/migrate-case-parent-relationships.ts",
-			"scripts/migrate-schema-drift.ts",
-			"scripts/migrate-legacy-preplan-builds.ts",
-		]);
-		const dockerContextAllowlist = new Set(
+		const runner = dockerfile.slice(
+			dockerfile.indexOf(`FROM \${NODE_IMAGE} AS runner`),
+		);
+		expect(runner).toContain("/app/migrate.cjs");
+		expect(runner).toContain("/app/capture-cleanup.cjs");
+		for (const removed of [
+			"media-bucket-policy.cjs",
+			"legacy-preplan-repair.cjs",
+			"canonical-identity-audit.cjs",
+			"schema-drift.cjs",
+			"case-parent-relationship-repair.cjs",
+		])
+			expect(runner).not.toContain(removed);
+		expect(dockerfile).toContain("FROM sources AS maintenance-build");
+		expect(dockerfile).toContain("FROM scratch AS next-cache-export");
+		expect(runner).not.toContain(".next/cache");
+		const allowlist = new Set(
 			dockerignore
 				.split(/\r?\n/)
 				.filter((line) => line.startsWith("!"))
 				.map((line) => line.slice(1)),
 		);
 		const bundle = await build({
-			entryPoints: esbuildEntrypoints,
+			entryPoints: entries,
 			bundle: true,
 			platform: "node",
 			target: "node24",
@@ -494,235 +226,89 @@ describe("durable deployment policy", () => {
 			write: false,
 			logLevel: "silent",
 		});
-		const omittedScriptInputs = Object.keys(bundle.metafile.inputs)
-			.filter(
-				(input) =>
-					input.startsWith("scripts/") && !dockerContextAllowlist.has(input),
-			)
-			.sort();
-		expect(omittedScriptInputs).toEqual([]);
-		expect(migrateEntrypoint).not.toContain("DatabaseCapacityPreflight");
-		expect(migrateEntrypoint).toContain("runCanonicalRuntimeDatabaseProbe");
-		expect(migrateEntrypoint).toContain(
-			"terminateAndAssertNoRuntimeDatabaseSessions",
-		);
-		expect(cleanupEntrypoint).not.toContain("DatabaseCapacityPreflight");
-		expect(cleanupEntrypoint).not.toContain("CaptureCleanupMode");
-		expect(cleanupEntrypoint).not.toContain("probeCaptureStorageAuthority");
-		expect(dockerfile).toContain(
-			"npx esbuild scripts/migrate.ts \\\n      --bundle --platform=node --target=node24 --format=cjs \\\n      --conditions=react-server",
-		);
-	});
-
-	test("packages the legacy pre-plan convergence as a dormant immutable Job", () => {
-		expect(dockerfile).toContain("scripts/migrate-legacy-preplan-builds.ts");
-		expect(dockerfile).toContain("legacy-preplan-repair.cjs");
-		expect(cloudBuild).toContain(
-			"gcloud run jobs deploy commcare-nova-legacy-preplan-repair",
-		);
-		expect(cloudBuild).toContain("--args=legacy-preplan-repair.cjs");
-		expect(cloudBuild).not.toContain(
-			"--args=legacy-preplan-repair.cjs,--execute",
-		);
-		expect(cloudBuild).toContain("NOVA_LEGACY_PREPLAN_PRODUCTION_JOB=true");
-		expect(cloudBuild).not.toContain(
-			"gcloud run jobs execute commcare-nova-legacy-preplan-repair",
-		);
-		expect(deployPolicy).toContain(
-			'"commcare-nova-legacy-preplan-repair": JobTemplateContract(',
-		);
-		expect(deployPolicy).toContain(
-			'if short_name == "commcare-nova-legacy-preplan-repair"',
-		);
-	});
-
-	test("packages the ordinary extension-edge repair as a dormant immutable Job", () => {
-		expect(dockerfile).toContain(
-			"scripts/migrate-case-parent-relationships.ts",
-		);
-		expect(dockerfile).toContain("case-parent-relationship-repair.cjs");
-		expect(cloudBuild).toContain(
-			"gcloud run jobs deploy commcare-nova-case-parent-relationship-repair",
-		);
-		expect(cloudBuild).toContain("--args=case-parent-relationship-repair.cjs");
-		expect(cloudBuild).not.toContain(
-			"--args=case-parent-relationship-repair.cjs,--execute",
-		);
-		expect(cloudBuild).toContain(
-			"NOVA_CASE_PARENT_RELATIONSHIP_PRODUCTION_JOB=true",
-		);
-		expect(cloudBuild).not.toContain(
-			"gcloud run jobs execute commcare-nova-case-parent-relationship-repair",
-		);
 		expect(
-			cloudBuild.indexOf("- id: case-parent-relationship-repair-job"),
-		).toBeGreaterThan(cloudBuild.indexOf("- id: deploy"));
-		expect(caseParentScanner).toContain('.setAccessMode("read only")');
-		expect(caseParentScanner).toContain(
-			"classifyCaseParentRelationshipsInSnapshot(tx, app.id)",
-		);
-		expect(caseParentMigration).toContain(
-			"classifyCaseParentRelationshipsInSnapshot(tx, app.id)",
-		);
-		expect(caseParentScanner).not.toContain("projectId: app.project_id");
-		expect(caseParentMigration).not.toContain("projectId: app.project_id");
-		expect(caseParentScanner).toContain(
-			"--job=commcare-nova-case-parent-relationship-repair",
-		);
-		expect(caseParentScanner).toContain(
-			"scripts/scan-case-parent-relationships.ts --prod",
-		);
+			Object.keys(bundle.metafile.inputs).filter(
+				(input) => input.startsWith("scripts/") && !allowlist.has(input),
+			),
+		).toEqual([]);
 	});
 
-	test("keeps build, migration, runtime, cleanup, and audit authority distinct", () => {
-		expect(cloudBuild).toContain(
-			"--service-account=nova-migrate@commcare-nova.iam.gserviceaccount.com",
-		);
-		expect(cloudBuild).toContain(
-			"--service-account=commcare-nova@commcare-nova.iam.gserviceaccount.com",
-		);
-		expect(cloudBuild).toContain(
-			"--service-account=nova-capture-cleanup@commcare-nova.iam.gserviceaccount.com",
-		);
-		expect(cloudBuild).toContain("NOVA_DB_USER=nova-migrate@commcare-nova.iam");
-		expect(cloudBuild).toContain(
-			"NOVA_DB_USER=commcare-nova@commcare-nova.iam",
-		);
-		expect(provisioning).toContain('BUILD_ACCOUNT="nova-build@');
-		expect(provisioning).toContain('MIGRATION_ACCOUNT="nova-migrate@');
-		expect(provisioning).toContain('MEDIA_POLICY_ACCOUNT="nova-media-policy@');
-		expect(provisioning).toContain(
-			'CAPTURE_CLEANUP_ACCOUNT="nova-capture-cleanup@',
-		);
-		expect(provisioning).toContain('AUDIT_ACCOUNT="nova-audit@');
-		expect(provisioning).toContain(
-			'CAPTURE_SCHEDULER_ACCOUNT="nova-capture-scheduler@',
-		);
-		expect(provisioning).not.toContain("nova-rollout");
-		expect(provisioning).toContain("roles/iam.serviceAccountTokenCreator");
-		expect(provisioning).toContain("roles/developerconnect.readTokenAccessor");
-		expect(provisioning).toContain('bind_act_as "$MIGRATION_ACCOUNT"');
-		expect(provisioning).toContain('bind_act_as "$RUNTIME_ACCOUNT"');
-		expect(provisioning).toContain('bind_act_as "$MEDIA_POLICY_ACCOUNT"');
-		expect(provisioning).toContain('bind_act_as "$CAPTURE_CLEANUP_ACCOUNT"');
-		expect(provisioning).toContain('bind_act_as "$CAPTURE_SCHEDULER_ACCOUNT"');
-		expect(provisioning).not.toContain('bind_act_as "$BUILD_ACCOUNT"');
-		expect(provisioning).not.toContain('bind_act_as "$AUDIT_ACCOUNT"');
-		expect(cloudBuild).not.toContain(
-			"--service-account=nova-audit@commcare-nova.iam.gserviceaccount.com",
-		);
-		expect(dockerfile).toContain("canonical-identity-audit.cjs");
-		expect(auditEntrypoint).toContain('readCaseStoreWorkload() !== "audit"');
-		expect(auditEntrypoint).toContain("databaseUser !== auditUser");
-		expect(auditEntrypoint).toContain("SET default_transaction_read_only = on");
+	test("CI and Cloud Build use the same final-image command, with ephemeral secrets", () => {
+		for (const caller of [ciWorkflow, cloudBuild])
+			expect(
+				caller.match(/bash scripts\/rollout\/build-image\.sh/g),
+			).toHaveLength(1);
+		expect(ciWorkflow).not.toContain("docker push");
+		expect(imageBuilder).not.toContain("--push");
+		for (const secret of [
+			"SENTRY_AUTH_TOKEN",
+			"NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
+		]) {
+			expect(dockerfile).not.toContain(`ARG ${secret}`);
+			expect(imageBuilder).not.toContain(`--build-arg "${secret}=`);
+			expect(dockerfile).toContain(`type=secret,id=${secret},env=${secret}`);
+		}
 	});
 
-	test("deploys the storage policy and one scheduled retry worker", () => {
-		expect(dockerfile).toContain("scripts/infra/apply-media-bucket-policy.ts");
-		expect(dockerfile).toContain("scripts/cleanup-form-attachments.ts");
-		expect(dockerfile).toContain("media-bucket-policy.cjs");
-		expect(dockerfile).toContain("capture-cleanup.cjs");
-		expect(cloudBuild.match(/--execute-job/g)).toHaveLength(3);
-		expect(cloudBuild).not.toContain("gcloud run jobs execute");
-		expect(cloudBuild).not.toContain(
-			"gcloud run jobs execute commcare-nova-capture-cleanup",
-		);
-		expect(cloudBuild).toContain("--execution-arg=capture-cleanup.cjs");
-		expect(cloudBuild).toContain("--execution-arg=--probe-schema");
-		expect(cloudBuild).toContain("--read-scaling-prestate");
-		expect(cloudBuild).toContain(
-			"Maintenance requires a pre-existing PAUSED cleanup scheduler.",
-		);
-		expect(cloudBuild).toContain(
-			'scheduler_state_after="$$(gcloud scheduler jobs describe',
-		);
-		expect(cloudBuild).toContain(
-			'"$${scheduler_state_after}" != "$${scheduler_state_before}"',
-		);
-		expect(cleanupEntrypoint).toContain("runCaptureCleanupSchemaProbe");
-		expect(cloudBuild).toContain('--schedule="*/5 * * * *"');
-		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=capture-cleanup");
-		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=migration");
-		expect(cloudBuild).toContain("NOVA_DB_WORKLOAD=service");
-		expect(cloudBuild).not.toContain("NOVA_DB_WORKLOAD=audit");
-		expect(prodDb).toContain('process.env.NOVA_DB_WORKLOAD = "operator"');
-		expect(packageJson).toContain(
-			'"db:migrate": "NOVA_DB_WORKLOAD=migration tsx --conditions=react-server scripts/migrate.ts"',
-		);
-		expect(cloudBuild.match(/--tasks=1 --parallelism=1/g)).toHaveLength(6);
-		expect(cloudBuild).toContain(
-			'--oauth-service-account-email="$${scheduler_account}"',
-		);
-		const schedulerUpdate = cloudBuild.match(
-			/gcloud scheduler jobs update http[\s\S]*?--update-headers=Content-Type=application\/json/,
-		);
-		const schedulerCreate = cloudBuild.match(
-			/gcloud scheduler jobs create http[\s\S]*?--headers=Content-Type=application\/json/,
-		);
-		expect(schedulerUpdate).not.toBeNull();
-		expect(schedulerCreate).not.toBeNull();
-		expect(schedulerUpdate?.[0]).not.toContain(" --headers=");
-		expect(schedulerCreate?.[0]).not.toContain("--update-headers=");
-		expect(cloudBuild).toContain("NOVA_MEDIA_BUCKET=nova-multimedia-prod");
-		expect(cloudBuild).toContain(
-			"NOVA_UPLOAD_CORS_ORIGINS=https://commcare.app",
-		);
-		expect(provisioning).toContain("roles/cloudscheduler.admin");
-		expect(provisioning).toContain("novaDeploymentIngressMaintenance");
-		expect(provisioning).toContain(
-			"compute.backendServices.get,compute.backendServices.update,compute.globalOperations.get,compute.regionNetworkEndpointGroups.get,compute.regionNetworkEndpointGroups.use",
-		);
-		expect(provisioning).not.toContain("roles/compute.loadBalancerAdmin");
-		expect(provisioning).toContain(
-			"storage.buckets.get,storage.buckets.update",
-		);
-		expect(provisioning).toContain(
-			"storage.objects.get,storage.objects.create,storage.objects.delete",
-		);
-		expect(provisioning).toContain("novaMediaBucketPolicy");
-		expect(provisioning).toContain("novaCaptureObjectMaintenance");
-		expect(captureBucketPolicy).toContain(
-			'from "./capture-storage-policy.mjs"',
-		);
-	});
-
-	test("packages the post-cutover case-type retirement repair as a non-automatic immutable Job", () => {
-		expect(dockerfile).toContain(
-			"scripts/migrate-case-type-schema-retirement.ts",
-		);
-		expect(dockerfile).toContain("scripts/migrate-schema-drift.ts");
-		expect(dockerfile).toContain("case-type-schema-retirement.cjs");
-		expect(dockerfile).toContain("schema-drift.cjs");
-		expect(cloudBuild).toContain(
-			"gcloud run jobs deploy commcare-nova-case-type-schema-retirement",
-		);
-		expect(cloudBuild).toContain("--args=case-type-schema-retirement.cjs");
-		expect(cloudBuild).not.toContain(
-			"--args=case-type-schema-retirement.cjs,--execute",
-		);
-		expect(cloudBuild).toContain(
-			"NOVA_CASE_TYPE_RETIREMENT_PRODUCTION_JOB=true",
-		);
-		expect(cloudBuild).not.toContain(
-			"gcloud run jobs execute commcare-nova-case-type-schema-retirement",
-		);
-		expect(
-			cloudBuild.indexOf("- id: case-type-schema-retirement-job"),
-		).toBeGreaterThan(cloudBuild.indexOf("- id: deploy"));
-		expect(deployPolicy).toContain('image_source.add_argument("--service")');
-		expect(deployPolicy).toContain(
-			"expected_image = _ready_service_image(api.service(), api.revisions())",
-		);
-		expect(deployPolicy).toContain("JOB_TEMPLATE_CONTRACTS");
-		expect(deployPolicy).toContain('execution.get("template")');
-		expect(schemaDriftScanner).toContain('.setAccessMode("read only")');
-		expect(schemaDriftScanner).toContain(
-			"loadPersistedBlueprintReadOnly(tx, app.id)",
-		);
-		expect(schemaDriftScanner).toContain(
-			"--job=commcare-nova-case-type-schema-retirement",
-		);
-		expect(schemaDriftScanner).toContain("scripts/scan-schema-drift.ts --prod");
-		expect(schemaDriftScanner).toContain("scopeArgs");
+	test("the actual helper cannot bypass the full image or put secrets in Docker arguments", () => {
+		const directory = mkdtempSync(join(tmpdir(), "nova-image-contract-"));
+		try {
+			const log = join(directory, "calls.jsonl");
+			writeFileSync(
+				join(directory, "docker"),
+				`#!/usr/bin/env node\nrequire('node:fs').appendFileSync(process.env.NOVA_TEST_DOCKER_LOG, JSON.stringify(process.argv.slice(2))+'\\n');\n`,
+				{ mode: 0o700 },
+			);
+			const env = {
+				...process.env,
+				PATH: `${directory}:${process.env.PATH}`,
+				NOVA_TEST_DOCKER_LOG: log,
+				NOVA_IMAGE_TAG: "nova:test",
+				NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: "synthetic-public",
+				NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID: "map",
+				SENTRY_AUTH_TOKEN: "synthetic-private-token",
+				NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: "synthetic-private-key",
+				NEXT_DEPLOYMENT_ID: "build-2",
+				NOVA_BUILD_ID: "build-2",
+				NOVA_CLOUD_RUN_REQUEST_SECONDS: "3600",
+				NOVA_EDIT_RUN_LEASE_SECONDS: "900",
+				NOVA_BUILD_STALENESS_SECONDS: "600",
+				NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH: "hash",
+				NOVA_BUILD_CACHE_DIRECTORY: join(directory, "cache"),
+				NOVA_EXPORT_NEXT_CACHE: "true",
+				NOVA_DOCKER_CACHE_TO: "registry/cache:test",
+			};
+			execFileSync("bash", ["scripts/rollout/build-image.sh"], { env });
+			const calls: string[][] = read(log)
+				.trim()
+				.split("\n")
+				.map((line) => JSON.parse(line));
+			const builds = calls.filter(
+				(args) => args[0] === "buildx" && args[1] === "build",
+			);
+			expect(builds).toHaveLength(3);
+			expect(builds[0].slice(-6)).toEqual([
+				"--target",
+				"runner",
+				"--load",
+				"--tag",
+				"nova:test",
+				".",
+			]);
+			expect(builds[0]).not.toContain("--cache-to");
+			expect(builds[1]).toContain("jobs");
+			expect(builds[1]).toContain("type=cacheonly");
+			expect(builds[2]).toContain("next-cache-export");
+			expect(JSON.stringify(calls)).not.toContain("synthetic-private");
+			expect(calls.some((args) => args[1] === "use")).toBe(false);
+			const bad = spawnSync(
+				"bash",
+				["scripts/rollout/build-image.sh", "--target", "deps"],
+				{ env, encoding: "utf8" },
+			);
+			expect(bad.status).toBe(2);
+		} finally {
+			rmSync(directory, { recursive: true, force: true });
+		}
 	});
 });

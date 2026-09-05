@@ -1,0 +1,140 @@
+{
+	"commcare-nova-media-policy": {
+		"serviceAccount": "nova-media-policy@commcare-nova.iam.gserviceaccount.com",
+		"command": ["node"],
+		"args": ["media-bucket-policy.cjs"],
+		"tasks": 1,
+		"parallelism": 1,
+		"maxRetries": 1,
+		"timeout": "300s",
+		"cpu": "1",
+		"memory": "512Mi",
+		"env": {
+			"NOVA_MEDIA_BUCKET": "nova-multimedia-prod",
+			"NOVA_UPLOAD_CORS_ORIGINS": "https://commcare.app"
+		},
+		"vpc": false
+	},
+	"commcare-nova-migrate": {
+		"serviceAccount": "nova-migrate@commcare-nova.iam.gserviceaccount.com",
+		"command": ["node"],
+		"args": ["migrate.cjs"],
+		"tasks": 1,
+		"parallelism": 1,
+		"maxRetries": 0,
+		"timeout": "3000s",
+		"cpu": "4",
+		"memory": "8Gi",
+		"env": {
+			"NOVA_DB_WORKLOAD": "migration",
+			"NOVA_DB_USER": "nova-migrate@commcare-nova.iam",
+			"NOVA_DB_INSTANCE_CONNECTION_NAME": "commcare-nova:us-central1:nova-cases",
+			"NOVA_DB_NAME": "nova_cases",
+			"NOVA_MIGRATION_DB_USER": "nova-migrate@commcare-nova.iam",
+			"NOVA_RUNTIME_DB_USER": "commcare-nova@commcare-nova.iam",
+			"NOVA_CAPTURE_CLEANUP_DB_USER": "nova-capture-cleanup@commcare-nova.iam",
+			"NOVA_AUDIT_DB_USER": "nova-audit@commcare-nova.iam",
+			"NODE_OPTIONS": "--max-old-space-size=7168"
+		},
+		"vpc": true
+	},
+	"commcare-nova-legacy-preplan-repair": {
+		"serviceAccount": "nova-migrate@commcare-nova.iam.gserviceaccount.com",
+		"command": ["node"],
+		"args": ["legacy-preplan-repair.cjs"],
+		"tasks": 1,
+		"parallelism": 1,
+		"maxRetries": 0,
+		"timeout": "900s",
+		"cpu": "1",
+		"memory": "2Gi",
+		"env": {
+			"NOVA_DB_WORKLOAD": "migration",
+			"NOVA_DB_USER": "nova-migrate@commcare-nova.iam",
+			"NOVA_DB_INSTANCE_CONNECTION_NAME": "commcare-nova:us-central1:nova-cases",
+			"NOVA_DB_NAME": "nova_cases",
+			"NOVA_LEGACY_PREPLAN_PRODUCTION_JOB": "true"
+		},
+		"vpc": true
+	},
+	"commcare-nova-capture-cleanup": {
+		"serviceAccount": "nova-capture-cleanup@commcare-nova.iam.gserviceaccount.com",
+		"command": ["node"],
+		"args": ["capture-cleanup.cjs"],
+		"tasks": 1,
+		"parallelism": 1,
+		"maxRetries": 0,
+		"timeout": "1260s",
+		"cpu": "1",
+		"memory": "512Mi",
+		"env": {
+			"NOVA_DB_WORKLOAD": "capture-cleanup",
+			"NOVA_DB_USER": "nova-capture-cleanup@commcare-nova.iam",
+			"NOVA_DB_INSTANCE_CONNECTION_NAME": "commcare-nova:us-central1:nova-cases",
+			"NOVA_DB_NAME": "nova_cases",
+			"NOVA_MEDIA_BUCKET": "nova-multimedia-prod"
+		},
+		"vpc": true
+	},
+	"commcare-nova-case-type-schema-retirement": {
+		"serviceAccount": "nova-migrate@commcare-nova.iam.gserviceaccount.com",
+		"command": ["node"],
+		"args": ["case-type-schema-retirement.cjs"],
+		"tasks": 1,
+		"parallelism": 1,
+		"maxRetries": 0,
+		"timeout": "3000s",
+		"cpu": "4",
+		"memory": "8Gi",
+		"env": {
+			"NOVA_DB_WORKLOAD": "migration",
+			"NOVA_DB_USER": "nova-migrate@commcare-nova.iam",
+			"NOVA_DB_INSTANCE_CONNECTION_NAME": "commcare-nova:us-central1:nova-cases",
+			"NOVA_DB_NAME": "nova_cases",
+			"NOVA_CASE_TYPE_RETIREMENT_PRODUCTION_JOB": "true"
+		},
+		"vpc": true
+	},
+	"commcare-nova-case-parent-relationship-repair": {
+		"serviceAccount": "nova-migrate@commcare-nova.iam.gserviceaccount.com",
+		"command": ["node"],
+		"args": ["case-parent-relationship-repair.cjs"],
+		"tasks": 1,
+		"parallelism": 1,
+		"maxRetries": 0,
+		"timeout": "3000s",
+		"cpu": "4",
+		"memory": "8Gi",
+		"env": {
+			"NOVA_DB_WORKLOAD": "migration",
+			"NOVA_DB_USER": "nova-migrate@commcare-nova.iam",
+			"NOVA_DB_INSTANCE_CONNECTION_NAME": "commcare-nova:us-central1:nova-cases",
+			"NOVA_DB_NAME": "nova_cases",
+			"NOVA_CASE_PARENT_RELATIONSHIP_PRODUCTION_JOB": "true"
+		},
+		"vpc": true
+	},
+	"commcare-nova-historical-repair": {
+		"serviceAccount": "nova-migrate@commcare-nova.iam.gserviceaccount.com",
+		"command": ["node"],
+		"args": ["language-identity-repair.cjs"],
+		"tasks": 1,
+		"parallelism": 1,
+		"maxRetries": 0,
+		"timeout": "3000s",
+		"cpu": "4",
+		"memory": "8Gi",
+		"env": {
+			"NOVA_DB_WORKLOAD": "migration",
+			"NOVA_DB_USER": "nova-migrate@commcare-nova.iam",
+			"NOVA_DB_INSTANCE_CONNECTION_NAME": "commcare-nova:us-central1:nova-cases",
+			"NOVA_DB_NAME": "nova_cases",
+			"NOVA_MIGRATION_DB_USER": "nova-migrate@commcare-nova.iam",
+			"NOVA_RUNTIME_DB_USER": "commcare-nova@commcare-nova.iam",
+			"NOVA_CAPTURE_CLEANUP_DB_USER": "nova-capture-cleanup@commcare-nova.iam",
+			"NOVA_AUDIT_DB_USER": "nova-audit@commcare-nova.iam",
+			"NODE_OPTIONS": "--max-old-space-size=7168"
+		},
+		"vpc": true
+	}
+}

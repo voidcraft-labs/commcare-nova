@@ -48,7 +48,7 @@ const productionJob =
 	"python3 scripts/rollout/deploy-cloud-run.py --execute-job " +
 	"--project=commcare-nova --region=us-central1 " +
 	"--job=commcare-nova-case-type-schema-retirement " +
-	"--service=commcare-nova --wait-seconds=3060";
+	"--image=$NOVA_MAINTENANCE_IMAGE --wait-seconds=3060";
 
 function shellLiteral(value: string): string {
 	return `'${value.replaceAll("'", `'"'"'`)}'`;

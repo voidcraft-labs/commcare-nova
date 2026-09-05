@@ -49,3 +49,12 @@ scripts/lib/*
 !scripts/lib/main.ts
 !scripts/lib/schemaDrift.ts
 !scripts/lib/schemaDriftMigration.ts
+
+# BuildKit's named cache context is supplied separately from the source tree.
+.nova-build-cache
+!scripts/migrate-language-identity.ts
+!scripts/migrate-case-status-filters.ts
+!scripts/migrate-better-auth-account-identity.ts
+!scripts/migrate-better-auth-oauth-clients.ts
+!scripts/migrate-select-option-values.ts
+!scripts/lib/prodDb.ts

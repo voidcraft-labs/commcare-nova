@@ -259,6 +259,8 @@ jobs:
       # This intentionally builds the final runner stage from the filtered
       # Docker context. Production-only values are replaced with synthetics;
       # no image is pushed and no source maps are uploaded.
+      - name: Install reviewed Buildx
+        run: bash scripts/rollout/install-buildx.sh
       - name: Build deployable image
         run: |
           source "$RUNNER_TEMP/rollout.env"

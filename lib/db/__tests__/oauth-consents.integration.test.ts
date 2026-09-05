@@ -27,6 +27,8 @@ import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 
+import { MCP_RESOURCE_URL } from "@/lib/hostnames";
+
 const TEST_SECRET = "x".repeat(32);
 
 const dbHandle = setupPerTestDatabase({
@@ -57,10 +59,10 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 			oauthProvider({
 				loginPage: "/",
 				consentPage: "/consent",
-				resources: ["http://localhost:3000/api/mcp"],
+				resources: [MCP_RESOURCE_URL],
 				enforcePerClientResources: true,
-				clientRegistrationDefaultResources: ["http://localhost:3000/api/mcp"],
-				clientRegistrationAllowedResources: ["http://localhost:3000/api/mcp"],
+				clientRegistrationDefaultResources: [MCP_RESOURCE_URL],
+				clientRegistrationAllowedResources: [MCP_RESOURCE_URL],
 				scopes: ["openid", "profile", "email", "nova.read", "nova.write"],
 				allowDynamicClientRegistration: true,
 				allowUnauthenticatedClientRegistration: true,
@@ -128,7 +130,7 @@ describe("oauth-consents integration", () => {
 	});
 
 	// ── listAuthorizedClients ──────────────────────────────────────
-	it("seeds and assigns the MCP protected resource on registration", async () => {
+	it("assigns the initialized MCP protected resource on registration", async () => {
 		const created = await auth.api.registerOAuthClient({
 			body: {
 				redirect_uris: ["http://127.0.0.1:9999/cb"],
@@ -139,9 +141,7 @@ describe("oauth-consents integration", () => {
 		const resource = await dbHandle.pool.query<{ identifier: string }>(
 			"SELECT identifier FROM auth_oauth_resource",
 		);
-		expect(resource.rows).toEqual([
-			{ identifier: "http://localhost:3000/api/mcp" },
-		]);
+		expect(resource.rows).toEqual([{ identifier: MCP_RESOURCE_URL }]);
 		const link = await dbHandle.pool.query<{
 			clientId: string;
 			resourceId: string;
@@ -149,7 +149,7 @@ describe("oauth-consents integration", () => {
 		expect(link.rows).toEqual([
 			{
 				clientId: created.client_id,
-				resourceId: "http://localhost:3000/api/mcp",
+				resourceId: MCP_RESOURCE_URL,
 			},
 		]);
 	});

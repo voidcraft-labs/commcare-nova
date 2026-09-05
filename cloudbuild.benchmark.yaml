@@ -1,0 +1,63 @@
+# Build-only timing/contract check. No production image push, migration, Job
+# update, service deploy, or Sentry upload. Use --machine-type with gcloud submit.
+# Source and compiler caches expire in the private build-cache bucket.
+steps:
+  - id: runtime-capabilities
+    name: node:24.18.1-alpine
+    entrypoint: node
+    args: [scripts/rollout/render-build-config.mjs, --check, --build-id, '$BUILD_ID', --output, /workspace/rollout.env]
+  - id: prerequisites
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: ['-']
+    entrypoint: python3
+    args: [scripts/infra/manage-deployment.py, check]
+  - id: restore-cache
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: ['-']
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        case '${_CACHE_MODE}' in
+          cold) python3 scripts/rollout/build-cache.py restore --build-id="$BUILD_ID" --cold ;;
+          warm) python3 scripts/rollout/build-cache.py restore --build-id="$BUILD_ID" ;;
+          *) exit 2 ;;
+        esac
+  - id: build
+    name: gcr.io/cloud-builders/docker:24.0.9
+    waitFor: [runtime-capabilities, restore-cache]
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        source /workspace/rollout.env
+        source /workspace/cache.env
+        export NOVA_IMAGE_TAG="nova-benchmark:$BUILD_ID"
+        export NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=benchmark-public-key
+        export NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=ac18fb2d87e44a1eb5a19883
+        export NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
+        export NEXT_DEPLOYMENT_ID="$BUILD_ID"
+        bash scripts/rollout/install-buildx.sh
+        bash scripts/rollout/build-image.sh
+        docker image inspect "$${NOVA_IMAGE_TAG}" --format '{{json .Config}}' > /workspace/image-config.json
+        docker create --name nova-benchmark-output "$${NOVA_IMAGE_TAG}" >/dev/null
+        docker cp nova-benchmark-output:/app/.nova-build-id /workspace/baked-build-id
+        docker cp nova-benchmark-output:/app/.next/server/server-reference-manifest.json /workspace/actions.json
+        docker rm nova-benchmark-output >/dev/null
+        test "$$(cat /workspace/baked-build-id)" = "$BUILD_ID"
+  - id: verify-image
+    name: node:24.18.1-alpine
+    waitFor: [build, prerequisites]
+    entrypoint: node
+    args: [scripts/rollout/verify-build-artifact.mjs, /workspace, '$BUILD_ID']
+  - id: publish-cache
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
+    waitFor: [verify-image]
+    entrypoint: python3
+    args: [scripts/rollout/build-cache.py, publish, '--build-id=$BUILD_ID']
+substitutions:
+  _CACHE_MODE: warm
+options:
+  logging: CLOUD_LOGGING_ONLY

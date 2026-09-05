@@ -1,23 +1,16 @@
 #!/usr/bin/env python3
-"""Permanent immutable-image Cloud Run deployment policy.
+"""Deploy one immutable image through ordinary Cloud Run automatic scaling.
 
-The image resolver runs immediately after the build tag is pushed and writes a
-shell-safe ``repository@sha256`` reference for every later Job and service
-operation. The service deployment accepts only ordinary automatic scaling or
-maintenance-owned manual-zero scaling, preserves that mode until the exact
-candidate is Ready at 100%, then performs one revision-free scaling-only return
-to automatic.
-
-When the service begins in manual-zero, the failure arm is always live. Any
-non-terminal exit restores and verifies the maintenance posture: ingress
-detached, manual-zero, direct runtime sessions terminated, and cleanup paused.
-Recovery errors are reported without replacing the original deployment error.
+Pending migrations gate deployment. Job execution remains generation/etag
+fenced, and the one service revision must be Ready with all traffic. Historical
+maintenance cutovers are complete and are not part of application deployment.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import re
 import subprocess
 import sys
@@ -36,23 +29,6 @@ RESOURCE_PART_RE = re.compile(r"^[a-z][a-z0-9-]{0,62}$")
 APP_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$")
 SERVICE_READY_STATE = "CONDITION_SUCCEEDED"
 RETRYABLE_HTTP_STATUSES = frozenset({408, 429, 500, 502, 503, 504})
-MAINTENANCE_RECOVERY_ACTIONS = (
-    "detach-ingress",
-    "manual-zero",
-    "terminate-runtime-sessions",
-    "pause-cleanup",
-    "verify-maintenance-posture",
-)
-RECOVERABLE_PHASES = (
-    "manual-zero",
-    "candidate-ready",
-    "automatic-resumed",
-    "ingress-attached",
-    "cleanup-enabled",
-)
-TERMINAL_PHASE = "terminal-success"
-
-
 @dataclass(frozen=True)
 class JobTemplateContract:
     service_account: str
@@ -62,66 +38,32 @@ class JobTemplateContract:
     parallelism: int
     max_retries: int
     timeout: str
+    environment: tuple[tuple[str, str], ...]
+    vpc: bool
+    cpu: str
+    memory: str
 
 
 # An etag prevents a Job mutation after it is inspected. These contracts also
 # prove that the inspected generation has the intended authority and execution
 # shape before it is allowed to run. Keep them aligned with cloudbuild.yaml.
 JOB_TEMPLATE_CONTRACTS = {
-    "commcare-nova-media-policy": JobTemplateContract(
-        service_account="nova-media-policy@commcare-nova.iam.gserviceaccount.com",
-        command=("node",),
-        stored_args=("media-bucket-policy.cjs",),
-        task_count=1,
-        parallelism=1,
-        max_retries=1,
-        timeout="300s",
-    ),
-    "commcare-nova-migrate": JobTemplateContract(
-        service_account="nova-migrate@commcare-nova.iam.gserviceaccount.com",
-        command=("node",),
-        stored_args=("migrate.cjs",),
-        task_count=1,
-        parallelism=1,
-        max_retries=0,
-        timeout="3000s",
-    ),
-    "commcare-nova-legacy-preplan-repair": JobTemplateContract(
-        service_account="nova-migrate@commcare-nova.iam.gserviceaccount.com",
-        command=("node",),
-        stored_args=("legacy-preplan-repair.cjs",),
-        task_count=1,
-        parallelism=1,
-        max_retries=0,
-        timeout="900s",
-    ),
-    "commcare-nova-capture-cleanup": JobTemplateContract(
-        service_account="nova-capture-cleanup@commcare-nova.iam.gserviceaccount.com",
-        command=("node",),
-        stored_args=("capture-cleanup.cjs",),
-        task_count=1,
-        parallelism=1,
-        max_retries=0,
-        timeout="1260s",
-    ),
-    "commcare-nova-case-type-schema-retirement": JobTemplateContract(
-        service_account="nova-migrate@commcare-nova.iam.gserviceaccount.com",
-        command=("node",),
-        stored_args=("case-type-schema-retirement.cjs",),
-        task_count=1,
-        parallelism=1,
-        max_retries=0,
-        timeout="3000s",
-    ),
-    "commcare-nova-case-parent-relationship-repair": JobTemplateContract(
-        service_account="nova-migrate@commcare-nova.iam.gserviceaccount.com",
-        command=("node",),
-        stored_args=("case-parent-relationship-repair.cjs",),
-        task_count=1,
-        parallelism=1,
-        max_retries=0,
-        timeout="3000s",
-    ),
+    name: JobTemplateContract(
+        service_account=job["serviceAccount"],
+        command=tuple(job["command"]),
+        stored_args=tuple(job["args"]),
+        task_count=job["tasks"],
+        parallelism=job["parallelism"],
+        max_retries=job["maxRetries"],
+        timeout=job["timeout"],
+        environment=tuple(sorted(job["env"].items())),
+        vpc=job["vpc"],
+        cpu=job["cpu"],
+        memory=job["memory"],
+    )
+    for name, job in json.loads(
+        (Path(__file__).resolve().parents[2] / "config/deployment-jobs.json").read_text()
+    ).items()
 }
 
 
@@ -157,12 +99,7 @@ def scaling_prestate(service: dict[str, Any]) -> str:
         if manual_count is not None:
             fail("Automatic scaling retained a manual instance count.")
         return "automatic"
-    if mode == "MANUAL" and _integer(manual_count, "manualInstanceCount") == 0:
-        return "manual-zero"
-    fail(
-        "Cloud Run deploy accepts only automatic scaling or manual scaling "
-        "with exactly zero instances."
-    )
+    fail("Cloud Run deploy requires automatic scaling; resolve the operator scaling state before deploying.")
 
 
 def assert_scaling(
@@ -175,12 +112,6 @@ def assert_scaling(
     actual = scaling_prestate(service)
     if actual != expected_prestate:
         fail(f"Cloud Run scaling mode changed from {expected_prestate} to {actual}.")
-    # Cloud Run's v2 service representation omits the automatic min/max fields
-    # while the service is in manual scaling mode. The deployment still proves
-    # those retained bounds after it switches the service back to AUTOMATIC;
-    # they cannot be observed during the maintenance-owned manual-zero phase.
-    if actual == "manual-zero":
-        return
     scaling = service.get("scaling") or {}
     if (
         expected_min is not None
@@ -357,14 +288,6 @@ def assert_revision_transition(
     if not expected_additions.issubset(after_revisions):
         fail("Cloud Run garbage-collected the required candidate revision.")
     return frozenset(removed)
-
-
-def maintenance_recovery_actions(phase: str) -> tuple[str, ...]:
-    if phase == TERMINAL_PHASE:
-        return ()
-    if phase not in RECOVERABLE_PHASES:
-        fail(f"Unknown maintenance recovery phase: {phase!r}.")
-    return MAINTENANCE_RECOVERY_ACTIONS
 
 
 def _run(
@@ -589,16 +512,24 @@ def _effective_execution_args(
 
     short_name = expected_name.rsplit("/", 1)[-1]
     exact_overrides = {
-        "commcare-nova-migrate": {
-            ("migrate.cjs", "--finalize-better-auth-17"),
-            ("migrate.cjs", "--terminate-runtime-sessions-only"),
-        },
         "commcare-nova-capture-cleanup": {
             ("capture-cleanup.cjs", "--probe-schema"),
         },
     }
     if requested in exact_overrides.get(short_name, set()):
         return requested
+
+    if short_name == "commcare-nova-historical-repair":
+        tools = {
+            "language-identity-repair.cjs", "case-status-filter-repair.cjs",
+            "better-auth-account-identity.cjs", "better-auth-oauth-clients.cjs",
+            "select-option-value-repair.cjs",
+        }
+        if requested[:1] and requested[0] in tools:
+            if len(requested) == 1 or requested[1:] == ("--execute",):
+                return requested
+            if requested == ("better-auth-oauth-clients.cjs", "--execute", "--finalize"):
+                return requested
 
     if short_name == "commcare-nova-legacy-preplan-repair" and requested == (
         "legacy-preplan-repair.cjs",
@@ -701,6 +632,21 @@ def _assert_task_template(
             f"{label} timeout does not match the checked-in Job contract: "
             f"expected={contract.timeout!r}, actual={task_template.get('timeout')!r}."
         )
+
+    environment = container.get("env", [])
+    if (not isinstance(environment, list)
+        or any(not isinstance(item, dict) or set(item) != {"name", "value"} for item in environment)
+        or sorted(environment, key=lambda item: item["name"]) != [
+            {"name": key, "value": value} for key, value in contract.environment
+        ]):
+        fail(f"{label} environment differs from the checked-in Job configuration; run manage-deployment.py job.")
+    expected_vpc = {"egress": "PRIVATE_RANGES_ONLY", "networkInterfaces": [{"network": "default", "subnetwork": "default"}]} if contract.vpc else {}
+    if (task_template.get("vpcAccess") or {}) != expected_vpc:
+        fail(f"{label} VPC configuration differs from the checked-in Job configuration.")
+    limits = container.get("resources", {}).get("limits", {})
+    cpu = limits.get("cpu")
+    if cpu not in (contract.cpu, f"{int(contract.cpu) * 1000}m") or limits.get("memory") != contract.memory:
+        fail(f"{label} resources differ from the checked-in Job configuration.")
 
 
 def _assert_execution_shape(
@@ -975,257 +921,6 @@ def _forbid_deploy_policy_overrides(deploy_args: Sequence[str]) -> None:
             fail(f"Deployment policy owns {argument.split('=', 1)[0]}.")
 
 
-def _scheduler_state(args: argparse.Namespace) -> str:
-    return _run(
-        [
-            "gcloud",
-            "scheduler",
-            "jobs",
-            "describe",
-            args.maintenance_cleanup_scheduler,
-            f"--location={args.region}",
-            f"--project={args.project}",
-            "--format=value(state)",
-        ],
-        capture=True,
-    ).stdout.strip()
-
-
-def _backend(args: argparse.Namespace) -> dict[str, Any]:
-    raw = _run(
-        [
-            "gcloud",
-            "compute",
-            "backend-services",
-            "describe",
-            args.maintenance_backend_service,
-            "--global",
-            f"--project={args.project}",
-            "--format=json",
-        ],
-        capture=True,
-    ).stdout
-    value = json.loads(raw)
-    if not isinstance(value, dict):
-        fail("gcloud returned malformed backend-service JSON.")
-    return value
-
-
-def _ingress_attached(args: argparse.Namespace) -> bool:
-    suffix = f"/networkEndpointGroups/{args.maintenance_neg}"
-    backends = _backend(args).get("backends") or []
-    if not isinstance(backends, list):
-        fail("Backend service returned malformed backends.")
-    return any(
-        isinstance(backend, dict)
-        and isinstance(backend.get("group"), str)
-        and backend["group"].endswith(suffix)
-        for backend in backends
-    )
-
-
-def _assert_maintenance_posture(
-    args: argparse.Namespace,
-    api: CloudRunApi,
-) -> None:
-    assert_scaling(
-        api.service(),
-        "manual-zero",
-        expected_min=args.expected_min,
-        expected_max=args.expected_max,
-    )
-    if _scheduler_state(args) != "PAUSED":
-        fail("Maintenance requires the capture-cleanup scheduler to stay PAUSED.")
-    if _ingress_attached(args):
-        fail("Maintenance requires the public serverless NEG to stay detached.")
-
-
-def _detach_ingress(args: argparse.Namespace) -> None:
-    if not _ingress_attached(args):
-        return
-    _run(
-        [
-            "gcloud",
-            "compute",
-            "backend-services",
-            "remove-backend",
-            args.maintenance_backend_service,
-            "--global",
-            f"--network-endpoint-group={args.maintenance_neg}",
-            f"--network-endpoint-group-region={args.region}",
-            f"--project={args.project}",
-            "--quiet",
-        ]
-    )
-
-
-def _attach_ingress(args: argparse.Namespace) -> None:
-    if _ingress_attached(args):
-        return
-    _run(
-        [
-            "gcloud",
-            "compute",
-            "backend-services",
-            "add-backend",
-            args.maintenance_backend_service,
-            "--global",
-            f"--network-endpoint-group={args.maintenance_neg}",
-            f"--network-endpoint-group-region={args.region}",
-            f"--project={args.project}",
-            "--quiet",
-        ]
-    )
-    if not _ingress_attached(args):
-        fail("Maintenance exit did not restore the public serverless NEG.")
-
-
-def _restore_manual_zero(args: argparse.Namespace, api: CloudRunApi) -> None:
-    before_service = api.service()
-    before_revisions = revision_names(api.revisions())
-    _run(
-        [
-            "gcloud",
-            "run",
-            "services",
-            "update",
-            args.service,
-            f"--region={args.region}",
-            f"--project={args.project}",
-            "--scaling=0",
-            "--quiet",
-        ]
-    )
-
-    def manual_zero_without_revision() -> None:
-        service = api.service()
-        assert_scaling(
-            service,
-            "manual-zero",
-            expected_min=args.expected_min,
-            expected_max=args.expected_max,
-        )
-        assert_revision_transition(
-            before_service=before_service,
-            before_revisions=before_revisions,
-            after_revisions=revision_names(api.revisions()),
-            expected_additions=frozenset(),
-        )
-
-    _wait_for("manual-zero recovery without a revision", manual_zero_without_revision)
-
-
-def _terminate_runtime_sessions(args: argparse.Namespace) -> None:
-    _execute_job_exact(
-        project=args.project,
-        region=args.region,
-        job=args.maintenance_session_fence_job,
-        expected_image=args.image,
-        execution_args=("migrate.cjs", "--terminate-runtime-sessions-only"),
-        wait_seconds=1_080,
-    )
-
-
-def _pause_cleanup(args: argparse.Namespace) -> None:
-    if _scheduler_state(args) == "PAUSED":
-        return
-    _run(
-        [
-            "gcloud",
-            "scheduler",
-            "jobs",
-            "pause",
-            args.maintenance_cleanup_scheduler,
-            f"--location={args.region}",
-            f"--project={args.project}",
-            "--quiet",
-        ]
-    )
-    if _scheduler_state(args) != "PAUSED":
-        fail("Capture-cleanup recovery did not restore PAUSED.")
-
-
-def _resume_cleanup(args: argparse.Namespace) -> None:
-    state = _scheduler_state(args)
-    if state == "ENABLED":
-        return
-    if state != "PAUSED":
-        fail(f"Cannot resume cleanup from scheduler state {state!r}.")
-    _run(
-        [
-            "gcloud",
-            "scheduler",
-            "jobs",
-            "resume",
-            args.maintenance_cleanup_scheduler,
-            f"--location={args.region}",
-            f"--project={args.project}",
-            "--quiet",
-        ]
-    )
-    if _scheduler_state(args) != "ENABLED":
-        fail("Maintenance exit did not resume capture cleanup.")
-
-
-def _automatic_scaling_update_command(args: argparse.Namespace) -> list[str]:
-    return [
-        "gcloud",
-        "run",
-        "services",
-        "update",
-        args.service,
-        f"--region={args.region}",
-        f"--project={args.project}",
-        "--scaling=auto",
-        f"--min={args.expected_min}",
-        f"--max={args.expected_max}",
-        "--quiet",
-    ]
-
-
-def _recover_maintenance(
-    args: argparse.Namespace,
-    api: CloudRunApi,
-    phase: str,
-) -> None:
-    def dispatch(action: str) -> None:
-        if action == "detach-ingress":
-            _detach_ingress(args)
-        elif action == "manual-zero":
-            _restore_manual_zero(args, api)
-        elif action == "terminate-runtime-sessions":
-            _terminate_runtime_sessions(args)
-        elif action == "pause-cleanup":
-            _pause_cleanup(args)
-        elif action == "verify-maintenance-posture":
-            _assert_maintenance_posture(args, api)
-        else:
-            raise AssertionError(f"unhandled recovery action {action}")
-
-    _run_all_recovery_actions(maintenance_recovery_actions(phase), dispatch)
-
-
-def _run_all_recovery_actions(
-    actions: Sequence[str],
-    dispatch: Callable[[str], None],
-) -> None:
-    errors: list[BaseException] = []
-    for action in actions:
-        try:
-            dispatch(action)
-        except BaseException as error:
-            errors.append(error)
-            print(
-                f"deploy-cloud-run maintenance recovery action {action} failed: {error}",
-                file=sys.stderr,
-            )
-    if errors:
-        raise BaseExceptionGroup(
-            "One or more maintenance recovery actions failed.",
-            errors,
-        )
-
-
 def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     if argv == ["--policy-self-test"]:
         return argparse.Namespace(mode="self-test")
@@ -1238,9 +933,9 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         values = parser.parse_args(argv)
         values.mode = "read-scaling-prestate"
         return values
-    if argv[:1] == ["--execute-job"]:
+    if argv[:1] in (["--execute-job"], ["--verify-job"]):
         parser = argparse.ArgumentParser()
-        parser.add_argument("--execute-job", action="store_true")
+        parser.add_argument(argv[0], action="store_true")
         parser.add_argument("--project", required=True)
         parser.add_argument("--region", required=True)
         parser.add_argument("--job", required=True)
@@ -1250,7 +945,7 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         parser.add_argument("--wait-seconds", required=True, type=int)
         parser.add_argument("--execution-arg", action="append", default=[])
         values = parser.parse_args(argv)
-        values.mode = "execute-job"
+        values.mode = argv[0][2:]
         return values
     if argv[:1] == ["--resolve-image"]:
         parser = argparse.ArgumentParser()
@@ -1261,22 +956,6 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
         values = parser.parse_args(argv)
         values.mode = "resolve-image"
         return values
-    if argv[:1] == ["--enter-maintenance"]:
-        parser = argparse.ArgumentParser()
-        parser.add_argument("--enter-maintenance", action="store_true")
-        parser.add_argument("--project", required=True)
-        parser.add_argument("--region", required=True)
-        parser.add_argument("--service", required=True)
-        parser.add_argument("--image", required=True)
-        parser.add_argument("--expected-min", type=int, required=True)
-        parser.add_argument("--expected-max", type=int, required=True)
-        parser.add_argument("--maintenance-backend-service", required=True)
-        parser.add_argument("--maintenance-neg", required=True)
-        parser.add_argument("--maintenance-cleanup-scheduler", required=True)
-        parser.add_argument("--maintenance-session-fence-job", required=True)
-        values = parser.parse_args(argv)
-        values.mode = "enter-maintenance"
-        return values
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", required=True)
     parser.add_argument("--region", required=True)
@@ -1284,10 +963,6 @@ def _parse_args(argv: Sequence[str]) -> argparse.Namespace:
     parser.add_argument("--image", required=True)
     parser.add_argument("--expected-min", type=int, required=True)
     parser.add_argument("--expected-max", type=int, required=True)
-    parser.add_argument("--maintenance-backend-service", required=True)
-    parser.add_argument("--maintenance-neg", required=True)
-    parser.add_argument("--maintenance-cleanup-scheduler", required=True)
-    parser.add_argument("--maintenance-session-fence-job", required=True)
     parser.add_argument("deploy_args", nargs=argparse.REMAINDER)
     values = parser.parse_args(argv)
     values.mode = "deploy"
@@ -1330,17 +1005,9 @@ def _policy_self_test() -> None:
     irrelevant = f"{service_name}/revisions/s-00000-gc"
 
     assert scaling_prestate({"scaling": {"scalingMode": "AUTOMATIC"}}) == "automatic"
-    assert (
-        scaling_prestate(
-            {"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 0}}
-        )
-        == "manual-zero"
-    )
-    assert_scaling(
-        {"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 0}},
-        "manual-zero",
-        expected_min=1,
-        expected_max=4,
+    _expect_policy_failure(
+        lambda: scaling_prestate({"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 0}}),
+        "manual zero is no longer an application deployment state",
     )
     assert_scaling(
         {
@@ -1363,26 +1030,6 @@ def _policy_self_test() -> None:
         ),
         "automatic scaling without exact bounds",
     )
-    automatic_args = argparse.Namespace(
-        service="s",
-        region="r",
-        project="p",
-        expected_min=1,
-        expected_max=4,
-    )
-    assert _automatic_scaling_update_command(automatic_args) == [
-        "gcloud",
-        "run",
-        "services",
-        "update",
-        "s",
-        "--region=r",
-        "--project=p",
-        "--scaling=auto",
-        "--min=1",
-        "--max=4",
-        "--quiet",
-    ]
     _expect_policy_failure(
         lambda: scaling_prestate(
             {"scaling": {"scalingMode": "MANUAL", "manualInstanceCount": 1}}
@@ -1480,27 +1127,6 @@ def _policy_self_test() -> None:
         "unexpected revision addition",
     )
 
-    for phase in RECOVERABLE_PHASES:
-        assert maintenance_recovery_actions(phase) == MAINTENANCE_RECOVERY_ACTIONS
-    assert maintenance_recovery_actions(TERMINAL_PHASE) == ()
-    attempted_recovery_actions: list[str] = []
-
-    def failing_recovery_dispatch(action: str) -> None:
-        attempted_recovery_actions.append(action)
-        if action == "detach-ingress":
-            raise DeploymentPolicyError("synthetic detach failure")
-
-    try:
-        _run_all_recovery_actions(
-            MAINTENANCE_RECOVERY_ACTIONS,
-            failing_recovery_dispatch,
-        )
-    except ExceptionGroup as error:
-        assert len(error.exceptions) == 1
-    else:
-        raise AssertionError("synthetic recovery failure was accepted")
-    assert attempted_recovery_actions == list(MAINTENANCE_RECOVERY_ACTIONS)
-
     _forbid_deploy_policy_overrides(["--timeout=3600s"])
     _expect_policy_failure(
         lambda: _forbid_deploy_policy_overrides(["--scaling=auto"]),
@@ -1538,9 +1164,6 @@ def _policy_self_test() -> None:
     job_name = "projects/p/locations/r/jobs/commcare-nova-migrate"
     migrate_contract = JOB_TEMPLATE_CONTRACTS["commcare-nova-migrate"]
     assert _effective_execution_args(job_name, ()) == migrate_contract.stored_args
-    assert _effective_execution_args(
-        job_name, ("migrate.cjs", "--finalize-better-auth-17")
-    ) == ("migrate.cjs", "--finalize-better-auth-17")
     assert _effective_execution_args(
         "projects/p/locations/r/jobs/commcare-nova-legacy-preplan-repair",
         ("legacy-preplan-repair.cjs", "--execute"),
@@ -1584,10 +1207,13 @@ def _policy_self_test() -> None:
                     {
                         "image": immutable_image,
                         "command": list(migrate_contract.command),
+                                "env": [{"name": key, "value": value} for key, value in migrate_contract.environment],
+                                "resources": {"limits": {"cpu": migrate_contract.cpu, "memory": migrate_contract.memory}},
                         "args": list(migrate_contract.stored_args),
                     }
                 ],
                 "serviceAccount": migrate_contract.service_account,
+                    "vpcAccess": {"egress": "PRIVATE_RANGES_ONLY", "networkInterfaces": [{"network": "default", "subnetwork": "default"}]},
                 "maxRetries": 0,
                 "timeout": "3000s",
             },
@@ -1619,10 +1245,13 @@ def _policy_self_test() -> None:
                             {
                                 "image": immutable_image,
                                 "command": list(migrate_contract.command),
+                                "env": [{"name": key, "value": value} for key, value in migrate_contract.environment],
+                                "resources": {"limits": {"cpu": migrate_contract.cpu, "memory": migrate_contract.memory}},
                                 "args": list(migrate_contract.stored_args),
                             }
                         ],
                         "serviceAccount": migrate_contract.service_account,
+                    "vpcAccess": {"egress": "PRIVATE_RANGES_ONLY", "networkInterfaces": [{"network": "default", "subnetwork": "default"}]},
                         "maxRetries": 0,
                         "timeout": "3000s",
                     },
@@ -1653,20 +1282,22 @@ def _policy_self_test() -> None:
                         {
                             "image": immutable_image,
                             "command": list(migrate_contract.command),
+                                "env": [{"name": key, "value": value} for key, value in migrate_contract.environment],
+                                "resources": {"limits": {"cpu": migrate_contract.cpu, "memory": migrate_contract.memory}},
                             "args": [
                                 "migrate.cjs",
-                                "--terminate-runtime-sessions-only",
                             ],
                         }
                     ],
                     "serviceAccount": migrate_contract.service_account,
+                    "vpcAccess": {"egress": "PRIVATE_RANGES_ONLY", "networkInterfaces": [{"network": "default", "subnetwork": "default"}]},
                     "maxRetries": 0,
                     "timeout": "3000s",
                 },
             },
             job_name,
             immutable_image,
-            ("migrate.cjs", "--terminate-runtime-sessions-only"),
+            ("migrate.cjs",),
         )["name"]
         == execution_name
     )
@@ -1708,8 +1339,24 @@ def _read_scaling_prestate_mode(args: argparse.Namespace) -> None:
 def _execute_job_mode(args: argparse.Namespace) -> None:
     expected_image = args.image
     if expected_image is None:
+        if args.job not in ("commcare-nova-migrate", "commcare-nova-capture-cleanup"):
+            fail("Historical tools require --image pointing to an explicitly built maintenance image.")
         api = CloudRunApi(args.project, args.region, args.service)
         expected_image = _ready_service_image(api.service(), api.revisions())
+    if args.mode == "verify-job":
+        _immutable_image(expected_image)
+        for value in (args.project, args.region, args.job):
+            if not RESOURCE_PART_RE.fullmatch(value):
+                fail("Invalid Job resource name.")
+        job_name = f"projects/{args.project}/locations/{args.region}/jobs/{args.job}"
+        token = _access_token()
+        _wait_for(
+            f"ready immutable Job contract for {args.job}",
+            lambda: _exact_ready_job_etag(_run_api_request(token, "GET", job_name), job_name, expected_image),
+            timeout_seconds=min(args.wait_seconds, 120),
+        )
+        print(f"NOVA_JOB_VERIFIED={args.job}")
+        return
     execution = _execute_job_exact(
         project=args.project,
         region=args.region,
@@ -1732,245 +1379,46 @@ def _execute_job_mode(args: argparse.Namespace) -> None:
     )
 
 
-def _enter_maintenance_mode(args: argparse.Namespace) -> None:
-    for label in (
-        "project",
-        "region",
-        "service",
-        "maintenance_backend_service",
-        "maintenance_neg",
-        "maintenance_cleanup_scheduler",
-        "maintenance_session_fence_job",
-    ):
-        value = getattr(args, label)
-        if not RESOURCE_PART_RE.fullmatch(value):
-            fail(f"Invalid maintenance {label.replace('_', '-')}: {value!r}.")
-    if args.expected_min < 0 or args.expected_max < args.expected_min:
-        fail("Expected Cloud Run min/max scaling bounds are invalid.")
-    _immutable_image(args.image)
-    api = CloudRunApi(args.project, args.region, args.service)
-    prestate = scaling_prestate(api.service())
-    if prestate == "manual-zero":
-        # A retry can arrive after any recovery action failed. Manual-zero
-        # proves only the scaling axis, so re-converge every maintenance axis
-        # (including the exact-image session fence) before the fleet verifier
-        # is allowed to proceed. The recovery runner attempts every action even
-        # when an earlier one fails, leaving a later retry able to converge.
-        _recover_maintenance(args, api, "manual-zero")
-    elif prestate == "automatic":
-        try:
-            # Stop independent writers first, remove public admission, then
-            # drain instances and terminate any database sessions that survived
-            # the scale transition. A failure converges to the same fail-closed
-            # maintenance posture as a failed candidate deployment.
-            _pause_cleanup(args)
-            _detach_ingress(args)
-            _restore_manual_zero(args, api)
-            _terminate_runtime_sessions(args)
-            _assert_maintenance_posture(args, api)
-        except BaseException as original_error:
-            try:
-                _recover_maintenance(args, api, "manual-zero")
-            except BaseException as recovery_error:
-                raise BaseExceptionGroup(
-                    "Maintenance entry and fail-closed recovery both failed.",
-                    [original_error, recovery_error],
-                ) from original_error
-            raise
-    else:
-        fail(f"Cannot enter maintenance from scaling state {prestate!r}.")
-    print(
-        "NOVA_MAINTENANCE_ENTERED="
-        + json.dumps(
-            {"image": args.image, "prestate": prestate},
-            separators=(",", ":"),
-            sort_keys=True,
-        )
-    )
-
-
 def _deploy_mode(args: argparse.Namespace) -> None:
-    for label in (
-        "project",
-        "region",
-        "service",
-        "maintenance_backend_service",
-        "maintenance_neg",
-        "maintenance_cleanup_scheduler",
-        "maintenance_session_fence_job",
-    ):
-        value = getattr(args, label)
-        if not RESOURCE_PART_RE.fullmatch(value):
-            fail(f"Invalid Cloud Run {label.replace('_', '-')}: {value!r}.")
+    for label in ("project", "region", "service"):
+        if not RESOURCE_PART_RE.fullmatch(getattr(args, label)):
+            fail(f"Invalid Cloud Run {label}.")
     if args.expected_min < 0 or args.expected_max < args.expected_min:
         fail("Expected Cloud Run min/max scaling bounds are invalid.")
     _forbid_deploy_policy_overrides(args.deploy_args)
     _, expected_digest = _immutable_image(args.image)
-
     api = CloudRunApi(args.project, args.region, args.service)
     before_service = api.service()
-    prestate = scaling_prestate(before_service)
+    assert_scaling(before_service, "automatic", expected_min=args.expected_min,
+                   expected_max=args.expected_max)
     before_revisions = revision_names(api.revisions())
-    maintenance = prestate == "manual-zero"
-    phase = "manual-zero"
-    success = False
-    original_error: BaseException | None = None
-    recovery_error: BaseException | None = None
+    print("NOVA_DEPLOY_PRESTATE=" + json.dumps({"scaling": "automatic", "image": args.image}))
+    _run([
+        "gcloud", "run", "deploy", args.service, f"--image={args.image}",
+        f"--region={args.region}", f"--project={args.project}", "--quiet", *args.deploy_args,
+    ])
 
-    print(
-        "NOVA_DEPLOY_PRESTATE="
-        + json.dumps(
-            {
-                "scaling": prestate,
-                "revisionCount": len(before_revisions),
-                "revisions": sorted(before_revisions),
-                "image": args.image,
-            },
-            separators=(",", ":"),
-            sort_keys=True,
+    def deployed_candidate() -> str:
+        service = api.service()
+        assert_scaling(service, "automatic", expected_min=args.expected_min,
+                       expected_max=args.expected_max)
+        candidate = assert_ready_service(service)
+        if candidate in before_revisions:
+            fail("Cloud Run deploy did not create a new candidate revision.")
+        assert_revision_transition(
+            before_service=before_service, before_revisions=before_revisions,
+            after_revisions=revision_names(api.revisions()),
+            expected_additions=frozenset({candidate}),
         )
-    )
+        assert_candidate_traffic(service, candidate)
+        _candidate_revision_fact(candidate, args.region, args.project, args.image, expected_digest)
+        return candidate
 
-    try:
-        if maintenance:
-            _assert_maintenance_posture(args, api)
-
-        _run(
-            [
-                "gcloud",
-                "run",
-                "deploy",
-                args.service,
-                f"--image={args.image}",
-                f"--region={args.region}",
-                f"--project={args.project}",
-                "--quiet",
-                *args.deploy_args,
-            ]
-        )
-
-        def deployed_candidate() -> tuple[dict[str, Any], frozenset[str], str]:
-            service = api.service()
-            assert_scaling(
-                service,
-                prestate,
-                expected_min=args.expected_min,
-                expected_max=args.expected_max,
-            )
-            candidate = assert_ready_service(service)
-            revisions = revision_names(api.revisions())
-            if candidate in before_revisions:
-                fail("Cloud Run deploy did not create a new candidate revision.")
-            assert_revision_transition(
-                before_service=before_service,
-                before_revisions=before_revisions,
-                after_revisions=revisions,
-                expected_additions=frozenset({candidate}),
-            )
-            assert_candidate_traffic(service, candidate)
-            return service, revisions, candidate
-
-        deployed_service, deployed_revisions, candidate = _wait_for(
-            "the exact candidate deployment", deployed_candidate
-        )
-        phase = "candidate-ready"
-        _candidate_revision_fact(
-            candidate,
-            args.region,
-            args.project,
-            args.image,
-            expected_digest,
-        )
-        if maintenance:
-            if _scheduler_state(args) != "PAUSED" or _ingress_attached(args):
-                fail(
-                    "Candidate deployment changed the maintenance ingress or cleanup posture."
-                )
-        print(
-            "NOVA_DEPLOY_CANDIDATE="
-            + json.dumps(
-                {
-                    "revision": candidate,
-                    "image": args.image,
-                    "prestate": prestate,
-                },
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-        )
-
-        _run(_automatic_scaling_update_command(args))
-
-        def automatic_without_revision() -> dict[str, Any]:
-            service = api.service()
-            assert_scaling(
-                service,
-                "automatic",
-                expected_min=args.expected_min,
-                expected_max=args.expected_max,
-            )
-            if assert_ready_service(service) != candidate:
-                fail("Scaling-only update changed the latest Ready revision.")
-            current_revisions = revision_names(api.revisions())
-            assert_revision_transition(
-                before_service=deployed_service,
-                before_revisions=deployed_revisions,
-                after_revisions=current_revisions,
-                expected_additions=frozenset(),
-            )
-            if candidate not in current_revisions:
-                fail("Scaling-only update lost the exact candidate revision.")
-            assert_candidate_traffic(service, candidate)
-            return service
-
-        final_service = _wait_for(
-            "automatic scaling without a revision change",
-            automatic_without_revision,
-        )
-        phase = "automatic-resumed"
-        final_revisions = revision_names(api.revisions())
-        if maintenance:
-            if _scheduler_state(args) != "PAUSED" or _ingress_attached(args):
-                fail(
-                    "Automatic scaling changed the maintenance ingress or cleanup posture."
-                )
-            _attach_ingress(args)
-            phase = "ingress-attached"
-            _resume_cleanup(args)
-            phase = "cleanup-enabled"
-        success = True
-        phase = TERMINAL_PHASE
-        print(
-            "NOVA_DEPLOY_RESULT="
-            + json.dumps(
-                {
-                    "candidateRevision": candidate,
-                    "image": args.image,
-                    "prestate": prestate,
-                    "finalScaling": scaling_prestate(final_service),
-                    "revisionCount": len(final_revisions),
-                },
-                separators=(",", ":"),
-                sort_keys=True,
-            )
-        )
-    except BaseException as error:
-        original_error = error
-    finally:
-        if maintenance and not success:
-            try:
-                _recover_maintenance(args, api, phase)
-            except BaseException as error:
-                recovery_error = error
-                print(
-                    f"deploy-cloud-run maintenance recovery also failed: {error}",
-                    file=sys.stderr,
-                )
-
-    if original_error is not None:
-        raise original_error
-    if recovery_error is not None:
-        raise recovery_error
+    candidate = _wait_for("the exact candidate deployment", deployed_candidate)
+    # No second labels/scaling update: the verified revision is the final one.
+    print("NOVA_DEPLOY_RESULT=" + json.dumps({
+        "candidateRevision": candidate, "image": args.image, "finalScaling": "automatic",
+    }))
 
 
 def main(argv: Sequence[str]) -> None:
@@ -1981,11 +1429,8 @@ def main(argv: Sequence[str]) -> None:
     if args.mode == "read-scaling-prestate":
         _read_scaling_prestate_mode(args)
         return
-    if args.mode == "execute-job":
+    if args.mode in ("execute-job", "verify-job"):
         _execute_job_mode(args)
-        return
-    if args.mode == "enter-maintenance":
-        _enter_maintenance_mode(args)
         return
     if args.mode == "resolve-image":
         _resolve_mode(args)

@@ -14,7 +14,7 @@ REPOSITORY="cloud-run-source-deploy"
 MEDIA_BUCKET="nova-multimedia-prod"
 MEDIA_POLICY_ROLE_ID="novaMediaBucketPolicy"
 CAPTURE_STORAGE_ROLE_ID="novaCaptureObjectMaintenance"
-DEPLOYMENT_INGRESS_ROLE_ID="novaDeploymentIngressMaintenance"
+MEDIA_READER_ROLE_ID="novaMediaBucketReader"
 
 BUILD_ACCOUNT="nova-build@${PROJECT}.iam.gserviceaccount.com"
 MIGRATION_ACCOUNT="nova-migrate@${PROJECT}.iam.gserviceaccount.com"
@@ -140,7 +140,7 @@ ensure_service_account "$AUDIT_ACCOUNT" "nova-audit" "Nova canonical identity au
 ensure_service_account "$CAPTURE_SCHEDULER_ACCOUNT" "nova-capture-scheduler" "Nova capture cleanup scheduler"
 
 for role in \
-	roles/cloudscheduler.admin \
+	roles/cloudscheduler.viewer \
 	roles/developerconnect.readTokenAccessor \
 	roles/logging.logWriter \
 	roles/run.admin \
@@ -148,13 +148,16 @@ for role in \
 	bind_project_role "$BUILD_ACCOUNT" "$role"
 done
 ensure_custom_role \
-	"$DEPLOYMENT_INGRESS_ROLE_ID" \
-	"Nova deployment ingress maintenance" \
-	"Exact authority to detach and restore Nova's regional serverless NEG during an admission cutover." \
-	"compute.backendServices.get,compute.backendServices.update,compute.globalOperations.get,compute.regionNetworkEndpointGroups.get,compute.regionNetworkEndpointGroups.use"
-bind_project_role \
-	"$BUILD_ACCOUNT" \
-	"projects/${PROJECT}/roles/${DEPLOYMENT_INGRESS_ROLE_ID}"
+	"$MEDIA_READER_ROLE_ID" \
+	"Nova media bucket reader" \
+	"Read media bucket metadata for deployment prerequisite checks." \
+	"storage.buckets.get"
+run gcloud storage buckets add-iam-policy-binding "gs://${MEDIA_BUCKET}" \
+	--member="serviceAccount:${BUILD_ACCOUNT}" \
+	--role="projects/${PROJECT}/roles/${MEDIA_READER_ROLE_ID}" \
+	--condition=None --quiet
+# Remove obsolete scheduler-admin, ingress-maintenance, and media/scheduler
+# actAs grants only after the simplified pipeline is serving. See deployment.md.
 run gcloud artifacts repositories add-iam-policy-binding "$REPOSITORY" \
 	--project="$PROJECT" \
 	--location="$REGION" \
@@ -172,9 +175,7 @@ done
 
 bind_act_as "$MIGRATION_ACCOUNT"
 bind_act_as "$RUNTIME_ACCOUNT"
-bind_act_as "$MEDIA_POLICY_ACCOUNT"
 bind_act_as "$CAPTURE_CLEANUP_ACCOUNT"
-bind_act_as "$CAPTURE_SCHEDULER_ACCOUNT"
 run gcloud iam service-accounts add-iam-policy-binding "$BUILD_ACCOUNT" \
 	--project="$PROJECT" \
 	--member="serviceAccount:${BUILD_SERVICE_AGENT}" \

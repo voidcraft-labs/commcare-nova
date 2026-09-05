@@ -423,33 +423,32 @@ failed Phase B or stale convergence watermark cannot disappear merely because
 Phase A made the row inactive.
 
 The production writer is not a human `--prod` connection: those IAM users are
-read-only. `Dockerfile` bundles `case-type-schema-retirement.cjs` and
-`schema-drift.cjs`; after the service deploy, `cloudbuild.yaml` configures (but
-does not execute) the write-capable
-`commcare-nova-case-type-schema-retirement` Cloud Run Job from that exact
-immutable image under the migration identity. Once the new revision owns 100%
-traffic, wait until every old-revision request has drained (the conservative
-bound is `cloudRunRequestSeconds` in `config/runtime-capabilities.json`,
-currently 3600 seconds), then run:
+read-only. The explicit Docker `maintenance` target bundles
+`case-type-schema-retirement.cjs` and `schema-drift.cjs`. Provision
+`commcare-nova-case-type-schema-retirement` with the immutable maintenance
+image using `scripts/infra/manage-deployment.py job`; ordinary deployment does
+not refresh this Job. For an old-writer cutover, first verify 100% new-revision
+traffic and wait for requests from the incompatible revision to drain (the
+conservative bound is `cloudRunRequestSeconds` in the runtime manifest).
 
 ```bash
 python3 scripts/rollout/deploy-cloud-run.py --execute-job \
   --project=commcare-nova --region=us-central1 \
   --job=commcare-nova-case-type-schema-retirement \
-  --service=commcare-nova --wait-seconds=3060 \
+  --image="$NOVA_MAINTENANCE_IMAGE" --wait-seconds=3060 \
   --execution-arg=case-type-schema-retirement.cjs \
   --execution-arg=--execute \
   --execution-arg=--confirm-old-revision-drained
 npx tsx scripts/scan-case-type-schema-retirement.ts --prod
 ```
 
-The Job's stored args are dry-run only. Every write invocation must go through
-`deploy-cloud-run.py --execute-job --service=commcare-nova`: it proves the
-service is Ready at 100% traffic, resolves that revision's immutable image,
-requires the Job generation to carry the same digest, submits the Job etag,
-and verifies the immutable Execution snapshot plus every task. Explicit
-`--execution-arg` values supply the write flag and the operator's per-run drain
-acknowledgement; an accidental default execution cannot write.
+The Job's stored args are dry-run only. Every write invocation goes through
+`deploy-cloud-run.py --execute-job --image=...`: it proves the Job generation,
+immutable image, authority and template, submits the Job etag once, and verifies
+the immutable Execution snapshot plus every task. Explicit `--execution-arg`
+values supply writer flags and the per-run drain acknowledgement. The scanner
+includes derived worker case types as current storage, even when absent from
+the authored catalog.
 
 If the scanner reports an inactive current type, first run the same fenced
 executor with `--execution-arg=schema-drift.cjs` and
@@ -1054,28 +1053,13 @@ env wires `NOVA_DB_USER` / `NOVA_DB_INSTANCE_CONNECTION_NAME` /
 requires the migration, runtime, cleanup, and audit role identities after
 migrations.
 
-Between the schema migrations and the privilege pass, the entrypoint runs the
-**data repairs** in `scripts/lib/*Repair.ts`. Each exists because an absolute
-gate was strengthened with no compatibility reader, so historical documents the
-new revision would refuse are converged HERE, before that revision serves —
-and a repair whose gate judges the whole document while every editor commits
-one field per batch is the *only* way its apps can be fixed at all. A repair
-plans purely, proposes a whole target document through `appendSyntheticBatch`,
-and is idempotent: it re-plans the live fleet on every deploy and no-ops once
-converged, so none of them pins a scan's app-id list (that census would be
-stale by the deploy shipping it).
-
-**A repair must not be able to fail the deploy over one app.** The worst it
-can do to an app it cannot converge is leave it exactly where it already was,
-so a per-app failure is named in the Job's log and skipped; the fleet-wide
-reads around it still throw, because a database that has gone away is not a
-fleet of blocked apps. Grep the Job's log for a repair's `blockedApps` to find
-the ones it could not fix. A repair that renames a value carried in a
-TRANSLATION UNIT ID — a catalog option's, an id-mapping column's mapping label
-— must move the overlay entry to the new id in the same target: the commit
-kernel prunes an entry whose unit no longer exists, so an unfollowed rename
-both deletes the translated wording and yields a target whose localization the
-writer's diff cannot express (`LocalizationEndpointNotRepresentableError`).
+Completed historical data repairs are not part of recurring deployment.
+Their scan and writer CLIs remain in the explicit Docker `maintenance` target;
+`docs/architecture/deployment.md` describes scan-first execution with an
+immutable maintenance image. A repair proposes its complete target through
+`appendSyntheticBatch`. Renames carried in translation unit IDs must move the
+matching overlay entry in the same target. Fleet read failures are terminal;
+per-app blockers remain visible in the repair report.
 
 Every production migration invocation finishes with the rollback-only runtime
 database probe in `lib/db/runtimeDatabaseProbe.ts`: it assumes the runtime role
@@ -1086,10 +1070,7 @@ reference indexes plus stored and structural Project lookup edges even for a
 gate-failed parsed document. It strictly loads a gate-clean candidate,
 reauthorizes an existing editable Project member, and exercises the real
 guarded writer before rolling the synthetic batch back. Its report carries
-actual parser, gate, and reference-index finding counts. When the migration report includes
-`20260728000000_canonical_identity_foundation`, the entrypoint first terminates
-every direct runtime-login session and proves none reconnects through the
-stabilization interval. This is an in-image serving-schema proof before
+actual parser, gate, and reference-index finding counts. This is an in-image serving-schema proof before
 deployment, not an external health check after traffic resumes.
 
 The one-time bootstrap happens outside Nova: create runtime, migration,
@@ -1116,41 +1097,17 @@ does not create roles, alter role limits, or
 transfer the database ownership it needs to authorize its own `REVOKE`,
 `GRANT`, and ownership changes.
 
-Cloud Build separately runs the same image's
-`capture-cleanup.cjs --probe-schema` under the cleanup identity — the bundle
-`scripts/cleanup-form-attachments.ts` is built into. The scheduler is ENABLED
-while that probe runs on an ordinary deploy; the paused state belongs to the
-maintenance cutover, not to this step. That probe asserts the exact final ordered
-column/type/nullability contract and zero-row read/update/delete authority in
-an intentional rollback; the build also proves updating the Job did not change
-the scheduler's recorded enabled/paused state.
+The scheduled cleanup worker runs `runCaptureCleanupSchemaProbe` after winning
+its exclusive advisory lock and prewarming the second connection, before any
+maintenance. It asserts the exact ordered column/type/nullability contract and
+zero-row read/update/delete authority in a rollback. Schema or authority drift
+fails the execution. Deployment updates and verifies the worker template after
+migration; it does not launch a separate probe execution or alter Scheduler.
 
-The first schema split is a maintenance cutover, not a rolling migration: its
-transaction may make the old revision unable to serve before the new one
-starts.
-
-The canonical-identity conversion is NOT one. It runs its forensic repair
-inside the same migration transaction as its transform, holding
-`SHARE ROW EXCLUSIVE` over every occurrence table plus `SELECT ... FOR UPDATE`
-over `apps`. Those locks are the protection; a concurrent writer blocks on them
-or fails against them, and a request already in flight against the old shape
-may error. It records lease, stream-chunk, and presence counts but requires
-none of them to be zero — that requirement would only be satisfiable by taking
-the service down, and `unterminatedChunks` alone counts every non-final chat
-chunk inside its 24-hour retention. `block-current` rows remain a hard stop.
-
-For a cutover that does need the posture, `scripts/rollout/deploy-cloud-run.py`
-deploys the exact immutable
-`repository@sha256` image without a scaling override, proves the candidate
-Ready at 100% desired and observed traffic with no tag while manual zero is
-preserved, and only afterward performs a separate scaling-only return to
-automatic that must add no revision (irrelevant untagged zero-traffic revision
-GC is allowed). A maintenance failure runs its always-armed `finally` recovery:
-detach ingress, restore manual zero, execute the exact-image runtime-session
-fence, pause cleanup, and verify the posture. Ordinary later deploys use the
-same permanent path from automatic prestate. There is no
-bridge, compatibility view, or database cutover journal; later migrations
-rerun the idempotent convergence normally.
+Ordinary deployment requires automatic scaling and creates exactly one Ready
+revision at 100% desired and observed traffic. Completed admission-cutover
+labels, session fences, and ingress/scaling recovery machinery have been
+removed. Historical migration implementations remain immutable.
 
 The canonical-identity cutover's frozen capture is lossless: dispatcher,
 Project-orphan closure, and full-table scan all consume PostgreSQL's canonical
@@ -1172,7 +1129,7 @@ migrations it runs Better Auth's own migrator (`getMigrations(...)
 .runMigrations()`, which creates/updates the `auth_*` tables) via the
 MCP-free `lib/auth-migrate-options.ts`, then the Nova-owned auth-app
 migrations (`lib/auth/migrate.ts`, the `auth_oauth_grant_revocation`
-watermark plus cross-schema invariants such as the apps→Project FK). Both are
+watermark, canonical MCP resource initialization, and cross-schema invariants such as the apps→Project FK). Both are
 idempotent and run on every deploy, local and prod alike.
 
 ### Checking prod migration state
