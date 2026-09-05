@@ -23,7 +23,6 @@ import {
 	subcasePath,
 } from "@/lib/domain/predicate/builders";
 import type { RelationPath } from "@/lib/domain/predicate/types";
-import { proseText } from "@/lib/domain/prose";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -46,17 +45,15 @@ const schemas = new Map<string, CaseType>([
 		"household",
 		{
 			name: "household",
-			label: proseText("Household"),
 			properties: [],
-		} as unknown as CaseType,
+		},
 	],
 	[
 		"patient",
 		{
 			name: "patient",
-			label: proseText("Patient"),
 			properties: [],
-		} as unknown as CaseType,
+		},
 	],
 ]);
 
@@ -139,7 +136,7 @@ describe("the outer scan", () => {
 		).resolves.toBe(2);
 	});
 
-	it("leaves every authoring surface reading the whole tenant", async () => {
+	it("reads the whole tenant when no restore scope is supplied", async () => {
 		await addCase({ id: "mine", caseType: "patient", owner: WORKER });
 		await addCase({ id: "theirs", caseType: "patient", owner: OTHER });
 
@@ -170,8 +167,13 @@ describe("the outer scan", () => {
 		// LIMIT/OFFSET must see the restricted population. Filtering after the
 		// page is cut would hand back short pages and skip rows entirely.
 		const seen = [...(await page(0)), ...(await page(2)), ...(await page(4))];
-		expect(seen.length).toBe(5);
-		expect(new Set(seen).size).toBe(5);
+		expect(seen.sort()).toEqual([
+			"mine-0",
+			"mine-1",
+			"mine-2",
+			"mine-3",
+			"mine-4",
+		]);
 	});
 
 	it("crosses case types on the way in, then lists the type asked for", async () => {
@@ -254,6 +256,13 @@ describe("the hold", () => {
 			identifier: "parent",
 			relationship: "child",
 		});
+		await addCase({ id: "extension", caseType: "patient", owner: OTHER });
+		await addEdge({
+			caseId: "extension",
+			ancestorId: "household",
+			identifier: "host",
+			relationship: "extension",
+		});
 		await h.pool.query(
 			`INSERT INTO parked_case_values
 			 (app_id, case_id, case_type, property, original_value, reason, from_type, to_type)
@@ -291,7 +300,10 @@ describe("the hold", () => {
 			caseType: "patient",
 			restoreScope: RESTORE,
 		});
-		expect(patients.map((row) => row.case_id)).toEqual(["owned"]);
+		expect(patients.map((row) => row.case_id).sort()).toEqual([
+			"extension",
+			"owned",
+		]);
 	});
 });
 
@@ -315,7 +327,7 @@ describe("the emitted statement", () => {
 				statements.push(event.query.sql);
 			},
 		});
-		await new PostgresCaseStore({
+		const rows = await new PostgresCaseStore({
 			projectId: PROJECT_ID,
 			actorUserId: "member",
 			ownerId: WORKER,
@@ -335,6 +347,7 @@ describe("the emitted statement", () => {
 		});
 		// No `destroy()` — this wrapper shares the harness's pool, and the
 		// harness owns closing it.
+		expect(rows.map((row) => row.case_id)).toEqual(["household"]);
 		const [statement] = statements;
 		expect(statement).toBeDefined();
 		// A Kysely creator carries its `WITH` clause into every query built

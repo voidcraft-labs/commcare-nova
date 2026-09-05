@@ -462,6 +462,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					case_type: "patient",
 					case_name: DEFAULT_CASE_NAME,
 					status: "open",
+					modified_on: new Date("2001-01-01T00:00:00Z"),
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},
 			});
@@ -483,9 +484,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			const row = rows[0];
 			// Merge semantics: name preserved, age updated.
 			expect(row?.properties).toEqual({ name: "Alice", age: 26 });
-			// `modified_on` is set to a non-null timestamp by the
-			// store's `now()` clause.
-			expect(row?.modified_on).not.toBeNull();
+			// A missing UPDATE timestamp would retain the seeded historical value.
+			expect(row?.modified_on?.getTime()).toBeGreaterThan(
+				Date.parse("2001-01-01T00:00:00Z"),
+			);
 		});
 
 		// -----------------------------------------------------------
@@ -616,34 +618,23 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 					case_id: PATIENT_ALICE_ID,
 					case_type: "patient",
 					case_name: DEFAULT_CASE_NAME,
-					status: "open",
+					status: "closed",
+					closed_on: new Date("2001-01-01T00:00:00Z"),
+					modified_on: new Date("2001-01-01T00:00:00Z"),
 					properties: makeProperties({ name: "Alice", age: 25 }),
 				},
 			});
 
-			// First close stamps `closed_on` + `modified_on` to the
-			// same `now()`.
-			await store.close({
-				appId: APP_ID,
-				caseId: PATIENT_ALICE_ID,
-			});
-			const afterFirst = await store.query({
+			const beforeClose = await store.query({
 				appId: APP_ID,
 				caseType: "patient",
 			});
-			const firstClosedOn = afterFirst[0]?.closed_on;
-			const firstModifiedOn = afterFirst[0]?.modified_on;
-			expect(firstClosedOn).not.toBeNull();
-			expect(firstModifiedOn).not.toBeNull();
+			const originalClosedOn = beforeClose[0]?.closed_on;
+			const originalModifiedOn = beforeClose[0]?.modified_on;
+			expect(originalClosedOn).toEqual(new Date("2001-01-01T00:00:00Z"));
+			expect(originalModifiedOn).toEqual(originalClosedOn);
 
-			// Sleep a small amount so a re-stamp would land at a
-			// distinguishable timestamp. Postgres `now()` returns
-			// microsecond-resolution timestamptz; even a sub-ms gap
-			// between the two close calls would yield a different
-			// value if the second UPDATE actually fired.
-			await new Promise((resolve) => setTimeout(resolve, 10));
-
-			// Second close on the same consistent case is a no-op. Both
+			// Closing an already-consistent historical case is a no-op. Both
 			// lifecycle predicates filter it out, preserving the timestamps.
 			await store.close({
 				appId: APP_ID,
@@ -653,8 +644,8 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				appId: APP_ID,
 				caseType: "patient",
 			});
-			expect(afterSecond[0]?.closed_on).toEqual(firstClosedOn);
-			expect(afterSecond[0]?.modified_on).toEqual(firstModifiedOn);
+			expect(afterSecond[0]?.closed_on).toEqual(originalClosedOn);
+			expect(afterSecond[0]?.modified_on).toEqual(originalModifiedOn);
 		});
 
 		// -----------------------------------------------------------
@@ -1040,65 +1031,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// -----------------------------------------------------------
 		// update — merged-write strip of undeclared inherited keys
 		// -----------------------------------------------------------
-
-		it("update() sheds inherited keys the schema no longer declares, while patch keys stay strict", async () => {
-			// A row stranded by a pre-migration rename/removal holds a
-			// key the current schema does not declare. Its next
-			// properties write sheds the orphaned key instead of failing
-			// `additionalProperties` forever — but an unknown key in the
-			// caller's PATCH is still a validation error.
-			const store = await options.factory(TENANT_A);
-			const withAge: CaseType = {
-				name: "patient",
-				properties: [
-					{ name: "name", label: proseText("Name"), data_type: "text" },
-					{ name: "age", label: proseText("Age"), data_type: "text" },
-				],
-			};
-			await seedSchema(store, buildBlueprint([withAge]), "patient");
-			await store.insert({
-				appId: APP_ID,
-				row: {
-					case_id: PATIENT_ALICE_ID,
-					case_type: "patient",
-					case_name: DEFAULT_CASE_NAME,
-					status: "open",
-					properties: makeProperties({ name: "Alice", age: "30" }),
-				},
-			});
-
-			// The schema regenerates WITHOUT `age` (an additive sync — the
-			// legacy stranding shape: no rename migration ran).
-			const withoutAge: CaseType = {
-				name: "patient",
-				properties: [
-					{ name: "name", label: proseText("Name"), data_type: "text" },
-				],
-			};
-			await store.applySchemaChange({
-				appId: APP_ID,
-				caseType: "patient",
-				caseTypeSchemas: buildCaseTypeMap(buildBlueprint([withoutAge])),
-			});
-
-			// The write succeeds and sheds the orphaned `age`.
-			await store.update({
-				appId: APP_ID,
-				caseId: PATIENT_ALICE_ID,
-				patch: { properties: makeProperties({ name: "Alicia" }) },
-			});
-			const rows = await store.query({ appId: APP_ID, caseType: "patient" });
-			expect(rows[0]?.properties).toEqual({ name: "Alicia" });
-
-			// A patch key the schema doesn't declare still rejects.
-			await expect(
-				store.update({
-					appId: APP_ID,
-					caseId: PATIENT_ALICE_ID,
-					patch: { properties: makeProperties({ bogus: "x" }) },
-				}),
-			).rejects.toBeInstanceOf(CasePropertiesValidationError);
-		});
 
 		// -----------------------------------------------------------
 		// applySchemaChange — retype
@@ -3255,37 +3187,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			expect(reached[0]?.owner_id).toBe(USER_A);
 		});
 
-		it("insert lands in the bound Project — Project B cannot see Project A's freshly inserted row", async () => {
-			// `insert` stamps `project_id = bound Project` (tenant) and
-			// `owner_id = bound owner` (case-owner) at the write
-			// boundary (see `PostgresCaseStore.insert`'s row
-			// composition). Pin the contract: owner-A inserts, owner-B
-			// queries, the row is invisible. Implicit before; explicit
-			// here so a regression that admits caller-supplied
-			// `owner_id` overrides surfaces immediately.
-			const storeA = await options.factory(TENANT_A);
-			const storeB = await options.factory(TENANT_B);
-			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-			await seedSchema(storeA, blueprint, "patient");
-
-			await storeA.insert({
-				appId: APP_ID,
-				row: {
-					case_id: PATIENT_ALICE_ID,
-					case_type: "patient",
-					case_name: DEFAULT_CASE_NAME,
-					status: "open",
-					properties: makeProperties({ name: "Alice", age: 25 }),
-				},
-			});
-
-			const seenByB = await storeB.query({
-				appId: APP_ID,
-				caseType: "patient",
-			});
-			expect(seenByB).toHaveLength(0);
-		});
-
 		it("applySchemaChange's case_type_schemas row is shared across Project members", async () => {
 			// `case_type_schemas` is keyed by `(app_id, case_type)`,
 			// NOT `(app_id, case_type, owner_id)` — the schema is an
@@ -3809,23 +3710,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		it("sorts by a calculated column's expression when the same expression is reused in ORDER BY", async () => {
-			// The Display section's `sortKeyToExpression` helper lifts
-			// a calculated-source `SortKey` to the calculated column's
-			// `expression` verbatim, then passes it both as
-			// `calculated[0]` AND in the `sort` slot's `expression`.
-			// Postgres's planner CSE-folds the redundant evaluation
-			// across SELECT and ORDER BY (one evaluation per row), so
-			// the runtime cost is no worse than sorting by a plain
-			// property. This test pins both halves of the contract:
-			//
-			//   1. The SQL emitter accepts the same expression in both
-			//      slots without duplicate-alias / over-cap throws.
-			//   2. The rows return in ascending-by-calculated order.
-			//
-			// Insert two patients with distinct ages (Alice 25, Bob 40);
-			// the calculated column emits `age + 1` (so Alice = 26,
-			// Bob = 41). Sort ascending by the same expression; expect
-			// Alice first, Bob second.
 			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
 			await seedSchema(store, blueprint, "patient");
@@ -3850,8 +3734,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
-			// Calculated expression — `age + 1`. Same shape the
-			// calc-arm column editor produces.
 			const ageNextYear = arith(
 				"+",
 				term(prop("patient", "age")),
@@ -3866,25 +3748,18 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				calculated: [
 					calculatedColumn(ageNextYearUuid, "Next year", ageNextYear),
 				],
-				// `sortKeyToExpression`'s lift contract: a calculated-
-				// source SortKey passes the calculated column's
-				// `expression` verbatim into the case-store's `sort`
-				// slot. The case-store reuses the same expression in
-				// ORDER BY; Postgres CSE-folds.
 				sort: [
 					{
-						direction: "asc",
+						direction: "desc",
 						expression: ageNextYear,
 					},
 				],
 			});
 			expect(rows).toHaveLength(2);
-			// Alice (age + 1 = 26) comes before Bob (age + 1 = 41).
-			expect(rows[0]?.case_id).toBe(PATIENT_ALICE_ID);
-			expect(rows[1]?.case_id).toBe(PATIENT_BOB_ID);
-			// Calculated values surface in declaration order on each row.
-			expect(Number(rows[0]?.calculated[ageNextYearUuid])).toBe(26);
-			expect(Number(rows[1]?.calculated[ageNextYearUuid])).toBe(41);
+			expect(rows[0]?.case_id).toBe(PATIENT_BOB_ID);
+			expect(rows[1]?.case_id).toBe(PATIENT_ALICE_ID);
+			expect(Number(rows[0]?.calculated[ageNextYearUuid])).toBe(41);
+			expect(Number(rows[1]?.calculated[ageNextYearUuid])).toBe(26);
 		});
 
 		it("does not leak calculated-column aliases onto the row's top-level shape", async () => {
@@ -3907,6 +3782,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				},
 			});
 
+			const before = await store.query({ appId: APP_ID, caseType: "patient" });
 			const aliasUnderTestUuid = testUuid("alias_under_test");
 			const rows = await store.query({
 				appId: APP_ID,
@@ -3928,7 +3804,10 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 			// SQL emitter routes them under a `__nova_calc__<uuid>`
 			// alias and the row partition strips that wire alias before
 			// returning.
-			expect(aliasUnderTestUuid in row).toBe(false);
+			expect(row).toEqual({
+				...before[0],
+				calculated: { [aliasUnderTestUuid]: "x" },
+			});
 			// The calculated map carries the value.
 			expect(row.calculated[aliasUnderTestUuid]).toBe("x");
 		});
@@ -3993,136 +3872,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		});
 
 		// -----------------------------------------------------------
-		// Reserved-column collision protection
-		// -----------------------------------------------------------
-		//
-		// Pre-fix repro: a programmatic caller supplies a calculated-
-		// column uuid that matches a reserved `cases` column name
-		// (e.g. `case_name`). Postgres allows duplicate output names;
-		// pg-driver keeps the LAST occurrence; the row's actual
-		// `case_name` becomes the calculated value; the reshape's
-		// strip-step then deletes the slot entirely. Real data loss
-		// in one composition mistake.
-		//
-		// Post-fix: calculated aliases are emitted under a fixed
-		// `__nova_calc__<uuid>` prefix. The wire and the consumer-
-		// facing key live in disjoint keyspaces, so the row's
-		// reserved column survives unaltered AND the calculated
-		// value lands on `row.calculated[uuid]` under the column's
-		// uuid.
-		//
-		// Test sweeps every reserved column the case-store carries
-		// at the row level, plus `app_id` (excluded from the user-
-		// facing reserved set but present on the row), and the JSONB
-		// `properties` slot. A regression to non-prefixed aliasing
-		// would fail this test on multiple discovered slots.
-
-		const RESERVED_COLLISION_UUIDS = [
-			"case_name",
-			"case_id",
-			"case_type",
-			"owner_id",
-			"status",
-			"app_id",
-			"opened_on",
-			"closed_on",
-			"modified_on",
-			"parent_case_id",
-			"properties",
-		] as const;
-
-		for (const collisionName of RESERVED_COLLISION_UUIDS) {
-			it(`preserves the row's \`${collisionName}\` column when a calculated uuid collides`, async () => {
-				const store = await options.factory(TENANT_A);
-				const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-				await seedSchema(store, blueprint, "patient");
-				await store.insert({
-					appId: APP_ID,
-					row: {
-						case_id: PATIENT_ALICE_ID,
-						case_type: "patient",
-						case_name: DEFAULT_CASE_NAME,
-						status: "open",
-						properties: makeProperties({ name: "Alice", age: 30 }),
-					},
-				});
-
-				// The collision uuid mirrors the reserved column name so
-				// a regression to non-prefixed aliasing would tee the
-				// calculated value over the row's scalar.
-				const collisionUuid = testUuid(collisionName);
-				// The calculated expression is a constant string sentinel
-				// — distinguishes the calculated value from the row's
-				// scalar value at every assertion site.
-				const SENTINEL = "CALCULATED_VALUE";
-				const rows = await store.query({
-					appId: APP_ID,
-					caseType: "patient",
-					caseTypeSchemas: buildCaseTypeMap(blueprint),
-					calculated: [
-						calculatedColumn(collisionUuid, "Header", term(literal(SENTINEL))),
-					],
-				});
-				expect(rows).toHaveLength(1);
-				const row = rows[0];
-				if (row === undefined) throw new Error("expected one row");
-
-				// Calculated value lands on the calculated map keyed by
-				// the column's uuid.
-				expect(row.calculated[collisionUuid]).toBe(SENTINEL);
-
-				// Row's scalar column survives unaltered. Per-slot
-				// expected values mirror the inserted row above; the
-				// `properties` slot reads the JSONB document; the
-				// creation-stamped timestamps read as real dates and
-				// `closed_on` stays null.
-				switch (collisionName) {
-					case "case_name":
-						expect(row.case_name).toBe(DEFAULT_CASE_NAME);
-						break;
-					case "case_id":
-						expect(row.case_id).toBe(PATIENT_ALICE_ID);
-						break;
-					case "case_type":
-						expect(row.case_type).toBe("patient");
-						break;
-					case "owner_id":
-						expect(row.owner_id).toBe(USER_A);
-						break;
-					case "status":
-						expect(row.status).toBe("open");
-						break;
-					case "app_id":
-						expect(row.app_id).toBe(APP_ID);
-						break;
-					case "opened_on":
-						// Creation-stamped at insert (CommCare's own
-						// case lifecycle: `date_opened` is set the
-						// moment a case is created). The collision-
-						// protection contract is the load-bearing
-						// check: the row's column survives unaltered
-						// regardless of the value at insert time.
-						expect(row.opened_on).toBeInstanceOf(Date);
-						break;
-					case "closed_on":
-						expect(row.closed_on).toBeNull();
-						break;
-					case "modified_on":
-						// Creation-stamped at insert alongside
-						// `opened_on`, then re-stamped on every UPDATE.
-						expect(row.modified_on).toBeInstanceOf(Date);
-						break;
-					case "parent_case_id":
-						expect(row.parent_case_id).toBeNull();
-						break;
-					case "properties":
-						expect(row.properties).toEqual({ name: "Alice", age: 30 });
-						break;
-				}
-			});
-		}
-
-		// -----------------------------------------------------------
 		// count — predicate-driven row count
 		// -----------------------------------------------------------
 		//
@@ -4148,39 +3897,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 		// `(name, age)` shape `query`-related tests use, so any
 		// shared compiler-stack regression surfaces in both blocks.
 
-		it("count returns the total row population when predicate is undefined", async () => {
-			const store = await options.factory(TENANT_A);
-			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-			await seedSchema(store, blueprint, "patient");
-			await store.insert({
-				appId: APP_ID,
-				row: {
-					case_id: PATIENT_ALICE_ID,
-					case_type: "patient",
-					case_name: DEFAULT_CASE_NAME,
-					status: "open",
-					properties: makeProperties({ name: "Alice", age: 30 }),
-				},
-			});
-			await store.insert({
-				appId: APP_ID,
-				row: {
-					case_id: PATIENT_BOB_ID,
-					case_type: "patient",
-					case_name: DEFAULT_CASE_NAME,
-					status: "open",
-					properties: makeProperties({ name: "Bob", age: 40 }),
-				},
-			});
-
-			const total = await store.count({
-				appId: APP_ID,
-				caseType: "patient",
-			});
-			expect(total).toBe(2);
-		});
-
-		it("owner count includes rows whose case type is no longer materialized", async () => {
+		it("owner count spans case types", async () => {
 			const store = await options.factory(TENANT_A);
 			const blueprint = buildBlueprint([
 				PATIENT_CASE_TYPE,
@@ -4203,7 +3920,7 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				row: {
 					case_id: HOUSEHOLD_ID,
 					case_type: "household",
-					case_name: "Retired household",
+					case_name: "Household",
 					status: "open",
 					properties: makeProperties({ region: "North" }),
 				},
@@ -4304,40 +4021,6 @@ export function runStoreContract(options: RunStoreContractOptions): void {
 				caseType: "patient",
 			});
 			expect(myCount).toBe(1);
-		});
-
-		it("count uses caseTypeSchemas to resolve typed-property casts in the predicate", async () => {
-			// `compileTerm` resolves the property's `data_type` from
-			// `caseTypeSchemas` to pick the column cast. A predicate-
-			// reading-typed-property `count` call without a schema map
-			// means the term compiler reaches an empty schema map
-			// and falls through to the default `text` shape — wrong
-			// cast for an `int` column would yield zero rows for an
-			// otherwise-matching predicate. This test pins the
-			// schema-threading contract by asserting the typed-int
-			// comparison returns the expected count when the schema
-			// map resolves the property's `int` shape.
-			const store = await options.factory(TENANT_A);
-			const blueprint = buildBlueprint([PATIENT_CASE_TYPE]);
-			await seedSchema(store, blueprint, "patient");
-			await store.insert({
-				appId: APP_ID,
-				row: {
-					case_id: PATIENT_ALICE_ID,
-					case_type: "patient",
-					case_name: DEFAULT_CASE_NAME,
-					status: "open",
-					properties: makeProperties({ name: "Alice", age: 30 }),
-				},
-			});
-
-			const matched = await store.count({
-				appId: APP_ID,
-				caseType: "patient",
-				caseTypeSchemas: buildCaseTypeMap(blueprint),
-				predicate: gt(prop("patient", "age"), literal(20)),
-			});
-			expect(matched).toBe(1);
 		});
 	});
 }

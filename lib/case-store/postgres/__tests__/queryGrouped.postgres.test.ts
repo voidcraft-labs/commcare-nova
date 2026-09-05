@@ -305,12 +305,18 @@ describe("PostgresCaseStore.queryGrouped", () => {
 		});
 		const flat = await store.query({ appId: APP_ID, caseType: "visit" });
 
-		// The grouped read repeats the durable default ordering in window
-		// syntax rather than sharing the `orderBy` chain, so this pins that
-		// the two say the same thing: the first row of the first group is
-		// the first row of the flat list.
-		expect(grouped.groups[0].rows[0].case_id).toBe(flat[0].case_id);
-		expect(grouped.totalRows).toBe(flat.length);
+		const expectedGroups = new Map<string, typeof flat>();
+		for (const row of flat) {
+			const key = row.parent_case_id ?? "";
+			const members = expectedGroups.get(key) ?? [];
+			members.push(row);
+			expectedGroups.set(key, members);
+		}
+		expect(grouped).toEqual({
+			groups: [...expectedGroups].map(([key, rows]) => ({ key, rows })),
+			totalRows: flat.length,
+			totalGroups: expectedGroups.size,
+		});
 	});
 
 	it("counts the cases that carry no such index", async () => {
@@ -336,37 +342,5 @@ describe("PostgresCaseStore.queryGrouped", () => {
 				missingIndexIdentifier: "host",
 			}),
 		).toBe(5);
-	});
-
-	it("returns rows shaped exactly like an ungrouped read", async () => {
-		const store = makeStore();
-		await seed(store);
-
-		const grouped = await store.queryGrouped({
-			appId: APP_ID,
-			caseType: "visit",
-			caseTypeSchemas: schemas(),
-			indexIdentifier: "parent",
-			sort: byName,
-			groupOffset: 0,
-			groupLimit: 10,
-		});
-		const row = grouped.groups[0].rows[0];
-
-		// The window bookkeeping is stripped, the tenant key is stripped,
-		// and `calculated` is present and empty — the same contract
-		// `query` returns.
-		expect(row.calculated).toEqual({});
-		for (const key of [
-			"__nova_group_key",
-			"__nova_row_ordinal",
-			"__nova_group_first",
-			"__nova_group_ordinal",
-			"__nova_total_groups",
-			"__nova_total_rows",
-			"project_id",
-		]) {
-			expect(Object.hasOwn(row, key)).toBe(false);
-		}
 	});
 });

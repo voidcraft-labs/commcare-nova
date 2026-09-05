@@ -1,11 +1,12 @@
 import type { Kysely } from "kysely";
-import { beforeEach, describe, expect, it } from "vitest";
+import type { PoolClient } from "pg";
+import { describe, expect } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { and, eq, isIn, literal, prop } from "@/lib/domain/predicate/builders";
 import { proseText } from "@/lib/domain/prose";
 import type { AutomationHostAmbiguityError } from "../../errors";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
-import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
+import { test as sqlTest } from "../../sql/__tests__/setup";
 import type { Database } from "../../sql/database";
 import { PostgresCaseStore } from "../store";
 
@@ -49,11 +50,6 @@ const PYTHON_STRIP_WHITESPACE_FIXTURE = String.fromCodePoint(
 	0x205f,
 	0x3000,
 );
-
-const h = setupPerTestDatabase({
-	schema: "migrated",
-	databaseNamePrefix: "automation_match_",
-});
 
 const schemas = new Map<string, CaseType>([
 	[
@@ -106,15 +102,15 @@ const schemas = new Map<string, CaseType>([
 	],
 ]);
 
-beforeEach(async () => {
-	await h.pool.query(
+async function seed(pgClient: PoolClient): Promise<void> {
+	await pgClient.query(
 		`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		 VALUES
 		 ($1, 'member', $2, 'Automations', 'automations'),
 		 ('automation-foreign', 'other', $3, 'Foreign', 'foreign')`,
 		[APP_ID, PROJECT_ID, OTHER_PROJECT],
 	);
-	await h.pool.query(
+	await pgClient.query(
 		`INSERT INTO cases
 		 (case_id, app_id, project_id, owner_id, case_type, case_name,
 		  status, closed_on, properties)
@@ -141,7 +137,7 @@ beforeEach(async () => {
 		  '{"code":"ABC-777"}'::jsonb)`,
 		[PARENT_ID, APP_ID, PROJECT_ID, OTHER_PROJECT],
 	);
-	await h.pool.query(
+	await pgClient.query(
 		`INSERT INTO case_indices
 		 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
 		 VALUES
@@ -151,20 +147,20 @@ beforeEach(async () => {
 		 ('01890f45-0000-7000-8000-000000000107', 'host', 'extension', $1, 'household', 1)`,
 		[PARENT_ID],
 	);
-});
+}
 
-function store() {
+function makeStore(db: Kysely<Database>) {
 	return new PostgresCaseStore({
 		projectId: PROJECT_ID,
 		actorUserId: "member",
 		ownerId: "member",
-		db: h.db as unknown as Kysely<Database>,
+		db,
 		sampleGenerator: new HeuristicCaseGenerator(),
 	});
 }
 
-async function insertExtensionFixtures(): Promise<void> {
-	await h.pool.query(
+async function insertExtensionFixtures(pgClient: PoolClient): Promise<void> {
+	await pgClient.query(
 		`INSERT INTO cases
 		 (case_id, app_id, project_id, owner_id, case_type, case_name,
 		  status, closed_on, parent_case_id, properties)
@@ -187,7 +183,7 @@ async function insertExtensionFixtures(): Promise<void> {
 			MULTI_EXTENSION_ID,
 		],
 	);
-	await h.pool.query(
+	await pgClient.query(
 		`INSERT INTO case_indices
 		 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
 		 VALUES
@@ -204,8 +200,8 @@ async function insertExtensionFixtures(): Promise<void> {
 	);
 }
 
-async function retainSecondaryExtension(): Promise<void> {
-	await h.pool.query(
+async function retainSecondaryExtension(pgClient: PoolClient): Promise<void> {
+	await pgClient.query(
 		`INSERT INTO case_indices
 		 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
 		 VALUES ($1, 'aaa_custom_host', 'extension', $2, 'household', 1)`,
@@ -213,10 +209,22 @@ async function retainSecondaryExtension(): Promise<void> {
 	);
 }
 
+// Counts issue one statement and never begin their own transaction. This fixture
+// rolls back each scenario and keeps PostgreSQL now() stable across its date checks.
+const it = sqlTest.extend<{ caseStore: PostgresCaseStore }>({
+	caseStore: async ({ db, pgClient }, use) => {
+		await seed(pgClient);
+		await use(makeStore(db));
+	},
+});
+
 describe("automation criteria SQL", () => {
-	it("sees a case whose status was never written when deciding host ambiguity", async () => {
-		await insertExtensionFixtures();
-		await retainSecondaryExtension();
+	it("sees a case whose status was never written when deciding host ambiguity", async ({
+		caseStore,
+		pgClient,
+	}) => {
+		await insertExtensionFixtures(pgClient);
+		await retainSecondaryExtension(pgClient);
 		// `cases.status` is nullable with no database default and optional on
 		// insert, so a great many rows carry NULL — and NULL means OPEN
 		// everywhere else a case's lifecycle is read. Written `= 'open'`, this
@@ -225,12 +233,12 @@ describe("automation criteria SQL", () => {
 		// population whose host resolution is ambiguous and report a number
 		// nobody can trust. A probe whose whole job is to refuse has to fail
 		// closed.
-		await h.pool.query(`UPDATE cases SET status = null WHERE case_id = $1`, [
+		await pgClient.query(`UPDATE cases SET status = null WHERE case_id = $1`, [
 			MULTI_EXTENSION_ID,
 		]);
 
 		await expect(
-			store().count({
+			caseStore.count({
 				appId: APP_ID,
 				caseType: "visit",
 				caseTypeSchemas: schemas,
@@ -260,39 +268,11 @@ describe("automation criteria SQL", () => {
 		);
 	});
 
-	it("counts a host-scoped criterion when every open case has at most one host", async () => {
-		await insertExtensionFixtures();
-
-		await expect(
-			store().count({
-				appId: APP_ID,
-				caseType: "visit",
-				caseTypeSchemas: schemas,
-				predicate: eq(prop("visit", "status"), literal("open")),
-				automationCriteria: {
-					requiresUnambiguousHost: true,
-					operator: "all",
-					dates: [],
-					comparisons: [
-						{
-							property: "marker",
-							value: "present",
-							equal: true,
-							scope: "host",
-						},
-					],
-					regexes: [],
-					blankness: [],
-					closedParents: [],
-					locationOwnerSets: [],
-				},
-			}),
-		).resolves.toBe(3);
-	});
-
-	it("refuses host-scoped counts for a retained second host in the same snapshot", async () => {
-		await insertExtensionFixtures();
-		const caseStore = store();
+	it("refuses host-scoped counts for a retained second host in the same snapshot", async ({
+		caseStore,
+		pgClient,
+	}) => {
+		await insertExtensionFixtures(pgClient);
 		const count = (scope: "case" | "parent" | "host") =>
 			caseStore.count({
 				appId: APP_ID,
@@ -320,7 +300,7 @@ describe("automation criteria SQL", () => {
 
 		// Relations attached to an out-of-Project case cannot turn the count into
 		// an existence oracle for another tenant.
-		await h.pool.query(
+		await pgClient.query(
 			`INSERT INTO case_indices
 			 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
 			 VALUES
@@ -333,7 +313,7 @@ describe("automation criteria SQL", () => {
 		// Model a historical operation-created edge retained after that operation
 		// disappeared from the current Blueprint. HQ's `case.host` chooses the
 		// first live extension without defining its order.
-		await retainSecondaryExtension();
+		await retainSecondaryExtension(pgClient);
 		await expect(count("host")).rejects.toEqual(
 			expect.objectContaining<Partial<AutomationHostAmbiguityError>>({
 				name: "AutomationHostAmbiguityError",
@@ -347,7 +327,7 @@ describe("automation criteria SQL", () => {
 
 		// Automatic rules skip closed target cases before criteria evaluation, so
 		// a closed ambiguous row cannot make the open-case count unavailable.
-		await h.pool.query(
+		await pgClient.query(
 			`UPDATE cases
 			 SET status = 'closed', closed_on = now()
 			 WHERE case_id = $1`,
@@ -356,8 +336,9 @@ describe("automation criteria SQL", () => {
 		await expect(count("host")).resolves.toBe(2);
 	});
 
-	it("preserves HQ's all/any identity for an empty criteria group", async () => {
-		const caseStore = store();
+	it("preserves HQ's all/any identity for an empty criteria group", async ({
+		caseStore,
+	}) => {
 		const count = (operator: "all" | "any") =>
 			caseStore.count({
 				appId: APP_ID,
@@ -380,8 +361,9 @@ describe("automation criteria SQL", () => {
 		await expect(count("any")).resolves.toBe(0);
 	});
 
-	it("matches implicit case identity and type metadata without catalog entries", async () => {
-		const caseStore = store();
+	it("matches implicit case identity and type metadata without catalog entries", async ({
+		caseStore,
+	}) => {
 		const base = {
 			appId: APP_ID,
 			caseType: "visit",
@@ -411,8 +393,9 @@ describe("automation criteria SQL", () => {
 		).resolves.toBe(1);
 	});
 
-	it("matches each location criterion as one exact owner-identity set", async () => {
-		const caseStore = store();
+	it("matches each location criterion as one exact owner-identity set", async ({
+		caseStore,
+	}) => {
 		const count = (locationOwnerSets: readonly (readonly string[])[]) =>
 			caseStore.count({
 				appId: APP_ID,
@@ -437,8 +420,9 @@ describe("automation criteria SQL", () => {
 		await expect(count([[]])).resolves.toBe(0);
 	});
 
-	it("composes ALL/ANY, Python-style anchored regex, closed parent, status, and tenancy in one count", async () => {
-		const caseStore = store();
+	it("composes ALL/ANY, Python-style anchored regex, closed parent, status, and tenancy in one count", async ({
+		caseStore,
+	}) => {
 		const openAtFacility = and(
 			eq(prop("visit", "status"), literal("open")),
 			isIn(prop("visit", "owner_id"), literal("facility-a")),
@@ -493,8 +477,11 @@ describe("automation criteria SQL", () => {
 		).resolves.toBe(2);
 	});
 
-	it("matches HQ whitespace blankness and runs regex only on strings", async () => {
-		await h.pool.query(
+	it("matches HQ whitespace blankness and runs regex only on strings", async ({
+		caseStore,
+		pgClient,
+	}) => {
+		await pgClient.query(
 			`INSERT INTO cases
 			 (case_id, app_id, project_id, owner_id, case_type, case_name,
 			  status, closed_on, properties)
@@ -510,7 +497,6 @@ describe("automation criteria SQL", () => {
 				JSON.stringify({ code: `${PYTHON_STRIP_WHITESPACE_FIXTURE}x` }),
 			],
 		);
-		const caseStore = store();
 		const base = {
 			appId: APP_ID,
 			caseType: "visit",
@@ -569,7 +555,10 @@ describe("automation criteria SQL", () => {
 		).resolves.toBe(0);
 	});
 
-	it("matches Python re.match newline semantics for portable regex tokens", async () => {
+	it("matches Python re.match newline semantics for portable regex tokens", async ({
+		caseStore,
+		pgClient,
+	}) => {
 		const rows = [
 			["01890f45-0000-7000-8000-000000000130", "Dot newline", "p\nb"],
 			["01890f45-0000-7000-8000-000000000131", "Dot character", "pxb"],
@@ -586,7 +575,7 @@ describe("automation criteria SQL", () => {
 			["01890f45-0000-7000-8000-000000000142", "Only newline", "\n"],
 		] as const;
 		for (const [caseId, caseName, code] of rows) {
-			await h.pool.query(
+			await pgClient.query(
 				`INSERT INTO cases
 				 (case_id, app_id, project_id, owner_id, case_type, case_name,
 				  status, closed_on, properties)
@@ -594,7 +583,6 @@ describe("automation criteria SQL", () => {
 				[caseId, APP_ID, PROJECT_ID, caseName, JSON.stringify({ code })],
 			);
 		}
-		const caseStore = store();
 		const count = (pattern: string) =>
 			caseStore.count({
 				appId: APP_ID,
@@ -631,8 +619,11 @@ describe("automation criteria SQL", () => {
 		await expect(count("$")).resolves.toBe(2);
 	});
 
-	it("does not treat null standard scalars as empty regex strings", async () => {
-		await h.pool.query(
+	it("does not treat null standard scalars as empty regex strings", async ({
+		caseStore,
+		pgClient,
+	}) => {
+		await pgClient.query(
 			`INSERT INTO cases
 			 (case_id, app_id, project_id, owner_id, case_type, case_name,
 			  external_id, status, closed_on, properties)
@@ -643,7 +634,6 @@ describe("automation criteria SQL", () => {
 			  'visit', 'Empty standard scalars', '', 'open', null, '{}'::jsonb)`,
 			[APP_ID, PROJECT_ID],
 		);
-		const caseStore = store();
 		const count = (property: "external_id" | "owner_id") =>
 			caseStore.count({
 				appId: APP_ID,
@@ -668,9 +658,11 @@ describe("automation criteria SQL", () => {
 		await expect(count("owner_id")).resolves.toBe(1);
 	});
 
-	it("matches parent and host blankness with HQ missing-relation semantics", async () => {
-		await insertExtensionFixtures();
-		const caseStore = store();
+	it("matches parent and host blankness with HQ missing-relation semantics", async ({
+		caseStore,
+		pgClient,
+	}) => {
+		await insertExtensionFixtures(pgClient);
 		const base = {
 			appId: APP_ID,
 			caseType: "visit",
@@ -697,7 +689,7 @@ describe("automation criteria SQL", () => {
 		await expect(count("host", true)).resolves.toBe(4);
 		await expect(count("host", false)).resolves.toBe(3);
 
-		await h.pool.query(
+		await pgClient.query(
 			`UPDATE cases
 			 SET properties = jsonb_build_object('marker', $1::text)
 			 WHERE case_id = ANY($2::text[])`,
@@ -735,9 +727,11 @@ describe("automation criteria SQL", () => {
 		);
 	});
 
-	it("compares only stored strings without coercion and requires a related case", async () => {
-		await insertExtensionFixtures();
-		const caseStore = store();
+	it("compares only stored strings without coercion and requires a related case", async ({
+		caseStore,
+		pgClient,
+	}) => {
+		await insertExtensionFixtures(pgClient);
 		const base = {
 			appId: APP_ID,
 			caseType: "visit",
@@ -858,9 +852,12 @@ describe("automation criteria SQL", () => {
 		).resolves.toBe(1);
 	});
 
-	it("matches HQ calendar-day offsets through parent and sole-host semantics", async () => {
-		await insertExtensionFixtures();
-		const clock = await h.pool.query<{ today: string; tomorrow: string }>(
+	it("matches HQ calendar-day offsets through parent and sole-host semantics", async ({
+		caseStore,
+		pgClient,
+	}) => {
+		await insertExtensionFixtures(pgClient);
+		const clock = await pgClient.query<{ today: string; tomorrow: string }>(
 			`SELECT
 			 to_char(timezone('UTC', now())::date, 'YYYY-MM-DD') AS today,
 			 to_char(timezone('UTC', now())::date + 1, 'YYYY-MM-DD') AS tomorrow`,
@@ -870,25 +867,25 @@ describe("automation criteria SQL", () => {
 		if (today === undefined || tomorrow === undefined) {
 			throw new Error("missing database clock");
 		}
-		await h.pool.query(
+		await pgClient.query(
 			`UPDATE cases
 			 SET properties = properties || jsonb_build_object('due_at', $1::text)
 			 WHERE case_id = $2`,
 			[`${today}T23:30:00-08:00`, PARENT_ID],
 		);
-		await h.pool.query(
+		await pgClient.query(
 			`UPDATE cases
 			 SET properties = properties || jsonb_build_object('due_at', $1::text)
 			 WHERE case_id = $2`,
 			[`${tomorrow}T01:00:00+14:00`, CUSTOM_HOST_ID],
 		);
-		await h.pool.query(
+		await pgClient.query(
 			`UPDATE cases
 			 SET properties = properties || jsonb_build_object('due_at', $1::text)
 			 WHERE case_id = '01890f45-0000-7000-8000-000000000102'`,
 			[`${today}T23:30:00-08:00`],
 		);
-		await h.pool.query(
+		await pgClient.query(
 			`INSERT INTO cases
 			 (case_id, app_id, project_id, owner_id, case_type, case_name,
 			  status, closed_on, properties)
@@ -897,14 +894,13 @@ describe("automation criteria SQL", () => {
 			  'open', null, '{}'::jsonb)`,
 			[CHILD_IDENTIFIER_HOST_ID, APP_ID, PROJECT_ID],
 		);
-		await h.pool.query(
+		await pgClient.query(
 			`INSERT INTO case_indices
 			 (case_id, identifier, relationship, ancestor_id, target_case_type, depth)
 			 VALUES ($1, 'host', 'child', $2, 'household', 1)`,
 			[CHILD_IDENTIFIER_HOST_ID, CUSTOM_HOST_ID],
 		);
 
-		const caseStore = store();
 		const count = (
 			scope: "case" | "parent" | "host",
 			matchType:

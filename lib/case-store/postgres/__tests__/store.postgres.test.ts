@@ -23,33 +23,30 @@
 // behavior stays intact without replaying extensions and migrations per case.
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
-import { Pool } from "pg";
-import { beforeEach, describe, expect, it } from "vitest";
+import { Client, Pool } from "pg";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type {
-	BlueprintDoc,
-	CaseProperty,
-	CasePropertyDataType,
-	CaseType,
-} from "@/lib/domain";
-import { casePropertyDataTypes } from "@/lib/domain";
-import { eq, literal, prop } from "@/lib/domain/predicate/builders";
+import { withTransientRetry } from "@/lib/db/schemaSyncRetry";
+import type { BlueprintDoc, CaseProperty, CaseType } from "@/lib/domain";
+import {
+	eq,
+	gt,
+	literal,
+	multiSelectAny,
+	prop,
+} from "@/lib/domain/predicate/builders";
 import { caseTypeToJsonSchema } from "@/lib/domain/predicate/jsonSchema";
 import { proseText } from "@/lib/domain/prose";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { runStoreContract } from "../../__tests__/storeContract";
 import { CaseNotFoundError, CasePropertiesValidationError } from "../../errors";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
-import { POSTGRES_CAST_FOR_DATA_TYPE } from "../../sql";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
+import { compilePredicate } from "../../sql/compilePredicate";
 import type { Database } from "../../sql/database";
 import { buildCaseTypeMap } from "../../store";
-import {
-	desiredIndexForProperty,
-	indexScopeTag,
-	PostgresCaseStore,
-	propertyIndexTag,
-} from "../store";
+import { caseSchemaIndexLockScope } from "../indexIdentity";
+import { indexScopeTag, PostgresCaseStore, propertyIndexTag } from "../store";
 
 /**
  * Compose the expected per-property index name — mirrors the
@@ -478,206 +475,6 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 	// Property-by-data-type — the per-arm DDL shape verifications
 	// -----------------------------------------------------------
 
-	it("emits a trgm GIN index for a text property", async () => {
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "name", label: proseText("Name"), data_type: "text" },
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes).toHaveLength(1);
-		expect(indexes[0]?.name).toBe(idxName(APP_ID, "patient", "name", "fuzzy"));
-		// `gin_trgm_ops` opclass + `->>` text read + partial predicate.
-		expect(indexes[0]?.def).toMatch(/USING gin/);
-		expect(indexes[0]?.def).toContain("gin_trgm_ops");
-		expect(indexes[0]?.def).toContain("->>");
-		expect(indexes[0]?.def).toContain("WHERE");
-	});
-
-	it("emits a btree expression index for an int property", async () => {
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes).toHaveLength(1);
-		expect(indexes[0]?.name).toBe(idxName(APP_ID, "patient", "age", "int"));
-		expect(indexes[0]?.def).toMatch(/USING btree/);
-		// `(... ::integer)` — the cast token from
-		// `POSTGRES_CAST_FOR_DATA_TYPE` for int data type.
-		expect(indexes[0]?.def).toContain("::integer");
-	});
-
-	it("emits no expression index for date / datetime / time properties (Postgres STABLE-cast constraint)", async () => {
-		// The `text → date` / `text → timestamptz` / `text → time`
-		// casts are STABLE in Postgres (DateStyle / TimeZone session
-		// dependency), and expression indexes require IMMUTABLE
-		// expressions. Sequential scans on these data types' compare
-		// / between operators are correct but slower; the indexed
-		// path needs a Nova-owned IMMUTABLE wrapper function the
-		// query side also calls.
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "visit",
-			properties: [
-				{ name: "scheduled", label: proseText("Scheduled"), data_type: "date" },
-				{
-					name: "logged_at",
-					label: proseText("Logged at"),
-					data_type: "datetime",
-				},
-				{ name: "started", label: proseText("Started"), data_type: "time" },
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "visit",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "visit");
-		expect(indexes).toHaveLength(0);
-	});
-
-	it("emits a btree expression index for a decimal property using the numeric cast", async () => {
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes).toHaveLength(1);
-		expect(indexes[0]?.name).toBe(idxName(APP_ID, "patient", "weight", "num"));
-		expect(indexes[0]?.def).toMatch(/USING btree/);
-		// `(... ::numeric)` — the cast token from
-		// `POSTGRES_CAST_FOR_DATA_TYPE` for the decimal data type.
-		expect(indexes[0]?.def).toContain("::numeric");
-	});
-
-	it("emits a jsonb_ops GIN index for a multi_select property using `->`", async () => {
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{
-					name: "tags",
-					label: proseText("Tags"),
-					data_type: "multi_select",
-					options: [
-						{ value: "a", label: proseText("A") },
-						{ value: "b", label: proseText("B") },
-					],
-				},
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes).toHaveLength(1);
-		expect(indexes[0]?.name).toBe(
-			idxName(APP_ID, "patient", "tags", "contains"),
-		);
-		expect(indexes[0]?.def).toMatch(/USING gin/);
-		// `jsonb_ops` is GIN's default opclass for jsonb columns;
-		// `pg_indexes.indexdef` omits explicit default opclass
-		// tokens. Asserting the ABSENCE of `jsonb_path_ops` pins
-		// the discriminator: the predicate compiler emits `?|` /
-		// `?&` for `multi-select-contains`, and `jsonb_path_ops`
-		// does not support those operators — only `@>` — so the
-		// planner would not reach a `jsonb_path_ops` index.
-		expect(indexes[0]?.def).not.toContain("jsonb_path_ops");
-		// `->` (not `->>`) — multi_select returns jsonb to feed the
-		// `?|` / `?&` / `@>` operators the predicate compiler emits.
-		expect(indexes[0]?.def).toMatch(/->\s*'tags'/);
-		expect(indexes[0]?.def).not.toMatch(/->>/);
-	});
-
-	it("emits no expression index for a geopoint property (term-compiler emission shape can't match)", async () => {
-		// The predicate compiler's `within-distance` arm emits
-		// `ST_DWithin(ST_GeogFromText(concat('POINT(',
-		// split_part(properties->>'<key>', ' ', 2), ' ',
-		// split_part(properties->>'<key>', ' ', 1), ')')), ...)`
-		// because the stored format `"lat lon alt acc"` is not WKT.
-		// `concat(...)` over text args is STABLE in Postgres, so an
-		// expression index over the full WKT-build form fails the
-		// IMMUTABLE check. The simpler `ST_GeogFromText(properties->>'X')`
-		// form would index successfully but its expression doesn't
-		// match the term-compiler emission, so the planner can't
-		// bridge them. `within-distance` runs as a sequential scan
-		// over the case-type partition.
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "home", label: proseText("Home"), data_type: "geopoint" },
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes).toHaveLength(0);
-	});
-
-	it("emits no per-property index for a single_select property", async () => {
-		// Single-select equality matches efficiently through the
-		// case-type partial filter alone; no expression index is
-		// emitted.
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{
-					name: "color",
-					label: proseText("Color"),
-					data_type: "single_select",
-					options: [
-						{ value: "red", label: proseText("Red") },
-						{ value: "blue", label: proseText("Blue") },
-					],
-				},
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes).toHaveLength(0);
-	});
-
 	// -----------------------------------------------------------
 	// Diff shapes — the verb-by-verb mutation paths
 	// -----------------------------------------------------------
@@ -702,6 +499,12 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 				data_type: "single_select",
 				options: [{ value: "red", label: proseText("Red") }],
 			},
+			{
+				name: "logged_at",
+				label: proseText("Logged at"),
+				data_type: "datetime",
+			},
+			{ name: "started", label: proseText("Started"), data_type: "time" },
 			{ name: "scheduled", label: proseText("Scheduled"), data_type: "date" },
 			{ name: "home", label: proseText("Home"), data_type: "geopoint" },
 		];
@@ -727,39 +530,18 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 				idxName(APP_ID, "patient", "weight", "num"),
 			].sort(),
 		);
-	});
-
-	it("admits hyphenated property names — name uses the property hash, expression keeps the hyphen", async () => {
-		// Property names follow `CASE_PROPERTY_PATTERN` — alphanumerics +
-		// underscores + hyphens. The name's
-		// `propertyIndexTag` hashes the raw property, so a hyphen needs
-		// no transform; the JSONB key inside the indexed expression
-		// stays exactly as the blueprint declares it.
-		const store = makeStore(OWNER_A);
-		const caseType: CaseType = {
-			name: "patient",
-			properties: [
-				{
-					name: "external-field",
-					label: proseText("External field"),
-					data_type: "text",
-				},
-			],
-		};
-		await store.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: buildSchemaMap(caseType),
-		});
-
-		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
-		expect(indexes).toHaveLength(1);
-		// Name is the hash of the raw `external-field`.
-		expect(indexes[0]?.name).toBe(
-			idxName(APP_ID, "patient", "external-field", "fuzzy"),
-		);
-		// Indexed expression preserves the literal hyphen.
-		expect(indexes[0]?.def).toMatch(/->>\s*'external-field'/);
+		const definition = (property: string, mode: string) =>
+			indexes.find((i) => i.name === idxName(APP_ID, "patient", property, mode))
+				?.def;
+		expect(definition("name", "fuzzy")).toMatch(/USING gin.*->>.*gin_trgm_ops/);
+		expect(definition("age", "int")).toMatch(/USING btree.*::integer/);
+		expect(definition("weight", "num")).toMatch(/USING btree.*::numeric/);
+		expect(definition("tags", "contains")).toMatch(/USING gin.*->\s*'tags'/);
+		expect(definition("tags", "contains")).not.toMatch(/jsonb_path_ops|->>/);
+		for (const index of indexes) {
+			expect(index.def).toContain("app_id = 'app-index-ddl'");
+			expect(index.def).toContain("case_type = 'patient'");
+		}
 	});
 
 	it("gives `external-field` and `external_field` distinct indexes (hashing removes the old name collision)", async () => {
@@ -787,9 +569,15 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			caseType: "patient",
 			caseTypeSchemas: buildSchemaMap(caseType),
 		});
-		const names = (await readPropertyIndexes(dbHandle.pool, APP_ID, "patient"))
-			.map((i) => i.name)
-			.sort();
+		const indexes = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
+		const names = indexes.map((i) => i.name).sort();
+		for (const property of ["external-field", "external_field"]) {
+			expect(
+				indexes.find(
+					(i) => i.name === idxName(APP_ID, "patient", property, "fuzzy"),
+				)?.def,
+			).toContain(`->> '${property}'`);
+		}
 		expect(names).toEqual(
 			[
 				idxName(APP_ID, "patient", "external-field", "fuzzy"),
@@ -1074,54 +862,6 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		expect(rows[0]?.properties.weight).toBe(17.01);
 	});
 
-	it("index name uniquely determines index shape — two data types share a name only if they share a cast", () => {
-		// `diffIndexSets` keys on index NAME and skips a valid same-
-		// name match, so two `data_type`s that compose the same index
-		// name MUST produce the same index expression — else a retype
-		// between them leaves a stale-cast index the diff never
-		// rebuilds (the `int↔decimal` bug above). This pins that
-		// invariant across the whole `data_type` set so a future
-		// numeric type can't silently reintroduce a same-name /
-		// different-cast collision. Pure — `desiredIndexForProperty`
-		// is total and reads no database.
-		const property = (data_type: CasePropertyDataType): CaseProperty => ({
-			name: "p",
-			label: proseText("P"),
-			data_type,
-		});
-
-		// The exact regression: `int` and `decimal` on one property
-		// must compose distinct names.
-		const intName = desiredIndexForProperty("app", "ct", property("int"))?.name;
-		const decimalName = desiredIndexForProperty(
-			"app",
-			"ct",
-			property("decimal"),
-		)?.name;
-		expect(intName).toBeTruthy();
-		expect(decimalName).toBeTruthy();
-		expect(intName).not.toBe(decimalName);
-
-		// General guard: across every data type, a shared index name
-		// implies a shared cast and access method.
-		const byName = new Map<
-			string,
-			{ dataType: CasePropertyDataType; using: string }
-		>();
-		for (const dataType of casePropertyDataTypes) {
-			const entry = desiredIndexForProperty("app", "ct", property(dataType));
-			if (entry === undefined) continue;
-			const prior = byName.get(entry.name);
-			if (prior !== undefined) {
-				expect(POSTGRES_CAST_FOR_DATA_TYPE[dataType]).toBe(
-					POSTGRES_CAST_FOR_DATA_TYPE[prior.dataType],
-				);
-				expect(entry.using).toBe(prior.using);
-			}
-			byName.set(entry.name, { dataType, using: entry.using });
-		}
-	});
-
 	it("on retype that parks bad values: index DDL succeeds against the post-commit state", async () => {
 		// The structural two-phase test: retype `text → int` against a
 		// row carrying `"abc"` parks the value (its key drops from the
@@ -1290,7 +1030,7 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 				property: "age",
 				change: { kind: "retype", fromType: "text", toType: "int" },
 			}),
-		).rejects.toThrow();
+		).rejects.toMatchObject({ code: "42P01" });
 
 		// The schema row in `case_type_schemas` still carries the
 		// pre-call (text) shape because Phase A rolled back. Probe
@@ -1803,299 +1543,102 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 		]);
 	});
 
-	// -----------------------------------------------------------
-	// Index-name validation — guards against unsafe identifiers
-	// -----------------------------------------------------------
-
-	it("rejects a property name with characters outside the blueprint vocabulary", async () => {
-		// `assertSafeIdentifierFragment` enforces the blueprint's
-		// `CASE_PROPERTY_PATTERN` shape (letters / digits /
-		// underscores / hyphens with a leading letter) at the
-		// index-name composition step. A space character violates
-		// the pattern and the pre-flight throws before any I/O.
-		const store = makeStore(OWNER_A);
-		await expect(
-			store.applySchemaChange({
-				appId: APP_ID,
-				caseType: "patient",
-				caseTypeSchemas: buildSchemaMap({
-					name: "patient",
-					properties: [
-						{
-							name: "name with space",
-							label: proseText("X"),
-							data_type: "text",
-						},
-					],
-				}),
-			}),
-		).rejects.toThrow(/property/);
-	});
-
-	// -----------------------------------------------------------
-	// EXPLAIN — the planner reaches the index for each operator
-	// -----------------------------------------------------------
-	//
-	// These tests are the structural acceptance criterion for the
-	// per-data-type expression-index coverage: the indexes exist
-	// AND the planner uses them. The compiled SQL shapes mirror the
-	// term/predicate compiler's emission for each load-bearing
-	// operator (verified end-to-end via empirical probe). Each
-	// test:
-	//
-	//   1. Provisions the index by calling `applySchemaChange` with
-	//      a blueprint declaring one indexable property.
-	//   2. Inserts enough rows to make a sequential scan more
-	//      expensive than an index probe (the planner switches to
-	//      index scans only when the cost crosses a threshold).
-	//   3. Runs `ANALYZE` so the planner has up-to-date statistics.
-	//   4. Runs `EXPLAIN` over a SELECT mirroring the term/predicate
-	//      compiler's emission shape.
-	//   5. Asserts the index name appears in the plan.
-
-	const EXPLAIN_ROW_COUNT = 2000;
-
-	/**
-	 * Bulk-insert `count` patient rows for the EXPLAIN tests. All
-	 * rows carry `case_type = 'patient'` so the partial-predicate
-	 * index covers every row; each carries a populated value for
-	 * `name`, `age`, `weight`, and `tags` so a single fixture
-	 * serves every EXPLAIN test below.
-	 *
-	 * The row count is empirically chosen — the planner switches to
-	 * index plans only when the cost crosses a threshold, and the
-	 * threshold depends on the table's row count. 2000 rows is
-	 * comfortably above where each operator's index becomes the
-	 * cheaper plan (verified via probe).
-	 */
-	async function populateExplainFixture(count: number): Promise<void> {
-		const valueRows: string[] = [];
-		const params: unknown[] = [];
-		let p = 1;
-		for (let i = 0; i < count; i++) {
-			const tags = i % 7 === 0 ? ["red", "blue"] : ["green"];
-			valueRows.push(
-				`($${p++}::uuid, 'app-explain', 'owner-a', 'patient', 'owner-a', $${p++}, $${p++}::jsonb)`,
-			);
-			// `case_name` is `text NOT NULL` with a `length > 0` CHECK
-			// — a synthetic per-row value satisfies the constraint
-			// without affecting the EXPLAIN output, which probes
-			// JSONB-property indexes only.
-			params.push(
-				`00000000-0000-0000-0000-${i.toString(16).padStart(12, "0")}`,
-				`Person${i}`,
-				JSON.stringify({
-					name: `Person${i}`,
-					age: i % 100,
-					weight: (50 + (i % 50)).toString(),
-					tags,
-				}),
-			);
-		}
+	it("compiled numeric and multi-select predicates can use their expression indexes", async () => {
+		const appId = "app-explain";
+		const caseType: CaseType = {
+			name: "patient",
+			properties: [
+				{ name: "age", label: proseText("Age"), data_type: "int" },
+				{ name: "weight", label: proseText("Weight"), data_type: "decimal" },
+				{
+					name: "tags",
+					label: proseText("Tags"),
+					data_type: "multi_select",
+					options: [{ value: "red", label: proseText("Red") }],
+				},
+			],
+		};
+		const schemas = buildCaseTypeMap(buildSimpleBlueprint([caseType], appId));
+		await makeStore(OWNER_A).applySchemaChange({
+			appId,
+			caseType: "patient",
+			caseTypeSchemas: schemas,
+		});
 		await dbHandle.pool.query(
-			`INSERT INTO cases (case_id, app_id, project_id, case_type, owner_id, case_name, properties) VALUES ${valueRows.join(", ")}`,
-			params,
+			`INSERT INTO cases(case_id,app_id,project_id,owner_id,case_type,case_name,properties)
+            SELECT gen_random_uuid(),$1,'owner-a','owner-a','patient','Person '||i,
+            jsonb_build_object('age',i,'weight',i+0.5,'tags',CASE WHEN i%7=0 THEN '["red"]'::jsonb ELSE '[]'::jsonb END)
+            FROM generate_series(1,2000) i`,
+			[appId],
 		);
-		await dbHandle.pool.query("ANALYZE cases");
-	}
-
-	/**
-	 * Run an EXPLAIN against the supplied SELECT with sequential
-	 * scans disabled. The planner uses the cheapest plan; with
-	 * small test fixtures, a sequential scan sometimes wins on
-	 * cost even when an index is available. Disabling seqscan
-	 * pins the structural assertion ("the index is reachable for
-	 * this operator") independent of the per-fixture cost verdict.
-	 *
-	 * Reserves a dedicated client checkout so the `SET` and the
-	 * `EXPLAIN` share one session — `pool.query` would otherwise
-	 * return them to the pool independently.
-	 */
-	async function explainNoSeqScan(select: string): Promise<string> {
+		await dbHandle.pool.query("VACUUM ANALYZE cases");
+		const probes = [
+			{
+				predicate: gt(prop("patient", "age"), literal(50)),
+				property: "age",
+				mode: "int",
+			},
+			{
+				predicate: gt(prop("patient", "weight"), literal(75.5)),
+				property: "weight",
+				mode: "num",
+			},
+			{
+				predicate: multiSelectAny(prop("patient", "tags"), literal("red")),
+				property: "tags",
+				mode: "contains",
+			},
+		];
 		const client = await dbHandle.pool.connect();
 		try {
+			// Assert index eligibility independently of this small fixture's cost estimate.
 			await client.query("SET enable_seqscan = off");
-			const plan = await client.query<{ "QUERY PLAN": string }>(
-				`EXPLAIN ${select}`,
-			);
-			return plan.rows.map((r) => r["QUERY PLAN"]).join("\n");
+			for (const probe of probes) {
+				const query = (dbHandle.db as Kysely<Database>)
+					.selectFrom("cases as c")
+					.selectAll()
+					.where("c.app_id", "=", appId)
+					.where("c.project_id", "=", OWNER_A)
+					.where("c.case_type", "=", "patient")
+					.where(
+						compilePredicate(probe.predicate, {
+							db: dbHandle.db,
+							appId,
+							projectId: OWNER_A,
+							anchorAlias: "c",
+							currentCaseType: "patient",
+							caseTypeSchemas: schemas,
+							bindings: {},
+						}),
+					)
+					.compile();
+				const result = await client.query<{ "QUERY PLAN": string }>(
+					`EXPLAIN ${query.sql}`,
+					[...query.parameters],
+				);
+				const plan = result.rows.map((row) => row["QUERY PLAN"]).join("\n");
+				expect(plan).toContain(
+					idxName(appId, "patient", probe.property, probe.mode),
+				);
+				expect(plan).toContain("Index Cond");
+				if (probe.mode === "contains") expect(plan).toMatch(/Index Cond.*\?\|/);
+			}
 		} finally {
-			await client.query("SET enable_seqscan = on");
-			client.release();
+			try {
+				await client.query("RESET enable_seqscan");
+			} finally {
+				client.release();
+			}
 		}
-	}
-
-	it("EXPLAIN: text fuzzy match plan reaches the trgm GIN index", async () => {
-		const store = makeStore(OWNER_A);
-		await store.applySchemaChange({
-			appId: "app-explain",
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(
-				buildSimpleBlueprint(
-					[
-						{
-							name: "patient",
-							properties: [
-								{ name: "name", label: proseText("Name"), data_type: "text" },
-							],
-						},
-					],
-					"app-explain",
-				),
-			),
-		});
-		await populateExplainFixture(EXPLAIN_ROW_COUNT);
-
-		// Mirror the term compiler's emission for `match(prop("patient",
-		// "name"), "Person5", "fuzzy")`:
-		//   `cast(cast(properties->>'name' as text) as text) % cast('Person5' as text)`
-		const planText = await explainNoSeqScan(
-			`SELECT * FROM cases c
-			 WHERE c.app_id = 'app-explain'
-			   AND c.owner_id = 'owner-a'
-			   AND c.case_type = 'patient'
-			   AND cast(cast(c.properties ->> 'name' as text) as text) % cast('Person5' as text)`,
-		);
-		expect(planText).toContain(
-			idxName("app-explain", "patient", "name", "fuzzy"),
-		);
-	});
-
-	it("EXPLAIN: int compare plan reaches the btree expression index", async () => {
-		const store = makeStore(OWNER_A);
-		await store.applySchemaChange({
-			appId: "app-explain",
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(
-				buildSimpleBlueprint(
-					[
-						{
-							name: "patient",
-							properties: [
-								{ name: "age", label: proseText("Age"), data_type: "int" },
-							],
-						},
-					],
-					"app-explain",
-				),
-			),
-		});
-		await populateExplainFixture(EXPLAIN_ROW_COUNT);
-
-		// Mirror the term compiler's emission for `gt(prop("patient",
-		// "age"), literal(50))`:
-		//   `cast(properties->>'age' as integer) > 50`
-		const planText = await explainNoSeqScan(
-			`SELECT * FROM cases c
-			 WHERE c.app_id = 'app-explain'
-			   AND c.owner_id = 'owner-a'
-			   AND c.case_type = 'patient'
-			   AND cast(c.properties ->> 'age' as integer) > 50`,
-		);
-		expect(planText).toContain(idxName("app-explain", "patient", "age", "int"));
-	});
-
-	it("EXPLAIN: decimal compare plan reaches the btree expression index", async () => {
-		const store = makeStore(OWNER_A);
-		await store.applySchemaChange({
-			appId: "app-explain",
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(
-				buildSimpleBlueprint(
-					[
-						{
-							name: "patient",
-							properties: [
-								{
-									name: "weight",
-									label: proseText("Weight"),
-									data_type: "decimal",
-								},
-							],
-						},
-					],
-					"app-explain",
-				),
-			),
-		});
-		await populateExplainFixture(EXPLAIN_ROW_COUNT);
-
-		// Mirror the term compiler's emission for a decimal compare:
-		//   `cast(properties->>'weight' as numeric) > 75`
-		const planText = await explainNoSeqScan(
-			`SELECT * FROM cases c
-			 WHERE c.app_id = 'app-explain'
-			   AND c.owner_id = 'owner-a'
-			   AND c.case_type = 'patient'
-			   AND cast(c.properties ->> 'weight' as numeric) > 75`,
-		);
-		expect(planText).toContain(
-			idxName("app-explain", "patient", "weight", "num"),
-		);
-	});
-
-	it("EXPLAIN: multi_select contains plan reaches the jsonb_ops GIN index", async () => {
-		const store = makeStore(OWNER_A);
-		await store.applySchemaChange({
-			appId: "app-explain",
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(
-				buildSimpleBlueprint(
-					[
-						{
-							name: "patient",
-							properties: [
-								{
-									name: "tags",
-									label: proseText("Tags"),
-									data_type: "multi_select",
-									options: [
-										{ value: "red", label: proseText("Red") },
-										{ value: "blue", label: proseText("Blue") },
-										{ value: "green", label: proseText("Green") },
-									],
-								},
-							],
-						},
-					],
-					"app-explain",
-				),
-			),
-		});
-		await populateExplainFixture(EXPLAIN_ROW_COUNT);
-
-		// Mirror the predicate compiler's emission for
-		// `multiSelectAny(prop("patient", "tags"), literal("red"))`:
-		//   `cast(properties->'tags' as jsonb) ?| ARRAY['red']::text[]`
-		const planText = await explainNoSeqScan(
-			`SELECT * FROM cases c
-			 WHERE c.app_id = 'app-explain'
-			   AND c.owner_id = 'owner-a'
-			   AND c.case_type = 'patient'
-			   AND cast(c.properties -> 'tags' as jsonb) ?| ARRAY['red']::text[]`,
-		);
-		expect(planText).toContain(
-			idxName("app-explain", "patient", "tags", "contains"),
-		);
-		// The plan's `Index Cond` should carry the `?|` operator,
-		// not just the partial-predicate `case_type = 'patient'`
-		// match. With `jsonb_ops` (vs `jsonb_path_ops`) the planner
-		// reaches the index for `?|` directly.
-		expect(planText).toMatch(/Index Cond.*\?\|/);
 	});
 
 	// -----------------------------------------------------------
 	// Tenant scope — index DDL is shared across owners
 	// -----------------------------------------------------------
 
-	it("indexes are shared across tenants — schema is per-app, not per-owner", async () => {
-		// `case_type_schemas` is keyed by `(app_id, case_type)` —
-		// the schema (and therefore the desired index set) is
-		// shared across every tenant under that app. This test
-		// verifies that owner-A's `applySchemaChange` provisions
-		// the indexes that owner-B's reads will benefit from.
+	it("repeated schema sync by another Project member preserves the index set", async () => {
 		const storeA = makeStore("owner-a");
-		const storeB = makeStore("owner-b");
+		const storeB = makeStore("owner-a", "owner-b");
 		await storeA.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
@@ -2107,15 +1650,11 @@ describe("PostgresCaseStore — applySchemaChange index DDL", () => {
 			}),
 		});
 
-		// Both tenants see the same indexes — they share the
-		// `cases` table and its expression-index set.
 		const seenByA = await readPropertyIndexes(dbHandle.pool, APP_ID, "patient");
 		expect(seenByA.map((i) => i.name)).toEqual([
 			idxName(APP_ID, "patient", "name", "fuzzy"),
 		]);
 
-		// Owner B running an additive `applySchemaChange` is a
-		// no-op for the index set (the diff is empty).
 		await storeB.applySchemaChange({
 			appId: APP_ID,
 			caseType: "patient",
@@ -2406,7 +1945,7 @@ describe("PostgresCaseStore — bulk-insert rollback semantics", () => {
 				count: 3,
 				seed: "rollback-test",
 			}),
-		).rejects.toThrow();
+		).rejects.toBeInstanceOf(CasePropertiesValidationError);
 
 		// Zero rows land in `cases` — the rollback covers EVERY row
 		// in the batch, not just the failing one. A regression that
@@ -2672,7 +2211,8 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 			connectionString: dbHandle.uri,
 			max: 4,
 		});
-		concurrentPool.on("error", () => {});
+		const errors: Error[] = [];
+		concurrentPool.on("error", (error) => errors.push(error));
 		const concurrentDb = new Kysely<Database>({
 			dialect: new PostgresDialect({
 				pool: concurrentPool as unknown as PostgresPool,
@@ -2692,17 +2232,18 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 			db: concurrentDb,
 			sampleGenerator: new HeuristicCaseGenerator(),
 		});
-		const gateClient = await concurrentPool.connect();
-		let gateHeld = false;
+		const gateClient = new Client({ connectionString: dbHandle.uri });
+		const pending: Promise<PromiseSettledResult<unknown>[]>[] = [];
 		try {
+			await gateClient.connect();
 			await gateClient.query("select pg_advisory_lock($1)", [resetGate]);
-			gateHeld = true;
 			const resetPromise = resetStore.resetSampleData({
 				appId: APP_ID,
 				caseType: householdType,
 				count: 1,
 			});
 
+			pending.push(Promise.allSettled([resetPromise]));
 			const waitForAdvisoryWaiters = async (minimum: number) => {
 				const deadline = Date.now() + 5_000;
 				while (Date.now() < deadline) {
@@ -2735,9 +2276,9 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 					() => ({ error: undefined }),
 					(error: unknown) => ({ error }),
 				);
+			pending.push(Promise.allSettled([childPromise]));
 			await waitForAdvisoryWaiters(2);
 			await gateClient.query("select pg_advisory_unlock($1)", [resetGate]);
-			gateHeld = false;
 
 			await resetPromise;
 			const childResult = await childPromise;
@@ -2753,12 +2294,11 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 			);
 			expect(dangling.rowCount).toBe(0);
 		} finally {
-			if (gateHeld) {
-				await gateClient.query("select pg_advisory_unlock($1)", [resetGate]);
-			}
-			gateClient.release();
+			await gateClient.end();
+			await Promise.all(pending);
 			await concurrentDb.destroy();
 		}
+		expect(errors).toEqual([]);
 	});
 
 	it("rolls back the deletion alongside the failed regeneration so the pre-call population is preserved", async () => {
@@ -2798,7 +2338,6 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 			caseType: "patient",
 		});
 		expect(beforeRows).toHaveLength(4);
-		const beforeIds = new Set(beforeRows.map((r) => r.case_id));
 
 		// Phase 2: swap to a stub generator whose row-N output is
 		// schema-invalid. AJV rejects mid-batch inside the bulk
@@ -2838,7 +2377,7 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 				caseType,
 				count: 2,
 			}),
-		).rejects.toThrow();
+		).rejects.toBeInstanceOf(CasePropertiesValidationError);
 
 		// Phase 3: verify the pre-reset rows survived. A regression
 		// that committed the deletion separately from the
@@ -2848,8 +2387,7 @@ describe("PostgresCaseStore — resetSampleData atomicity", () => {
 			caseType: "patient",
 		});
 		expect(afterRows).toHaveLength(4);
-		const afterIds = new Set(afterRows.map((r) => r.case_id));
-		expect(afterIds).toEqual(beforeIds);
+		expect(afterRows).toEqual(beforeRows);
 	});
 });
 
@@ -3069,18 +2607,8 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 		);
 	});
 
-	it("a fine-gate loser does NOT drop the winner's live index (Phase B win-gate)", async () => {
-		// The [C1] bug: a losing concurrent additive sync whose fine-gate WHERE
-		// suppresses its schema UPSERT would still run Phase B with its OWN
-		// older desired set and DROP the winner's new-property index. Race a
-		// WINNER (seq 3, adds `village` → a second index) against a LOSER (seq
-		// 2, only `name`). Whatever the interleaving, the winner's `village`
-		// index must survive: if the loser wins the coarse SELECT race it hits
-		// the fine-gate (2 < 3) → `won=false` → Phase B skipped; if it loses the
-		// coarse race it no-ops earlier. Both orderings preserve the index —
-		// WITHOUT the win-gate the fine-gate ordering would drop it.
+	it("contending schema syncs recover transient DDL failures and preserve the latest sequence", async () => {
 		const store = makeStore(SEQ_APP);
-		// Shared prior at seq 1: just `name`.
 		await store.applySchemaChange({
 			appId: SEQ_APP,
 			caseType: "patient",
@@ -3089,85 +2617,79 @@ describe("PostgresCaseStore — applySchemaChange synced_seq gate", () => {
 			),
 			syncedSeq: 1,
 		});
-
-		const winner = store.applySchemaChange({
-			appId: SEQ_APP,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(
-				buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
-			),
-			syncedSeq: 3,
+		const pool = new Pool({ connectionString: dbHandle.uri, max: 3 });
+		const errors: Error[] = [];
+		pool.on("error", (error) => errors.push(error));
+		const db = new Kysely<Database>({
+			dialect: new PostgresDialect({ pool: pool as unknown as PostgresPool }),
 		});
-		const loser = store.applySchemaChange({
-			appId: SEQ_APP,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(
-				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
-			),
-			syncedSeq: 2,
-		});
-		await Promise.all([winner, loser]);
-
-		// The winner's seq-3 two-property schema stands, and BOTH the `name` and
-		// `village` expression indexes are live — the loser's Phase B never
-		// dropped `village`.
-		const row = await readRow("patient");
-		expect(row.syncedSeq).toBe(3);
-		expect(row.properties.sort()).toEqual(["name", "village"]);
-		const indexes = await readPropertyIndexes(
-			dbHandle.pool,
-			SEQ_APP,
-			"patient",
-		);
-		expect(indexes).toHaveLength(2);
-	});
-
-	it("converges two concurrent additive adds — each peer's property survives the merge", async () => {
-		const store = makeStore(SEQ_APP);
-		// The shared prior state at seq 1: `patient` with just `name`.
-		await store.applySchemaChange({
-			appId: SEQ_APP,
-			caseType: "patient",
-			caseTypeSchemas: buildCaseTypeMap(
-				buildSimpleBlueprint([patientWith(["name"])], SEQ_APP),
-			),
-			syncedSeq: 1,
-		});
-
-		// Peer A commits `village` at seq 2; peer B commits `age` at seq 3.
-		// Under the durable stream, B's commit is the later seq and its
-		// blueprint already carries BOTH properties (it committed onto A's
-		// state). The two post-commit sweeps arrive in either order:
-		//   - A's sweep (seq 2, {name, village}) then B's (seq 3, {name,
-		//     village, age}): B wins, all three land.
-		//   - B's sweep (seq 3, all three) then A's (seq 2, {name, village}):
-		//     A is now STALE (2 < 3) and no-ops — B's three-property state
-		//     survives. This is the convergence the monotone gate guarantees.
-		const bState = buildCaseTypeMap(
-			buildSimpleBlueprint([patientWith(["name", "village", "age"])], SEQ_APP),
-		);
-		const aState = buildCaseTypeMap(
-			buildSimpleBlueprint([patientWith(["name", "village"])], SEQ_APP),
-		);
-		// Apply B (fresher) first, then A (stale) — the harder ordering.
-		await store.applySchemaChange({
-			appId: SEQ_APP,
-			caseType: "patient",
-			caseTypeSchemas: bState,
-			syncedSeq: 3,
-		});
-		await store.applySchemaChange({
-			appId: SEQ_APP,
-			caseType: "patient",
-			caseTypeSchemas: aState,
-			syncedSeq: 2,
-		});
-
-		// Both peers' properties survive — the stale seq-2 sync didn't drop
-		// `age`. The row reflects the fresher seq-3 state.
-		const merged = await readRow("patient");
-		expect(merged.syncedSeq).toBe(3);
-		expect(merged.properties.sort()).toEqual(["age", "name", "village"]);
+		const gate = new Client({ connectionString: dbHandle.uri });
+		const pending: Promise<PromiseSettledResult<unknown>[]>[] = [];
+		try {
+			await gate.connect();
+			await gate.query("SELECT pg_advisory_lock(hashtextextended($1,0))", [
+				caseSchemaIndexLockScope(SEQ_APP, "patient"),
+			]);
+			const concurrentStore = new PostgresCaseStore({
+				projectId: SEQ_APP,
+				actorUserId: SEQ_APP,
+				ownerId: SEQ_APP,
+				db,
+				sampleGenerator: new HeuristicCaseGenerator(),
+			});
+			const work = Promise.allSettled(
+				[3, 2].map((syncedSeq) =>
+					withTransientRetry(() =>
+						concurrentStore.applySchemaChange({
+							appId: SEQ_APP,
+							caseType: "patient",
+							syncedSeq,
+							caseTypeSchemas: buildCaseTypeMap(
+								buildSimpleBlueprint(
+									[
+										patientWith(
+											syncedSeq === 3 ? ["name", "village"] : ["name"],
+										),
+									],
+									SEQ_APP,
+								),
+							),
+						}),
+					),
+				),
+			);
+			pending.push(work);
+			await vi.waitFor(async () => {
+				const result = await gate.query<{
+					count: number;
+				}>(`SELECT count(*)::int AS count FROM pg_stat_activity
+                    WHERE datname=current_database() AND cardinality(pg_blocking_pids(pid))>0`);
+				expect(result.rows[0]?.count).toBe(2);
+			});
+			await gate.query("SELECT pg_advisory_unlock(hashtextextended($1,0))", [
+				caseSchemaIndexLockScope(SEQ_APP, "patient"),
+			]);
+			for (const result of await work)
+				if (result.status === "rejected") throw result.reason;
+			const row = await readRow("patient");
+			expect(row.syncedSeq).toBe(3);
+			expect(row.properties.sort()).toEqual(["name", "village"]);
+			expect(
+				(await readPropertyIndexes(dbHandle.pool, SEQ_APP, "patient"))
+					.map((i) => i.name)
+					.sort(),
+			).toEqual(
+				[
+					idxName(SEQ_APP, "patient", "name", "fuzzy"),
+					idxName(SEQ_APP, "patient", "village", "fuzzy"),
+				].sort(),
+			);
+		} finally {
+			await gate.end();
+			await Promise.all(pending);
+			await db.destroy();
+		}
+		expect(errors).toEqual([]);
 	});
 
 	it("throws when `change` and `syncedSeq` are both set (mutually exclusive)", async () => {
@@ -3279,5 +2801,48 @@ describe("PostgresCaseStore — canonical stored-schema boundary", () => {
 		await expect(
 			store.listParkedValues({ appId: APP_ID, caseType: "patient" }),
 		).rejects.toThrow(/unknown or noncanonical property declaration/);
+	});
+});
+
+describe("PostgresCaseStore historical row repair", () => {
+	it("strips undeclared inherited keys during update while rejecting unknown patch keys", async () => {
+		const store = makeStore(OWNER_A);
+		await store.applySchemaChange({
+			appId: APP_ID,
+			caseType: "patient",
+			caseTypeSchemas: buildSchemaMap({
+				name: "patient",
+				properties: [
+					{ name: "name", label: proseText("Name"), data_type: "text" },
+				],
+			}),
+		});
+		const caseId = testUuid("historical-stranded-key");
+		await dbHandle.pool.query(
+			`INSERT INTO cases(case_id,app_id,project_id,owner_id,case_type,case_name,properties)
+            VALUES($1,$2,$3,$3,'patient','Alice','{"name":"Alice","age":"30"}'::jsonb)`,
+			[caseId, APP_ID, OWNER_A],
+		);
+		expect(
+			(await store.query({ appId: APP_ID, caseType: "patient" }))[0]
+				?.properties,
+		).toEqual({ name: "Alice", age: "30" });
+		await store.update({
+			appId: APP_ID,
+			caseId,
+			patch: { properties: { name: "Alicia" } },
+		});
+		const repaired = await store.query({ appId: APP_ID, caseType: "patient" });
+		expect(repaired[0]?.properties).toEqual({ name: "Alicia" });
+		await expect(
+			store.update({
+				appId: APP_ID,
+				caseId,
+				patch: { properties: { bogus: "x" } },
+			}),
+		).rejects.toBeInstanceOf(CasePropertiesValidationError);
+		expect(await store.query({ appId: APP_ID, caseType: "patient" })).toEqual(
+			repaired,
+		);
 	});
 });

@@ -3015,13 +3015,19 @@
 			"file": "lib/case-store/postgres/__tests__/automationMatching.postgres.test.ts",
 			"lines": 965,
 			"ciMs": 6374,
-			"status": "pending"
+			"status": "revised",
+			"review": "Revised after full read and count/automation SQL review: replace per-case databases with real transactional fixture because counts do not open transactions; stable transaction clock removes midnight race; remove duplicate accepted-host scenario already present as refusal control. Preserve SQL regex, blankness, type, calendar, owner and host ambiguity semantics.",
+			"reviewedSha256": "bf26a0f525383b48e4ff79919e77cd63654ecca38692a987f38f79363f646c06",
+			"baselineSha256": "beff992b4b9477346c9f5c9778a3739393280a6255a16c22607680a4ee9102dc"
 		},
 		{
 			"file": "lib/case-store/postgres/__tests__/casePropertyRename.postgres.test.ts",
 			"lines": 636,
 			"ciMs": 5694,
-			"status": "pending"
+			"status": "revised",
+			"review": "Revised after full read and production Phase-A/Phase-B review: removed duplicate partial row reads already covered by full snapshots, checked complete scoped physical index set, made paused old-drop work owned and released/joined on assertion failure; retained heterogeneous chains, cycles, occupancy and cast-safety matrix.",
+			"reviewedSha256": "9883c0094f039c11c9c685c8c2a0dc2108471cd146388f554f8a2ce66c2c1e3a",
+			"baselineSha256": "12a1c542618181b5bf5d2387087328f8fa529cb1b1d9c95dbcd3d3047e288aa9"
 		},
 		{
 			"file": "lib/case-store/postgres/__tests__/casePropertyRenamePreflight.postgres.test.ts",
@@ -3045,31 +3051,46 @@
 			"file": "lib/case-store/postgres/__tests__/indexConvergence.postgres.test.ts",
 			"lines": 964,
 			"ciMs": 7108,
-			"status": "pending"
+			"status": "revised",
+			"review": "Revised after full read and owning maintenance/retirement source review: exact read-only persisted Blueprint asserted using existing populated fixture, split incorrect cast and incorrect predicate into independent physical-index cases; retained durable tombstone, reactivation, consumed markers, relocation and corrupt-schema boundaries.",
+			"reviewedSha256": "9b855868ba88248a2ec7bd61510c274d97eebc4b55f1814b773d9aab119e1bd6",
+			"baselineSha256": "21e905446eaecdb26b073529c6fc8b45a58dcb3062cb522302592fe307e93bfc"
 		},
 		{
 			"file": "lib/case-store/postgres/__tests__/opaqueCaseIds.postgres.test.ts",
 			"lines": 374,
 			"ciMs": 3843,
-			"status": "pending"
+			"status": "revised",
+			"review": "Revised after full read: retain identity-family catalog, default ordering and relation transitions; authored-id read goes through the store; parking now uses the real retype writer before checking FK cascade; corrected fixture documentation.",
+			"reviewedSha256": "2de17f871dfc66dcc99d008fb165c1597385b44533672e68b619e6bb2caf9b56",
+			"baselineSha256": "947a99b6790b1c229fd9baa49908f84f9c2cf2811b17ed8dd231ccc3851b8f10"
 		},
 		{
 			"file": "lib/case-store/postgres/__tests__/queryGrouped.postgres.test.ts",
 			"lines": 372,
 			"ciMs": 6503,
-			"status": "pending"
+			"status": "revised",
+			"review": "Revised after full read and queryGrouped/count source review: preserve distinct SQL grouping, paging, filtering and missing-index scenarios; compare all default-ordered groups and complete row shapes against flat reads instead of first-row and incidental alias-key checks.",
+			"reviewedSha256": "374cfaa418c754403338e3d30edbb0fbc26e4194cad2960f77403bb97cab27c1",
+			"baselineSha256": "c9feec0bbac8bf5f9cc90e51aa9fe6f1e50c94f2813414e55a143ffbf0420f3f"
 		},
 		{
 			"file": "lib/case-store/postgres/__tests__/restoreScope.postgres.test.ts",
 			"lines": 482,
 			"ciMs": 5488,
-			"status": "pending"
+			"status": "revised",
+			"review": "Revised after full read and store read-path review: exact paged identities, actual liveness propagation through a held parent to an extension, asserted result of the single-closure SQL check, removed casts hiding unsupported CaseType labels, corrected authoring-surface claim.",
+			"reviewedSha256": "684aa2c3fe93cb9943c1fe57dd68228289cdd02a14ca7bb166f7718fbe489e95",
+			"baselineSha256": "e2c4aed6321e12e91342b44fbc9c7400a26b9ea66cc143ca7df896ea03e11bfa"
 		},
 		{
 			"file": "lib/case-store/postgres/__tests__/store.postgres.test.ts",
 			"lines": 3283,
 			"ciMs": 49977,
-			"status": "pending"
+			"status": "revised",
+			"review": "Revised after full store and shared contract review: consolidated real DDL coverage; moved pure index invariants; compiler-generated EXPLAIN; actual independent schema contention through production retry; joined reset tasks; typed rollback assertions; historical row repair; removed false collision matrix and duplicate counts; corrected timestamp, sort, and alias projections.",
+			"reviewedSha256": "00a6dd3ee1e2fb6210aee09c5c5511d10b804c6bfc196fc9a40c96582cc8f9b5",
+			"baselineSha256": "ddb24e79cc83547ed81250f44a10440f948b42f26e11306bdc316da6646610fd"
 		},
 		{
 			"file": "lib/case-store/postgres/__tests__/submissionAttachmentPreparation.test.ts",

@@ -119,17 +119,6 @@ describe("explicit case-property rename storage", () => {
 			);
 		await phase.completeAfterCommit();
 
-		const live = await db()
-			.selectFrom("cases")
-			.select(["properties", "modified_on"])
-			.where("case_id", "=", "case-1")
-			.executeTakeFirstOrThrow();
-		expect(live.properties).toEqual({
-			b: "alpha",
-			c: 7,
-			untouched: "stay",
-		});
-		expect(live.modified_on?.toISOString()).toBe("2024-01-02T03:04:05.000Z");
 		const liveAfter = await db()
 			.selectFrom("cases")
 			.selectAll()
@@ -140,38 +129,6 @@ describe("explicit case-property rename storage", () => {
 			properties: { b: "alpha", c: 7, untouched: "stay" },
 		});
 
-		const parked = await db()
-			.selectFrom("parked_case_values")
-			.select([
-				"id",
-				"property",
-				"original_value",
-				"reason",
-				"from_type",
-				"to_type",
-				"dismissed_at",
-				"created_at",
-			])
-			.orderBy("id")
-			.execute();
-		expect(parked).toEqual([
-			expect.objectContaining({
-				property: "b",
-				original_value: 11,
-				reason: "keep-a",
-				from_type: "int",
-				to_type: "decimal",
-				dismissed_at: null,
-			}),
-			expect.objectContaining({
-				property: "c",
-				original_value: "old",
-				reason: "keep-b",
-				from_type: "text",
-				to_type: "date",
-				dismissed_at: new Date("2024-03-01T00:00:00.000Z"),
-			}),
-		]);
 		const parkedAfter = await db()
 			.selectFrom("parked_case_values")
 			.selectAll()
@@ -242,13 +199,19 @@ describe("explicit case-property rename storage", () => {
 		expect(state.index_pending_seq).toBeNull();
 		expect(Number(state.index_synced_seq)).toBe(2);
 
-		const indexes = await database.pool.query<{ indexdef: string }>(
-			`SELECT indexdef FROM pg_indexes WHERE tablename = 'cases' AND indexname LIKE $1 ESCAPE '\\'`,
-			[`cases\\_%\\_num`],
+		const indexes = await database.pool.query<{
+			indexname: string;
+			indexdef: string;
+		}>(
+			"SELECT indexname,indexdef FROM pg_indexes WHERE tablename='cases' AND starts_with(indexname,$1)",
+			[`cases_${indexScopeTag(APP_ID, "patient")}_`],
 		);
-		expect(
-			indexes.rows.some((row) => row.indexdef.includes("properties")),
-		).toBe(true);
+		expect(indexes.rows).toEqual([
+			{
+				indexname: `cases_${indexScopeTag(APP_ID, "patient")}_${propertyIndexTag("c")}_num`,
+				indexdef: expect.stringMatching(/->> 'c'.*::numeric/),
+			},
+		]);
 	});
 
 	it("moves a three-way cycle simultaneously across live and parked values", async () => {
@@ -590,47 +553,49 @@ describe("explicit case-property rename storage", () => {
 		};
 		const original =
 			privateStore.drainPendingIndexConvergenceForType.bind(caseStore);
-		let releaseDrop: (() => void) | undefined;
-		const dropPaused = new Promise<void>((resolve) => {
-			releaseDrop = resolve;
-		});
-		let phaseBStarted: (() => void) | undefined;
-		const phaseBReached = new Promise<void>((resolve) => {
-			phaseBStarted = resolve;
-		});
-		vi.spyOn(
-			privateStore,
-			"drainPendingIndexConvergenceForType",
-		).mockImplementation(async (appId, caseType) => {
-			if (phaseBStarted !== undefined) {
-				phaseBStarted?.();
-				phaseBStarted = undefined;
-				await dropPaused;
-			}
-			await original(appId, caseType);
-		});
-
+		const dropPaused = Promise.withResolvers<void>();
+		const phaseBReached = Promise.withResolvers<void>();
+		const spy = vi
+			.spyOn(privateStore, "drainPendingIndexConvergenceForType")
+			.mockImplementationOnce(async (appId, caseType) => {
+				phaseBReached.resolve();
+				await dropPaused.promise;
+				await original(appId, caseType);
+			});
 		const oldDrop = caseStore.purgeSchemaForMaintenance({
 			appId: APP_ID,
 			caseType: "patient",
 		});
-		await phaseBReached;
-		const recreated = schemas([
-			{ name: "new_value", label: proseText("New"), data_type: "decimal" },
-		]);
-		await caseStore.applySchemaChange({
-			appId: APP_ID,
-			caseType: "patient",
-			caseTypeSchemas: recreated,
-			syncedSeq: 2,
-		});
-		releaseDrop?.();
-		await oldDrop;
-
-		const expected = `cases_${indexScopeTag(APP_ID, "patient")}_${propertyIndexTag("new_value")}_num`;
-		const probe = await sql<{ present: boolean }>`
-			SELECT to_regclass(${expected}) IS NOT NULL AS present
-		`.execute(database.db);
-		expect(probe.rows[0]?.present).toBe(true);
+		const settled = Promise.allSettled([oldDrop]);
+		try {
+			await Promise.race([
+				phaseBReached.promise,
+				oldDrop.then(() => {
+					throw new Error("Drop finished before its Phase-B pause");
+				}),
+			]);
+			const recreated = schemas([
+				{ name: "new_value", label: proseText("New"), data_type: "decimal" },
+			]);
+			await caseStore.applySchemaChange({
+				appId: APP_ID,
+				caseType: "patient",
+				caseTypeSchemas: recreated,
+				syncedSeq: 2,
+			});
+			dropPaused.resolve();
+			await oldDrop;
+			const expected = `cases_${indexScopeTag(APP_ID, "patient")}_${propertyIndexTag("new_value")}_num`;
+			const probe = await sql<{
+				present: boolean;
+			}>`SELECT to_regclass(${expected}) IS NOT NULL AS present`.execute(
+				database.db,
+			);
+			expect(probe.rows[0]?.present).toBe(true);
+		} finally {
+			dropPaused.resolve();
+			await settled;
+			spy.mockRestore();
+		}
 	});
 });
