@@ -54,60 +54,63 @@ historical OAuth repair: canonical MCP resource creation. That insert now
 belongs to normal auth initialization, preserves existing operator policy, and
 has fresh-database and repeated-initialization integration coverage.
 
-## Benchmark method
+## Final benchmark method and results
 
-The checked-in build-only configuration uses the same full runner image helper,
-a fresh Cloud Build ID, synthetic public configuration, and a fixed synthetic
-Action key. It verifies baked/runtime build identity, non-root runtime, command,
-and Action key. It omits Sentry upload, app-image publication, database jobs, and
-deployment. Timings therefore measure build work and cache costs, not a live
-release or the complete production Sentry path.
+The checked-in build-only configuration uses the same complete runner helper,
+fresh Cloud Build IDs, real public configuration, the pinned production Action
+key, and real Sentry source-map upload. It verifies the complete image's native
+SDK imports, request-error capture and frame rewriting, source-map removal,
+baked/runtime identity, runtime configuration, and Action key. It builds and
+publishes the reproducible migration image, but does not execute database jobs
+or deploy the application.
 
-The initial default-machine cold control was
-`9f621656-cf4b-4f58-b5be-bff46163cc00`; it passed artifact verification and
-published the first cache snapshot. Warm comparisons use the same dependency
-namespace with changed source and fresh build IDs.
+npm installs directly into the reusable dependency layer. BuildKit restores
+that layer and the private compiler-state image directly from Artifact
+Registry. GCS holds only immutable completion manifests. The benchmark includes
+image loading and artifact extraction for verification, plus both cache
+exports. Production instead pushes the application directly to the registry
+and overlaps cache publication with deployment. Benchmark totals therefore
+remain distinct from live deployment timings.
 
-[Cloud Build list prices](https://cloud.google.com/build/pricing), checked on
-5 September 2026, are $0.006/minute for the default e2-standard-2 and
-$0.0156/minute for e2-highcpu-8 in us-central1. Queued time is excluded from
-compute billing. The comparison uses list cost before free-tier credit and
-excludes cache storage/network charges. Larger-machine adoption requires at
-least 20% median end-to-end improvement and at most 25% higher compute cost.
+Matching frozen-source trials of `a8d96b49` used the unchanged default Cloud
+Build machine, with no machine override:
 
-The narrowed registry cache manifest and BuildKit configuration were inspected
-for snapshot `581a91fe-7e43-4599-8b6d-4efc7a5171b9`: 12 cache records, with no
-synthetic Action key or secret-value assignments in 7,659 bytes of metadata.
+| Cache state | Full benchmark total | Application build and image checks | Cache export |
+| --- | ---: | ---: | ---: |
+| Cold | 7m 38s | 5m 59s | 1m 00s |
+| Warm | 3m 39s | 2m 17s | 0m 27s |
 
-## Narrowed-cache result
+Build IDs: cold `3f6b1cf6-3738-4aa2-805e-a73d9b4d74e3`, warm
+`18fe4fad-ab5e-4422-8663-306f6c9d237f`. Cache state was explicitly cold for the
+first run; the second restored its completed snapshot. Both produced migration
+digest `5c5832f97ad4b070be03e4796d2f403d8249e41959ed7bba77fc58c8c2daf487`.
+Actual production results and final CI are recorded in
+[PR #567](https://github.com/voidcraft-labs/commcare-nova/pull/567) after verification.
 
-The first warm comparison showed that exporting per-release compiler-result
-layers cost about 80 seconds on the default machine. Those layers cannot be
-reused under the next build ID. The final helper therefore exports registry
-cache only through the reusable `jobs` stage and carries `.next/cache` through
-GCS. Its first complete pair measured:
+The preliminary trials in
+[PR #563](https://github.com/voidcraft-labs/commcare-nova/pull/563) used synthetic
+configuration, omitted Sentry upload, and transported compiler archives through
+GCS. Their timings and machine-cost estimates do not describe the final path.
+Larger-machine experiments were discarded; the deployed configuration retains
+the existing default machine.
 
-| Machine | Build-only total | Image build and cache export | Cache restore | GCS publication |
-| --- | ---: | ---: | ---: | ---: |
-| Default | 7m 03s | 4m 50s | 1m 07s | 0m 53s |
-| E2_HIGHCPU_8 | 4m 12s | 2m 25s | 0m 48s | 0m 52s |
+## Live migration API verification
 
-Build IDs: default `581a91fe-7e43-4599-8b6d-4efc7a5171b9`, larger machine
-`8797e8a3-abba-4076-8f04-bea3eccdd799`. These samples cost about $0.042 and
-$0.065 in build compute respectively, before free-tier credit. The larger
-machine improves time but exceeds the 25% cost ceiling in this pair. The
-pipeline retains the default machine. Repeated measurements and final CI
-results are recorded in [PR #563](https://github.com/voidcraft-labs/commcare-nova/pull/563).
+The first optimized deployment stopped before traffic changed because its
+migration Job PATCH used an unsupported `updateMask` query parameter. The
+[Cloud Run Jobs API](https://docs.cloud.google.com/run/docs/reference/rest/v2/projects.locations.jobs/patch)
+accepts a complete Job instead. The corrected gate preserves writable Job
+metadata and the complete task template, changes only the image, includes the
+verified etag, and omits output-only fields and execution tokens.
 
-The build-only total includes cache publication. Production publishes that GCS
-cache in parallel with image push and deployment work, so it is not generally
-on the traffic-movement critical path. Conversely the benchmark omits Sentry
-upload and all deployment work; it does not establish a new live-release time.
-The additional artifact check inspects the compiled server deployment ID and
-client release ID as well as runtime image configuration and Action encryption.
+Cloud Run accepted the corrected request in `validateOnly` mode. The same gate
+then updated the real Job and verified a successful execution of the immutable
+migration image. A second invocation returned `mode=reused` without starting
+another execution. These checks exercise both the changed-image and unchanged
+image paths; they do not substitute for an application deployment.
 
 Offline tests cover changed dependency namespaces, unavailable/corrupt caches,
-unsafe archives, and concurrent Job-template changes. Fresh and repeated auth
+invalid cache identities, and concurrent Job-template changes. Fresh and repeated auth
 setup, cleanup schema/lease authority, and case-type retirement have integration
 coverage. The full changed suite exposed a hard-coded OAuth test resource;
 using the canonical resource passes the scoped integration and leak checks.
