@@ -18,10 +18,14 @@
  */
 
 import type { Kysely } from "kysely";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { __setAppDbForTests, type AppDatabase, withAppTx } from "@/lib/db/pg";
 
+beforeEach(() => vi.useFakeTimers());
+
 afterEach(() => {
+	vi.clearAllTimers();
+	vi.useRealTimers();
 	__setAppDbForTests(null);
 });
 
@@ -50,7 +54,11 @@ describe("withAppTx retry", () => {
 		const { db, execute } = fakeDb([{ code: "40P01" }, { code: "40P01" }]);
 		__setAppDbForTests(db);
 
-		await expect(withAppTx(async () => "committed")).resolves.toBe("committed");
+		const result = expect(withAppTx(async () => "committed")).resolves.toBe(
+			"committed",
+		);
+		await vi.runAllTimersAsync();
+		await result;
 		// Two deadlock bounces + the successful third attempt.
 		expect(execute).toHaveBeenCalledTimes(3);
 	});
@@ -59,7 +67,9 @@ describe("withAppTx retry", () => {
 		const { db, execute } = fakeDb([{ code: "40001" }]);
 		__setAppDbForTests(db);
 
-		await expect(withAppTx(async () => 42)).resolves.toBe(42);
+		const result = expect(withAppTx(async () => 42)).resolves.toBe(42);
+		await vi.runAllTimersAsync();
+		await result;
 		expect(execute).toHaveBeenCalledTimes(2);
 	});
 
@@ -67,11 +77,13 @@ describe("withAppTx retry", () => {
 		const { db, execute, setIsolationLevel } = fakeDb([{ code: "40001" }]);
 		__setAppDbForTests(db);
 
-		await expect(
+		const result = expect(
 			withAppTx(async () => "snapshot", {
 				isolationLevel: "repeatable read",
 			}),
 		).resolves.toBe("snapshot");
+		await vi.runAllTimersAsync();
+		await result;
 		expect(setIsolationLevel).toHaveBeenCalledTimes(2);
 		expect(setIsolationLevel).toHaveBeenNthCalledWith(1, "repeatable read");
 		expect(setIsolationLevel).toHaveBeenNthCalledWith(2, "repeatable read");
@@ -83,9 +95,11 @@ describe("withAppTx retry", () => {
 		__setAppDbForTests(db);
 		const body = vi.fn(async () => "must not run");
 
-		await expect(
+		const result = expect(
 			withAppTx(body, { deadlineAt: Date.now() - 1 }),
 		).rejects.toThrow("transaction deadline expired");
+		await vi.runAllTimersAsync();
+		await result;
 		expect(body).not.toHaveBeenCalled();
 		expect(execute).toHaveBeenCalledTimes(1);
 	});
@@ -97,7 +111,11 @@ describe("withAppTx retry", () => {
 		const { db, execute } = fakeDb([err]);
 		__setAppDbForTests(db);
 
-		await expect(withAppTx(async () => "unreachable")).rejects.toBe(err);
+		const result = expect(withAppTx(async () => "unreachable")).rejects.toBe(
+			err,
+		);
+		await vi.runAllTimersAsync();
+		await result;
 		expect(execute).toHaveBeenCalledTimes(1);
 	});
 
@@ -108,7 +126,11 @@ describe("withAppTx retry", () => {
 		const { db, execute } = fakeDb([err]);
 		__setAppDbForTests(db);
 
-		await expect(withAppTx(async () => "unreachable")).rejects.toBe(err);
+		const result = expect(withAppTx(async () => "unreachable")).rejects.toBe(
+			err,
+		);
+		await vi.runAllTimersAsync();
+		await result;
 		expect(execute).toHaveBeenCalledTimes(1);
 	});
 
@@ -119,7 +141,11 @@ describe("withAppTx retry", () => {
 		const { db, execute } = fakeDb([err, err, err, err, err]);
 		__setAppDbForTests(db);
 
-		await expect(withAppTx(async () => "unreachable")).rejects.toBe(err);
+		const result = expect(withAppTx(async () => "unreachable")).rejects.toBe(
+			err,
+		);
+		await vi.runAllTimersAsync();
+		await result;
 		expect(execute).toHaveBeenCalledTimes(4);
 	});
 });

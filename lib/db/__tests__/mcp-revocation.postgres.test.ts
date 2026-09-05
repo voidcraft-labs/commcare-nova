@@ -54,8 +54,7 @@ vi.mock("@better-auth/mcp", async () => {
 });
 
 /** Sentinel 200 — the test detects "got past the consent check" by status.
- * Null body (not "{}") so the unconsumed Response stream doesn't trip the
- * async-leak detector — the assertions read status, never the body. The
+ * The sentinel has no body because these tests inspect authorization only. The
  * sentinel's `fetch` never invokes the per-request server factory: auth and
  * revocation run for real, the MCP protocol core stays stubbed. The stub
  * `McpServer` class exists only so `dispatch.ts`'s import resolves — with
@@ -99,6 +98,11 @@ const dbHandle = setupPerTestDatabase({
 	schema: "migrated",
 	databaseNamePrefix: "auth_mcp_revoke_",
 	establishLocalMigrationAuthority: true,
+	prepareTemplate: async (db, pool) => {
+		const { runMigrations } = await getMigrations(authMigrateOptions(pool));
+		await runMigrations();
+		await runAuthAppMigrations(db);
+	},
 });
 
 /**
@@ -151,10 +155,16 @@ function createTestAuth(pool: typeof dbHandle.pool) {
 	});
 }
 
+async function authorizationResponse(request: Request): Promise<Response> {
+	const response = await dispatchMcpAuthRequest(request);
+	await response.body?.cancel();
+	return response;
+}
+
 function mcpRequest(claims: Partial<JWTPayload>): Request {
 	// No body: the mocked protected handler reads only the x-test-jwt-claims header and
 	// the mocked createMcpHandler ignores the request, so a request body would
-	// just be an unconsumed stream the async-leak detector flags.
+	// create an unnecessary stream for this authorization boundary.
 	return new Request("http://localhost:3000/api/mcp", {
 		method: "POST",
 		headers: {
@@ -189,11 +199,6 @@ describe("MCP route consent lock", () => {
 	let auth: ReturnType<typeof createTestAuth>;
 
 	beforeEach(async () => {
-		const { runMigrations } = await getMigrations(
-			authMigrateOptions(dbHandle.pool),
-		);
-		await runMigrations();
-		await runAuthAppMigrations(dbHandle.db);
 		__setAuthDbForTests(
 			new Kysely<AuthDatabase>({
 				dialect: new PostgresDialect({
@@ -226,7 +231,7 @@ describe("MCP route consent lock", () => {
 	// ── Configuration assertion ────────────────────────────────────
 
 	it("registers the MCP verifier with both Nova scopes required", async () => {
-		await dispatchMcpAuthRequest(mcpRequest({ sub: "x", azp: "y" }));
+		await authorizationResponse(mcpRequest({ sub: "x", azp: "y" }));
 
 		expect(captured.protectedRequestOptions).toEqual(
 			expect.objectContaining({
@@ -248,7 +253,7 @@ describe("MCP route consent lock", () => {
 		});
 		await seedConsent(auth, TEST_USER_ID, created.client_id);
 
-		const res = await dispatchMcpAuthRequest(
+		const res = await authorizationResponse(
 			mcpRequest({
 				sub: TEST_USER_ID,
 				azp: created.client_id,
@@ -281,13 +286,13 @@ describe("MCP route consent lock", () => {
 			scope: "nova.read nova.write",
 		};
 
-		const before = await dispatchMcpAuthRequest(mcpRequest(claims));
+		const before = await authorizationResponse(mcpRequest(claims));
 		expect(before.status).toBe(200);
 
 		const { revokeAuthorizedClient } = await import("@/lib/db/oauth-consents");
 		await revokeAuthorizedClient(TEST_USER_ID, consent.id);
 
-		const after = await dispatchMcpAuthRequest(mcpRequest(claims));
+		const after = await authorizationResponse(mcpRequest(claims));
 		expect(after.status).toBe(401);
 		const wwwAuth = after.headers.get("WWW-Authenticate");
 		expect(wwwAuth).toContain('error="invalid_token"');
@@ -302,7 +307,7 @@ describe("MCP route consent lock", () => {
 	// ── Structural-token-failure paths ─────────────────────────────
 
 	it("rejects with 401 when the JWT is missing the `sub` claim", async () => {
-		const res = await dispatchMcpAuthRequest(
+		const res = await authorizationResponse(
 			mcpRequest({ azp: "client-x", scope: "nova.read nova.write" }),
 		);
 		expect(res.status).toBe(401);
@@ -312,7 +317,7 @@ describe("MCP route consent lock", () => {
 	});
 
 	it("rejects with 401 when the JWT is missing the `azp` claim", async () => {
-		const res = await dispatchMcpAuthRequest(
+		const res = await authorizationResponse(
 			mcpRequest({
 				sub: TEST_USER_ID,
 				iat: Math.floor(Date.now() / 1000),
@@ -326,7 +331,7 @@ describe("MCP route consent lock", () => {
 	});
 
 	it("rejects with 401 when the JWT is missing the `iat` claim", async () => {
-		const res = await dispatchMcpAuthRequest(
+		const res = await authorizationResponse(
 			mcpRequest({
 				sub: TEST_USER_ID,
 				azp: "client-x",
@@ -348,7 +353,7 @@ describe("MCP route consent lock", () => {
 			.mockRejectedValueOnce(new Error("database unavailable"));
 
 		try {
-			const res = await dispatchMcpAuthRequest(
+			const res = await authorizationResponse(
 				mcpRequest({
 					sub: TEST_USER_ID,
 					azp: "client-x",

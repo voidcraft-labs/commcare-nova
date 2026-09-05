@@ -142,10 +142,15 @@ function sourceFilesUnder(dir: string): string[] {
 }
 
 describe("run-liveness single-reader guard: no raw read of the pure ownership/liveness fields", () => {
-	const files = ["lib", "app"].flatMap(sourceFilesUnder);
-	it.each(files)("%s", (relativePath) => {
-		const source = readFileSync(join(process.cwd(), relativePath), "utf8");
-		expect(offenders(source)).toEqual([]);
+	it("keeps production reads inside the sanctioned liveness readers", () => {
+		const violations = ["lib", "app"]
+			.flatMap(sourceFilesUnder)
+			.flatMap((relativePath) =>
+				offenders(readFileSync(join(process.cwd(), relativePath), "utf8")).map(
+					(finding) => `${relativePath}:${finding}`,
+				),
+			);
+		expect(violations).toEqual([]);
 	});
 
 	it("the regex actually matches a raw read (tripwire self-test)", () => {

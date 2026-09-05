@@ -14,15 +14,10 @@
  * Assertions check key absence (`'connect' in data === false`) on the raw entity
  * `data`, not `=== undefined`: the claim is that the key is GONE from storage.
  *
- * The guarded writer reauthorizes every commit against Project membership
- * (`projectRoleFor`, normally an `auth_member` read). It is mocked to grant the
- * actor an `editor` role — the reauth path itself is exercised in
- * `commitGuardedBatchTransactions.postgres.test.ts`.
- *
  * Runs unconditionally under `npm test`.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -32,13 +27,6 @@ import {
 } from "@/lib/domain";
 import { commitGuardedBatchProposal as commitGuardedBatch } from "./admittedWriterTestHelpers";
 import { setupAppStateTestDb } from "./appStateTestDb";
-
-// Reauth reads the actor's role from `auth_member` via `projectRoleFor`; grant
-// `editor` so the commit's reauth passes without a seeded membership row.
-vi.mock("@/lib/db/projectMembership", () => ({
-	projectRoleFor: vi.fn(async () => "editor"),
-	projectRoleForInTransaction: vi.fn(async () => "editor"),
-}));
 
 const h = setupAppStateTestDb("bp_clear_");
 

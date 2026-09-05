@@ -37,14 +37,14 @@ const crossProjectArgs = {
 
 describe("moveAppToProject production policy", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
+		vi.resetAllMocks();
 		mocks.repairAppCaseTenancy.mockResolvedValue({
 			projectId: "project-a",
 			moved: 0,
 		});
 	});
 
-	it("runs the real move", async () => {
+	it("dispatches cross-Project requests through the move workflow", async () => {
 		mocks.prepareAppProjectMove.mockResolvedValue({
 			kind: "ready",
 			assetIds: ["source"],
@@ -77,7 +77,7 @@ describe("moveAppToProject production policy", () => {
 
 describe("cross-Project move orchestration", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
+		vi.resetAllMocks();
 		mocks.copyAssetsIntoProject.mockResolvedValue(
 			new Map([["source", "destination"]]),
 		);
@@ -98,6 +98,20 @@ describe("cross-Project move orchestration", () => {
 				assetIds: ["source", "history"],
 			});
 
+		mocks.copyAssetsIntoProject.mockImplementation(async (args) => {
+			expect(mocks.normalizeReapableRunForProjectMove).toHaveBeenCalledWith(
+				"app-1",
+				identity,
+			);
+			expect(args).toEqual({
+				assetIds: ["source", "history"],
+				fromProjectId: "project-a",
+				toProjectId: "project-b",
+				actorUserId: "user-1",
+			});
+			return new Map([["source", "destination"]]);
+		});
+
 		await runCrossProjectMove(crossProjectArgs);
 
 		expect(mocks.normalizeReapableRunForProjectMove).toHaveBeenCalledWith(
@@ -107,7 +121,9 @@ describe("cross-Project move orchestration", () => {
 		expect(mocks.copyAssetsIntoProject).toHaveBeenCalledOnce();
 		expect(mocks.commitAppProjectMove).toHaveBeenCalledWith(
 			"app-1",
-			expect.objectContaining({ assetIdMap: expect.any(Map) }),
+			expect.objectContaining({
+				assetIdMap: new Map([["source", "destination"]]),
+			}),
 		);
 	});
 

@@ -1,5 +1,6 @@
 import { sql } from "kysely";
-import { afterEach, describe, expect, it } from "vitest";
+import { Client } from "pg";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
 import {
@@ -126,59 +127,70 @@ describe("PostgreSQL persisted JSON boundary", () => {
 			throw new Error("validBlueprint fixture must contain one module");
 		}
 		const appId = await h.seedAppWithBlueprint(initial);
-		const rootRead = deferredVoid();
+		let rootWasRead = false;
 		const continueLoad = deferredVoid();
 		__setStrictAppLoadAfterRootReadHookForTests(async (hookAppId) => {
 			if (hookAppId !== appId) return;
-			rootRead.resolve();
+			rootWasRead = true;
 			await continueLoad.promise;
 		});
-
-		const loadPromise = loadApp(appId);
-		await rootRead.promise;
-		let writerSettled = false;
-		const writerPromise = h
-			.db()
-			.transaction()
-			.execute(async (tx) => {
-				await tx
-					.updateTable("apps")
-					.set({
-						app_name: "After app",
-						app_name_lower: "after app",
-					})
-					.where("id", "=", appId)
-					.execute();
-				await sql`
-					UPDATE blueprint_entities
-					SET data = jsonb_set(
-						data,
-						'{name}',
-						to_jsonb(${"After module"}::text)
-					)
-					WHERE app_id = ${appId}
-						AND uuid = ${moduleUuid}
-				`.execute(tx);
-			})
-			.finally(() => {
-				writerSettled = true;
+		const writer = new Client({ connectionString: h.uri() });
+		const observer = new Client({ connectionString: h.uri() });
+		const loadOutcome = loadApp(appId).then(
+			(value) => ({ value }),
+			(error: unknown) => ({ error }),
+		);
+		let writerOutcome:
+			| Promise<{ error: unknown } | { value: undefined }>
+			| undefined;
+		try {
+			await vi.waitFor(() => expect(rootWasRead).toBe(true));
+			await writer.connect();
+			await observer.connect();
+			const writerPid = (
+				await writer.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
+			).rows[0].pid;
+			writerOutcome = (async () => {
+				await writer.query("BEGIN");
+				await writer.query(
+					"UPDATE apps SET app_name = $1, app_name_lower = $2 WHERE id = $3",
+					["After app", "after app", appId],
+				);
+				await writer.query(
+					"UPDATE blueprint_entities SET data = jsonb_set(data, '{name}', to_jsonb($1::text)) WHERE app_id = $2 AND uuid = $3",
+					["After module", appId, moduleUuid],
+				);
+				await writer.query("COMMIT");
+			})().then(
+				() => ({ value: undefined }),
+				(error: unknown) => ({ error }),
+			);
+			await vi.waitFor(async () => {
+				const result = await observer.query<{ blocked: boolean }>(
+					"SELECT cardinality(pg_blocking_pids($1)) > 0 AS blocked",
+					[writerPid],
+				);
+				expect(result.rows[0]?.blocked).toBe(true);
 			});
 
-		try {
-			await new Promise<void>((resolve) => setImmediate(resolve));
-			expect(writerSettled).toBe(false);
 			continueLoad.resolve();
-			const loaded = await loadPromise;
-			expect(loaded?.app_name).toBe("Before app");
-			expect(loaded?.blueprint.modules[moduleUuid]?.name).toBe("Before module");
-			await writerPromise;
+			const loaded = await loadOutcome;
+			if ("error" in loaded) throw loaded.error;
+			expect(loaded.value?.app_name).toBe("Before app");
+			expect(loaded.value?.blueprint.modules[moduleUuid]?.name).toBe(
+				"Before module",
+			);
+			const written = await writerOutcome;
+			if ("error" in written) throw written.error;
 			const after = await loadApp(appId);
 			expect(after?.app_name).toBe("After app");
 			expect(after?.blueprint.modules[moduleUuid]?.name).toBe("After module");
 		} finally {
 			__setStrictAppLoadAfterRootReadHookForTests(null);
 			continueLoad.resolve();
-			await writerPromise.catch(() => undefined);
+			await loadOutcome;
+			await writerOutcome;
+			await Promise.all([writer.end(), observer.end()]);
 		}
 	});
 

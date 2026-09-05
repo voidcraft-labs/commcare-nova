@@ -1,6 +1,5 @@
 import { sql } from "kysely";
 import { describe, expect, test } from "vitest";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { readFrozenFoldFamilyObjectKeys } from "../20260728000000_canonical_identity_foundation/frozenDatabaseMigration";
 import { runFrozenCanonicalIdentityRepair } from "../20260728000000_canonical_identity_foundation/frozenDatabaseRepair";
@@ -14,6 +13,7 @@ const DRIFT_MESSAGE = "part-way through the canonical identity repair";
 
 const database = setupPerTestDatabase({
 	databaseNamePrefix: "frozen_repair_terminal_",
+	schema: "migrated",
 });
 
 async function terminalEvidenceDigest(): Promise<string> {
@@ -32,7 +32,6 @@ async function terminalEvidenceDigest(): Promise<string> {
 
 describe.sequential("frozen canonical-identity repair terminal state", () => {
 	test("refuses the exact post-canonical state precisely and writes nothing", async () => {
-		await runCaseStoreMigrations(database.db);
 		const before = await terminalEvidenceDigest();
 
 		await expect(
@@ -43,26 +42,28 @@ describe.sequential("frozen canonical-identity repair terminal state", () => {
 	}, 120_000);
 
 	test("keeps a direct unledgered canonical state classified as drift", async () => {
-		await runCaseStoreMigrations(database.db);
 		await sql`
 			DELETE FROM public.kysely_migration
 			WHERE name = ${MIGRATION_NAME}
 		`.execute(database.db);
 
+		const before = await terminalEvidenceDigest();
 		await expect(
 			runFrozenCanonicalIdentityRepair(database.db, { apply: true }),
 		).rejects.toThrow(DRIFT_MESSAGE);
+		expect(await terminalEvidenceDigest()).toBe(before);
 	}, 120_000);
 
 	test("keeps a partial fold family classified as drift", async () => {
-		await runCaseStoreMigrations(database.db);
 		await sql`
 			DROP TRIGGER app_change_fold_baselines_immutable
 			ON public.app_change_fold_baselines
 		`.execute(database.db);
 
+		const before = await terminalEvidenceDigest();
 		await expect(
 			runFrozenCanonicalIdentityRepair(database.db, { apply: true }),
 		).rejects.toThrow(DRIFT_MESSAGE);
+		expect(await terminalEvidenceDigest()).toBe(before);
 	}, 120_000);
 });

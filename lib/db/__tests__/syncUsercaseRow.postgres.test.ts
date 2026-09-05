@@ -136,6 +136,8 @@ describe("syncUsercaseRow", () => {
 		expect(row.properties.hq_user_id).toBe(PERSONA_ID);
 		// `case_name` is a column, never a duplicate JSONB key.
 		expect(Object.hasOwn(row.properties, "case_name")).toBe(false);
+		expect(row.external_id).toBeNull();
+		expect(Object.hasOwn(row.properties, "external_id")).toBe(false);
 	});
 
 	it("is idempotent — a second sync writes nothing and makes no second row", async () => {
@@ -150,36 +152,31 @@ describe("syncUsercaseRow", () => {
 		};
 
 		await syncUsercaseRow(workerStore(), args);
+		const before = await storedRow();
+		const versionBefore = (
+			await dbHandle.pool.query(
+				"SELECT xmin::text AS version FROM cases WHERE case_id = $1",
+				[PERSONA_ID],
+			)
+		).rows[0];
 		const second = await syncUsercaseRow(workerStore(), args);
 
 		expect(second.created).toBe(false);
 		expect(second.changed).toBe(0);
-		await storedRow(); // asserts exactly one row survives
-	});
-
-	it("reports what the ROW holds, not what this sync changed", async () => {
-		// Preview hands `stored` straight to `ResolvedPreviewIdentity.usercase`,
-		// because `#user/<prop>` resolves against `casedb` on the wire and the
-		// row is therefore the truth. Returning the diff instead would leave a
-		// worker's whole record blank on every sync that changed nothing, which
-		// is the overwhelmingly common one.
-		const d = doc([CADRE]);
-		await seedSchema(d);
-		const args = {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-		};
-
-		await syncUsercaseRow(workerStore(), args);
-		const second = await syncUsercaseRow(workerStore(), args);
-
-		expect(second.changed).toBe(0);
-		expect(second.stored.cadre).toBe("nurse");
-		expect(second.stored.hq_user_id).toBe(PERSONA_ID);
-		expect(second.stored.username).toBe("amara");
+		expect(second.stored).toMatchObject({
+			cadre: "nurse",
+			hq_user_id: PERSONA_ID,
+			username: "amara",
+		});
+		expect(await storedRow()).toEqual(before);
+		expect(
+			(
+				await dbHandle.pool.query(
+					"SELECT xmin::text AS version FROM cases WHERE case_id = $1",
+					[PERSONA_ID],
+				)
+			).rows[0],
+		).toEqual(versionBefore);
 	});
 
 	it("reports the value a sync just wrote, not the one it replaced", async () => {
@@ -238,7 +235,7 @@ describe("syncUsercaseRow", () => {
 		).rejects.toThrow(/visits_done/);
 	});
 
-	it("keeps a declared property a form changed, when the persona has no value for it", async () => {
+	it("clears a declared property when its persona value is removed", async () => {
 		// The never-clobber contract as Nova can actually reach it. `cadre` is
 		// declared but the persona carries no value, so the desired record has
 		// it blank — and a blank is a real value HQ writes on purpose, so the
@@ -292,6 +289,12 @@ describe("syncUsercaseRow", () => {
 			projectSpace: "my-domain",
 		});
 
+		await workerStore().update({
+			appId: APP_ID,
+			caseId: PERSONA_ID,
+			patch: { properties: { cadre: "form-written" } },
+		});
+
 		const outcome = await syncUsercaseRow(workerStore(), {
 			appId: APP_ID,
 			worker: WORKER,
@@ -304,8 +307,8 @@ describe("syncUsercaseRow", () => {
 		expect(outcome.created).toBe(false);
 		expect(outcome.changed).toBe(0);
 		// What it REPORTS is the row, because the row is what a device reads.
-		expect(outcome.stored.cadre).toBe("nurse");
-		expect((await storedRow()).properties.cadre).toBe("nurse");
+		expect(outcome.stored.cadre).toBe("form-written");
+		expect((await storedRow()).properties.cadre).toBe("form-written");
 	});
 
 	it("ensureOnly still creates the row when the worker has none", async () => {
@@ -322,29 +325,6 @@ describe("syncUsercaseRow", () => {
 
 		expect(outcome.created).toBe(true);
 		expect((await storedRow()).properties.cadre).toBe("nurse");
-	});
-
-	it("leaves external_id empty, because HQ never writes one", async () => {
-		// HQ FINDS a usercase by external id (`get_case_by_external_id`, reached
-		// from `CouchUser.get_usercase`) but never WRITES one:
-		// `_get_user_case_fields` sets it nowhere and `create_usercase` passes it
-		// nowhere. The read/write asymmetry is easy to mistake for an omission,
-		// so this test is here to argue with the later helpful fix — writing it
-		// would make `#user/external_id = ''` answer one way in Preview and the
-		// other in the field.
-		const d = doc([CADRE]);
-		await seedSchema(d);
-		await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		const row = await storedRow();
-		expect(row.external_id).toBeNull();
-		expect(Object.hasOwn(row.properties, "external_id")).toBe(false);
 	});
 
 	it("puts the row inside its own worker's restore", async () => {

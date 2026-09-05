@@ -82,7 +82,7 @@ beforeEach(async () => {
 });
 
 describe("case-property rename storage preflight", () => {
-	it("counts a simultaneous chain across all owners, held rows, and dismissed parks", async () => {
+	it("counts a simultaneous chain across owners and dismissed parks while excluding other apps", async () => {
 		await insertCase({
 			caseId: "case-a",
 			projectId: "project-a",

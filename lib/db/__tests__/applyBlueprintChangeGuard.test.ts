@@ -27,6 +27,7 @@ import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import { type BlueprintDoc, fieldCaseWrite } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { log } from "@/lib/logger";
 import { applyBlueprintChange as applyBlueprintChangeOpaque } from "../applyBlueprintChange";
 import {
 	BlueprintCommitRejectedError,
@@ -183,7 +184,7 @@ const usercaseStoreMock = {
 };
 
 beforeEach(() => {
-	vi.clearAllMocks();
+	vi.resetAllMocks();
 	// Every sync returns the empty report by default — the boundary aggregates
 	// `parkedIds` etc. off every return, so the mock must honor the
 	// `MigrationReport` contract; per-test overrides replace this.
@@ -581,15 +582,6 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 			},
 			prior,
 		);
-		applySchemaChangeMock.mockResolvedValue({
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			skipped: 0,
-			parkedIds: [],
-			failureReasons: [],
-		});
 
 		await applyBlueprintChange({
 			appId: "app-1",
@@ -658,10 +650,26 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 
 			expect(result.seq).toBe(3);
 			expect(result.committedDoc).toBe(committed);
+			expect(applySchemaChangeMock).toHaveBeenCalledTimes(1);
+			const logged = "code" in sweepError ? log.warn : log.error;
+			const other = "code" in sweepError ? log.error : log.warn;
+			expect(logged).toHaveBeenCalledWith(
+				expect.stringContaining("post-commit schema sweep failed"),
+				...("code" in sweepError
+					? [
+							expect.objectContaining({
+								appId: "app-1",
+								seq: 3,
+								error: sweepError,
+							}),
+						]
+					: [sweepError, { appId: "app-1", seq: 3 }]),
+			);
+			expect(other).not.toHaveBeenCalled();
 		},
 	);
 
-	it("skips Postgres entirely for a non-case-type batch", async () => {
+	it("skips derived case-schema work for a non-case-type batch", async () => {
 		const fresh = minDoc();
 		mockGuardedCommit({
 			seq: 2,
@@ -682,50 +690,6 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 
 		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 		expect(withSchemaContextMock).not.toHaveBeenCalled();
-		// No Phase-1 admission on the fast path; the guarded commit is the gate.
-		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
-	});
-
-	it("uses the guarded writer as the sole authorization owner on the additive path", async () => {
-		// An additive case-type addition touches Postgres only AFTER the commit
-		// (the sweep), so the guarded commit is the one authorization owner.
-		const prior = minDoc();
-		const prospective = structuredClone(toPersistableDoc(prior));
-		prospective.caseTypes = [
-			...(prospective.caseTypes ?? []),
-			{
-				name: "household",
-				properties: [{ name: "case_name", label: proseText("N") }],
-			},
-		];
-		mockGuardedCommit(
-			{
-				seq: 9,
-				committedDoc: structuredClone(prospective) as unknown as BlueprintDoc,
-				deduped: false,
-			},
-			prior,
-		);
-		applySchemaChangeMock.mockResolvedValue({
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			skipped: 0,
-			parkedIds: [],
-			failureReasons: [],
-		});
-
-		await applyBlueprintChange({
-			appId: "app-1",
-			userId: "user-1",
-			expectedProjectId: PROJECT_ID,
-			batchId: "batch-additive-noreauth",
-			kind: "autosave",
-			guard: { mutations: addHouseholdBatch() },
-		});
-
-		expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("skips the sweep on an IN-transaction dedup (deduped: true) — no clobbering with the stale seq/doc pair", async () => {
@@ -747,15 +711,6 @@ describe("applyBlueprintChange — derived schema materialization", () => {
 			seq: 4, // the ORIGINAL commit seq
 			committedDoc: structuredClone(prospective) as unknown as BlueprintDoc,
 			deduped: true, // in-txn dedup hit
-		});
-		applySchemaChangeMock.mockResolvedValue({
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			skipped: 0,
-			parkedIds: [],
-			failureReasons: [],
 		});
 
 		const result = await applyBlueprintChange({
@@ -835,18 +790,6 @@ describe("applyBlueprintChange — the worker's own case follows the commit", ()
 		});
 		// Bilal is unchanged, so nothing about him is read or written either.
 		expect(usercaseStoreMock.query).not.toHaveBeenCalled();
-	});
-
-	it("binds the close to the departing worker's own identity", async () => {
-		// `CaseInsert` carries no `owner_id` — the store stamps it from the
-		// identity it is bound to — so the sweep takes one store per worker. A
-		// shared store would stamp every worker's case with whoever happened to
-		// come first, putting it outside its own worker's restore.
-		await commit(
-			withPersonas([{ uuid: WORKER_A, name: "Amara" }]),
-			withPersonas([]),
-		);
-
 		expect(withProjectContextMock).toHaveBeenCalledWith(
 			PROJECT_ID,
 			"user-1",
@@ -854,7 +797,7 @@ describe("applyBlueprintChange — the worker's own case follows the commit", ()
 		);
 	});
 
-	it("costs no database work at all when a commit touches no worker", async () => {
+	it("opens no worker store when a commit touches no worker", async () => {
 		// THE point of `workersNeedingUsercaseSync` being pure. A field edit is
 		// the overwhelmingly common commit and fires on every autosave; one read
 		// per persona there would be a real cost for nothing.

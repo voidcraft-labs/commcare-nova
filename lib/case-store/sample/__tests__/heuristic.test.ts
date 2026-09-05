@@ -81,13 +81,6 @@ const PATIENT_CASE_TYPE: CaseType = {
 	],
 };
 
-const HOUSEHOLD_CASE_TYPE: CaseType = {
-	name: "household",
-	properties: [
-		{ name: "region", label: proseText("Region"), data_type: "text" },
-	],
-};
-
 const PATIENT_WITH_PARENT_CASE_TYPE: CaseType = {
 	name: "patient",
 	parent_type: "household",
@@ -187,29 +180,23 @@ describe("HeuristicCaseGenerator", () => {
 		expect(first).not.toEqual(second);
 	});
 
-	it("produces different output for different case-types", () => {
-		// Same seed, different `caseType.name` qualifier in the PRNG
-		// seed — output must differ. The check guards against the
-		// determinism contract collapsing into "same seed string =
-		// same output regardless of context."
-		const patient = generator.generate({
+	it("uses app and case-type identity to seed otherwise identical property shapes", () => {
+		const args = {
 			appId: "app-1",
 			caseType: PATIENT_CASE_TYPE,
 			count: 5,
 			seed: "shared-seed",
-		});
-		// Use a single-property household to compare structurally
-		// against the patient's name property.
-		const household = generator.generate({
-			appId: "app-1",
-			caseType: HOUSEHOLD_CASE_TYPE,
-			count: 5,
-			seed: "shared-seed",
-		});
-		// Compare the regions vs. names — different data sources.
-		// The non-equality check is the behavior pin: distinct
-		// `caseType.name` qualifiers must seed distinct PRNG streams.
-		expect(patient).not.toEqual(household);
+		};
+		const properties = (input: typeof args) =>
+			generator.generate(input).map((row) => row.properties);
+		const original = properties(args);
+		expect(original).not.toEqual(properties({ ...args, appId: "app-2" }));
+		expect(original).not.toEqual(
+			properties({
+				...args,
+				caseType: { ...PATIENT_CASE_TYPE, name: "household" },
+			}),
+		);
 	});
 
 	it("returns the requested count of rows", () => {
@@ -242,8 +229,6 @@ describe("HeuristicCaseGenerator", () => {
 
 		expect(externalIds).toEqual(second.map((row) => row.external_id));
 		expect(new Set(externalIds).size).toBe(first.length);
-		expect(externalIds[0]).toBe("PAT-5777");
-		expect(externalIds.at(-1)).toBe("PAT-5806");
 		for (const row of first) {
 			expect(row.external_id).toMatch(/^PAT-\d{4,}$/);
 			expect(row.properties).not.toHaveProperty("external_id");
@@ -363,6 +348,7 @@ describe("HeuristicCaseGenerator", () => {
 			seed: "schema-validity",
 		});
 
+		expect(rows).toHaveLength(30);
 		const ajv = new Ajv2020({ strict: false });
 		addFormats(ajv);
 		const schema = caseTypeToJsonSchema(PATIENT_CASE_TYPE);
@@ -480,7 +466,7 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 		"Refill requested",
 	]);
 
-	it("'age' produces ints uniformly in [15, 80)", () => {
+	it("'age' produces ints in [15, 80)", () => {
 		const caseType: CaseType = {
 			name: "person",
 			properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
@@ -522,7 +508,11 @@ describe("HeuristicCaseGenerator property-name heuristic", () => {
 			// the object arm — the generator always emits an object (the
 			// implementation builds a `JsonObject` accumulator before push).
 			const props = row.properties as JsonObject;
+			expect(props.item_count as number).toBeGreaterThanOrEqual(0);
+			expect(Number.isInteger(props.item_count)).toBe(true);
 			expect(props.item_count as number).toBeLessThan(1000);
+			expect(props.total_quantity as number).toBeGreaterThanOrEqual(0);
+			expect(Number.isInteger(props.total_quantity)).toBe(true);
 			expect(props.total_quantity as number).toBeLessThan(1000);
 		}
 	});

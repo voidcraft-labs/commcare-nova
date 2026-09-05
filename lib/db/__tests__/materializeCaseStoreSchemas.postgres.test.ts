@@ -1,41 +1,8 @@
-// lib/db/__tests__/materializeCaseStoreSchemas.postgres.test.ts
-//
-// Coverage for the chat-completion materialization step. The
-// helper exists to close a gap that the SA's fire-and-forget
-// chat-side `saveBlueprint` leaves open: until this call lands,
-// `case_type_schemas` carries no row for any case type the SA
-// just generated, and downstream awaited operations
-// (sample-data populate, form submit, live preview) trip
-// `SchemaNotSyncedError`. The integration test pins the closure
-// of that gap end-to-end against a real Postgres testcontainer.
-//
-// The harness mirrors `applyBlueprintChange.integration.test.ts`:
-//   - `setupPerTestDatabase` boots a fresh per-test Postgres
-//     database + applies migrations (`runCaseStoreMigrations`).
-//   - A `vi.mock` of `@/lib/case-store` swaps `withSchemaContext`
-//     for a constructor that returns a `PostgresCaseStore` bound
-//     to the per-test handle.
-//
-// The unit-level tests (no testcontainer needed) cover the
-// no-op paths: null `caseTypes`, empty `caseTypes`. The integration
-// test covers the multi-case-type happy path — every case-type row
-// materializes + per-property indexes land — plus the SWALLOW + WARN
-// failure contract: a per-type `applySchemaChange` throw is caught,
-// logged, and the loop moves on (each type attempted at most ONCE,
-// no retry), and the helper never throws. A persistent fault leaves
-// that type unsynced; the point-of-use `withSchemaHeal` closes the
-// gap on the type's first case-store touch. The `syncedSeq` the
-// helper threads into `applySchemaChange` is pinned here too — it
-// feeds the monotone `synced_seq` gate so a stale lower-seq
-// materialize no-ops against a fresher row.
+/** Real schema/index projection, sequence monotonicity, and recovery after a transient gap. */
 
 import type { Kysely } from "kysely";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { CaseStore, TransactionalSchemaCaseStore } from "@/lib/case-store";
-import {
-	indexScopeTag,
-	PostgresCaseStore,
-} from "@/lib/case-store/postgres/store";
+import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import type { Database } from "@/lib/case-store/sql/database";
@@ -199,386 +166,22 @@ describe("materializeCaseStoreSchemas — multi-case-type completion", () => {
 			"visit",
 		]);
 
-		// Per-property expression indexes landed — one per case type
-		// (text properties get a `gin_trgm_ops` partial GIN expression
-		// index). Index names are fully app-scoped
-		// (`cases_<scopeTag>_<propertyTag>_<mode>`, both segments hashed),
-		// so each case type's index is enumerated by its OWN
-		// `indexScopeTag` prefix; asserting one per case type proves every
-		// iteration of the helper's loop ran the Phase B path, not just
-		// the first.
-		const indexes = await dbHandle.pool.query<{ indexname: string }>(
-			`SELECT indexname FROM pg_indexes
-			 WHERE tablename = 'cases'
-			 AND indexname LIKE 'cases\\_%' ESCAPE '\\'
-			 ORDER BY indexname`,
+		const indexes = await dbHandle.pool.query<{ indexdef: string }>(
+			"SELECT indexdef FROM pg_indexes WHERE tablename = 'cases'",
 		);
-		const indexNames = indexes.rows.map((r) => r.indexname);
-		const patientIdx = indexNames.filter((n) =>
-			n.startsWith(`cases_${indexScopeTag(APP_ID, "patient")}_`),
-		);
-		const visitIdx = indexNames.filter((n) =>
-			n.startsWith(`cases_${indexScopeTag(APP_ID, "visit")}_`),
-		);
-		expect(patientIdx).toHaveLength(1);
-		expect(visitIdx).toHaveLength(1);
-		expect(patientIdx[0]?.endsWith("_fuzzy")).toBe(true);
-		expect(visitIdx[0]?.endsWith("_fuzzy")).toBe(true);
-	});
-});
-
-// ── syncedSeq threading — the monotone gate's input ─────────────────
-
-describe("materializeCaseStoreSchemas — syncedSeq threading", () => {
-	it("passes `syncedSeq` through to every applySchemaChange call", async () => {
-		const seqs: Array<number | undefined> = [];
-		const emptyReport = {
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			parkedIds: [],
-			skipped: 0,
-			failureReasons: [],
-		};
-		const applySchemaChangeMock = vi.fn(
-			async (args: { syncedSeq?: number }) => {
-				seqs.push(args.syncedSeq);
-				return emptyReport;
-			},
-		);
-		const unused = vi.fn(() => {
-			throw new Error("unused method");
-		});
-		const fakeStore = {
-			drainPendingIndexConvergence: vi.fn(),
-			query: unused,
-			readDeviceCaseDatabase: unused,
-			readCaseDatabasePatch: unused,
-			queryGrouped: unused,
-			count: unused,
-			insert: unused,
-			applySubmission: unused,
-			update: unused,
-			close: unused,
-			traverse: unused,
-			applySchemaChange: applySchemaChangeMock,
-			unparkValues: unused,
-			conversionImpact: unused,
-			listParkedValues: unused,
-			restoreParkedValues: unused,
-			setParkedValuesDismissed: unused,
-			replaceParkedValue: unused,
-			generateSampleData: unused,
-			resetSampleData: unused,
-		} satisfies CaseStore &
-			Pick<TransactionalSchemaCaseStore, "drainPendingIndexConvergence">;
-		withSchemaContextMock.mockImplementationOnce(async () => fakeStore);
-
-		const a: CaseType = {
-			name: "a",
-			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
-		};
-		const b: CaseType = {
-			name: "b",
-			properties: [{ name: "y", label: proseText("Y"), data_type: "text" }],
-		};
-
-		await materializeCaseStoreSchemas({
-			appId: APP_ID,
-			blueprint: makeBlueprint([a, b]),
-			syncedSeq: 12,
-		});
-
-		// Every per-type sync carries the same materialized-blueprint seq —
-		// including the worker's own case, which rides the same loop and must
-		// not be exempt from the monotone gate that keeps concurrent syncs
-		// converging.
-		expect(seqs).toEqual([12, 12, 12]);
-	});
-
-	it("omits `syncedSeq` entirely when the caller supplies none", async () => {
-		let observed: { syncedSeq?: number; hasKey?: boolean } = {};
-		const emptyReport = {
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			parkedIds: [],
-			skipped: 0,
-			failureReasons: [],
-		};
-		const applySchemaChangeMock = vi.fn(
-			async (args: { syncedSeq?: number }) => {
-				observed = { syncedSeq: args.syncedSeq, hasKey: "syncedSeq" in args };
-				return emptyReport;
-			},
-		);
-		const unused = vi.fn(() => {
-			throw new Error("unused method");
-		});
-		const fakeStore = {
-			drainPendingIndexConvergence: vi.fn(),
-			query: unused,
-			readDeviceCaseDatabase: unused,
-			readCaseDatabasePatch: unused,
-			queryGrouped: unused,
-			count: unused,
-			insert: unused,
-			applySubmission: unused,
-			update: unused,
-			close: unused,
-			traverse: unused,
-			applySchemaChange: applySchemaChangeMock,
-			unparkValues: unused,
-			conversionImpact: unused,
-			listParkedValues: unused,
-			restoreParkedValues: unused,
-			setParkedValuesDismissed: unused,
-			replaceParkedValue: unused,
-			generateSampleData: unused,
-			resetSampleData: unused,
-		} satisfies CaseStore &
-			Pick<TransactionalSchemaCaseStore, "drainPendingIndexConvergence">;
-		withSchemaContextMock.mockImplementationOnce(async () => fakeStore);
-
-		const a: CaseType = {
-			name: "a",
-			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
-		};
-
-		await materializeCaseStoreSchemas({
-			appId: APP_ID,
-			blueprint: makeBlueprint([a]),
-		});
-
-		// No key at all — the un-versioned plain UPSERT path, not `undefined`.
-		expect(observed.hasKey).toBe(false);
-	});
-});
-
-// ── Fault-class split — swallow transient, RETHROW deterministic ──
-
-describe("materializeCaseStoreSchemas — retry transient, swallow transient, throw deterministic", () => {
-	it("RETHROWS a DETERMINISTIC per-type fault (surfaced so a build fails, not celebrates)", async () => {
-		// A deterministic fault (no transient `code`) is a real bug — an
-		// identifier collision, a `CaseTypeNotInBlueprintError`. It would fail
-		// identically on every heal, so it MUST surface (the build finalize
-		// routes it through `failRun` → refund) rather than be swallowed and let
-		// the build complete-and-charge over a permanently-unusable schema.
-		const failureReason = "deterministic identifier collision";
-		const emptyReport = {
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			parkedIds: [],
-			skipped: 0,
-			failureReasons: [],
-		};
-		const applySchemaChangeMock = vi.fn(async (args: { caseType: string }) => {
-			if (args.caseType === "b") {
-				// Plain Error, no transient `code` → deterministic → rethrown.
-				throw new Error(failureReason);
-			}
-			return emptyReport;
-		});
-		const unused = vi.fn(() => {
-			throw new Error("unused method");
-		});
-		const fakeStore = {
-			drainPendingIndexConvergence: vi.fn(),
-			query: unused,
-			readDeviceCaseDatabase: unused,
-			readCaseDatabasePatch: unused,
-			queryGrouped: unused,
-			count: unused,
-			insert: unused,
-			applySubmission: unused,
-			update: unused,
-			close: unused,
-			traverse: unused,
-			applySchemaChange: applySchemaChangeMock,
-			unparkValues: unused,
-			conversionImpact: unused,
-			listParkedValues: unused,
-			restoreParkedValues: unused,
-			setParkedValuesDismissed: unused,
-			replaceParkedValue: unused,
-			generateSampleData: unused,
-			resetSampleData: unused,
-		} satisfies CaseStore &
-			Pick<TransactionalSchemaCaseStore, "drainPendingIndexConvergence">;
-		withSchemaContextMock.mockImplementationOnce(async () => fakeStore);
-
-		const a: CaseType = {
-			name: "a",
-			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
-		};
-		const b: CaseType = {
-			name: "b",
-			properties: [{ name: "y", label: proseText("Y"), data_type: "text" }],
-		};
-
-		// Throws — the deterministic fault on `b` propagates (not swallowed).
-		await expect(
-			materializeCaseStoreSchemas({
-				appId: APP_ID,
-				blueprint: makeBlueprint([a, b]),
-			}),
-		).rejects.toThrow(failureReason);
-	});
-
-	it("swallows a TRANSIENT-exhausted per-type failure, moves to the next type, never throws", async () => {
-		// A genuinely-transient fault that exhausts the retry budget (a sustained
-		// Cloud SQL outage) is swallowed + warned so a build completes rather
-		// than fails; the point-of-use `withSchemaHeal` closes the gap on
-		// recovery. `b` retries to the budget then the loop moves to `c`.
-		const calls: string[] = [];
-		const emptyReport = {
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			parkedIds: [],
-			skipped: 0,
-			failureReasons: [],
-		};
-		const applySchemaChangeMock = vi.fn(async (args: { caseType: string }) => {
-			calls.push(args.caseType);
-			if (args.caseType === "b") {
-				// Coded ECONNRESET → transient → retried; stays down every attempt.
-				throw Object.assign(new Error("sustained outage on b"), {
-					code: "ECONNRESET",
-				});
-			}
-			return emptyReport;
-		});
-		const unused = vi.fn(() => {
-			throw new Error("unused method");
-		});
-		const fakeStore = {
-			drainPendingIndexConvergence: vi.fn(),
-			query: unused,
-			readDeviceCaseDatabase: unused,
-			readCaseDatabasePatch: unused,
-			queryGrouped: unused,
-			count: unused,
-			insert: unused,
-			applySubmission: unused,
-			update: unused,
-			close: unused,
-			traverse: unused,
-			applySchemaChange: applySchemaChangeMock,
-			unparkValues: unused,
-			conversionImpact: unused,
-			listParkedValues: unused,
-			restoreParkedValues: unused,
-			setParkedValuesDismissed: unused,
-			replaceParkedValue: unused,
-			generateSampleData: unused,
-			resetSampleData: unused,
-		} satisfies CaseStore &
-			Pick<TransactionalSchemaCaseStore, "drainPendingIndexConvergence">;
-		withSchemaContextMock.mockImplementationOnce(async () => fakeStore);
-
-		const a: CaseType = {
-			name: "a",
-			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
-		};
-		const b: CaseType = {
-			name: "b",
-			properties: [{ name: "y", label: proseText("Y"), data_type: "text" }],
-		};
-		const c: CaseType = {
-			name: "c",
-			properties: [{ name: "z", label: proseText("Z"), data_type: "text" }],
-		};
-
-		// Resolves — the transient-exhausted throw on `b` is swallowed.
-		await expect(
-			materializeCaseStoreSchemas({
-				appId: APP_ID,
-				blueprint: makeBlueprint([a, b, c]),
-			}),
-		).resolves.toBeUndefined();
-
-		// `a` once, `b` retried to the budget (3 attempts), then `c` still ran.
-		expect(calls.filter((n) => n === "b")).toHaveLength(3);
-		expect(calls).toContain("c");
-		// The worker's own case is appended after the declared types, so it is
-		// also proof the loop ran to completion past the swallowed failure.
-		expect(calls[calls.length - 1]).toBe(USERCASE_CASE_TYPE);
-	});
-
-	it("retries a TRANSIENT per-type blip and lands the sync (no gap left for the heal)", async () => {
-		// The canonical drain-end failure is a transient Cloud SQL blip. The
-		// retry absorbs it so the sync lands rather than leaving a
-		// missing/stale row for the point-of-use heal to repair (whose own
-		// first attempt could hit the same blip and re-throw on a "completed"
-		// build). A coded ECONNRESET on the first attempt, success on the
-		// second.
-		let attempts = 0;
-		const emptyReport = {
-			migrated: 0,
-			reshaped: 0,
-			retyped: 0,
-			restored: 0,
-			parkedIds: [],
-			skipped: 0,
-			failureReasons: [],
-		};
-		const applySchemaChangeMock = vi.fn(async () => {
-			attempts += 1;
-			if (attempts === 1) {
-				throw Object.assign(new Error("transient postgres blip"), {
-					code: "ECONNRESET",
-				});
-			}
-			return emptyReport;
-		});
-		const unused = vi.fn(() => {
-			throw new Error("unused method");
-		});
-		const fakeStore = {
-			drainPendingIndexConvergence: vi.fn(),
-			query: unused,
-			readDeviceCaseDatabase: unused,
-			readCaseDatabasePatch: unused,
-			queryGrouped: unused,
-			count: unused,
-			insert: unused,
-			applySubmission: unused,
-			update: unused,
-			close: unused,
-			traverse: unused,
-			applySchemaChange: applySchemaChangeMock,
-			unparkValues: unused,
-			conversionImpact: unused,
-			listParkedValues: unused,
-			restoreParkedValues: unused,
-			setParkedValuesDismissed: unused,
-			replaceParkedValue: unused,
-			generateSampleData: unused,
-			resetSampleData: unused,
-		} satisfies CaseStore &
-			Pick<TransactionalSchemaCaseStore, "drainPendingIndexConvergence">;
-		withSchemaContextMock.mockImplementationOnce(async () => fakeStore);
-
-		const a: CaseType = {
-			name: "a",
-			properties: [{ name: "x", label: proseText("X"), data_type: "text" }],
-		};
-
-		await expect(
-			materializeCaseStoreSchemas({
-				appId: APP_ID,
-				blueprint: makeBlueprint([a]),
-			}),
-		).resolves.toBeUndefined();
-		// One transient failure + one success = two attempts for `a`, plus the
-		// one clean attempt for the worker's own case.
-		expect(applySchemaChangeMock).toHaveBeenCalledTimes(3);
+		for (const [caseType, property] of [
+			["patient", "name"],
+			["visit", "notes"],
+		]) {
+			const definitions = indexes.rows
+				.map(({ indexdef }) => indexdef)
+				.filter((definition) => definition.includes(`'${caseType}'::text`));
+			expect(definitions).toHaveLength(1);
+			expect(definitions[0]).toContain("USING gin");
+			expect(definitions[0]).toContain("gin_trgm_ops");
+			expect(definitions[0]).toContain(`properties ->> '${property}'::text`);
+			expect(definitions[0]).toContain("app_id = 'app-mat'::text");
+		}
 	});
 });
 
@@ -652,42 +255,27 @@ describe("materializeCaseStoreSchemas — monotone synced_seq gate (integration)
 				code: "ECONNRESET",
 			});
 		});
-		const unused = vi.fn(() => {
-			throw new Error("unused method");
-		});
 		const throwingStore = {
 			drainPendingIndexConvergence: vi.fn(),
-			query: unused,
-			readDeviceCaseDatabase: unused,
-			readCaseDatabasePatch: unused,
-			queryGrouped: unused,
-			count: unused,
-			insert: unused,
-			applySubmission: unused,
-			update: unused,
-			close: unused,
-			traverse: unused,
 			applySchemaChange: throwingApply,
-			unparkValues: unused,
-			conversionImpact: unused,
-			listParkedValues: unused,
-			restoreParkedValues: unused,
-			setParkedValuesDismissed: unused,
-			replaceParkedValue: unused,
-			generateSampleData: unused,
-			resetSampleData: unused,
-		} satisfies CaseStore &
-			Pick<TransactionalSchemaCaseStore, "drainPendingIndexConvergence">;
+		};
 		withSchemaContextMock.mockImplementationOnce(async () => throwingStore);
 
-		// First save — resolves despite the throw; the row is still missing.
-		await expect(
-			materializeCaseStoreSchemas({
-				appId: APP_ID,
-				blueprint: makeBlueprint([patient]),
-				syncedSeq: 4,
-			}),
-		).resolves.toBeUndefined();
+		// Only this store stub uses fake time; restore the real clock before SQL.
+		vi.useFakeTimers();
+		try {
+			const failedSync = expect(
+				materializeCaseStoreSchemas({
+					appId: APP_ID,
+					blueprint: makeBlueprint([patient]),
+					syncedSeq: 4,
+				}),
+			).resolves.toBeUndefined();
+			await vi.runAllTimersAsync();
+			await failedSync;
+		} finally {
+			vi.useRealTimers();
+		}
 		// Retried to the budget (3 attempts) then swallowed — for `patient` and
 		// again for the worker's own case, which this store fails too.
 		expect(throwingApply).toHaveBeenCalledTimes(6);

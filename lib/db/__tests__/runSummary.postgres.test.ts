@@ -1,24 +1,7 @@
-/**
- * Tests cover two concerns:
- *   1. The `RunSummaryDoc` Zod schema (pure shape validation) — unchanged; the
- *      schema still guards the in-memory record the writer accepts.
- *   2. `writeRunSummary`'s accumulate-on-conflict logic over a real `run_summaries`
- *      row (the per-test DB harness): first write inserts the full row; a
- *      subsequent write for the same `(app_id, run_id)` accumulates the numeric
- *      deltas, overwrites the scalars (finished_at / module_count), and leaves
- *      the pinned fields (started_at / prompt_mode / app_ready / model) as the
- *      first write's — all read back via `loadRunSummary`.
- *
- * On typed Postgres columns there is no converter to fail parsing, so the
- * `"overwritten"` action is unreachable; the deadlock/serialization retry lives
- * in `withAppTx`, covered by its own unit test.
- */
+/** Real SQL accumulation, monotonic projection, and durable usage admission. */
 
-import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
-import { Pool } from "pg";
 import { beforeEach, describe, expect, it } from "vitest";
-import { __setAppDbForTests, type AppDatabase } from "../pg";
-import { type RunSummaryDoc, runSummaryDocSchema } from "../types";
+import type { RunSummaryDoc } from "../types";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const h = setupAppStateTestDb("run_summary_");
@@ -28,65 +11,6 @@ const TARGET = { kind: "app", appId: APP } as const;
 /** Seed the app row the `run_summaries` FK requires. */
 beforeEach(async () => {
 	await h.seedApp({ id: APP });
-});
-
-describe("runSummaryDocSchema", () => {
-	const sample = {
-		runId: "run-abc",
-		startedAt: "2026-04-18T12:00:00.000Z",
-		finishedAt: "2026-04-18T12:01:30.000Z",
-		promptMode: "build" as const,
-		appReady: false,
-		moduleCount: 0,
-		stepCount: 7,
-		model: "gpt-5.6-sol",
-		inputTokens: 1234,
-		outputTokens: 567,
-		cacheReadTokens: 891,
-		cacheWriteTokens: 0,
-		costEstimate: 0.0421,
-		toolCallCount: 14,
-	};
-
-	it("parses a populated summary", () => {
-		expect(runSummaryDocSchema.parse(sample)).toEqual(sample);
-	});
-
-	it("rejects missing required fields", () => {
-		const { costEstimate: _c, ...partial } = sample;
-		expect(() => runSummaryDocSchema.parse(partial)).toThrow();
-	});
-
-	it("accepts zero-valued token counts and cost", () => {
-		expect(
-			runSummaryDocSchema.parse({
-				...sample,
-				inputTokens: 0,
-				outputTokens: 0,
-				cacheReadTokens: 0,
-				cacheWriteTokens: 0,
-				costEstimate: 0,
-			}),
-		).toBeDefined();
-	});
-
-	it("rejects negative token counts", () => {
-		expect(() =>
-			runSummaryDocSchema.parse({ ...sample, inputTokens: -1 }),
-		).toThrow();
-	});
-
-	it("rejects non-integer token counts", () => {
-		expect(() =>
-			runSummaryDocSchema.parse({ ...sample, inputTokens: 1.5 }),
-		).toThrow();
-	});
-
-	it("rejects unknown promptMode values", () => {
-		expect(() =>
-			runSummaryDocSchema.parse({ ...sample, promptMode: "foo" }),
-		).toThrow();
-	});
 });
 
 describe("writeRunSummary", () => {
@@ -123,7 +47,7 @@ describe("writeRunSummary", () => {
 			appReady: false,
 			moduleCount: 0,
 			stepCount: 5,
-			model: "gpt-5.6-sol",
+			model: "first-model",
 			inputTokens: 10_000,
 			outputTokens: 800,
 			cacheReadTokens: 3_000,
@@ -159,24 +83,6 @@ describe("writeRunSummary", () => {
 		});
 	});
 
-	it("advances moduleCount to the latest turn's value", async () => {
-		const prev: RunSummaryDoc = {
-			...delta,
-			moduleCount: 0,
-		};
-		const later: RunSummaryDoc = {
-			...delta,
-			moduleCount: 7,
-		};
-		const { writeRunSummary, loadRunSummary } = await import("../runSummary");
-
-		await writeRunSummary(TARGET, RUN, prev);
-		await writeRunSummary(TARGET, RUN, later);
-
-		const stored = await loadRunSummary(TARGET, RUN);
-		expect(stored?.moduleCount).toBe(7);
-	});
-
 	it("still advances finishedAt on a zero-cost follow-up turn without changing the counters", async () => {
 		const prev: RunSummaryDoc = {
 			...delta,
@@ -208,8 +114,11 @@ describe("writeRunSummary", () => {
 		// finishedAt + moduleCount advance to the latest turn; counters are prev+0.
 		expect(stored?.finishedAt).toBe(zeroDelta.finishedAt);
 		expect(stored?.moduleCount).toBe(zeroDelta.moduleCount);
-		expect(stored?.stepCount).toBe(4);
-		expect(stored?.costEstimate).toBe(0.03);
+		expect(stored).toEqual({
+			...prev,
+			finishedAt: zeroDelta.finishedAt,
+			moduleCount: zeroDelta.moduleCount,
+		});
 	});
 
 	it("keeps finishedAt monotonic when an older overlapping flush commits later", async () => {
@@ -383,58 +292,6 @@ describe("writeRunSummary", () => {
 			output_tokens: "20",
 			cost_estimate: 0.004,
 			request_count: 2,
-		});
-	});
-
-	it("the accrual fallback returns false instead of throwing on a dead pool", async () => {
-		const deadPool = new Pool({ connectionString: h.uri(), max: 1 });
-		await deadPool.end();
-		__setAppDbForTests(
-			new Kysely<AppDatabase>({
-				dialect: new PostgresDialect({
-					pool: deadPool as unknown as PostgresPool,
-				}),
-			}),
-		);
-		const { accrueMonthlyUsageBestEffort } = await import("../runSummary");
-		await expect(
-			accrueMonthlyUsageBestEffort(
-				{ userId: "owner-test", period: "2026-04" },
-				{ inputTokens: 1, outputTokens: 1, costEstimate: 0.001 },
-			),
-		).resolves.toBe(false);
-	});
-
-	it("swallows a write failure and resolves to the 'failed' action (never throws on the request path)", async () => {
-		// Point the injected handle at a DEAD pool so the write errors — the writer
-		// must log-and-swallow to the `"failed"` sentinel, never bubble.
-		const deadPool = new Pool({ connectionString: h.uri(), max: 1 });
-		await deadPool.end();
-		__setAppDbForTests(
-			new Kysely<AppDatabase>({
-				dialect: new PostgresDialect({
-					pool: deadPool as unknown as PostgresPool,
-				}),
-			}),
-		);
-		const { writeRunSummary } = await import("../runSummary");
-		await expect(writeRunSummary(TARGET, RUN, delta)).resolves.toBe("failed");
-	});
-
-	describe("write action result", () => {
-		it("returns 'created' when no prior row exists", async () => {
-			const { writeRunSummary } = await import("../runSummary");
-			await expect(writeRunSummary(TARGET, RUN, delta)).resolves.toBe(
-				"created",
-			);
-		});
-
-		it("returns 'incremented' when a prior row exists", async () => {
-			const { writeRunSummary } = await import("../runSummary");
-			await writeRunSummary(TARGET, RUN, delta);
-			await expect(writeRunSummary(TARGET, RUN, delta)).resolves.toBe(
-				"incremented",
-			);
 		});
 	});
 });

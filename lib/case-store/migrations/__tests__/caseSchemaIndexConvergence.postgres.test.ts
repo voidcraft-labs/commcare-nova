@@ -1,30 +1,25 @@
 import { sql } from "kysely";
-import { beforeEach, describe, expect, it } from "vitest";
-import { runCaseStoreMigrations } from "../../migrate";
+import { Migrator } from "kysely/migration";
+import { describe, expect, it } from "vitest";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
-import { down, up } from "../20260728010000_case_schema_index_convergence";
+import { caseStoreMigrations } from "..";
+import { up } from "../20260728010000_case_schema_index_convergence";
 
 const database = setupPerTestDatabase({
 	databaseNamePrefix: "case_index_convergence_migration_",
+	prepareTemplate: async (db) => {
+		const provider = {
+			getMigrations: async () =>
+				Object.fromEntries(
+					Object.entries(caseStoreMigrations).filter(
+						([name]) => name < "20260728010000_case_schema_index_convergence",
+					),
+				),
+		};
+		const result = await new Migrator({ db, provider }).migrateToLatest();
+		if (result.error !== undefined) throw result.error;
+	},
 });
-
-beforeEach(async () => {
-	await runCaseStoreMigrations(database.db);
-});
-
-async function recreateExactLegacyCatalog(): Promise<void> {
-	await sql`DROP TABLE public.case_schema_index_deletions`.execute(database.db);
-	await sql`DROP TABLE public.case_type_schemas`.execute(database.db);
-	await sql`
-		CREATE TABLE public.case_type_schemas (
-			app_id text NOT NULL,
-			case_type text NOT NULL,
-			schema jsonb NOT NULL,
-			synced_seq bigint NOT NULL DEFAULT 0,
-			PRIMARY KEY (app_id, case_type)
-		)
-	`.execute(database.db);
-}
 
 async function seedApp(): Promise<void> {
 	await sql`
@@ -69,7 +64,6 @@ async function readConvergenceRows(): Promise<
 
 describe("case-schema index convergence exact cutover", () => {
 	it("converts only the exact pristine catalog and marks each row pending at its stored sequence", async () => {
-		await recreateExactLegacyCatalog();
 		await seedApp();
 		await sql`
 			INSERT INTO public.case_type_schemas
@@ -157,15 +151,7 @@ describe("case-schema index convergence exact cutover", () => {
 	});
 
 	it("audits an exact applied rerun without resetting a newer pending sequence or touching rows", async () => {
-		// A later migration adds lifecycle columns; remove those later-owned columns so
-		// this old migration's frozen exact-final rerun oracle sees its own
-		// terminal catalog, as it did when originally shipped.
-		await sql`
-			ALTER TABLE public.case_type_schemas DROP COLUMN is_active
-		`.execute(database.db);
-		await sql`
-			ALTER TABLE public.case_type_schemas DROP COLUMN retired_seq
-		`.execute(database.db);
+		await up(database.db);
 		await seedApp();
 		await sql`
 			INSERT INTO public.case_type_schemas (
@@ -213,7 +199,6 @@ describe("case-schema index convergence exact cutover", () => {
 	});
 
 	it("copies the exact converged application ACL during the legacy cutover", async () => {
-		await recreateExactLegacyCatalog();
 		const currentRole = (
 			await sql<{ name: string }>`SELECT current_user AS name`.execute(
 				database.db,
@@ -374,11 +359,13 @@ describe("case-schema index convergence exact cutover", () => {
 			},
 		},
 	])("blocks $name before any convergence write", async ({ mutate }) => {
+		await up(database.db); // Prove the starting catalog is admissible.
 		await mutate();
 		await expect(up(database.db)).rejects.toThrow(/partial or drifted/);
 	});
 
 	it("blocks relation and primary-index ownership drift", async () => {
+		await up(database.db);
 		const ownerRole = `case_schema_cutover_owner_${process.pid}`;
 		await sql`CREATE ROLE ${sql.id(ownerRole)}`.execute(database.db);
 		try {
@@ -395,6 +382,7 @@ describe("case-schema index convergence exact cutover", () => {
 	});
 
 	it("blocks a mixed final data state instead of resetting it", async () => {
+		await up(database.db);
 		await seedApp();
 		await sql`
 			INSERT INTO public.case_type_schemas (
@@ -421,7 +409,6 @@ describe("case-schema index convergence exact cutover", () => {
 	});
 
 	it("blocks invalid pristine sequence data before adding any column or table", async () => {
-		await recreateExactLegacyCatalog();
 		await seedApp();
 		await sql`
 			INSERT INTO public.case_type_schemas
@@ -455,7 +442,6 @@ describe("case-schema index convergence exact cutover", () => {
 	});
 
 	it("blocks legacy relation ACL drift before adding any final object", async () => {
-		await recreateExactLegacyCatalog();
 		await sql`
 			GRANT SELECT ON TABLE public.case_type_schemas TO PUBLIC
 		`.execute(database.db);
@@ -480,9 +466,5 @@ describe("case-schema index convergence exact cutover", () => {
 		expect(catalog.rows).toEqual([
 			{ pending_column: false, deletion_table: null },
 		]);
-	});
-
-	it("is forward-only", async () => {
-		await expect(down()).rejects.toThrow(/forward-only/);
 	});
 });

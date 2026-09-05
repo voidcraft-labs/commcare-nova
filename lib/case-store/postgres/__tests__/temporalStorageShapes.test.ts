@@ -21,8 +21,7 @@ import {
 } from "@/lib/domain/temporalValues";
 import { NAIVE_TEMPORAL_TEXT_RE } from "../../sql/dataTypeTokens";
 
-/** Built the way `PostgresCaseStore.buildAjv` builds it, so a strictness
- *  or format-package change reaches this suite too. */
+// Exercise temporal values against the emitted JSON Schema and real AJV formats.
 function validatorFor(dataType: CasePropertyDataType): ValidateFunction {
 	const ajv = new Ajv2020({ strict: false });
 	addFormats(ajv);

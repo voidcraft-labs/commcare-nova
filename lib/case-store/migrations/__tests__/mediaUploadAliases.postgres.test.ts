@@ -1,5 +1,5 @@
 // Live-Postgres contract for the durable browser-confirm replay migration.
-// The shared harness applies the exact production chain before each test.
+// The shared harness applies the exact production chain once per Postgres project.
 
 import type { PoolClient } from "pg";
 import { describe } from "vitest";
@@ -55,17 +55,17 @@ describe("media upload alias migration", () => {
 		);
 		expect(inserted.rows[0]?.retention_seconds).toBe("86400.000000");
 
-		const indexes = await pgClient.query<{ indexname: string }>(
-			`SELECT indexname
+		const indexes = await pgClient.query<{ indexdef: string }>(
+			`SELECT indexdef
 			 FROM pg_indexes
 			 WHERE schemaname = 'public'
 			   AND tablename = 'media_upload_aliases'
 			 ORDER BY indexname`,
 		);
-		expect(indexes.rows.map((row) => row.indexname)).toEqual([
-			"media_upload_aliases_canonical",
-			"media_upload_aliases_expiry",
-			"media_upload_aliases_pkey",
+		expect(indexes.rows.map((row) => row.indexdef)).toEqual([
+			"CREATE INDEX media_upload_aliases_canonical ON public.media_upload_aliases USING btree (canonical_asset_id)",
+			"CREATE INDEX media_upload_aliases_expiry ON public.media_upload_aliases USING btree (expires_at, attempt_asset_id)",
+			"CREATE UNIQUE INDEX media_upload_aliases_pkey ON public.media_upload_aliases USING btree (attempt_asset_id)",
 		]);
 
 		await expectSqlState(

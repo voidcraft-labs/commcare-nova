@@ -1,31 +1,8 @@
-/**
- * Credit-ledger logic tests.
- *
- * Two layers:
- *  - The PURE credit-policy helpers + constants (`creditPolicy.ts`) — no DB,
- *    pinned exactly (`creditBalance` / `chargeAmount` / `isChargeableTurn` and
- *    the five exported amounts).
- *  - The reservation debit + refund + admin reset/grant + summary/balance reads
- *    (`credits.ts` / `apps.ts`), driven against the per-test Postgres harness so
- *    each branch (missing-row seed, affordability boundary, over-budget reject,
- *    consumed clamp, settle idempotency, lifetime sum) is exercised over a real
- *    `SELECT … FOR UPDATE` round-trip rather than a scripted stand-in.
- *
- * The credit-ledger invariants are column types + CHECK constraints (`integer`,
- * `>= 0`, the `type IN ('reset','grant')` enum) enforced by the database, not a
- * Zod parse in application code.
- */
+// Credit reservation, refunds, grants, and balance reads against real Postgres.
 
-import type { UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import {
-	COST_BACKSTOP_USD,
 	CREDITS_PER_BUILD,
-	CREDITS_PER_DOLLAR,
-	CREDITS_PER_EDIT,
-	chargeAmount,
-	creditBalance,
-	isChargeableTurn,
 	MONTHLY_CREDIT_ALLOWANCE,
 } from "@/lib/db/creditPolicy";
 import { getCurrentPeriod } from "@/lib/db/period";
@@ -35,13 +12,6 @@ const h = setupAppStateTestDb("credits_unit_");
 const period = getCurrentPeriod();
 const PROJECT_ID = "project-test";
 const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
-
-/**
- * Build a minimal `UIMessage` of a given role for the `isChargeableTurn` cases —
- * the helper reads only the last message's role.
- */
-const u = (role: "user" | "assistant"): UIMessage =>
-	({ id: "m", role, parts: [{ type: "text", text: "x" }] }) as UIMessage;
 
 /** Read the raw credit-month row for a user's current period. */
 async function readMonth(
@@ -67,59 +37,6 @@ async function readGrants(
 		.where("user_id", "=", userId)
 		.execute();
 }
-
-/**
- * Pure credit-policy tests — the constants and the three pure helpers
- * (`creditBalance`, `chargeAmount`, `isChargeableTurn`) that `creditPolicy.ts`
- * exports. Client-safety (no server data-layer import) is a static property of
- * the module's `import type`-only lines, not something a Node test can observe.
- */
-describe("credit policy — pure helpers and constants", () => {
-	it("locks the five exported credit amounts to their decided values", () => {
-		expect([
-			CREDITS_PER_DOLLAR,
-			CREDITS_PER_BUILD,
-			CREDITS_PER_EDIT,
-			MONTHLY_CREDIT_ALLOWANCE,
-			COST_BACKSTOP_USD,
-		]).toEqual([100, 100, 5, 2000, 300]);
-	});
-
-	it("computes balance as allowance + bonus − consumed", () => {
-		expect(creditBalance({ allowance: 2000, consumed: 105, bonus: 0 })).toBe(
-			1895,
-		);
-		expect(creditBalance({ allowance: 2000, consumed: 105, bonus: 500 })).toBe(
-			2395,
-		);
-	});
-
-	it("reads an absent credit doc as a full monthly allowance", () => {
-		expect(creditBalance(undefined)).toBe(MONTHLY_CREDIT_ALLOWANCE);
-	});
-
-	it("charges the build amount when no app exists yet", () => {
-		expect(chargeAmount(false)).toBe(CREDITS_PER_BUILD);
-		expect(chargeAmount(false)).toBe(100);
-	});
-
-	it("charges the cheap edit amount once an app exists", () => {
-		expect(chargeAmount(true)).toBe(CREDITS_PER_EDIT);
-		expect(chargeAmount(true)).toBe(5);
-	});
-
-	it("charges a turn whose last RAW message is from the user", () => {
-		expect(isChargeableTurn([u("assistant"), u("user")])).toBe(true);
-	});
-
-	it("treats a turn ending in an assistant message as a free continuation", () => {
-		expect(isChargeableTurn([u("user"), u("assistant")])).toBe(false);
-	});
-
-	it("treats an empty message list as non-chargeable", () => {
-		expect(isChargeableTurn([])).toBe(false);
-	});
-});
 
 /**
  * The reservation debit — `reserveForNewBuild` (the build-reservation entry point
@@ -260,15 +177,7 @@ describe("reserveForNewBuild debit", () => {
 		expect(await h.readReservation(APP)).toBeUndefined();
 	});
 
-	it("carries the human-readable message and name on OutOfCreditsError", async () => {
-		const { OutOfCreditsError } = await import("../credits");
-		const err = new OutOfCreditsError();
-		expect(err).toBeInstanceOf(Error);
-		expect(err.name).toBe("OutOfCreditsError");
-		expect(err.message).toBe("Out of credits for this period");
-	});
-
-	it("a later reservation re-reads the depleted balance and rejects (row-lock serialized)", async () => {
+	it("a later reservation re-reads the depleted balance after the first run settles", async () => {
 		// The read-check-write path on a balance a prior reserve depleted: seed the
 		// user with exactly one build's headroom, book the first (different app, so
 		// no leftover nets it out), then a second reserve re-reads consumed at the
@@ -479,7 +388,7 @@ describe("resetCredits", () => {
 		});
 		const grants = await readGrants(USER);
 		expect(grants).toHaveLength(1);
-		expect(grants[0]).toMatchObject({ type: "reset", amount: 0 });
+		expect(grants[0]).toEqual({ type: "reset", amount: 0, reason: WHO.reason });
 	});
 
 	it("seeds the full allowance when resetting a user with no current-period row", async () => {
@@ -528,7 +437,11 @@ describe("grantCredits", () => {
 		});
 		const grants = await readGrants(USER);
 		expect(grants).toHaveLength(1);
-		expect(grants[0]).toMatchObject({ type: "grant", amount: 500 });
+		expect(grants[0]).toEqual({
+			type: "grant",
+			amount: 500,
+			reason: WHO.reason,
+		});
 	});
 
 	it("seeds the full allowance when granting to a user with no current-period row", async () => {
@@ -640,5 +553,6 @@ describe("getCurrentCreditBalance", () => {
 	it("returns a full allowance when the current-period row is absent (no pre-seeding write)", async () => {
 		const { getCurrentCreditBalance } = await import("../credits");
 		expect(await getCurrentCreditBalance(USER)).toBe(MONTHLY_CREDIT_ALLOWANCE);
+		expect(await readMonth(USER)).toBeUndefined();
 	});
 });

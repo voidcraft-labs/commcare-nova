@@ -48,7 +48,7 @@ const args = {
 
 describe("prepareCaptureSubmissionBytes", () => {
 	beforeEach(() => {
-		vi.clearAllMocks();
+		vi.resetAllMocks();
 		mocks.begin.mockResolvedValue({
 			kind: "prepare",
 			attachmentIds: ["attachment-1"],
@@ -62,11 +62,42 @@ describe("prepareCaptureSubmissionBytes", () => {
 	});
 
 	it("establishes the DB recovery row before copying and verifies readiness", async () => {
-		await expect(prepareCaptureSubmissionBytes(args)).resolves.toBeUndefined();
+		const recovery = Promise.withResolvers<{
+			kind: "prepare";
+			attachmentIds: string[];
+		}>();
+		const copied = Promise.withResolvers<{
+			prepared: number;
+			discarded: number;
+			failed: number;
+		}>();
+		mocks.begin.mockReturnValue(recovery.promise);
+		mocks.prepare.mockReturnValue(copied.promise);
+		const work = prepareCaptureSubmissionBytes(args);
+		const settled = Promise.allSettled([work]);
+		try {
+			expect(mocks.prepare).not.toHaveBeenCalled();
+			recovery.resolve({ kind: "prepare", attachmentIds: ["attachment-1"] });
+			await vi.waitFor(() => expect(mocks.prepare).toHaveBeenCalledTimes(1));
+			expect(mocks.ready).not.toHaveBeenCalled();
+			copied.resolve({ prepared: 1, discarded: 0, failed: 0 });
+			await expect(work).resolves.toBeUndefined();
+		} finally {
+			recovery.resolve({ kind: "prepare", attachmentIds: ["attachment-1"] });
+			copied.resolve({ prepared: 1, discarded: 0, failed: 0 });
+			await settled;
+		}
 
-		expect(mocks.begin.mock.invocationCallOrder[0]).toBeLessThan(
-			mocks.prepare.mock.invocationCallOrder[0] ?? Infinity,
-		);
+		expect(mocks.begin).toHaveBeenCalledWith({
+			appId: args.appId,
+			projectId: args.projectId,
+			actorUserId: args.actorUserId,
+			entryKey: args.intent.entryKey,
+			formUuid: args.intent.formUuid,
+			requestDigest: args.intent.requestDigest,
+			attachments: args.intent.attachments,
+		});
+
 		expect(mocks.prepare).toHaveBeenCalledWith({
 			appId: "app-1",
 			projectId: "project-1",
@@ -92,20 +123,7 @@ describe("prepareCaptureSubmissionBytes", () => {
 		expect(mocks.ready).not.toHaveBeenCalled();
 	});
 
-	it("rejects before case acceptance when durable preparation did not settle", async () => {
-		mocks.prepare.mockResolvedValue({
-			prepared: 0,
-			discarded: 0,
-			failed: 1,
-		});
-		mocks.ready.mockResolvedValue(false);
-
-		await expect(prepareCaptureSubmissionBytes(args)).rejects.toBeInstanceOf(
-			CaptureSubmissionRejectedError,
-		);
-	});
-
-	it("succeeds when the user retries after a first preparation failure", async () => {
+	it("rejects unprepared bytes and accepts a later ready retry", async () => {
 		mocks.prepare
 			.mockResolvedValueOnce({
 				prepared: 0,

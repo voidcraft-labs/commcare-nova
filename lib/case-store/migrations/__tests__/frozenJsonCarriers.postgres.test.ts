@@ -1,17 +1,13 @@
-import { sql } from "kysely";
-import { describe, expect, test } from "vitest";
-import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
+import { type Kysely, sql } from "kysely";
+import { describe } from "vitest";
+import { expect, test } from "../../sql/__tests__/setup";
 import {
 	frozenJsonSourceBytes,
 	verifyFrozenJsonCarriers,
 } from "../20260728000000_canonical_identity_foundation/frozenJsonCarriers";
 import { materializeFrozenBlueprintJson } from "../20260728000000_canonical_identity_foundation/frozenPersistableBlueprintDecoder";
 
-const h = setupPerTestDatabase({
-	databaseNamePrefix: "frozen_json_carriers_",
-});
-
-async function sourceTexts(): Promise<{
+async function sourceTexts<DB>(db: Kysely<DB>): Promise<{
 	safe_integer: string;
 	exact_unsafe_integer: string;
 	unsafe_integer: string;
@@ -38,7 +34,7 @@ async function sourceTexts(): Promise<{
 			'{"__proto__":{"ok":true},"constructor":"own"}'::jsonb::text
 				AS prototype_keys,
 			'null'::jsonb::text AS json_null
-	`.execute(h.db);
+	`.execute(db);
 	const row = result.rows[0];
 	if (row === undefined)
 		throw new Error("Frozen JSON fixture query returned no row.");
@@ -46,9 +42,11 @@ async function sourceTexts(): Promise<{
 }
 
 describe("frozen JSON carrier gate", () => {
-	test("returns branded values only after exact PostgreSQL round-trip proof", async () => {
-		const source = await sourceTexts();
-		const verified = await verifyFrozenJsonCarriers(h.db, [
+	test("returns branded values only after exact PostgreSQL round-trip proof", async ({
+		db,
+	}) => {
+		const source = await sourceTexts(db);
+		const verified = await verifyFrozenJsonCarriers(db, [
 			{ id: "safe-integer", sourceText: source.safe_integer },
 			{ id: "fraction", sourceText: source.fraction },
 			{ id: "prototype-keys", sourceText: source.prototype_keys },
@@ -85,6 +83,11 @@ describe("frozen JSON carrier gate", () => {
 		}
 		expect(Object.hasOwn(prototypeValue, "__proto__")).toBe(true);
 		expect(Object.hasOwn(prototypeValue, "constructor")).toBe(true);
+		expect(Object.getPrototypeOf(prototypeValue)).toBeNull();
+		expect(
+			Object.getOwnPropertyDescriptor(prototypeValue, "__proto__")?.value,
+		).toEqual({ ok: true });
+		expect(prototypeValue.constructor).toBe("own");
 		expect(materialize(jsonNull)).toBeNull();
 		expect(materialize(sqlNull)).toBeNull();
 		expect(jsonNull.sourceText).toBe("null");
@@ -95,16 +98,16 @@ describe("frozen JSON carrier gate", () => {
 		expect(safe.sourceDigest).toMatch(/^[0-9a-f]{64}$/);
 	});
 
-	test("keeps non-runtime numeric lexemes opaque until a semantic decoder", async () => {
-		const source = await sourceTexts();
+	test("keeps non-runtime numeric lexemes opaque until a semantic decoder", async ({
+		db,
+	}) => {
+		const source = await sourceTexts(db);
 		for (const [id, sourceText] of [
 			["exact-unsafe-integer", source.exact_unsafe_integer],
 			["unsafe-integer", source.unsafe_integer],
 			["scaled-decimal", source.scaled_decimal],
 		] as const) {
-			const verified = await verifyFrozenJsonCarriers(h.db, [
-				{ id, sourceText },
-			]);
+			const verified = await verifyFrozenJsonCarriers(db, [{ id, sourceText }]);
 			const carrier = verified.get(id);
 			if (carrier === undefined) throw new Error("Opaque carrier disappeared.");
 			expect(carrier.sourceText).toBe(sourceText);
@@ -118,17 +121,22 @@ describe("frozen JSON carrier gate", () => {
 		}
 	});
 
-	test("rejects duplicate identifiers and invalid source text before exposure", async () => {
+	test("rejects duplicate identifiers and invalid source text before exposure", async ({
+		db,
+	}) => {
 		await expect(
-			verifyFrozenJsonCarriers(h.db, [
+			verifyFrozenJsonCarriers(db, [
 				{ id: "same", sourceText: "null" },
 				{ id: "same", sourceText: "null" },
 			]),
 		).rejects.toThrow(/identifiers must be unique/);
 		await expect(
-			verifyFrozenJsonCarriers(h.db, [
-				{ id: "invalid", sourceText: "not-json" },
+			verifyFrozenJsonCarriers(db, [
+				{ id: "noncanonical", sourceText: '{"n":1}' },
 			]),
+		).rejects.toThrow(/not canonical PostgreSQL JSONB/);
+		await expect(
+			verifyFrozenJsonCarriers(db, [{ id: "invalid", sourceText: "not-json" }]),
 		).rejects.toThrow(
 			/Frozen JSON carrier invalid is not valid JSON \([0-9a-f]{64}\)/,
 		);

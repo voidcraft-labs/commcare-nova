@@ -48,6 +48,11 @@ const dbHandle = setupPerTestDatabase({
 	schema: "migrated",
 	databaseNamePrefix: "auth_apikey_",
 	establishLocalMigrationAuthority: true,
+	prepareTemplate: async (db, pool) => {
+		const { runMigrations } = await getMigrations(authMigrateOptions(pool));
+		await runMigrations();
+		await runAuthAppMigrations(db);
+	},
 });
 
 /**
@@ -116,11 +121,6 @@ describe("api-key integration", () => {
 	let authDb: Kysely<AuthDatabase>;
 
 	beforeEach(async () => {
-		const { runMigrations } = await getMigrations(
-			authMigrateOptions(dbHandle.pool),
-		);
-		await runMigrations();
-		await runAuthAppMigrations(dbHandle.db);
 		authDb = new Kysely<AuthDatabase>({
 			dialect: new PostgresDialect({
 				pool: dbHandle.pool as unknown as PostgresPool,

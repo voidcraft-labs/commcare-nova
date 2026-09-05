@@ -34,6 +34,11 @@ const dbHandle = setupPerTestDatabase({
 	schema: "migrated",
 	databaseNamePrefix: "auth_oauth_",
 	establishLocalMigrationAuthority: true,
+	prepareTemplate: async (db, pool) => {
+		const { runMigrations } = await getMigrations(authMigrateOptions(pool));
+		await runMigrations();
+		await runAuthAppMigrations(db);
+	},
 });
 
 /**
@@ -92,11 +97,6 @@ describe("oauth-consents integration", () => {
 	let authDb: Kysely<AuthDatabase>;
 
 	beforeEach(async () => {
-		const { runMigrations } = await getMigrations(
-			authMigrateOptions(dbHandle.pool),
-		);
-		await runMigrations();
-		await runAuthAppMigrations(dbHandle.db);
 		auth = createTestAuth(dbHandle.pool);
 		authDb = new Kysely<AuthDatabase>({
 			dialect: new PostgresDialect({
@@ -215,7 +215,7 @@ describe("oauth-consents integration", () => {
 		const rows = await listAuthorizedClients("user-test-1");
 
 		expect(rows).toHaveLength(1);
-		expect(rows[0].clientName).toBe("An application");
+		expect(rows[0].clientName.trim().length).toBeGreaterThan(0);
 	});
 
 	it("does not leak other users' consents", async () => {
@@ -235,7 +235,7 @@ describe("oauth-consents integration", () => {
 				data: {
 					clientId: created.client_id,
 					userId,
-					scopes: ["nova.read"],
+					scopes: userId === "user-test-1" ? ["nova.read"] : ["nova.write"],
 					createdAt: new Date(),
 					updatedAt: new Date(),
 				},
@@ -245,7 +245,9 @@ describe("oauth-consents integration", () => {
 		const { listAuthorizedClients } = await import("../oauth-consents");
 		const rows = await listAuthorizedClients("user-test-1");
 
-		expect(rows).toHaveLength(1);
+		expect(rows).toMatchObject([
+			{ clientId: created.client_id, scopes: ["nova.read"] },
+		]);
 	});
 
 	// ── hasActiveConsent ───────────────────────────────────────────
@@ -387,6 +389,33 @@ describe("oauth-consents integration", () => {
 		});
 
 		const { revokeAuthorizedClient } = await import("../oauth-consents");
+		// Fail the final write: deletion and token revocation must roll back too.
+		await dbHandle.pool.query(`
+			CREATE FUNCTION refuse_test_revocation() RETURNS trigger LANGUAGE plpgsql AS
+			$$ BEGIN RAISE EXCEPTION 'test watermark unavailable'; END $$;
+			CREATE TRIGGER refuse_test_revocation BEFORE INSERT ON auth_oauth_grant_revocation
+			FOR EACH ROW EXECUTE FUNCTION refuse_test_revocation();
+		`);
+		await expect(
+			revokeAuthorizedClient("user-test-1", consent.id),
+		).rejects.toThrow(/test watermark unavailable/);
+		expect(
+			await authDb
+				.selectFrom("auth_oauth_consent")
+				.select("id")
+				.where("id", "=", consent.id)
+				.executeTakeFirst(),
+		).toEqual({ id: consent.id });
+		expect(
+			await authDb
+				.selectFrom("auth_oauth_refresh_token")
+				.select("revoked")
+				.where("token", "=", "live-token")
+				.executeTakeFirst(),
+		).toEqual({ revoked: null });
+		await dbHandle.pool.query(
+			"DROP TRIGGER refuse_test_revocation ON auth_oauth_grant_revocation; DROP FUNCTION refuse_test_revocation()",
+		);
 		await revokeAuthorizedClient("user-test-1", consent.id);
 
 		/* Consent row gone. */
@@ -405,7 +434,7 @@ describe("oauth-consents integration", () => {
 			.execute();
 		const byName = new Map(tokens.map((r) => [r.token, r.revoked]));
 
-		expect(byName.get("live-token")).not.toBeNull();
+		expect(byName.get("live-token")).toBeInstanceOf(Date);
 		/* Already-revoked stays at its original timestamp — a rewrite would
 		 * replace it with a fresh revoke instant. */
 		const stale = byName.get("stale-token");

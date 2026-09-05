@@ -7,14 +7,10 @@
  * per-thread conversation sets and `media_asset_refs` rebuilt to the
  * Blueprint-only projection. Replay must converge, not duplicate.
  *
- * Every raw query rides the test-owned pool (ended INSIDE the test): the
- * async-leak detector attributes a pg connection's lifetime promise to the
- * file whose stack opened it, and the shared per-test pool closes only
- * after the leak snapshot.
  */
-import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
+import type { Kysely } from "kysely";
 import { Migrator } from "kysely/migration";
-import { Pool } from "pg";
+import type { Pool } from "pg";
 import { describe, expect, it } from "vitest";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
@@ -32,10 +28,7 @@ const MISSING_ASSET = "90000000-0000-4000-8000-00000000dead";
 const APP = "app-backfill";
 const PROJECT = "project-backfill";
 
-/** Run a filtered migration chain on a caller-owned Kysely wrapper. The test
- * owns exactly ONE wrapper over its own dedicated pool, destroyed at test
- * end — the leak sweep flags any handle left open, and destroying a wrapper
- * over the SHARED per-test pool would end that pool for everyone. */
+/** Rehearse exactly the historical migration prefix requested by the test. */
 async function migrateTo(
 	db: Kysely<unknown>,
 	upTo: (name: string) => boolean,
@@ -172,59 +165,52 @@ async function seedOldShape(pool: Pool): Promise<void> {
 
 describe("design_sessions migration backfill", () => {
 	it("splits the projection: per-thread refs land exactly, Blueprint edges rebuild blueprint-only, legacy hazards skip, and replay converges", async () => {
-		const migrationPool = new Pool({ connectionString: handle.uri, max: 2 });
-		const migrationDb = new Kysely<unknown>({
-			dialect: new PostgresDialect({
-				pool: migrationPool as unknown as PostgresPool,
-			}),
-		});
-		try {
-			const before = await migrateTo(
-				migrationDb,
-				(name) => name < MIGRATION_NAME,
-			);
-			expect(before.error).toBeUndefined();
-			await seedOldShape(migrationPool);
+		const migrationPool = handle.pool;
+		const migrationDb = handle.db;
+		const before = await migrateTo(
+			migrationDb,
+			(name) => name < MIGRATION_NAME,
+		);
+		expect(before.error).toBeUndefined();
+		await seedOldShape(migrationPool);
 
-			const after = await migrateTo(migrationDb, () => true);
-			expect(after.error).toBeUndefined();
+		const after = await migrateTo(
+			migrationDb,
+			(name) => name <= MIGRATION_NAME,
+		);
+		expect(after.error).toBeUndefined();
 
-			const threadRefs = await migrationPool.query(
-				"SELECT thread_id, asset_id::text, project_id FROM thread_media_refs ORDER BY asset_id",
-			);
-			expect(threadRefs.rows).toEqual([
-				{
-					thread_id: "thread-backfill",
-					asset_id: THREAD_ASSET,
-					project_id: PROJECT,
-				},
-			]);
-			const blueprintRefs = await migrationPool.query(
-				"SELECT asset_id::text FROM media_asset_refs WHERE app_id = $1 ORDER BY asset_id",
-				[APP],
-			);
-			expect(blueprintRefs.rows).toEqual([{ asset_id: LOGO_ASSET }]);
+		const threadRefs = await migrationPool.query(
+			"SELECT thread_id, asset_id::text, project_id FROM thread_media_refs ORDER BY asset_id",
+		);
+		expect(threadRefs.rows).toEqual([
+			{
+				thread_id: "thread-backfill",
+				asset_id: THREAD_ASSET,
+				project_id: PROJECT,
+			},
+		]);
+		const blueprintRefs = await migrationPool.query(
+			"SELECT asset_id::text FROM media_asset_refs WHERE app_id = $1 ORDER BY asset_id",
+			[APP],
+		);
+		expect(blueprintRefs.rows).toEqual([{ asset_id: LOGO_ASSET }]);
 
-			/* Replaying THIS migration's `up` over the final shape converges: the
-			 * DDL guards no-op and the backfill recomputes the same projection
-			 * rather than duplicating it (the whole-chain replay contract lives in
-			 * the migration adoption suite; the strict canonical-identity cutover
-			 * rightly refuses a whole-chain replay over seeded data). */
-			const { up } = await import("../20260809000000_design_sessions");
-			await up(migrationDb);
-			const threadRefsAfterReplay = await migrationPool.query(
-				"SELECT count(*)::int AS count FROM thread_media_refs",
-			);
-			expect(threadRefsAfterReplay.rows[0].count).toBe(1);
-			const blueprintRefsAfterReplay = await migrationPool.query(
-				"SELECT count(*)::int AS count FROM media_asset_refs WHERE app_id = $1",
-				[APP],
-			);
-			expect(blueprintRefsAfterReplay.rows[0].count).toBe(1);
-		} finally {
-			/* Destroy the wrapper (which ends the DEDICATED pool), never the
-			 * shared per-test pool. */
-			await migrationDb.destroy();
-		}
+		/* Replaying THIS migration's `up` over the final shape converges: the
+		 * DDL guards no-op and the backfill recomputes the same projection
+		 * rather than duplicating it (the whole-chain replay contract lives in
+		 * the migration adoption suite; the strict canonical-identity cutover
+		 * rightly refuses a whole-chain replay over seeded data). */
+		const { up } = await import("../20260809000000_design_sessions");
+		await up(migrationDb);
+		const threadRefsAfterReplay = await migrationPool.query(
+			"SELECT thread_id, asset_id::text, project_id FROM thread_media_refs ORDER BY asset_id",
+		);
+		expect(threadRefsAfterReplay.rows).toEqual(threadRefs.rows);
+		const blueprintRefsAfterReplay = await migrationPool.query(
+			"SELECT asset_id::text FROM media_asset_refs WHERE app_id = $1 ORDER BY asset_id",
+			[APP],
+		);
+		expect(blueprintRefsAfterReplay.rows).toEqual(blueprintRefs.rows);
 	});
 });

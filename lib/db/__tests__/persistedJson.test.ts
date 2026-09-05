@@ -61,6 +61,14 @@ describe("parsePersistedJsonText", () => {
 		expect(Object.hasOwn(parsed, "__proto__")).toBe(true);
 		expect(Object.hasOwn(parsed, "constructor")).toBe(true);
 		expect(Object.hasOwn(parsed, "prototype")).toBe(true);
+		const protoValue = Object.getOwnPropertyDescriptor(
+			parsed,
+			"__proto__",
+		)?.value;
+		expect(protoValue).toEqual({ polluted: true });
+		expect(Object.getPrototypeOf(protoValue)).toBeNull();
+		expect(parsed.constructor).toBe(1);
+		expect(parsed.prototype).toBe(2);
 		expect(({} as { polluted?: boolean }).polluted).toBeUndefined();
 	});
 
@@ -303,33 +311,6 @@ describe("persisted JSON source boundaries", () => {
 			expect(source).toMatch(/localization.+::text/s);
 			expect(source).toMatch(/data.+::text/s);
 		}
-		/* The strict persisted-app admission lives in the canonical commit
-		 * kernel; `apps.ts` composes it through the exported projection and
-		 * loaders rather than re-growing raw readers. */
-		const appsSource = readFileSync(path.join(root, "lib/db/apps.ts"), "utf8");
-		const kernelSource = readFileSync(
-			path.join(root, "lib/db/canonicalCommitKernel.ts"),
-			"utf8",
-		);
-		expect(
-			appsSource.match(/\.select\(PERSISTED_BLUEPRINT_APP_COLUMNS\)/g),
-		).toHaveLength(3);
-		expect(
-			kernelSource.match(/\.select\(PERSISTED_BLUEPRINT_APP_COLUMNS\)/g),
-		).toHaveLength(2);
-		expect(appsSource).not.toContain("assemblePersistedBlueprintJsonText(");
-		expect(
-			kernelSource.match(/\bassemblePersistedBlueprintJsonText\(/g),
-		).toHaveLength(1);
-		expect(appsSource).toMatch(
-			/return withAppTx\(\(tx\) => loadAppInTransaction\(tx, appId\)\)/,
-		);
-		const projection = kernelSource.match(
-			/const PERSISTED_BLUEPRINT_APP_COLUMNS = \[([\s\S]*?)\] as const/,
-		)?.[1];
-		expect(projection).toBeDefined();
-		expect(projection).not.toContain('"case_types"');
-		expect(projection).not.toContain('"localization"');
 	});
 
 	it("forbids parsed all-column app reads in production and operator code", () => {

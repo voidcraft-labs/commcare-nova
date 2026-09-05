@@ -27,8 +27,7 @@
 import { IpAddressTypes } from "@google-cloud/cloud-sql-connector";
 import type { Kysely } from "kysely";
 import type { PoolConfig } from "pg";
-import { Pool } from "pg";
-import { describe, expect, it } from "vitest";
+import { describe, expect, expectTypeOf, it, vi } from "vitest";
 import {
 	AUDIT_DB_ROLE_CONNECTION_LIMIT,
 	AUDIT_POOL_MAX_PER_EXECUTION,
@@ -311,20 +310,6 @@ describe("buildPoolConfig", () => {
 		const config = buildPoolConfig(stubClientOpts, env, "service");
 		expect("password" in config).toBe(false);
 	});
-
-	it("constructs a real pg.Pool with the resulting config", async () => {
-		// Lock the contract that the config object is structurally
-		// `PoolConfig`-shaped — `new Pool(config)` would throw
-		// otherwise. The pool is created but never connected to (no
-		// `query()` call), so the stub stream factory's throw stays
-		// inert. End the pool immediately to keep Vitest's open-
-		// handle accounting clean; no checked-out clients exist
-		// since the constructor doesn't connect, so end() resolves
-		// instantly.
-		const config = buildPoolConfig(stubClientOpts, env, "service");
-		const pool = new Pool(config);
-		await pool.end();
-	});
 });
 
 // ---------------------------------------------------------------
@@ -399,41 +384,17 @@ describe("enforceConnectionBudget", () => {
 		});
 	});
 
-	it("does not run on module import — the first-call path inside `initialize` owns the check", async () => {
-		// The check fires from inside `initialize` (the body that runs
-		// on the first `getCaseStoreDatabase()` call), NOT at module
-		// top level. Importing the module from this test file is a
-		// no-side-effect operation: every test in this suite imports
-		// the module via the file-level `import` block above without
-		// triggering the budget throw, even when a contributor
-		// experimentally edits one of the workload constants out of range.
-		//
-		// The pin uses dynamic `import()` so a static `import` the
-		// linter could move out of an `expect()` doesn't smuggle
-		// fixed semantics into the assertion. Vitest's module cache
-		// returns the same instance the suite-level import already
-		// resolved; the `await` resolves synchronously off the cache.
-		await expect(import("../connection")).resolves.toBeDefined();
-	});
-
-	it("runs on the first `getCaseStoreDatabase()` call", async () => {
-		// `initialize` calls `enforceConnectionBudget` BEFORE
-		// workload/env validation. The unit-test environment has no
-		// `NOVA_DB_*` set, so a passing budget check transitions
-		// control to the workload validator — which rejects the absent
-		// declaration. A failing budget check would surface a different
-		// error first. Catching the workload error pins the ordering: the
-		// budget check fired (and passed) before workload validation
-		// reached its throw site.
-		//
-		// Pinning by the env error message is the only behavioural
-		// signal available without stubbing modules. The brief notes
-		// `vi.spyOn(connection, "enforceConnectionBudget")` would not
-		// observe the call because production code references the
-		// local binding, not the module-namespace export.
-		await expect(getCaseStoreDatabase()).rejects.toThrow(
-			/missing its workload declaration/,
-		);
+	it("rejects initialization when no production workload is declared", async () => {
+		vi.stubEnv("NOVA_DB_WORKLOAD", undefined);
+		vi.stubEnv("NOVA_DB_LOCAL_URL", undefined);
+		try {
+			await expect(getCaseStoreDatabase()).rejects.toThrow(
+				/missing its workload declaration/,
+			);
+		} finally {
+			vi.unstubAllEnvs();
+			await closeCaseStoreDatabase();
+		}
 	});
 });
 
@@ -467,17 +428,8 @@ describe("closeCaseStoreDatabase", () => {
 
 describe("getCaseStoreDatabase type contract", () => {
 	it("resolves to Kysely<Database>", () => {
-		// The runtime never executes — `_pinType` is a thunk asserting
-		// the return type of `getCaseStoreDatabase`. If a regression
-		// widens the resolved type away from `Kysely<Database>` (e.g.
-		// to `Kysely<unknown>` or to a different table set), the
-		// assignment fails compilation. The `void _pinType` reference
-		// keeps the variable live so the unused-locals rule passes
-		// without a suppression.
-		const _pinType = async (): Promise<Kysely<Database>> => {
-			return getCaseStoreDatabase();
-		};
-		void _pinType;
-		expect(true).toBe(true);
+		expectTypeOf<ReturnType<typeof getCaseStoreDatabase>>().toEqualTypeOf<
+			Promise<Kysely<Database>>
+		>();
 	});
 });

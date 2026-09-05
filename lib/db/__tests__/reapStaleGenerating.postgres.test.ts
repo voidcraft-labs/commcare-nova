@@ -1,82 +1,9 @@
-/**
- * `reapStaleGenerating` delegation + `setAwaitingInput` writes.
- *
- * The reaper delegates the whole reap — refund the stranded hold + flip
- * `generating → error` — to `refundStaleGeneration` (credits.ts), which does both
- * in ONE transaction with the staleness re-validated inside it (its in-txn
- * correctness lives in `claimRun.postgres.test.ts`). `reapStaleGenerating`'s
- * remaining contract is thin: delegate, and SWALLOW a transient throw (leaving the
- * row untouched — refund + flip are one atomic commit, so a failure means neither
- * happened and the next scan retries). Here we mock `refundStaleGeneration` and
- * observe only that delegation.
- *
- * `setAwaitingInput` is exercised against the real per-test DB. It locks the
- * app row and re-checks the exact holder before writing: clearing the pause
- * re-arms `updated_at` (the resuming run needs a fresh staleness window), while
- * setting it must NOT bump the clock (the flag, not a fresh timestamp, is what
- * spared the paused row). Replacement/reaper ownership regressions live in
- * `runHolderWrites.postgres.test.ts`.
- *
- * Claim + reserve are one atomic `claimAndReserveRun` with no prior-state
- * snapshot (every rejection is a rollback), so the build-claim scenarios — a
- * failed/complete build's window claim, the "never touches the marker"
- * liveness-only write, and the paused-blocks and live-blocks conflicts — are
- * covered against a real database in `claimRun.postgres.test.ts`.
- */
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+// Database-owned pause and resume writes; wrapper behavior lives in appsWithoutDatabase.test.ts.
+import { describe, expect, it } from "vitest";
 import { setupAppStateTestDb } from "./appStateTestDb";
-
-const { refundStaleGenerationMock } = vi.hoisted(() => ({
-	refundStaleGenerationMock: vi.fn(),
-}));
-
-// `reapStaleGenerating` (apps.ts) delegates to `refundStaleGeneration`; mock just
-// that credits export. apps.ts's other credits imports are unused by the two
-// functions under test here.
-vi.mock("../credits", () => ({
-	refundStaleGeneration: refundStaleGenerationMock,
-}));
 
 const h = setupAppStateTestDb("reap_stale_");
 const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
-
-describe("reapStaleGenerating", () => {
-	beforeEach(() => {
-		refundStaleGenerationMock.mockReset();
-	});
-
-	it("delegates the reap (refund + flip, one atomic txn) to refundStaleGeneration", async () => {
-		refundStaleGenerationMock.mockResolvedValue(undefined);
-		const { reapStaleGenerating } = await import("../apps");
-
-		await reapStaleGenerating("app-1", {
-			mode: "build",
-			runId: "run-1",
-			nonce: HOLDER_NONCE,
-		});
-
-		expect(refundStaleGenerationMock).toHaveBeenCalledWith("app-1", {
-			mode: "build",
-			runId: "run-1",
-			nonce: HOLDER_NONCE,
-		});
-	});
-
-	it("SWALLOWS a transient throw — the row is untouched, so the next scan retries", async () => {
-		refundStaleGenerationMock.mockRejectedValue(new Error("db down"));
-		const { reapStaleGenerating } = await import("../apps");
-
-		// A throw must not escape (fire-and-forget at the call sites).
-		await expect(
-			reapStaleGenerating("app-1", {
-				mode: "build",
-				runId: "run-1",
-				nonce: HOLDER_NONCE,
-			}),
-		).resolves.toBeUndefined();
-	});
-});
 
 describe("setAwaitingInput", () => {
 	const APP = "app-await";

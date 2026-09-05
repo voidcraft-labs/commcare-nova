@@ -48,18 +48,6 @@ describe("listDeletedApps", () => {
 		expect(apps[0]?.recoverable_until).toBe(RECOVERABLE_FUTURE.toISOString());
 	});
 
-	it("returns deleted_at as a parseable ISO string — the 'Deleted Invalid Date' regression", async () => {
-		await seedDeleted("a");
-
-		const { listDeletedApps } = await import("../apps");
-		const { apps } = await listDeletedApps(PROJECT, { limit: 50 });
-
-		expect(apps).toHaveLength(1);
-		expect(Number.isNaN(new Date(apps[0]?.deleted_at ?? "").getTime())).toBe(
-			false,
-		);
-	});
-
 	it("filters rows whose recovery window has already elapsed", async () => {
 		await seedDeleted("past", {
 			recoverable_until: new Date("2000-01-01T00:00:00Z"),

@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	compareFrozenStorageOccurrences,
@@ -16,11 +14,6 @@ import {
 	FROZEN_OCCURRENCE_TABLES,
 	FROZEN_STORAGE_OCCURRENCES,
 } from "../20260728000000_canonical_identity_foundation/frozenOccurrenceManifest";
-
-const DISPATCHER_SOURCE = join(
-	process.cwd(),
-	"lib/case-store/migrations/20260728000000_canonical_identity_foundation/frozenOccurrenceDispatcher.ts",
-);
 
 function snapshot(
 	rows: Readonly<Record<string, readonly unknown[]>> = {},
@@ -423,18 +416,6 @@ describe("frozen canonical-identity occurrence dispatcher", () => {
 		expect(baselineProjection?.rowCount).toBe(2);
 		expect(baselineProjection?.digest).not.toBe(
 			latestOnlyBaselineProjection?.digest,
-		);
-	});
-
-	it("uses one greatest-baseline SQL authority for exact raw payload capture", () => {
-		const source = readFileSync(DISPATCHER_SOURCE, "utf8");
-
-		expect(source.match(/SELECT app_id, MAX\(seq\) AS seq/g)).toHaveLength(1);
-		expect(source.match(/WITH greatest_baseline AS/g)).toHaveLength(2);
-		expect(source).toContain("change_row.seq < baseline.seq");
-		expect(source).toContain("change_row.seq >= baseline.seq");
-		expect(source).not.toMatch(
-			/(?:LEFT )?JOIN public\.app_change_fold_baselines AS baseline/,
 		);
 	});
 

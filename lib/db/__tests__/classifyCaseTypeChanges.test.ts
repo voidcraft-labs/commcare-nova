@@ -1,7 +1,7 @@
 // lib/db/__tests__/classifyCaseTypeChanges.test.ts
 //
 // Unit coverage for the schema-affecting-change classifier
-// `applyBlueprintChange` consumes. Pins the three contracts
+// `applyBlueprintChange` consumes. Pins the contracts
 // the classifier enforces:
 //
 //   1. Pure non-case-type mutations yield an empty array, so no
@@ -24,10 +24,7 @@ import { USERCASE_CASE_TYPE } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { classifyCaseTypeChanges } from "../classifyCaseTypeChanges";
 
-// Minimal `BlueprintDoc` fixture — the classifier reads `caseTypes`
-// only, so every other field stays empty / zero-valued. The cast
-// to `BlueprintDoc` papers over the `fieldParent` index that the
-// in-memory shape carries; the classifier never touches it.
+// Minimal catalog fixture for changes without writer-derived properties.
 function makeDoc(caseTypes: CaseType[] | null): BlueprintDoc {
 	return {
 		appId: "test-app",
@@ -99,9 +96,13 @@ describe("classifyCaseTypeChanges — case-type additions", () => {
 			prior: makeDoc(null),
 			prospective: makeDoc([PATIENT, visit]),
 		});
+		expect(result).toEqual(
+			expect.arrayContaining([
+				{ kind: "sync", caseType: "patient" },
+				{ kind: "sync", caseType: "visit" },
+			]),
+		);
 		expect(result).toHaveLength(2);
-		const names = new Set(result.map((e) => e.caseType));
-		expect(names).toEqual(new Set(["patient", "visit"]));
 	});
 });
 

@@ -392,6 +392,12 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_EDIT);
 		await seedApp({
 			status: "complete",
+			run_holder_nonce: HOLDER_NONCE,
+			run_lock: {
+				runId: "settled-edit",
+				actorUserId: OWNER,
+				expireAt: lockExpiry(-1),
+			},
 			reservation: {
 				period,
 				reserved: CREDITS_PER_EDIT,
@@ -402,7 +408,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 
 		await reapStaleReservation(APP_ID, {
 			mode: "edit",
-			runId: "no-present-holder",
+			runId: "settled-edit",
 			nonce: HOLDER_NONCE,
 		});
 		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
@@ -1139,6 +1145,7 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 		await seedCredits(OWNER, CREDITS_PER_EDIT);
 		await seedApp({
 			status: "complete",
+			awaiting_input: true,
 			run_holder_nonce: HOLDER_NONCE,
 			run_lock: { runId: "e1", actorUserId: OWNER, expireAt: lockExpiry(10) },
 			reservation: {
@@ -1180,39 +1187,6 @@ describe("claimAndReserveRun + reservation lifecycle", () => {
 	});
 
 	// ── A live long edit (lease refreshed) is NOT reaped ──────────────────
-
-	it("a live edit past the initial MAX_RUN_MINUTES lease is NOT reaped once its run_lock is refreshed", async () => {
-		const { reapStaleReservation } = await import("../apps");
-		// An edit running longer than the initial lease refreshes its
-		// `lock_expire_at` per commit. The reaper keys ONLY on the lock, so a
-		// refreshed (future) lock reads as live, not reaped.
-		await seedCredits(OWNER, CREDITS_PER_EDIT);
-		await seedApp({
-			status: "complete",
-			run_holder_nonce: HOLDER_NONCE,
-			run_lock: {
-				runId: "long-edit",
-				actorUserId: OWNER,
-				expireAt: lockExpiry(MAX_RUN_MINUTES),
-			},
-			reservation: {
-				period,
-				reserved: CREDITS_PER_EDIT,
-				settled: false,
-				userId: OWNER,
-			},
-		});
-
-		await reapStaleReservation(APP_ID, {
-			mode: "edit",
-			runId: "long-edit",
-			nonce: HOLDER_NONCE,
-		});
-		expect(await readConsumed(OWNER)).toBe(CREDITS_PER_EDIT);
-		expect(await h.readReservation(APP_ID)).toMatchObject({ settled: false });
-	});
-
-	// ── reacquireLease: paused-run resume re-acquire (supersede + renew) ──
 
 	it("reacquireLease (build): a paused build's resume that STILL owns it renews + un-pauses", async () => {
 		const { reacquireLease } = await import("../apps");

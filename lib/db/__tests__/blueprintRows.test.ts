@@ -48,12 +48,14 @@ function emptyDoc(appId: string): BlueprintDoc {
 
 function roundTrip(doc: BlueprintDoc) {
 	const persistable = toPersistableDoc(doc);
-	const rows = decomposeBlueprint(persistable).map((row) => ({
-		...row,
-		// PostgreSQL jsonb owns entity-row storage. Exercise the same plain-JSON
-		// boundary rather than handing assembleBlueprint the original references.
-		data: JSON.parse(JSON.stringify(row.data)),
-	}));
+	const rows = decomposeBlueprint(persistable)
+		.map((row) => ({
+			...row,
+			// PostgreSQL jsonb owns entity-row storage. Exercise the same plain-JSON
+			// boundary rather than handing assembleBlueprint the original references.
+			data: JSON.parse(JSON.stringify(row.data)),
+		}))
+		.reverse();
 	return assembleBlueprint(doc.appId, blueprintScalars(persistable), rows);
 }
 
@@ -77,6 +79,14 @@ describe("blueprint entity-row round trip", () => {
 		applyMutations(doc, surveyModuleMutations(doc).mutations);
 		const assembled = roundTrip(doc);
 		expect(assembled).toEqual(toPersistableDoc(doc));
+	});
+
+	it("restores sibling order from ordinals when rows arrive in reverse order", () => {
+		const doc = emptyDoc("rt-sibling-order");
+		for (const name of ["First", "Second", "Third"]) {
+			applyMutations(doc, surveyModuleMutations(doc, { name }).mutations);
+		}
+		expect(roundTrip(doc)).toEqual(toPersistableDoc(doc));
 	});
 
 	it("round-trips one-tier menu parentage in module data and preorder", () => {
@@ -442,141 +452,4 @@ describe("the user collections", () => {
 			/appears in both modules and userProperties/i,
 		);
 	});
-
-	it.each(["__proto__", "constructor"])(
-		"round-trips %s as the own identity of every entity kind",
-		(identity) => {
-			const uuid = testUuid(identity);
-			const parentModule = testUuid("parent-module");
-			const parentForm = testUuid("parent-form");
-			const cases: Array<{
-				kind: string;
-				doc: BlueprintDoc;
-				record: (doc: ReturnType<typeof roundTrip>) => object | undefined;
-			}> = [
-				{
-					kind: "module",
-					doc: {
-						...emptyDoc(`rt-${identity}-module`),
-						modules: Object.fromEntries([
-							[uuid, { uuid, id: "module", name: "Module" }],
-						]),
-						moduleOrder: [uuid],
-						formOrder: Object.fromEntries([[uuid, []]]),
-					},
-					record: (doc) => doc.modules,
-				},
-				{
-					kind: "form",
-					doc: {
-						...emptyDoc(`rt-${identity}-form`),
-						modules: {
-							[parentModule]: {
-								uuid: parentModule,
-								id: "module",
-								name: "Module",
-							},
-						},
-						forms: Object.fromEntries([
-							[
-								uuid,
-								{
-									uuid,
-									id: "form",
-									name: "Form",
-									type: "survey" as const,
-								},
-							],
-						]),
-						moduleOrder: [parentModule],
-						formOrder: { [parentModule]: [uuid] },
-						fieldOrder: Object.fromEntries([[uuid, []]]),
-					},
-					record: (doc) => doc.forms,
-				},
-				{
-					kind: "field",
-					doc: {
-						...emptyDoc(`rt-${identity}-field`),
-						modules: {
-							[parentModule]: {
-								uuid: parentModule,
-								id: "module",
-								name: "Module",
-							},
-						},
-						forms: {
-							[parentForm]: {
-								uuid: parentForm,
-								id: "form",
-								name: "Form",
-								type: "survey",
-							},
-						},
-						fields: Object.fromEntries([
-							[
-								uuid,
-								{
-									uuid,
-									id: "question",
-									kind: "text" as const,
-									label: proseText("Question"),
-								},
-							],
-						]),
-						moduleOrder: [parentModule],
-						formOrder: { [parentModule]: [parentForm] },
-						fieldOrder: { [parentForm]: [uuid] },
-					},
-					record: (doc) => doc.fields,
-				},
-				{
-					kind: "user property",
-					doc: {
-						...emptyDoc(`rt-${identity}-property`),
-						userProperties: Object.fromEntries([
-							[uuid, { uuid, slug: "region", label: "Region" }],
-						]),
-						userPropertyOrder: [uuid],
-					},
-					record: (doc) => doc.userProperties,
-				},
-				{
-					kind: "user type",
-					doc: {
-						...emptyDoc(`rt-${identity}-type`),
-						userTypes: Object.fromEntries([[uuid, { uuid, name: "Worker" }]]),
-						userTypeOrder: [uuid],
-					},
-					record: (doc) => doc.userTypes,
-				},
-				{
-					kind: "persona",
-					doc: {
-						...emptyDoc(`rt-${identity}-persona`),
-						personas: Object.fromEntries([[uuid, { uuid, name: "Asha" }]]),
-						personaOrder: [uuid],
-					},
-					record: (doc) => doc.personas,
-				},
-			];
-
-			for (const candidate of cases) {
-				const assembled = roundTrip(candidate.doc);
-				const record = candidate.record(assembled);
-				expect(
-					Object.hasOwn(record ?? {}, uuid),
-					`${candidate.kind} must retain ${identity} as an own identity`,
-				).toBe(true);
-				expect(Object.getPrototypeOf(record as object)).toBeNull();
-				expect(
-					decomposeBlueprint(assembled).some(
-						(row) =>
-							row.kind.replaceAll("_", " ") === candidate.kind &&
-							row.uuid === uuid,
-					),
-				).toBe(true);
-			}
-		},
-	);
 });

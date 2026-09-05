@@ -1226,15 +1226,17 @@ The harness pins to two non-negotiable rules:
    Each test clones a closed template built once using the real migrations,
    then drops its private database in teardown. Do not replay migrations in
    behavior-test hooks. Migration tests omit `schema` to get extensions without
-   application tables. `databaseTemplates.postgres.test.ts` proves committed-write
+   application tables. Historical exact-catalog tests prepare the actual migration
+   prefix, not the latest schema with selected columns removed. Before asserting
+   rejection after corruption, prove that the unmodified historical state is
+   admitted; otherwise later DDL can make every rejection pass for the wrong
+   reason. `databaseTemplates.postgres.test.ts` proves committed-write
    isolation and the distinction between the two templates. See `docs/testing.md`.
 
-The `harness-isolation.postgres.test.ts` sibling file exists specifically
-to catch a regression that splits one of these two rules: it
-inserts sentinel UUIDs in `harness.postgres.test.ts`, rolls them back, then
-asserts in the sibling file that those same UUIDs return zero
-rows. A regression to per-file containers OR per-test commits
-surfaces as a failing sibling test, not a silent leak.
+`harness.postgres.test.ts` checks that Kysely and raw queries share the same
+uncommitted transaction, that a subsequent test cannot see the previous
+write, and that a separate observer sees no sentinel rows after fixture
+teardown. URI shape alone cannot prove container sharing or rollback.
 
 ### Image and extensions
 

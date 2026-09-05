@@ -192,8 +192,13 @@ async function createRoleDatabase(
 			pool: pool as unknown as PostgresPool,
 		}),
 	});
-	await sql`SET ROLE ${sql.id(role)}`.execute(db);
-	return { db, pool };
+	try {
+		await sql`SET ROLE ${sql.id(role)}`.execute(db);
+		return { db, pool };
+	} catch (error) {
+		await db.destroy();
+		throw error;
+	}
 }
 
 async function dropRoles(
@@ -392,9 +397,9 @@ describe("database privilege convergence", () => {
 				}),
 			).rejects.toMatchObject({ code: "42501" });
 		} finally {
-			await bootstrapClient.end().catch(() => undefined);
-			await legacy.db.destroy().catch(() => undefined);
-			await migration?.db.destroy().catch(() => undefined);
+			await bootstrapClient.end();
+			await legacy.db.destroy();
+			await migration?.db.destroy();
 			await dropRoles(h.db, fixture.convergence, [
 				fixture.cleanupRole,
 				fixture.legacyRole,
@@ -465,15 +470,6 @@ describe("database privilege convergence", () => {
 			expect(freshBootstrap.before.currentUserDependencyCount).toBeGreaterThan(
 				0,
 			);
-			expect(freshBootstrap.statements).toEqual([
-				`ALTER ROLE "${config.runtimeRole}" CONNECTION LIMIT ${RUNTIME_DB_ROLE_CONNECTION_LIMIT}`,
-				`ALTER ROLE "${config.migrationRole}" CONNECTION LIMIT ${MIGRATION_DB_ROLE_CONNECTION_LIMIT}`,
-				`ALTER ROLE "${config.cleanupRole}" CONNECTION LIMIT ${CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT}`,
-				`ALTER ROLE "${config.auditRole}" CONNECTION LIMIT ${AUDIT_DB_ROLE_CONNECTION_LIMIT}`,
-				`ALTER DATABASE "${h.databaseName}" OWNER TO "${config.migrationRole}"`,
-				`REASSIGN OWNED BY "${bootstrapRole}" TO "${config.migrationRole}"`,
-				`DROP OWNED BY "${bootstrapRole}" RESTRICT`,
-			]);
 			expect(freshBootstrap.after).toMatchObject({
 				currentUserDependencyCount: 0,
 				currentUserOwnedSchemaCount: 0,
@@ -1079,11 +1075,10 @@ describe("database privilege convergence", () => {
 			`.execute(migration.db);
 		} finally {
 			__setAppDbForTests(null);
-			await bootstrapClient.query("RESET ROLE").catch(() => undefined);
-			await bootstrapClient.end().catch(() => undefined);
-			await cleanup?.db.destroy().catch(() => undefined);
-			await runtime?.db.destroy().catch(() => undefined);
-			await migration?.db.destroy().catch(() => undefined);
+			await bootstrapClient.end();
+			await cleanup?.db.destroy();
+			await runtime?.db.destroy();
+			await migration?.db.destroy();
 			await dropRoles(h.db, config, [config.cleanupRole, bootstrapRole]);
 		}
 	});

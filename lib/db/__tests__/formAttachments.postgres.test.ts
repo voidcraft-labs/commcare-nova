@@ -316,6 +316,9 @@ describe("form attachment URL-app authority", () => {
 			expectedAppId: appB,
 			expectedProjectId: PROJECT,
 		};
+		await expect(
+			loadFormAttachmentForEdit({ ...scope, expectedAppId: appA }),
+		).resolves.toMatchObject({ attachmentId, appId: appA, status: "staged" });
 		await expect(loadFormAttachmentForEdit(scope)).resolves.toBeNull();
 		await expect(
 			confirmFormAttachment({
@@ -785,6 +788,8 @@ describe("form attachment preparation concurrency", () => {
 		if (failedLease === undefined) {
 			throw new Error("The first preparation lease must be claimable.");
 		}
+		// A foreground retry during an active copy must not make its lease due.
+		await beginFormAttachmentPreparation(intent);
 		await expect(
 			claimFormAttachmentPreparations({
 				attachmentIds: [attachmentId],

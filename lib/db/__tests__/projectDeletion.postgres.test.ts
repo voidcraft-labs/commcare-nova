@@ -164,8 +164,7 @@ describe("Project deletion policy", () => {
 			expect(storedProject?.id).toBe(TEST_PROJECT_ID);
 			expect(storedMembership?.id).toBe("project-delete-owner-membership");
 		} finally {
-			// Close the auth adapter's connection inside the test boundary so the
-			// async-leak gate observes the same ownership discipline as production.
+			// Close the auth adapter before the fixture database is dropped.
 			await authPool.end();
 		}
 	});

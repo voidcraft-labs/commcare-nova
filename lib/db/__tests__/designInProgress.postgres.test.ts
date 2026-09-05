@@ -41,7 +41,7 @@ async function seedThread(args: {
 		.execute();
 }
 
-it("orders by the displayed activity clock, not the session clock alone", async () => {
+it("orders and limits by the displayed activity clock", async () => {
 	await h.seedProjectMember(ACTOR, PROJECT, "editor");
 	const now = Date.now();
 	/* Session A: fresher session clock, no conversation writes since. */
@@ -82,36 +82,11 @@ it("orders by the displayed activity clock, not the session clock alone", async 
 	if (first === undefined || second === undefined)
 		throw new Error("unreachable");
 	expect(first.lastActivityAt > second.lastActivityAt).toBe(true);
-});
-
-it("cuts the limit by the same clock", async () => {
-	await h.seedProjectMember(ACTOR, PROJECT, "editor");
-	const now = Date.now();
-	const fresherSession = await h.seedDesignSession({
-		owner_user_id: ACTOR,
-		project_id: PROJECT,
-		updated_at: new Date(now - 60_000),
-	});
-	const threadFreshSession = await h.seedDesignSession({
-		owner_user_id: ACTOR,
-		project_id: PROJECT,
-		updated_at: new Date(now - 600_000),
-	});
-	await seedThread({
-		sessionId: threadFreshSession,
-		summary: "Written last via its conversation",
-		updatedAt: new Date(now - 5_000),
-	});
-
-	/* limit 1: the thread-fresh design must survive the cut. Under
-	 * session-clock ordering it would fall off entirely. */
-	const list = await listDesignsInProgress({
+	const limited = await listDesignsInProgress({
 		userId: ACTOR,
 		projectId: PROJECT,
 		limit: 1,
 	});
-	expect(list.map((entry) => entry.designSessionId)).toEqual([
-		threadFreshSession,
-	]);
-	expect(fresherSession).toBeTruthy();
+	expect(limited.map((entry) => entry.designSessionId)).toEqual([sessionB]);
+	expect(first.title).toBe("Nutrition visits");
 });

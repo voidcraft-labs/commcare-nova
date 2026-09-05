@@ -21,6 +21,12 @@ restates its fixture, snapshots an implementation, or mocks away the behavior
 should be removed or rewritten. Do not duplicate a full workflow for each minor
 input variation when a focused test can prove the varying rule.
 
+A rejection test must begin with an otherwise admissible input. Prove the valid
+case succeeds before introducing the fault, or pair it with an accepted case
+that uses the same fixture. Matching a generic error cannot establish why the
+operation was rejected. Seed nonempty data before testing deletion or clearing;
+asserting that an already empty table remains empty proves nothing.
+
 ## Local test projects
 
 Ordinary `*.test.ts` / `*.test.tsx` files run in the `unit` project, including
@@ -86,6 +92,12 @@ no application fixture rows. This preserves real commits and test isolation
 without repeatedly installing PostGIS. Do not replace transaction tests with
 nested transactions or shared mutable tables to gain speed. Tests using the
 module-scoped database handle must stay sequential within their file.
+
+The default fixture pool has one connection. A contention test must open a
+separate client for each competing transaction and an observer when needed.
+Prove blocking with `pg_blocking_pids` or an equivalent database signal; two
+operations queued for one pool connection do not exercise database concurrency.
+Close those clients in `finally` after releasing and joining the operations.
 
 For an expensive historical migration precondition, `prepareTemplate(db, pool)`
 runs once per suite and closes that database to connections. Each test receives

@@ -6,7 +6,7 @@
  * offers a resume.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { OrchestrationHead } from "@/lib/agent/build/orchestratorState";
 import { asDesignId } from "@/lib/agent/design/ids";
 import {
@@ -70,6 +70,12 @@ function head(state: OrchestrationHead["state"]): OrchestrationHead {
 }
 
 describe("projectDesignInProgress", () => {
+	beforeEach(() => {
+		vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-08-01T12:00:00Z"));
+	});
+	afterEach(() => {
+		vi.restoreAllMocks();
+	});
 	it("names the design after its most recent conversation", () => {
 		expect(projectDesignInProgress(row(), null).title).toBe(
 			"Home visit tracking",

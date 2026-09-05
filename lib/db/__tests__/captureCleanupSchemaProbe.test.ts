@@ -22,6 +22,11 @@ describe("capture cleanup schema probe", () => {
 
 	it("rejects added, removed, reordered, or nullable columns", () => {
 		expect(() =>
+			assertCaptureCleanupSchema(
+				[...CAPTURE_CLEANUP_EXPECTED_COLUMNS].reverse(),
+			),
+		).toThrow("Capture-cleanup schema drifted");
+		expect(() =>
 			assertCaptureCleanupSchema(CAPTURE_CLEANUP_EXPECTED_COLUMNS.slice(1)),
 		).toThrow("Capture-cleanup schema drifted");
 		expect(() =>

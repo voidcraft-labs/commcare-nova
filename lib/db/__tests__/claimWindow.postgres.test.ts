@@ -1,27 +1,5 @@
-/**
- * The claim's credit-transfer + the build reaper's runId-clear, against a REAL
- * Postgres (the per-test-database harness). Composes `claimAndReserveRun`
- * (apps.ts) with `refundStaleGeneration` via
- * `reapStaleGenerating` — sharing one database, so each reads what the prior wrote.
- *
- * The descoped + atomic model: claim and reserve are ONE transaction, so there is
- * no separate "claim that leaves the marker untouched" — the claim's
- * `debitAndBookReservation` refunds any leftover UNSETTLED hold and books the
- * fresh marker together. The invariants this pins that aren't the focus of the
- * lifecycle matrix:
- *
- *   - the leftover-refund targets the marker's CHARGED ACTOR (`res_user_id`), not
- *     `owner` (the two diverge once a Project co-member runs a shared app);
- *   - a hard-killed leftover nets out (refund + fresh debit → one cost, not two);
- *   - the build reaper CLEARS `res_run_id` so a reaped ghost reads unowned;
- *   - another actor's claim on a PAUSED app THROWS and touches nothing (their
- *     pause blocks; only the pause's own actor supersedes it).
- *
- * (A KEPT settled charge surviving a claim, and a failed run's full refund, are
- * covered by `claimRun.postgres.test.ts`.)
- *
- * Runs unconditionally under `npm test`.
- */
+// Build reaper identity clearing and another actor's paused-build refusal.
+// Credit-transfer variants live in claimRun.postgres.test.ts.
 
 import { describe, expect, it } from "vitest";
 import { getCurrentPeriod } from "../period";
@@ -39,74 +17,6 @@ const staleClock = () => new Date(Date.now() - 60 * 60_000);
 const freshClock = () => new Date();
 
 describe("claim credit-transfer + build reaper runId-clear", () => {
-	it("claimAndReserveRun refunds a hard-killed leftover before booking the fresh charge (net one cost)", async () => {
-		const { claimAndReserveRun } = await import("../apps");
-		// A prior hard-killed run left an unsettled 100-credit hold on user-1's own
-		// current month; the retry reserves before the reaper fired.
-		await h.seedApp({
-			id: APP,
-			owner: "user-1",
-			status: "complete",
-			reservation: {
-				period: PERIOD,
-				reserved: 100,
-				settled: false,
-				userId: "user-1",
-			},
-		});
-		await h.seedCreditMonth("user-1", PERIOD, {
-			allowance: 2000,
-			consumed: 100,
-			bonus: 0,
-		});
-
-		await claimAndReserveRun(APP, "build", "run-2", "user-1", 100, PROJECT_ID);
-
-		// Leftover 100 refunded, fresh 100 booked → net stays 100.
-		expect(await h.readConsumed("user-1", PERIOD)).toBe(100);
-		expect(await h.readReservation(APP)).toMatchObject({
-			period: PERIOD,
-			reserved: 100,
-			settled: false,
-			userId: "user-1",
-			runId: "run-2",
-		});
-	});
-
-	it("the leftover-refund targets the CHARGED ACTOR of the marker, not the owner (owner != actor)", async () => {
-		const { claimAndReserveRun } = await import("../apps");
-		// A Project co-member (NOT the owner) ran a build, was charged 100, then
-		// hard-killed. The retry's leftover-refund must un-book the ACTOR's hold
-		// (`res_user_id`), NOT `owner`.
-		await h.seedApp({
-			id: APP,
-			owner: "owner-1",
-			status: "complete",
-			reservation: {
-				period: PERIOD,
-				reserved: 100,
-				settled: false,
-				userId: "member-2",
-			},
-		});
-		await h.seedCreditMonth("owner-1", PERIOD, {
-			allowance: 2000,
-			consumed: 0,
-			bonus: 0,
-		});
-		await h.seedCreditMonth("member-2", PERIOD, {
-			allowance: 2000,
-			consumed: 100,
-			bonus: 0,
-		});
-
-		// The owner books fresh; the leftover refunds to the dead member.
-		await claimAndReserveRun(APP, "build", "run-2", "owner-1", 100, PROJECT_ID);
-
-		expect(await h.readConsumed("member-2", PERIOD)).toBe(0); // dead member's hold handed back
-		expect(await h.readConsumed("owner-1", PERIOD)).toBe(100); // fresh on owner's ledger
-	});
-
 	it("the build reaper CLEARS the marker's runId (a reaped ghost reads unowned)", async () => {
 		const { reapStaleGenerating } = await import("../apps");
 		const { runLeaseState } = await import("../runLiveness");

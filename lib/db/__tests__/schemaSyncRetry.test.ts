@@ -3,7 +3,7 @@
 // coverage — no container: the classification of transient vs deterministic
 // and the retry/rethrow behavior are the contract both callers depend on.
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { isTransientDbError, withTransientRetry } from "../schemaSyncRetry";
 
 describe("isTransientDbError", () => {
@@ -43,9 +43,17 @@ describe("isTransientDbError", () => {
 });
 
 describe("withTransientRetry", () => {
+	beforeEach(() => vi.useFakeTimers());
+	afterEach(() => {
+		vi.clearAllTimers();
+		vi.useRealTimers();
+	});
+
 	it("resolves on the first attempt when the call succeeds", async () => {
 		const attempt = vi.fn().mockResolvedValue(undefined);
-		await expect(withTransientRetry(attempt)).resolves.toBeUndefined();
+		const result = expect(withTransientRetry(attempt)).resolves.toBeUndefined();
+		await vi.runAllTimersAsync();
+		await result;
 		expect(attempt).toHaveBeenCalledTimes(1);
 	});
 
@@ -56,7 +64,9 @@ describe("withTransientRetry", () => {
 				Object.assign(new Error("blip"), { code: "ECONNRESET" }),
 			)
 			.mockResolvedValueOnce(undefined);
-		await expect(withTransientRetry(attempt)).resolves.toBeUndefined();
+		const result = expect(withTransientRetry(attempt)).resolves.toBeUndefined();
+		await vi.runAllTimersAsync();
+		await result;
 		expect(attempt).toHaveBeenCalledTimes(2);
 	});
 
@@ -71,7 +81,9 @@ describe("withTransientRetry", () => {
 				}),
 			)
 			.mockResolvedValueOnce(undefined);
-		await expect(withTransientRetry(attempt)).resolves.toBeUndefined();
+		const result = expect(withTransientRetry(attempt)).resolves.toBeUndefined();
+		await vi.runAllTimersAsync();
+		await result;
 		expect(attempt).toHaveBeenCalledTimes(2);
 	});
 
@@ -88,7 +100,11 @@ describe("withTransientRetry", () => {
 			.mockRejectedValue(
 				Object.assign(new Error("outage"), { code: "ECONNRESET" }),
 			);
-		await expect(withTransientRetry(attempt)).rejects.toThrow("outage");
+		const result = expect(withTransientRetry(attempt)).rejects.toThrow(
+			"outage",
+		);
+		await vi.runAllTimersAsync();
+		await result;
 		// PER_TYPE_SYNC_ATTEMPTS = 3.
 		expect(attempt).toHaveBeenCalledTimes(3);
 	});

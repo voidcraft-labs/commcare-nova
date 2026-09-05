@@ -17,8 +17,7 @@
  * bound a starved runner fires late — and only then ends the pool.
  *
  * The teardown stays GRACEFUL on purpose: hard-destroying a socket skips the
- * stream's `end` event, which strands pg-protocol's stream-end promise and
- * trips the async-leak gate.
+ * stream's `end` event and can strand pg-protocol's stream-end promise.
  */
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
@@ -40,14 +39,12 @@ export function createPerTestAppDb(uri: string): PerTestAppDb {
 		connectionTimeoutMillis: 10_000,
 		query_timeout: 10_000,
 	});
-	/* Swallow the connection-termination noise teardown provokes (the per-test
-	 * DROP DATABASE (FORCE)) — the same expected-teardown-noise the harness's
-	 * own pools swallow (see `perTestDatabase.ts`). Both levels are needed: the
-	 * pool emits for an idle client, a checked-out client emits on itself, and
-	 * an unlistened `error` event crashes the worker. */
-	pool.on("error", () => {});
+	// Observe connection errors immediately and fail teardown after closing the
+	// pool. A forced database drop must not hide unfinished test work.
+	const connectionErrors: Error[] = [];
+	pool.on("error", (error) => connectionErrors.push(error));
 	pool.on("connect", (client) => {
-		client.on("error", () => {});
+		client.on("error", (error) => connectionErrors.push(error));
 	});
 	const appDb = new Kysely<AppDatabase>({
 		dialect: new PostgresDialect({ pool: pool as unknown as PostgresPool }),
@@ -62,7 +59,13 @@ export function createPerTestAppDb(uri: string): PerTestAppDb {
 			while (pool.waitingCount > 0 || pool.totalCount !== pool.idleCount) {
 				await new Promise((resolve) => setTimeout(resolve, 10));
 			}
-			await appDb.destroy().catch(() => {});
+			await appDb.destroy();
+			if (connectionErrors.length > 0) {
+				throw new AggregateError(
+					connectionErrors,
+					"Test database connection failed",
+				);
+			}
 		},
 	};
 }

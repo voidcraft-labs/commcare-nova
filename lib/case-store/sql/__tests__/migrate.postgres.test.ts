@@ -14,8 +14,6 @@ import { caseStoreMigrations } from "@/lib/case-store/migrations";
 import * as designLocalization from "@/lib/case-store/migrations/20260815010000_design_localization";
 import { setupPerTestDatabase } from "./perTestDatabase";
 
-const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "migrate_test_" });
-
 // Derive the expected ledger contents from the migration set itself, so adding
 // a migration doesn't require editing this test (the ledger lists every applied
 // name, ordered by name).
@@ -50,7 +48,10 @@ async function columnExists(
 	return r.rows[0]?.exists === true;
 }
 
-describe("runCaseStoreMigrations", () => {
+describe("runCaseStoreMigrations on a fresh database", () => {
+	const dbHandle = setupPerTestDatabase({
+		databaseNamePrefix: "migrate_test_",
+	});
 	it("creates the full schema and records the ledger on a fresh database", async () => {
 		const db = dbHandle.db;
 		const report = await runCaseStoreMigrationsWithReport(db);
@@ -72,10 +73,15 @@ describe("runCaseStoreMigrations", () => {
 		expect(await columnExists(db, "cases", "case_name")).toBe(true);
 		expect(await ledgerNames(db)).toEqual(EXPECTED_LEDGER);
 	});
+});
 
+describe("runCaseStoreMigrations after the schema is applied", () => {
+	const dbHandle = setupPerTestDatabase({
+		databaseNamePrefix: "migrate_applied_",
+		schema: "migrated",
+	});
 	it("is idempotent — a second run applies nothing and does not throw", async () => {
 		const db = dbHandle.db;
-		await runCaseStoreMigrations(db);
 		await expect(runCaseStoreMigrationsWithReport(db)).resolves.toEqual({
 			appliedMigrationNames: [],
 		});
@@ -83,9 +89,8 @@ describe("runCaseStoreMigrations", () => {
 		expect(await ledgerNames(db)).toEqual(EXPECTED_LEDGER);
 	});
 
-	it("adopts existing localization tables when its ledger row is absent", async () => {
+	it("reapplying the localization migration preserves its existing tables", async () => {
 		const db = dbHandle.db;
-		await runCaseStoreMigrations(db);
 
 		await expect(designLocalization.up(db)).resolves.toBeUndefined();
 		expect(
@@ -101,7 +106,6 @@ describe("runCaseStoreMigrations", () => {
 
 	it("fails closed when a final schema loses its immutable migration ledger", async () => {
 		const db = dbHandle.db;
-		await runCaseStoreMigrations(db);
 		await sql`DROP TABLE kysely_migration`.execute(db);
 		await sql`DROP TABLE IF EXISTS kysely_migration_lock`.execute(db);
 
@@ -117,7 +121,6 @@ describe("runCaseStoreMigrations", () => {
 
 	it("does not replay history to heal drift in a fully ledgered final schema", async () => {
 		const db = dbHandle.db;
-		await runCaseStoreMigrations(db);
 		await sql`ALTER TABLE "cases" DROP CONSTRAINT IF EXISTS "cases_case_name_check"`.execute(
 			db,
 		);

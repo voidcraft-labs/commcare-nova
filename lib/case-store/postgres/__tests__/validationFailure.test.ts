@@ -66,8 +66,7 @@ describe("ajvErrorToCaseFailure", () => {
 			schemaPath: "#/additionalProperties",
 			params: {},
 			message: "must NOT have additional properties",
-			// biome-ignore lint/suspicious/noExplicitAny: hand-built ErrorObject for the defensive arm
-		} as any;
+		};
 		expect(ajvErrorToCaseFailure(synthetic)).toEqual({
 			path: "",
 			message: "must NOT have additional properties",

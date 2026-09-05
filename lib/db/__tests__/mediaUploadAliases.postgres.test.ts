@@ -7,7 +7,8 @@
  * expires through a bounded deterministic purge.
  */
 
-import { describe, expect, it } from "vitest";
+import { Client } from "pg";
+import { describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import type { MediaAssetId } from "@/lib/domain";
 import {
@@ -17,6 +18,7 @@ import {
 	resolveReadyUploadAliasForActor,
 } from "../mediaAssets";
 import { setupAppStateTestDb } from "./appStateTestDb";
+import { createPerTestAppDb } from "./perTestAppDb";
 
 const PROJECT = "upload-alias-project";
 const ACTOR = "upload-alias-editor";
@@ -205,6 +207,8 @@ describe("durable media upload aliases", () => {
 			status: "pending",
 		});
 
+		const contenders = createPerTestAppDb(h.uri());
+		const gate = new Client({ connectionString: h.uri() });
 		const canonicalize = () =>
 			canonicalizePendingAssetForActor(
 				{
@@ -214,14 +218,44 @@ describe("durable media upload aliases", () => {
 					expectedProjectId: PROJECT,
 					expectedContentHash: HASH,
 				},
-				h.db(),
+				contenders.appDb,
 			);
-		const outcomes = await Promise.all([canonicalize(), canonicalize()]);
-
-		expect(outcomes.map(({ kind }) => kind).sort()).toEqual([
-			"already_canonical",
-			"canonicalized",
-		]);
+		let pending:
+			| Promise<
+					PromiseSettledResult<Awaited<ReturnType<typeof canonicalize>>>[]
+			  >
+			| undefined;
+		try {
+			await gate.connect();
+			await gate.query("BEGIN");
+			await gate.query("SELECT id FROM media_assets WHERE id = $1 FOR UPDATE", [
+				READY_ASSET,
+			]);
+			pending = Promise.allSettled([canonicalize(), canonicalize()]);
+			await vi.waitFor(async () => {
+				// This observer holds a transaction; refresh its statistics snapshot
+				// so newly connected contenders are visible on each poll.
+				await gate.query("SELECT pg_stat_clear_snapshot()");
+				const blocked = await gate.query<{ count: number }>(`
+					SELECT count(*)::integer AS count FROM pg_stat_activity
+					WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0
+				`);
+				expect(blocked.rows[0]?.count).toBe(2);
+			});
+			await gate.query("COMMIT");
+			const outcomes = (await pending).map((result) => {
+				if (result.status === "rejected") throw result.reason;
+				return result.value;
+			});
+			expect(outcomes.map(({ kind }) => kind).sort()).toEqual([
+				"already_canonical",
+				"canonicalized",
+			]);
+		} finally {
+			await gate.end();
+			await pending;
+			await contenders.destroy();
+		}
 		await expect(
 			h
 				.db()
