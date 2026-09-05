@@ -38,7 +38,6 @@
 import type { UIMessageStreamWriter } from "ai";
 import type { Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import {
 	createPerTestAppDb,
@@ -107,7 +106,10 @@ const PEER = "user-2";
 const PROJECT = "project-1";
 const SUCCESSOR_NONCE = "00000000-0000-4000-8000-000000000099";
 
-const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_stream_" });
+const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
+	databaseNamePrefix: "chat_stream_",
+});
 
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
@@ -237,7 +239,6 @@ async function collectUntil(
 }
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	harness = createPerTestAppDb(dbHandle.uri);
 	appDb = harness.appDb;
 	__setAppDbForTests(appDb);

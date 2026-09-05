@@ -28,7 +28,7 @@ export default defineConfig({
 		// OUTSIDE every test's import graph yet change how all tests execute
 		// (installed deps — including a lockfile-only bump that leaves
 		// package.json untouched — this config, the global logger/motion
-		// stubs, the shared Postgres container). CI never scopes: both CI
+		// stubs, the shared Postgres container). CI never scopes: its test
 		// jobs run every test file, sharded.
 		// Patterns match the absolute paths `vitest --changed` feeds
 		// picomatch; note the no-trailing-`/**` form — vitest's own default

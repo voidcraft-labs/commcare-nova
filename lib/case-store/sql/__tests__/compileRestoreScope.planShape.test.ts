@@ -19,16 +19,17 @@
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
 import { beforeEach, expect, it } from "vitest";
-import { runCaseStoreMigrations } from "../../migrate";
 import { buildRestoreScope } from "../compileRestoreScope";
 import type { Database } from "../database";
 import { setupPerTestDatabase } from "./perTestDatabase";
 
-const handle = setupPerTestDatabase({ databaseNamePrefix: "restore_plan" });
+const handle = setupPerTestDatabase({
+	schema: "migrated",
+	databaseNamePrefix: "restore_plan",
+});
 let db: Kysely<Database>;
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(handle.db);
 	db = new Kysely<Database>({
 		dialect: new PostgresDialect({
 			pool: handle.pool as unknown as PostgresPool,

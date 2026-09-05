@@ -131,8 +131,8 @@ describe("scoped validation equals a full validation filtered to scope", () => {
 
 	it(
 		"holds for generated valid documents and generated explicit scopes",
-		() => {
-			fc.assert(
+		async () => {
+			await fc.assert(
 				fc.property(docAndScopeArbitrary, ({ doc, scope }) => {
 					const full = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 					const scoped = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {

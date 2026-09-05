@@ -723,14 +723,14 @@ const OP_KINDS = [
 ] as const satisfies readonly FuzzOp["kind"][];
 
 describe("reference index fuzz — incremental ≡ rebuild after every batch", () => {
-	it("holds over random mutation sequences from a reference-rich seed", () => {
+	it("holds over random mutation sequences from a reference-rich seed", async () => {
 		const changedTally = new Map<FuzzOp["kind"], number>(
 			OP_KINDS.map((k) => [k, 0]),
 		);
 		let danglingSatisfiedAdds = 0;
 		let crossModuleFormMoves = 0;
 
-		fc.assert(
+		await fc.assert(
 			fc.property(
 				// One op per applyMutations batch, so the per-kind floor
 				// credits exactly the op that changed the doc — a kind whose

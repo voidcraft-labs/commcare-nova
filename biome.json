@@ -151,7 +151,7 @@
 				"noFloatingPromises": "error",
 				"noMisusedPromises": "error"
 			},
-			"recommended": true
+			"preset": "recommended"
 		}
 	}
 }

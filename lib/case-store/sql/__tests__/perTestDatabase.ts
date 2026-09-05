@@ -175,8 +175,8 @@ async function createIsolatedDatabase(
 	const databaseName = `${databaseNamePrefix}${Math.random().toString(36).slice(2, 10)}`;
 
 	const adminClient = new Client({ connectionString: baseUri });
-	await adminClient.connect();
 	try {
+		await adminClient.connect();
 		const template =
 			schema === "migrated"
 				? inject("postgresMigratedTemplate")
@@ -201,8 +201,8 @@ async function createIsolatedDatabase(
 async function dropIsolatedDatabase(databaseName: string): Promise<void> {
 	const baseUri = inject("postgresTestUrl");
 	const adminClient = new Client({ connectionString: baseUri });
-	await adminClient.connect();
 	try {
+		await adminClient.connect();
 		await adminClient.query(
 			`DROP DATABASE IF EXISTS ${databaseName} WITH (FORCE)`,
 		);

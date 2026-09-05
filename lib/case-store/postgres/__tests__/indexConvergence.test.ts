@@ -12,7 +12,6 @@ import { computeSchemaDrift } from "../../../../scripts/lib/schemaDrift";
 import { prepareSchemaDriftRepairInAppTransaction } from "../../../../scripts/lib/schemaDriftMigration";
 import { buildSimpleBlueprint } from "../../__tests__/fixtures/simpleBlueprint";
 import { SchemaNotSyncedError } from "../../errors";
-import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -21,6 +20,7 @@ import { drainRetiredCaseTypeSchemaIndexes } from "../schemaRetirement";
 import { indexScopeTag, PostgresCaseStore, propertyIndexTag } from "../store";
 
 const database = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "case_index_convergence_",
 });
 const APP_ID = "index-convergence-app";
@@ -59,7 +59,6 @@ function indexName(suffix: "fuzzy" | "int"): string {
 }
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(database.db);
 	await sql`
 		INSERT INTO apps
 			(id, owner, project_id, app_name, app_name_lower)

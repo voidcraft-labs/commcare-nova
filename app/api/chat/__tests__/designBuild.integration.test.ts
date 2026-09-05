@@ -20,7 +20,6 @@
 
 import type { Insertable, Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
 import {
@@ -87,7 +86,10 @@ const USER = "user-design-1";
 const PROJECT = "project-design-1";
 const THREAD = "thread-design-1";
 
-const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_design_" });
+const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
+	databaseNamePrefix: "chat_design_",
+});
 
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
@@ -228,7 +230,6 @@ async function transferMaterializedApp(args: {
 }
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	harness = createPerTestAppDb(dbHandle.uri);
 	appDb = harness.appDb;
 	__setAppDbForTests(appDb);

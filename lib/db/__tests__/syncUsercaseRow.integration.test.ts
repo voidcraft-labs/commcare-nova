@@ -10,7 +10,6 @@
 
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
@@ -27,11 +26,11 @@ const PROJECT_ID = "project-1";
 const PERSONA_ID = "3f2b1c8e-5d4a-4b7c-9e1f-0a2b3c4d5e6f";
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "usercase_sync_test_",
 });
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	// `cases` carries a `(project_id, app_id)` tenancy foreign key, so a row
 	// cannot exist without its app. Seeding it is what makes this a real
 	// tenancy test rather than one against a table with the fence removed.

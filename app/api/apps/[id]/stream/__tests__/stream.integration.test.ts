@@ -60,7 +60,6 @@ import {
 	vi,
 } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { createReconciler, type MutationFrame } from "@/lib/collab/reconciler";
 import {
@@ -191,7 +190,10 @@ function deferredVoid(): { promise: Promise<void>; resolve: () => void } {
 	return { promise, resolve };
 }
 
-const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "stream_relay_" });
+const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
+	databaseNamePrefix: "stream_relay_",
+});
 
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
@@ -600,7 +602,6 @@ async function collectUntil(
 }
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	harness = createPerTestAppDb(dbHandle.uri);
 	appDb = harness.appDb;
 	__setAppDbForTests(appDb);

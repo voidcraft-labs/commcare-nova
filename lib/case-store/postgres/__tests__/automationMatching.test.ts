@@ -4,7 +4,6 @@ import type { CaseType } from "@/lib/domain";
 import { and, eq, isIn, literal, prop } from "@/lib/domain/predicate/builders";
 import { proseText } from "@/lib/domain/prose";
 import type { AutomationHostAmbiguityError } from "../../errors";
-import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -51,7 +50,10 @@ const PYTHON_STRIP_WHITESPACE_FIXTURE = String.fromCodePoint(
 	0x3000,
 );
 
-const h = setupPerTestDatabase({ databaseNamePrefix: "automation_match_" });
+const h = setupPerTestDatabase({
+	schema: "migrated",
+	databaseNamePrefix: "automation_match_",
+});
 
 const schemas = new Map<string, CaseType>([
 	[
@@ -105,7 +107,6 @@ const schemas = new Map<string, CaseType>([
 ]);
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(h.db);
 	await h.pool.query(
 		`INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		 VALUES

@@ -203,8 +203,8 @@ describe("suite emitter totality (property-based fuzz)", () => {
 
 	it("every schema-valid doc emits an oracle-clean suite.xml", {
 		timeout: FUZZ_TIMEOUT_MS,
-	}, () => {
-		fc.assert(
+	}, async () => {
+		await fc.assert(
 			fc.property(suiteDocArbitrary, (doc) => {
 				if (nestSecondModuleWhenAvailable(doc)) census.nestedMenu += 1;
 				prepareAndGuard(doc);

@@ -16,7 +16,6 @@ import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import type { CaseType } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import { runCaseStoreMigrations } from "../../migrate";
 import { HeuristicCaseGenerator } from "../../sample/heuristic";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
@@ -34,11 +33,11 @@ const AUTHORED_SECOND_PARENT_ID =
 	"nova-case-v1:9ac52723-445f-54a7-8c1b-7e90c985637b:household #8";
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "opaque_ids_test_",
 });
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	await sql`
 		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		VALUES (${APP_ID}, 'opaque-actor', ${PROJECT_A}, 'Opaque ids', 'opaque ids')

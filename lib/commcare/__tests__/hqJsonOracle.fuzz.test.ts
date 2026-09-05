@@ -142,8 +142,8 @@ describe("HQ import-JSON emitter totality (property-based fuzz)", () => {
 
 	it("every schema-valid doc expands to an oracle-clean HqApplication", {
 		timeout: FUZZ_TIMEOUT_MS,
-	}, () => {
-		fc.assert(
+	}, async () => {
+		await fc.assert(
 			fc.property(suiteDocArbitrary, (doc) => {
 				if (nestSecondModuleWhenAvailable(doc)) census.nestedMenu += 1;
 				prepareAndGuard(doc);

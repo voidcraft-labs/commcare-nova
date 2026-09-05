@@ -1,11 +1,11 @@
 import { type Kysely, sql } from "kysely";
 import { beforeEach, describe, expect, it } from "vitest";
 import { readCasePropertyRenameStoragePreflightInTransaction } from "../../casePropertyRenamePreflight";
-import { runCaseStoreMigrations } from "../../migrate";
 import { setupPerTestDatabase } from "../../sql/__tests__/perTestDatabase";
 import type { Database } from "../../sql/database";
 
 const database = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "case_property_rename_preflight_",
 });
 const APP_ID = "rename-preflight-app";
@@ -73,7 +73,6 @@ async function insertParked(args: {
 }
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(database.db);
 	await sql`
 		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
 		VALUES

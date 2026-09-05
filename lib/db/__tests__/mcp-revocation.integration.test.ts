@@ -87,7 +87,6 @@ import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { MCP_RESOURCE_METADATA_URL } from "@/lib/hostnames";
 
@@ -97,6 +96,7 @@ const TEST_SECRET = "x".repeat(32);
 const TEST_USER_ID = "user-test-1";
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "auth_mcp_revoke_",
 	establishLocalMigrationAuthority: true,
 });
@@ -189,7 +189,6 @@ describe("MCP route consent lock", () => {
 	let auth: ReturnType<typeof createTestAuth>;
 
 	beforeEach(async () => {
-		await runCaseStoreMigrations(dbHandle.db);
 		const { runMigrations } = await getMigrations(
 			authMigrateOptions(dbHandle.pool),
 		);

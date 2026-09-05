@@ -133,13 +133,27 @@ export async function setup(project: TestProject): Promise<void> {
 	const container = await startContainer();
 
 	runningContainer = container;
+	try {
+		await prepareDatabases(project, container);
+	} catch (error) {
+		// Vitest cannot register a teardown returned by a setup that throws.
+		// Close our container even when provisioning or migration fails.
+		await teardown();
+		throw error;
+	}
+}
+
+async function prepareDatabases(
+	project: TestProject,
+	container: StartedPostgreSqlContainer,
+): Promise<void> {
 	const connectionString = container.getConnectionUri();
 
 	// The container's default postgres user is a superuser, so
 	// `CREATE EXTENSION` succeeds without IAM auth.
 	const extClient = new Client({ connectionString });
-	await extClient.connect();
 	try {
+		await extClient.connect();
 		for (const extension of REQUIRED_EXTENSIONS) {
 			await extClient.query(`CREATE EXTENSION IF NOT EXISTS "${extension}"`);
 		}
@@ -153,8 +167,8 @@ export async function setup(project: TestProject): Promise<void> {
 			.getConnectionUri()
 			.replace("/case_store_test", "/postgres"),
 	});
-	await admin.connect();
 	try {
+		await admin.connect();
 		// No sessions may connect to a template while PostgreSQL clones it.
 		await admin.query(
 			"CREATE DATABASE nova_extensions TEMPLATE case_store_test",
@@ -169,8 +183,8 @@ export async function setup(project: TestProject): Promise<void> {
 			.getConnectionUri()
 			.replace("/case_store_test", "/postgres"),
 	});
-	await snapshot.connect();
 	try {
+		await snapshot.connect();
 		await snapshot.query(
 			"CREATE DATABASE nova_migrated TEMPLATE case_store_test",
 		);

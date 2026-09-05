@@ -23,7 +23,6 @@
 import type { UIMessageChunk } from "ai";
 import type { Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import {
 	createPerTestAppDb,
@@ -71,13 +70,15 @@ const { persistResponseSnapshot, upsertThreadTurn } = await import(
 );
 
 const USER = "user-1";
-const dbHandle = setupPerTestDatabase({ databaseNamePrefix: "chat_tport_" });
+const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
+	databaseNamePrefix: "chat_tport_",
+});
 
 let appDb: Kysely<AppDatabase>;
 let harness: PerTestAppDb;
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	harness = createPerTestAppDb(dbHandle.uri);
 	appDb = harness.appDb;
 	__setAppDbForTests(appDb);

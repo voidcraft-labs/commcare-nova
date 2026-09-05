@@ -16,7 +16,6 @@ import {
 	CaptureSubmissionRejectedError,
 	SubmissionRejectedError,
 } from "@/lib/case-store/errors";
-import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
@@ -50,11 +49,11 @@ import { FormEngine, type FormEngineInput } from "../formEngine";
 import type { ResolvedPreviewIdentity } from "../identity";
 
 const dbHandle = setupPerTestDatabase({
+	schema: "migrated",
 	databaseNamePrefix: "program_acceptance_",
 });
 
 beforeEach(async () => {
-	await runCaseStoreMigrations(dbHandle.db);
 	// Case rows are structurally tenant-bound to their authoritative app row.
 	// Establish the real `(app, Project)` parent before materializing schemas
 	// or data; bypassing it would exercise a state production cannot represent.

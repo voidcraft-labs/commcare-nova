@@ -109,13 +109,13 @@ jobs:
   test:
     # Every test runs once, in isolated workers. Shared database templates avoid
     # reinstalling extensions and replaying migrations for each behavior test.
-    name: Test shard ${{ matrix.shard }}/4
+    name: Test shard ${{ matrix.shard }}/6
     runs-on: ubuntu-latest
     timeout-minutes: 10
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5, 6]
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
@@ -141,7 +141,7 @@ jobs:
       # container itself.
       - uses: ./.github/actions/pull-test-image
       - name: Test suite
-        run: npm test -- --shard=${{ matrix.shard }}/4 --reporter=default --reporter=./scripts/ci/test-timings.ts
+        run: npm test -- --shard=${{ matrix.shard }}/6 --reporter=default --reporter=./scripts/ci/test-timings.ts
       - name: Upload test timings
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7

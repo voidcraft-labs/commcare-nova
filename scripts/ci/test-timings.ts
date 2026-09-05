@@ -28,6 +28,17 @@ export default class TestTimings implements Reporter {
 			"test-results/timings.json",
 			`${JSON.stringify(this.rows, null, 2)}\n`,
 		);
-		console.table(this.rows.slice(0, 15));
+		console.table(
+			this.rows
+				.slice(0, 15)
+				.map((row) =>
+					Object.fromEntries(
+						Object.entries(row).map(([key, value]) => [
+							key,
+							typeof value === "number" ? Math.round(value) : value,
+						]),
+					),
+				),
+		);
 	}
 }
