@@ -75,13 +75,18 @@ def admit_migration(*, project: str, region: str, job: str, image: str, wait_sec
             raise policy.TerminalDeploymentPolicyError("Another migration artifact is active; retry after it finishes.")
 
     if current_image != image:
-        containers = copy.deepcopy(current["template"]["template"]["containers"])
-        containers[0]["image"] = image
-        # Only the image changes. The same generation fence protects this update
-        # and the subsequent execution admission; neither mutation is retried.
-        policy._run_api_request(token, "PATCH", name + "?updateMask=template.template.containers", {
-            "name": name, "etag": etag, "template": {"template": {"containers": containers}},
-        })
+        # Jobs.patch accepts a complete Job, with no updateMask parameter.
+        # Preserve every writable setting and the full execution/task template;
+        # omit output-only state and execution tokens (an update must not run it).
+        update = {key: copy.deepcopy(current[key]) for key in (
+            "name", "labels", "annotations", "client", "clientVersion",
+            "launchStage", "binaryAuthorization", "template",
+        ) if key in current}
+        update["etag"] = etag
+        update["template"]["template"]["containers"][0]["image"] = image
+        # The generation fence protects this update and execution admission.
+        # Neither mutation is retried.
+        policy._run_api_request(token, "PATCH", name, update)
         policy._wait_for("the new immutable migration Job", lambda:
             policy._exact_ready_job_etag(policy._run_api_request(token, "GET", name), name, image),
             timeout_seconds=120)

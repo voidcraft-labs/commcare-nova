@@ -27,9 +27,9 @@ RUN --mount=type=cache,id=nova-npm-downloads,target=/root/.npm \
     npm install --global "npm@${NPM_VERSION}" --ignore-scripts --no-audit --no-fund && \
     test "$(npm --version)" = "${NPM_VERSION}"
 
-# Cache one dependency archive rather than making the registry exporter walk
-# the entire installed file tree. The install tree and npm downloads remain in
-# disposable mounts; only the archive enters the published cache layer.
+# Keep npm downloads and the install tree in disposable mounts. The archive
+# is an intermediate cold-build input; the registry cache exports only the
+# expanded deps stage, so warm builds restore installed dependencies directly.
 FROM build-base AS dependency-archive
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./

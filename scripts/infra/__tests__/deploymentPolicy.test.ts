@@ -314,8 +314,9 @@ describe("deployment artifact and release contracts", () => {
 			);
 			expect(
 				builds.map((args) => args[args.indexOf("--target") + 1]).sort(),
-			).toEqual(["dependency-archive", "next-cache-export"]);
+			).toEqual(["deps", "next-cache-export"]);
 			expect(builds.every((args) => !args.includes("--secret"))).toBe(true);
+			expect(builds.flat().some((arg) => arg.includes("mode=min"))).toBe(true);
 			const snapshot = dockerfile.slice(
 				dockerfile.indexOf("AS cache-snapshot"),
 				dockerfile.indexOf("FROM scratch AS next-cache-export"),

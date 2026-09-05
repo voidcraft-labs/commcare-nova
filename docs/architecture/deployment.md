@@ -25,10 +25,11 @@ pins change, then update the digest in both Cloud Build configurations. The
 application pipeline never builds its own tooling. The worker machine size is
 the Cloud Build default.
 
-A private registry cache holds one installed-dependency tar archive. Both npm
-downloads and the installation tree stay in disposable mounts; registry export
-processes the archive instead of walking the complete installed file tree.
-Each build expands that archive inside BuildKit before compilation. A separate
+A private registry cache holds the installed dependency layer, exported with
+`mode=min` from the `deps` target. Warm builds restore that layer directly;
+the cold install's intermediate tar archive is not published alongside it.
+This avoids expanding an archive after the registry has already extracted it.
+A separate
 OCI image holds only `.next/cache`, including Turbopack and native TypeScript
 incremental state. BuildKit seeds its writable cache mount directly from that
 image; the compiler cache never enters the host source context or an
@@ -84,6 +85,11 @@ transitive runtime dependencies. Its reproducible timestamps make unchanged
 migration code retain the same digest across application build IDs. The
 capture worker has a separate explicit image target. Neither bundle is in the
 application runner.
+
+Changed migration images use Cloud Run's Job PATCH API with the complete
+writable Job configuration and its etag, preserving the full task template.
+The API does not accept a field mask. Output-only state and execution tokens
+are omitted, so updating an image cannot itself launch a migration.
 
 `scripts/rollout/migration-gate.py` reuses a prior successful immutable Execution
 only when the candidate digest, full Job contract, latest Execution identity,
