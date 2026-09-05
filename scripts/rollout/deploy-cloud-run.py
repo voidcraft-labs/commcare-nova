@@ -597,6 +597,8 @@ def _assert_task_template(
     expected_image: str,
     expected_args: Sequence[str],
     label: str,
+    *,
+    require_vpc: bool = True,
 ) -> None:
     container = _single_container(
         task_template.get("containers"), f"{label} containers"
@@ -641,7 +643,10 @@ def _assert_task_template(
         ]):
         fail(f"{label} environment differs from the checked-in Job configuration; run manage-deployment.py job.")
     expected_vpc = {"egress": "PRIVATE_RANGES_ONLY", "networkInterfaces": [{"network": "default", "subnetwork": "default"}]} if contract.vpc else {}
-    if (task_template.get("vpcAccess") or {}) != expected_vpc:
+    # Cloud Run omits vpcAccess from Execution task templates. The Job
+    # must still prove it before the etag-fenced execution POST. Validate it
+    # on an Execution too whenever the API supplies it.
+    if (require_vpc or "vpcAccess" in task_template) and (task_template.get("vpcAccess") or {}) != expected_vpc:
         fail(f"{label} VPC configuration differs from the checked-in Job configuration.")
     limits = container.get("resources", {}).get("limits", {})
     cpu = limits.get("cpu")
@@ -729,6 +734,7 @@ def _assert_exact_execution_succeeded(
         expected_image,
         expected_args,
         "Cloud Run execution",
+        require_vpc=False,
     )
     task_count = _integer(execution.get("taskCount"), "execution taskCount")
     succeeded = _integer(execution.get("succeededCount", 0), "execution succeededCount")
