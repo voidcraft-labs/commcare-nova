@@ -162,37 +162,24 @@ async function prepareDatabases(
 	}
 
 	// Snapshot extensions separately so migration tests still start without tables.
-	const admin = new Client({
-		connectionString: container
-			.getConnectionUri()
-			.replace("/case_store_test", "/postgres"),
-	});
+	// Connect to the administration database: cloning requires no open sessions
+	// on the source, including our own. Templates never accept test connections.
+	const adminUri = new URL(connectionString);
+	adminUri.pathname = "/postgres";
+	const admin = new Client({ connectionString: adminUri.toString() });
 	try {
 		await admin.connect();
-		// No sessions may connect to a template while PostgreSQL clones it.
 		await admin.query(
-			"CREATE DATABASE nova_extensions TEMPLATE case_store_test",
+			`CREATE DATABASE nova_extensions TEMPLATE ${DATABASE_NAME}`,
 		);
 		await admin.query("ALTER DATABASE nova_extensions ALLOW_CONNECTIONS false");
+		await applyMigrations(connectionString);
+		await admin.query(
+			`CREATE DATABASE nova_migrated TEMPLATE ${DATABASE_NAME}`,
+		);
+		await admin.query("ALTER DATABASE nova_migrated ALLOW_CONNECTIONS false");
 	} finally {
 		await admin.end();
-	}
-	await applyMigrations(connectionString);
-	const snapshot = new Client({
-		connectionString: container
-			.getConnectionUri()
-			.replace("/case_store_test", "/postgres"),
-	});
-	try {
-		await snapshot.connect();
-		await snapshot.query(
-			"CREATE DATABASE nova_migrated TEMPLATE case_store_test",
-		);
-		await snapshot.query(
-			"ALTER DATABASE nova_migrated ALLOW_CONNECTIONS false",
-		);
-	} finally {
-		await snapshot.end();
 	}
 	project.provide("postgresExtensionsTemplate", "nova_extensions");
 	project.provide("postgresMigratedTemplate", "nova_migrated");

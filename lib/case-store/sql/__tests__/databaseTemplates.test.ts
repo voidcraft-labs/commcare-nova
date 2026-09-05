@@ -1,11 +1,29 @@
 import { Client } from "pg";
-import { describe, expect, inject, it } from "vitest";
+import { afterAll, beforeEach, describe, expect, inject, it } from "vitest";
 import { setupPerTestDatabase } from "./perTestDatabase";
 
 describe("migrated database clones", () => {
 	const h = setupPerTestDatabase({
 		databaseNamePrefix: "clone_contract_",
 		schema: "migrated",
+	});
+
+	const databases: string[] = [];
+	beforeEach(() => {
+		databases.push(h.databaseName);
+	});
+	afterAll(async () => {
+		const admin = new Client({ connectionString: inject("postgresTestUrl") });
+		try {
+			await admin.connect();
+			const remaining = await admin.query(
+				"SELECT datname FROM pg_database WHERE datname = ANY($1::text[])",
+				[databases],
+			);
+			expect(remaining.rows).toEqual([]);
+		} finally {
+			await admin.end();
+		}
 	});
 
 	// Both cases commit a real write. Each must start empty regardless of order.

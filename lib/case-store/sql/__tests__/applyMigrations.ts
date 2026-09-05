@@ -2,9 +2,9 @@
 //
 // In-process migration application for the testcontainers harness's SHARED
 // global database, by URI. `globalSetup.ts` is the sole caller — it has the
-// container URI but no Kysely handle yet. Per-test-database suites instead call
-// `runCaseStoreMigrations(dbHandle.db)` directly (reusing the handle's open
-// pool), so this URI-based helper exists only for that one handle-less site.
+// container URI but no Kysely handle yet. Behavior tests clone its closed
+// migrated snapshot; migration tests run their migrations on extensions-only
+// databases using the per-test handle.
 // Builds a short-lived Kysely on the URI and runs the SAME
 // `runCaseStoreMigrations` production runs, so tests exercise the exact
 // migration set the deploy applies (the parity guarantee the former `atlas
@@ -17,8 +17,8 @@ import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
 
 /**
  * Apply all pending case-store migrations against the database at `uri`. The
- * throwaway pool is destroyed before returning so the call leaves no open
- * handle for the async-leak detector to flag.
+ * throwaway pool is destroyed before returning so the template has no open
+ * connections when globalSetup clones it.
  */
 export async function applyMigrations(uri: string): Promise<void> {
 	const pool = new Pool({ connectionString: uri, max: 1 });

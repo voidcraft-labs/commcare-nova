@@ -60,9 +60,8 @@ function buildRequest(body: string): Request {
  * drain BOTH body streams: returning the status plus the parsed response JSON.
  *
  * Draining is load-bearing, not a convenience: an unconsumed body stream (on the
- * `Request` or the `Response`) leaves its underlying promise pending, which the
- * async-leak detector (the pre-push `--detect-async-leaks` gate) flags as a
- * leaked PROMISE and fails the push on. Two distinct streams must be settled:
+ * `Request` or the `Response`) leaves unfinished work after the test returns.
+ * Two distinct streams must be settled:
  *
  *   - The RESPONSE body: always read here via `res.json()`, so a case that only
  *     asserts on the status (and ignores `json`) still settles that stream.
