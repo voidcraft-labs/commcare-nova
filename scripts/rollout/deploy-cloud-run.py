@@ -723,23 +723,27 @@ def _assert_exact_execution_succeeded(
             "Cloud Run execution belongs to the wrong Job: "
             f"expected an execution of {expected_job!r}, got {execution_name!r}."
         )
-    contract = _job_contract(expected_job)
-    _assert_execution_shape(execution, contract, "Cloud Run execution")
-    task_template = _object(
-        execution.get("template"), "Cloud Run execution task template"
-    )
-    _assert_task_template(
-        task_template,
-        contract,
-        expected_image,
-        expected_args,
-        "Cloud Run execution",
-        require_vpc=False,
-    )
-    task_count = _integer(execution.get("taskCount"), "execution taskCount")
-    succeeded = _integer(execution.get("succeededCount", 0), "execution succeededCount")
-    failed = _integer(execution.get("failedCount", 0), "execution failedCount")
-    cancelled = _integer(execution.get("cancelledCount", 0), "execution cancelledCount")
+    try:
+        contract = _job_contract(expected_job)
+        _assert_execution_shape(execution, contract, "Cloud Run execution")
+        task_template = _object(
+            execution.get("template"), "Cloud Run execution task template"
+        )
+        _assert_task_template(
+            task_template,
+            contract,
+            expected_image,
+            expected_args,
+            "Cloud Run execution",
+            require_vpc=False,
+        )
+        task_count = _integer(execution.get("taskCount"), "execution taskCount")
+        succeeded = _integer(execution.get("succeededCount", 0), "execution succeededCount")
+        failed = _integer(execution.get("failedCount", 0), "execution failedCount")
+        cancelled = _integer(execution.get("cancelledCount", 0), "execution cancelledCount")
+    except DeploymentPolicyError as error:
+        # An immutable Execution cannot reconcile a wrong image or contract.
+        raise TerminalDeploymentPolicyError(str(error)) from error
     if failed > 0 or cancelled > 0:
         raise TerminalDeploymentPolicyError(
             "Cloud Run Job execution failed or was cancelled."

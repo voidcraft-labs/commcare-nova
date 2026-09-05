@@ -8,7 +8,8 @@ Examples:
   python3 scripts/infra/manage-deployment.py cache [--apply]
   python3 scripts/infra/manage-deployment.py job --job NAME --image REPO@sha256:... [--apply]
 
-The app pipeline only checks prerequisites and changes recurring Job images.
+The app pipeline checks prerequisites and admits the independent migration artifact.
+Capture-worker image and schedule changes are explicit infrastructure maintenance.
 IAM identities are managed by provision-deployment-identities.sh [--apply].
 """
 from __future__ import annotations

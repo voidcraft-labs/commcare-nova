@@ -11,6 +11,7 @@ const cloudBuild = read("cloudbuild.yaml");
 const dockerfile = read("Dockerfile");
 const ciWorkflow = read(".github/workflows/ci.yml");
 const imageBuilder = read("scripts/rollout/build-image.sh");
+const buildCommon = read("scripts/rollout/build-common.sh");
 const dockerignore = read(".dockerignore");
 const migrate = read("scripts/migrate.ts");
 const cleanup = read("scripts/cleanup-form-attachments.ts");
@@ -50,15 +51,18 @@ describe("deployment artifact and release contracts", () => {
 		}
 	});
 
-	test("requires one migration execution before application and worker image updates", () => {
+	test("requires exact migration admission before deployment and keeps the recurring worker outside releases", () => {
 		expect(step("migrate")).toContain(
-			"waitFor: [resolve-image, prerequisites]",
+			"waitFor: [migration-image, prerequisites]",
 		);
-		expect(step("deploy")).toContain("waitFor: [migrate]");
-		expect(step("capture-cleanup")).toContain("waitFor: [migrate]");
-		expect(step("verify")).toContain("waitFor: [deploy, capture-cleanup]");
-		expect(cloudBuild.match(/--execute-job/g)).toHaveLength(1);
-		expect(step("capture-cleanup")).toContain("--verify-job");
+		expect(step("deploy")).toContain("waitFor: [migrate, resolve-image]");
+		expect(step("verify")).toContain("waitFor: [deploy]");
+		expect(
+			cloudBuild.match(/scripts\/rollout\/migration-gate.py/g),
+		).toHaveLength(1);
+		expect(cloudBuild).not.toContain("capture-cleanup");
+		expect(cloudBuild).not.toContain("machineType");
+		expect(read("cloudbuild.benchmark.yaml")).not.toContain("machineType");
 		for (const forbidden of [
 			"jobs deploy",
 			"scheduler jobs update",
@@ -169,10 +173,8 @@ describe("deployment artifact and release contracts", () => {
 		expect(scripts.prebuild).toBe(
 			"npm run verify:java-pattern-runtime && npm run build:xpath-worker",
 		);
-		expect(scripts.build).toBe(
-			"NEXT_TELEMETRY_DISABLED=1 next build && tsc --noEmit",
-		);
-		expect(dockerfile).toContain("&& npm run build");
+		expect(scripts.build).toBe("node scripts/build-app.mjs");
+		expect(dockerfile).toContain("npm run build");
 		expect(
 			dockerfile.indexOf("RUN node scripts/harden-agent-react-devtools.mjs"),
 		).toBeLessThan(dockerfile.indexOf("FROM sources AS builder"));
@@ -193,8 +195,10 @@ describe("deployment artifact and release contracts", () => {
 		const runner = dockerfile.slice(
 			dockerfile.indexOf(`FROM \${NODE_IMAGE} AS runner`),
 		);
-		expect(runner).toContain("/app/migrate.cjs");
-		expect(runner).toContain("/app/capture-cleanup.cjs");
+		expect(runner).not.toContain("/app/migrate.cjs");
+		expect(runner).not.toContain("/app/capture-cleanup.cjs");
+		expect(dockerfile).toContain("FROM job-runtime AS migration");
+		expect(dockerfile).toContain("FROM job-runtime AS capture-worker");
 		for (const removed of [
 			"media-bucket-policy.cjs",
 			"legacy-preplan-repair.cjs",
@@ -265,70 +269,92 @@ describe("deployment artifact and release contracts", () => {
 			"NEXT_SERVER_ACTIONS_ENCRYPTION_KEY",
 		]) {
 			expect(dockerfile).not.toContain(`ARG ${secret}`);
-			expect(imageBuilder).not.toContain(`--build-arg "${secret}=`);
+			expect(buildCommon).not.toContain(`--build-arg "${secret}=`);
 			expect(dockerfile).toContain(`type=secret,id=${secret},env=${secret}`);
 		}
 	});
 
-	test("the actual helper cannot bypass the full image or put secrets in Docker arguments", () => {
-		const directory = mkdtempSync(join(tmpdir(), "nova-image-contract-"));
-		try {
-			const log = join(directory, "calls.jsonl");
-			writeFileSync(
-				join(directory, "docker"),
-				`#!/usr/bin/env node\nrequire('node:fs').appendFileSync(process.env.NOVA_TEST_DOCKER_LOG, JSON.stringify(process.argv.slice(2))+'\\n');\n`,
-				{ mode: 0o700 },
-			);
-			const env = {
-				...process.env,
-				PATH: `${directory}:${process.env.PATH}`,
-				NOVA_TEST_DOCKER_LOG: log,
-				NOVA_IMAGE_TAG: "nova:test",
-				NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: "synthetic-public",
-				NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID: "map",
-				SENTRY_AUTH_TOKEN: "synthetic-private-token",
-				NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: "synthetic-private-key",
-				NEXT_DEPLOYMENT_ID: "build-2",
-				NOVA_BUILD_ID: "build-2",
-				NOVA_CLOUD_RUN_REQUEST_SECONDS: "3600",
-				NOVA_EDIT_RUN_LEASE_SECONDS: "900",
-				NOVA_BUILD_STALENESS_SECONDS: "600",
-				NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH: "hash",
-				NOVA_BUILD_CACHE_DIRECTORY: join(directory, "cache"),
-				NOVA_EXPORT_NEXT_CACHE: "true",
-				NOVA_DOCKER_CACHE_TO: "registry/cache:test",
-			};
-			execFileSync("bash", ["scripts/rollout/build-image.sh"], { env });
-			const calls: string[][] = read(log)
-				.trim()
-				.split("\n")
-				.map((line) => JSON.parse(line));
-			const builds = calls.filter(
-				(args) => args[0] === "buildx" && args[1] === "build",
-			);
-			expect(builds).toHaveLength(3);
-			expect(builds[0].slice(-6)).toEqual([
-				"--target",
-				"runner",
-				"--load",
-				"--tag",
-				"nova:test",
-				".",
-			]);
-			expect(builds[0]).not.toContain("--cache-to");
-			expect(builds[1]).toContain("jobs");
-			expect(builds[1]).toContain("type=cacheonly");
-			expect(builds[2]).toContain("next-cache-export");
-			expect(JSON.stringify(calls)).not.toContain("synthetic-private");
-			expect(calls.some((args) => args[1] === "use")).toBe(false);
-			const bad = spawnSync(
-				"bash",
-				["scripts/rollout/build-image.sh", "--target", "deps"],
-				{ env, encoding: "utf8" },
-			);
-			expect(bad.status).toBe(2);
-		} finally {
-			rmSync(directory, { recursive: true, force: true });
-		}
-	});
+	test.each(["success", "cache-failure", "runner-failure"])(
+		"image helper preserves the full build and cache-failure boundary (%s)",
+		(mode) => {
+			const directory = mkdtempSync(join(tmpdir(), "nova-image-contract-"));
+			try {
+				const log = join(directory, "calls.jsonl");
+				writeFileSync(
+					join(directory, "docker"),
+					`#!/usr/bin/env node\nrequire('node:fs').appendFileSync(process.env.NOVA_TEST_DOCKER_LOG, JSON.stringify(process.argv.slice(2))+'\\n');\nconst args=process.argv.slice(2);\nif (process.env.NOVA_TEST_MODE === 'cache-failure' && args.includes('cache-seed') && args.some(a => a.startsWith('next-cache=docker-image://'))) process.exit(11);\nif (process.env.NOVA_TEST_MODE === 'runner-failure' && args.includes('runner')) process.exit(12);\n`,
+					{ mode: 0o700 },
+				);
+				const env = {
+					...process.env,
+					PATH: `${directory}:${process.env.PATH}`,
+					NOVA_TEST_DOCKER_LOG: log,
+					NOVA_TEST_MODE: mode,
+					NOVA_NEXT_CACHE_FROM: `registry/cache@sha256:${"1".repeat(64)}`,
+					NOVA_IMAGE_TAG: "nova:test",
+					NEXT_PUBLIC_GOOGLE_MAPS_API_KEY: "synthetic-public",
+					NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID: "map",
+					SENTRY_AUTH_TOKEN: "synthetic-private-token",
+					NEXT_SERVER_ACTIONS_ENCRYPTION_KEY: "synthetic-private-key",
+					NEXT_DEPLOYMENT_ID: "build-2",
+					NOVA_BUILD_ID: "build-2",
+					NOVA_CLOUD_RUN_REQUEST_SECONDS: "3600",
+					NOVA_EDIT_RUN_LEASE_SECONDS: "900",
+					NOVA_BUILD_STALENESS_SECONDS: "600",
+					NOVA_RUNTIME_CAPABILITY_MANIFEST_HASH: "hash",
+					NOVA_BUILD_CACHE_DIRECTORY: join(directory, "cache"),
+					NOVA_EXPORT_NEXT_CACHE: "true",
+					NOVA_DOCKER_CACHE_TO: "registry/cache:test",
+				};
+				const result = spawnSync("bash", ["scripts/rollout/build-image.sh"], {
+					env,
+					encoding: "utf8",
+				});
+				expect(result.status, result.stderr).toBe(
+					mode === "runner-failure" ? 12 : 0,
+				);
+				const calls: string[][] = read(log)
+					.trim()
+					.split("\n")
+					.map((line) => JSON.parse(line));
+				const builds = calls.filter(
+					(args) => args[0] === "buildx" && args[1] === "build",
+				);
+				expect(builds).toHaveLength(mode === "cache-failure" ? 4 : 3);
+				const runner = builds.filter((args) => args.includes("runner"));
+				expect(runner).toHaveLength(1);
+				if (mode === "cache-failure") {
+					expect(builds[2]).toContain(
+						`next-cache=${env.NOVA_BUILD_CACHE_DIRECTORY}/input`,
+					);
+					expect(runner[0]).toContain(
+						`next-cache=${env.NOVA_BUILD_CACHE_DIRECTORY}/input`,
+					);
+				}
+				expect(runner[0].slice(-6)).toEqual([
+					"--target",
+					"runner",
+					"--load",
+					"--tag",
+					"nova:test",
+					".",
+				]);
+				expect(builds[0]).not.toContain("--cache-to");
+				expect(builds[0]).toContain("migration");
+				expect(builds[1]).toContain("cache-seed");
+				expect(builds[1]).toContain("type=cacheonly");
+				expect(builds[2]).not.toContain("next-cache-export");
+				expect(JSON.stringify(calls)).not.toContain("synthetic-private");
+				expect(calls.some((args) => args[1] === "use")).toBe(false);
+				const bad = spawnSync(
+					"bash",
+					["scripts/rollout/build-image.sh", "--target", "deps"],
+					{ env, encoding: "utf8" },
+				);
+				expect(bad.status).toBe(2);
+			} finally {
+				rmSync(directory, { recursive: true, force: true });
+			}
+		},
+	);
 });

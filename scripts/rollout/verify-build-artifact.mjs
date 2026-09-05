@@ -30,9 +30,11 @@ assert.ok(
 	"Client assets must carry this build's fresh release identity",
 );
 const actions = JSON.parse(read("actions.json"));
-assert.equal(
-	actions.encryptionKey,
-	"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+assert.ok(
+	actions.encryptionKey ===
+		(process.env.NEXT_SERVER_ACTIONS_ENCRYPTION_KEY ||
+			"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA="),
+	"Server Action identity must match the pinned build input",
 );
 console.log(
 	`Verified final image identity ${buildId}, runtime configuration, and Server Action key.`,

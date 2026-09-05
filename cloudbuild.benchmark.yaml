@@ -1,65 +1,155 @@
-# Build-only timing/contract check. No production image push, migration, Job
-# update, service deploy, or Sentry upload. Use --machine-type with gcloud submit.
-# Source and compiler caches expire in the private build-cache bucket.
+# Full-image benchmark with real production configuration and Sentry uploads.
+# No application-image push, database execution, or service deployment.
 steps:
   - id: runtime-capabilities
-    name: node:24.18.1-alpine
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
     entrypoint: node
-    args: [scripts/rollout/render-build-config.mjs, --check, --build-id, '$BUILD_ID', --output, /workspace/rollout.env]
-  - id: prerequisites
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    waitFor: ['-']
-    entrypoint: python3
-    args: [scripts/infra/manage-deployment.py, check]
-  - id: restore-cache
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    waitFor: ['-']
+    args:
+      - scripts/rollout/render-build-config.mjs
+      - --check
+      - --build-id
+      - $BUILD_ID
+      - --output
+      - /workspace/rollout.env
+  - id: prepare-builder
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    waitFor:
+      - "-"
     entrypoint: bash
     args:
       - -c
       - |
         set -euo pipefail
+        docker version
+        docker buildx create --name "nova-$BUILD_ID" --driver docker-container \
+          --driver-opt image=moby/buildkit:v0.33.0
+        docker buildx inspect --builder "nova-$BUILD_ID" --bootstrap >/dev/null
+  - id: prerequisites
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    waitFor:
+      - "-"
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -eu
+        python3 scripts/infra/manage-deployment.py check
+        python3 scripts/rollout/deploy-cloud-run.py --read-scaling-prestate \
+          --project="$PROJECT_ID" --region=us-central1 --service=commcare-nova
+  - id: restore-cache
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    waitFor:
+      - "-"
+    entrypoint: sh
+    args:
+      - -c
+      - |
+        set -eu
         case '${_CACHE_MODE}' in
-          cold) python3 scripts/rollout/build-cache.py restore --build-id="$BUILD_ID" --cold ;;
-          warm) python3 scripts/rollout/build-cache.py restore --build-id="$BUILD_ID" ;;
+          cold) python3 scripts/rollout/build-cache.py restore --profile=benchmark --build-id="$BUILD_ID" --cold ;;
+          warm) python3 scripts/rollout/build-cache.py restore --profile=benchmark --build-id="$BUILD_ID" ;;
           *) exit 2 ;;
         esac
-  - id: build
-    name: gcr.io/cloud-builders/docker:24.0.9
-    waitFor: [runtime-capabilities, restore-cache]
+  - id: migration-image
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    waitFor:
+      - prepare-builder
+      - restore-cache
     entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        source /workspace/cache.env
+        export NOVA_BUILD_ID="$BUILD_ID"
+        export NOVA_BUILDX_BUILDER="nova-$BUILD_ID"
+        export NOVA_MIGRATION_IMAGE_TAG="us-central1-docker.pkg.dev/$PROJECT_ID/nova-build-cache/migration-benchmark:$BUILD_ID"
+        bash scripts/rollout/build-migration-image.sh
+  - id: build
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    waitFor:
+      - runtime-capabilities
+      - prepare-builder
+      - restore-cache
+    entrypoint: bash
+    secretEnv:
+      - SENTRY_AUTH_TOKEN
+      - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+      - NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
     args:
       - -c
       - |
         set -euo pipefail
         source /workspace/rollout.env
         source /workspace/cache.env
+        export NOVA_BUILDX_BUILDER="nova-$BUILD_ID"
+        export NOVA_SEPARATE_MIGRATION_BUILD=true
+        export NOVA_IMAGE_OUTPUT=load
         export NOVA_IMAGE_TAG="nova-benchmark:$BUILD_ID"
-        export NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=benchmark-public-key
         export NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=ac18fb2d87e44a1eb5a19883
-        export NEXT_SERVER_ACTIONS_ENCRYPTION_KEY=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=
         export NEXT_DEPLOYMENT_ID="$BUILD_ID"
-        bash scripts/rollout/install-buildx.sh
         bash scripts/rollout/build-image.sh
-        docker image inspect "$${NOVA_IMAGE_TAG}" --format '{{json .Config}}' > /workspace/image-config.json
-        docker create --name nova-benchmark-output "$${NOVA_IMAGE_TAG}" >/dev/null
-        docker cp nova-benchmark-output:/app/.nova-build-id /workspace/baked-build-id
-        docker cp nova-benchmark-output:/app/.next/server/server-reference-manifest.json /workspace/actions.json
-        docker cp nova-benchmark-output:/app/.next/required-server-files.json /workspace/required-server-files.json
-        docker cp nova-benchmark-output:/app/.next/static /workspace/static
-        docker rm nova-benchmark-output >/dev/null
-        test "$$(cat /workspace/baked-build-id)" = "$BUILD_ID"
+
+        mkdir -p /workspace/.nova-build-cache/artifact
+        docker image inspect "$${NOVA_IMAGE_TAG}" --format '{{json .Config}}' > /workspace/.nova-build-cache/artifact/image-config.json
+         docker create --name nova-benchmark-output "$${NOVA_IMAGE_TAG}" >/dev/null
+         docker cp nova-benchmark-output:/app/.nova-build-id /workspace/.nova-build-cache/artifact/baked-build-id
+         docker cp nova-benchmark-output:/app/.next/server/server-reference-manifest.json /workspace/.nova-build-cache/artifact/actions.json
+         docker cp nova-benchmark-output:/app/.next/required-server-files.json /workspace/.nova-build-cache/artifact/required-server-files.json
+         docker cp nova-benchmark-output:/app/.next/static /workspace/.nova-build-cache/artifact/static
+         docker rm nova-benchmark-output >/dev/null
   - id: verify-image
-    name: node:24.18.1-alpine
-    waitFor: [build, prerequisites]
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    waitFor:
+      - build
+      - migration-image
+      - prerequisites
     entrypoint: node
-    args: [scripts/rollout/verify-build-artifact.mjs, /workspace, '$BUILD_ID']
+    secretEnv:
+      - NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+    args:
+      - scripts/rollout/verify-build-artifact.mjs
+      - /workspace/.nova-build-cache/artifact
+      - $BUILD_ID
+  - id: export-cache
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    waitFor:
+      - verify-image
+    entrypoint: bash
+    secretEnv:
+      - SENTRY_AUTH_TOKEN
+      - NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+      - NEXT_SERVER_ACTIONS_ENCRYPTION_KEY
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        source /workspace/rollout.env
+        source /workspace/cache.env
+        export NOVA_BUILDX_BUILDER="nova-$BUILD_ID"
+        export NOVA_IMAGE_TAG="us-central1-docker.pkg.dev/$PROJECT_ID/cloud-run-source-deploy/commcare-nova/app:$BUILD_ID"
+        export NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID=ac18fb2d87e44a1eb5a19883
+        export NEXT_DEPLOYMENT_ID="$BUILD_ID"
+        bash scripts/rollout/export-build-cache.sh
   - id: publish-cache
-    name: gcr.io/google.com/cloudsdktool/cloud-sdk:slim
-    waitFor: [verify-image]
+    name: us-central1-docker.pkg.dev/commcare-nova/cloud-run-source-deploy/commcare-nova/build-tools@sha256:17ca7d7adefc8c5db411830c636ca7b266311cea13770adefd693779996814f0
+    waitFor:
+      - export-cache
     entrypoint: python3
-    args: [scripts/rollout/build-cache.py, publish, '--build-id=$BUILD_ID']
+    args:
+      - scripts/rollout/build-cache.py
+      - publish
+      - --profile=benchmark
+      - --build-id=$BUILD_ID
 substitutions:
   _CACHE_MODE: warm
 options:
   logging: CLOUD_LOGGING_ONLY
+availableSecrets:
+  secretManager:
+    - versionName: projects/$PROJECT_ID/secrets/nova-sentry/versions/latest
+      env: SENTRY_AUTH_TOKEN
+    - versionName: projects/$PROJECT_ID/secrets/nova-google_maps_api_key/versions/latest
+      env: NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
+    - versionName: projects/$PROJECT_ID/secrets/nova-server-actions-key/versions/1
+      env: NEXT_SERVER_ACTIONS_ENCRYPTION_KEY

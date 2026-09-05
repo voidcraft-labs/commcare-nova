@@ -156,8 +156,8 @@ run gcloud storage buckets add-iam-policy-binding "gs://${MEDIA_BUCKET}" \
 	--member="serviceAccount:${BUILD_ACCOUNT}" \
 	--role="projects/${PROJECT}/roles/${MEDIA_READER_ROLE_ID}" \
 	--condition=None --quiet
-# Remove obsolete scheduler-admin, ingress-maintenance, and media/scheduler
-# actAs grants only after the simplified pipeline is serving. See deployment.md.
+# Remove obsolete scheduler-admin, ingress-maintenance, and media/scheduler/
+# cleanup actAs grants only after the simplified pipeline is serving. See deployment.md.
 run gcloud artifacts repositories add-iam-policy-binding "$REPOSITORY" \
 	--project="$PROJECT" \
 	--location="$REGION" \
@@ -175,7 +175,6 @@ done
 
 bind_act_as "$MIGRATION_ACCOUNT"
 bind_act_as "$RUNTIME_ACCOUNT"
-bind_act_as "$CAPTURE_CLEANUP_ACCOUNT"
 run gcloud iam service-accounts add-iam-policy-binding "$BUILD_ACCOUNT" \
 	--project="$PROJECT" \
 	--member="serviceAccount:${BUILD_SERVICE_AGENT}" \

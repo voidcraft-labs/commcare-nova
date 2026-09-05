@@ -1,5 +1,6 @@
 node_modules
 .next
+*.tsbuildinfo
 .git
 .gitignore
 *.md
@@ -19,6 +20,7 @@ scripts
 scripts/*
 !scripts/harden-agent-react-devtools.mjs
 !scripts/build-xpath-worker.mjs
+!scripts/build-app.mjs
 !scripts/migrate.ts
 !scripts/java-pattern-runtime/
 !scripts/java-pattern-runtime/**
@@ -58,3 +60,11 @@ scripts/lib/*
 !scripts/migrate-better-auth-oauth-clients.ts
 !scripts/migrate-select-option-values.ts
 !scripts/lib/prodDb.ts
+
+# Cloud Build control files are generated between artifact exports.
+rollout.env
+cache.env
+image.env
+migration.env
+mcp-headers
+mcp-body
