@@ -32,8 +32,9 @@ import {
 } from "kysely";
 import type { PoolClient } from "pg";
 import { Pool } from "pg";
-import { afterAll, test as baseTest, inject } from "vitest";
+import { afterAll, test as baseTest } from "vitest";
 import type { CasesTable, Database } from "../database";
+import { postgresTestUrl } from "./perTestDatabase";
 
 // Tests import everything from this module — fixture + `expect`
 // + helpers — in one import line.
@@ -41,7 +42,7 @@ export { expect } from "vitest";
 export type { Database } from "../database";
 
 /** globalSetup blocks worker startup, so this is always defined by import time. */
-const connectionString = inject("postgresTestUrl");
+const connectionString = postgresTestUrl();
 
 /** `max: 5` leaves headroom for `test.concurrent` opt-ins. */
 const pool = new Pool({ connectionString, max: 5 });

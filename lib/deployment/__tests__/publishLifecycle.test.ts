@@ -9,7 +9,7 @@
  * both go through this, so proving it here proves both.
  *
  * The store is mocked because the transitions it persists are proved
- * against real Postgres in `store.integration.test.ts`; here the subject
+ * against real Postgres in `store.postgres.test.ts`; here the subject
  * is the ordering and the decisions, not the SQL. The fold mock applies
  * the REAL state machine so what the mocked store returns is what the
  * real one would.

@@ -16,7 +16,7 @@
  * silent — a missing fixture and an empty one are indistinguishable at
  * evaluation (`commcare-core .../CommCareInstanceInitializer::loadFixtureRoot`),
  * so a wrong element name resolves to nothing with no build-time error.
- * `ownerHopParity.harness.test.ts` is what makes that concrete: this emitter's
+ * `ownerHopParity.harness.postgres.test.ts` is what makes that concrete: this emitter's
  * output and `compileTerm.ts`'s SQL must name the same place.
  *
  * Two nodes, matching `locations/fixtures.py::FlatLocationSerializer

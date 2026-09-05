@@ -124,7 +124,7 @@ async function startContainer(): Promise<StartedPostgreSqlContainer> {
 			`Image: ${IMAGE_TAG}\n` +
 			`Last error: ${detail}\n\n` +
 			"If that mentions registry-1.docker.io, Docker Hub was unreachable — check https://status.docker.com and run again.\n" +
-			"Otherwise check that Docker is running (`docker info`), since every test in this package needs a real Postgres.",
+			"Otherwise check that Docker is running (`docker info`), since the selected Postgres tests need an isolated database.",
 	);
 }
 

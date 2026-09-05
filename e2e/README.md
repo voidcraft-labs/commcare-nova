@@ -46,7 +46,7 @@ wraps it in the cookie Better Auth would have set — signed by
 `lib/auth/sessionCookie.ts` exactly like `better-call`'s `signCookieValue`
 (HMAC-SHA256 of the token, keyed by `BETTER_AUTH_SECRET`). The
 contract that this forgery stays valid is pinned by
-`lib/db/__tests__/sessionCookie.integration.test.ts`, which runs the forged cookie
+`lib/db/__tests__/sessionCookie.postgres.test.ts`, which runs the forged cookie
 through the real adapter stack and fails loudly if a dependency bump breaks it.
 
 Everyday local sessions (agents, curl, manual browsing) don't need the suite or the

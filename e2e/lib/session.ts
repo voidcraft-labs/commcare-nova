@@ -10,7 +10,7 @@
  *
  * The cookie name + signature come from `lib/auth/sessionCookie.ts` — the one
  * signer shared with the local-dev agent login route, contract-pinned by
- * `lib/db/__tests__/sessionCookie.integration.test.ts`.
+ * `lib/db/__tests__/sessionCookie.postgres.test.ts`.
  */
 import { sessionCookieName, signSessionCookie } from "@/lib/auth/sessionCookie";
 

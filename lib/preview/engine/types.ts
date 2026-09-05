@@ -22,6 +22,8 @@ export interface FieldState {
 	errorMessage?: string;
 	/** Whether the user has interacted with and left this field. */
 	touched: boolean;
+	/** A user supplied an answer, including clearing it, before or after blur. */
+	edited?: boolean;
 	/** Label with hashtag refs evaluated to runtime values. Only set when the label contains refs. */
 	resolvedLabel?: string;
 	/** Hint with hashtag refs evaluated to runtime values. Only set when the hint contains refs. */
@@ -81,6 +83,7 @@ export function fieldStatesEqual(a: FieldState, b: FieldState): boolean {
 		a.required === b.required &&
 		a.valid === b.valid &&
 		a.touched === b.touched &&
+		a.edited === b.edited &&
 		a.errorMessage === b.errorMessage &&
 		a.resolvedLabel === b.resolvedLabel &&
 		a.resolvedHint === b.resolvedHint &&

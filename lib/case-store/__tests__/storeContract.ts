@@ -280,7 +280,7 @@ const DEFAULT_CASE_NAME = "fixture-case-name";
  * Execute the `CaseStore` contract tests against the supplied
  * factory. The caller wraps this call in their own setup that
  * provisions per-test database isolation (see
- * `lib/case-store/postgres/__tests__/store.test.ts` for the
+ * `lib/case-store/postgres/__tests__/store.postgres.test.ts` for the
  * canonical wiring).
  */
 export function runStoreContract(options: RunStoreContractOptions): void {
