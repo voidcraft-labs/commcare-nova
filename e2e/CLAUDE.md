@@ -201,3 +201,8 @@ CI installs only Chromium headless shell (`playwright install --with-deps
 --only-shell chromium`), the browser its headless public/authed projects use.
 A future channel override or headed CI project must update that installation
 contract. Local headed and profiling workflows still need full Chromium.
+
+For whole-pixel layout contracts, round browser geometry before comparing it
+with an integer pixel boundary: a 44px target can be reported as 43.999969px
+after transforms. Keep exact fractional comparisons only when the fraction
+itself is the behavior being tested.

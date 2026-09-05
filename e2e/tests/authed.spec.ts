@@ -4099,8 +4099,10 @@ test.describe("authenticated builder", () => {
 			.first();
 		await expect(moveControl).toBeVisible();
 		const box = await moveControl.boundingBox();
-		expect(box?.width ?? 0).toBeGreaterThanOrEqual(44);
-		expect(box?.height ?? 0).toBeGreaterThanOrEqual(44);
+		// Layout/transforms can report 43.999969px for a 44px target. Compare
+		// rendered pixel sizes, not incidental floating-point subtraction noise.
+		expect(Math.round(box?.width ?? 0)).toBeGreaterThanOrEqual(44);
+		expect(Math.round(box?.height ?? 0)).toBeGreaterThanOrEqual(44);
 
 		const moveHeadings = page.getByRole("heading", {
 			name: seed.moveAppName,
