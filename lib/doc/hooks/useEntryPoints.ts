@@ -1,6 +1,9 @@
 "use client";
 import { useCallback, useContext, useMemo } from "react";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
+import { BlueprintEditableContext } from "@/lib/doc/provider";
 import {
 	asUuid,
 	type CommitOutcome,
@@ -69,6 +72,9 @@ export function useEntryPoints() {
 
 /** Event-time writes without subscribing a destination's settings to the app. */
 export function useEntryPointActions() {
+	const canEdit = useContext(BlueprintEditableContext);
+	const lookupCommitState = useLookupCommitState();
+	const writeAdmission = builderWriteAdmission({ canEdit, lookupCommitState });
 	const api = useBlueprintDocApi();
 	const mutations = useBlueprintMutations();
 	const commit = (plan: EntryPointCommitPlan): CommitOutcome =>
@@ -76,6 +82,7 @@ export function useEntryPointActions() {
 			? mutations.inline.commitMany([...plan.mutations])
 			: { ok: false, messages: [plan.reason.message] };
 	return {
+		writeAdmission,
 		add(target: EntryPointTarget): CommitOutcome & { uuid?: Uuid } {
 			const current = api.getState();
 			const destination = entryPointDestination(current, target);

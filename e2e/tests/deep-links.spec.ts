@@ -175,10 +175,38 @@ test("deep links are authored, renamed, launched on the selected real case, and 
 		await page
 			.getByRole("button", { name: "Back to edit", exact: true })
 			.click();
-		await page.goto(detailRoute);
-		await expect(page.getByLabel("Link ID", { exact: true })).toHaveValue(
-			DEEP_LINKS_SEED.renamedId,
-		);
+		// Hold the real initial Server Action reads to make catalog readiness
+		// deterministic. A fast click must wait for admission, never be lost.
+		let releaseReads: () => void = () => {};
+		const readsHeld = new Promise<void>((resolve) => {
+			releaseReads = resolve;
+		});
+		let heldActions = 0;
+		const actionRoute = `**/build/${fixture.appId}/**`;
+		await page.route(actionRoute, async (route) => {
+			if (
+				route.request().method() === "POST" &&
+				route.request().headers()["next-action"]
+			) {
+				heldActions++;
+				await readsHeld;
+			}
+			await route.continue();
+		});
+		try {
+			await page.goto(detailRoute);
+			await expect(page.getByLabel("Link ID", { exact: true })).toHaveValue(
+				DEEP_LINKS_SEED.renamedId,
+			);
+			await expect.poll(() => heldActions).toBeGreaterThan(0);
+			await expect(page.getByLabel("Link ID", { exact: true })).toBeDisabled();
+			await expect(
+				page.getByRole("button", { name: "Remove deep link", exact: true }),
+			).toBeDisabled();
+		} finally {
+			releaseReads();
+			await page.unrouteAll({ behavior: "wait" });
+		}
 		await savedMutation("removeEntryPoint", () =>
 			page
 				.getByRole("button", { name: "Remove deep link", exact: true })

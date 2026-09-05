@@ -9,12 +9,14 @@ import { entryPointIdSchema } from "@/lib/domain";
 import { useLocation, useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
 import { DraftCommitInput } from "./DraftCommitField";
+import { EntryPointWriteNotice } from "./EntryPointWriteNotice";
 
 export function DeepLinksSection() {
 	const model = useEntryPoints();
 	const location = useLocation();
 	const navigate = useNavigate();
 	const canEdit = useCanEdit();
+	const canWrite = canEdit && model.writeAdmission.ok;
 	const prefix = useId();
 	const [failure, setFailure] = useState<string>();
 	const [adding, setAdding] = useState(false);
@@ -47,6 +49,7 @@ export function DeepLinksSection() {
 				then copy an authenticated CommCare HQ link from Publishing after
 				releasing the app.
 			</p>
+			{canEdit && <EntryPointWriteNotice admission={model.writeAdmission} />}
 			{failure && (
 				<p role="alert" className="text-sm text-nova-red">
 					{failure}
@@ -76,7 +79,7 @@ export function DeepLinksSection() {
 						<DraftCommitInput
 							id={`${prefix}-id`}
 							value={point.id}
-							disabled={!canEdit}
+							disabled={!canWrite}
 							ariaDescribedBy={`${prefix}-id-help`}
 							validate={(value) =>
 								entryPointIdSchema.safeParse(value).success
@@ -92,7 +95,7 @@ export function DeepLinksSection() {
 								<Switch
 									id={`${prefix}-visibility`}
 									checked={point.ignoreDisplayConditions === true}
-									disabled={!canEdit}
+									disabled={!canWrite}
 									onCheckedChange={(checked) => {
 										const outcome = model.update(point, {
 											ignoreDisplayConditions: checked ? true : null,
@@ -156,6 +159,7 @@ export function DeepLinksSection() {
 							</p>
 							<Button
 								variant="ghost-destructive"
+								disabled={!canWrite}
 								onClick={() => {
 									const outcome = model.remove(point.uuid);
 									if (outcome.ok) {
@@ -197,6 +201,7 @@ export function DeepLinksSection() {
 					{canEdit && (
 						<Button
 							variant="secondary"
+							disabled={!canWrite && !adding}
 							onClick={() => setAdding(!adding)}
 							aria-expanded={adding}
 						>
@@ -217,7 +222,7 @@ export function DeepLinksSection() {
 									>
 										<Button
 											variant="ghost-action"
-											disabled={Boolean(item.issue)}
+											disabled={!canWrite || Boolean(item.issue)}
 											onClick={() => {
 												const result = model.add(item.target);
 												if (result.ok) {

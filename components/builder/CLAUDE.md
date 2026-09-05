@@ -1361,6 +1361,11 @@ that UUID-selected detail. Link IDs are explicit, stable external names; name
 changes preserve them, and the editor explains that changing the ID or required
 case selections may break distributed links. Draft ID edits retain text on
 refusal and refuse a stale shared baseline.
+Entry-point authoring reads the same `builderWriteAdmission` as commit. While
+Project lookup definitions load or fail, its add, ID, display-condition, and
+remove controls are disabled and the workspace explains the wait or offers the
+catalog retry. Destination shortcuts retain navigation but disable their add
+branch until admission is ready. Local drafts stay mounted through that wait.
 
 Test in Preview selects actual Project cases through `EntryPointPreviewLaunch`.
 Publishing's per-target Deep links panel instead accepts external HQ case IDs,

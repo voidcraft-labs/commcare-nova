@@ -6,6 +6,7 @@ import { useEntryPointActions } from "@/lib/doc/hooks/useEntryPoints";
 import type { EntryPointTarget } from "@/lib/domain";
 import { useNavigate } from "@/lib/routing/hooks";
 import { useCanEdit } from "@/lib/session/hooks";
+import { EntryPointWriteNotice } from "./EntryPointWriteNotice";
 
 export function EntryPointSettingsShortcut({
 	target,
@@ -36,6 +37,7 @@ export function EntryPointSettingsShortcut({
 		<div className="space-y-2">
 			<Button
 				variant="ghost-action"
+				disabled={!entryPoint && canEdit && !actions.writeAdmission.ok}
 				onClick={() => {
 					if (entryPoint) {
 						onNavigateAway?.();
@@ -62,6 +64,9 @@ export function EntryPointSettingsShortcut({
 						? `Add ${label} deep link`
 						: "View deep links"}
 			</Button>
+			{!entryPoint && canEdit && (
+				<EntryPointWriteNotice admission={actions.writeAdmission} />
+			)}
 			{failure && (
 				<p role="alert" className="text-sm text-nova-red">
 					{failure}
