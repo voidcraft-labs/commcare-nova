@@ -1,11 +1,8 @@
-// Live-Postgres coverage for the package-private schema-governance seam.
-// Production now declares lookup writer v1; the database floor and destructive
-// action flag remain closed by default. Tests explicitly enable compatibility
-// before exercising either the production wrapper or transaction core.
+// Live-Postgres coverage for schema governance and committed notifications.
 
 import { sql } from "kysely";
 import { Client, type Notification } from "pg";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { LOOKUP_STREAM_CHANNEL } from "@/lib/db/pg";
 import {
@@ -13,6 +10,7 @@ import {
 	lookupColumnIdSchema,
 } from "@/lib/domain/lookupIds";
 import {
+	applyLookupSchemaGovernance,
 	applyLookupSchemaGovernanceInTransaction,
 	LookupSchemaGovernanceError,
 	type LookupSchemaGovernanceOperation,
@@ -36,21 +34,11 @@ const ROW_WRITER: LookupScope = {
 	...GOVERNOR,
 	actorId: "row-seed-writer",
 };
-const _EDITOR: LookupScope = {
-	...GOVERNOR,
-	actorId: "schema-editor",
-	role: "editor",
-};
-
 const TEXT_COLUMN: LookupColumnDraft = {
 	wireName: "name",
 	label: "Name",
 	dataType: "text",
 };
-const _MISSING_COLUMN_ID = lookupColumnIdSchema.parse(
-	"018f0f43-7b7c-7abc-8def-0123456789ab",
-);
-
 function rowValues(
 	entries: readonly (readonly [LookupColumnId, string | number])[],
 ): LookupRowValues {
@@ -72,7 +60,7 @@ async function createTable(
 	});
 }
 
-async function runV1Core(
+async function runCore(
 	operation: LookupSchemaGovernanceOperation,
 	scope: LookupScope = GOVERNOR,
 ): ReturnType<typeof applyLookupSchemaGovernanceInTransaction> {
@@ -96,85 +84,46 @@ async function expectGovernanceError(
 	}
 	expect(caught).toBeInstanceOf(LookupSchemaGovernanceError);
 	expect(caught).toMatchObject({ code });
-	return caught as LookupSchemaGovernanceError;
-}
-
-async function nextLookupNotification(
-	listener: Client,
-): Promise<{ projectId: string; revision: string }> {
-	return new Promise((resolve, reject) => {
-		const timeout = setTimeout(() => {
-			listener.off("notification", onNotification);
-			reject(new Error("Timed out waiting for lookup schema notification."));
-		}, 2_000);
-		timeout.unref();
-		const onNotification = (notification: Notification) => {
-			if (
-				notification.channel !== LOOKUP_STREAM_CHANNEL ||
-				!notification.payload
-			) {
-				return;
-			}
-			clearTimeout(timeout);
-			listener.off("notification", onNotification);
-			resolve(JSON.parse(notification.payload));
-		};
-		listener.on("notification", onNotification);
-	});
-}
-
-async function _backendPid(client: Client): Promise<number> {
-	const result = await client.query<{ pid: number }>(
-		"SELECT pg_backend_pid() AS pid",
-	);
-	const pid = result.rows[0]?.pid;
-	if (pid === undefined) throw new Error("backend pid query returned no row");
-	return pid;
-}
-
-async function _waitUntilBackendBlockedBy(
-	observer: Client,
-	blockingPid: number,
-): Promise<number> {
-	for (let attempt = 0; attempt < 200; attempt++) {
-		const result = await observer.query<{ pid: number }>(
-			`SELECT pid
-			 FROM pg_stat_activity
-			 WHERE datname = current_database()
-				AND pid <> pg_backend_pid()
-				AND $1 = ANY(pg_blocking_pids(pid))
-			 ORDER BY pid
-			 LIMIT 1`,
-			[blockingPid],
-		);
-		const pid = result.rows[0]?.pid;
-		if (pid !== undefined) return pid;
-		await new Promise((resolve) => setTimeout(resolve, 5));
+	if (!(caught instanceof LookupSchemaGovernanceError)) {
+		throw new Error("Expected a governance refusal", { cause: caught });
 	}
-	throw new Error(
-		`No backend blocked behind ${blockingPid} within one second.`,
-	);
-}
-
-async function _waitUntilBlockedBy(
-	observer: Client,
-	waitingPid: number,
-	blockingPid: number,
-): Promise<void> {
-	for (let attempt = 0; attempt < 200; attempt++) {
-		const result = await observer.query<{ blockers: number[] }>(
-			"SELECT pg_blocking_pids($1) AS blockers",
-			[waitingPid],
-		);
-		if (result.rows[0]?.blockers.includes(blockingPid)) return;
-		await new Promise((resolve) => setTimeout(resolve, 5));
-	}
-	throw new Error(
-		`Backend ${waitingPid} did not block behind ${blockingPid} within one second.`,
-	);
+	return caught;
 }
 
 describe("lookup schema governance", () => {
+	it("keeps role, foreign-Project, and missing-column refusals opaque without mutation", async () => {
+		const table = await createTable();
+		const operation: LookupSchemaGovernanceOperation = {
+			kind: "remove-column",
+			tableId: table.id,
+			columnId: table.columns[1].id,
+			expectedTableRevision: table.tableRevision,
+		};
+		for (const apply of [
+			applyLookupSchemaGovernance,
+			(scope: LookupScope, op: LookupSchemaGovernanceOperation) =>
+				runCore(op, scope),
+		]) {
+			await expectGovernanceError(
+				apply({ ...GOVERNOR, role: "editor" }, operation),
+				"not_found",
+			);
+			await expectGovernanceError(
+				apply({ ...GOVERNOR, projectId: "foreign" }, operation),
+				"not_found",
+			);
+			await expectGovernanceError(
+				apply(GOVERNOR, {
+					...operation,
+					columnId: lookupColumnIdSchema.parse(
+						"018f0f43-7b7c-7abc-8def-0123456789ab",
+					),
+				}),
+				"not_found",
+			);
+		}
+		expect(await getLookupTable(GOVERNOR, table.id)).toEqual(table);
+	});
 	it("refuses accepted-design table and column dependencies without consuming their protections", async () => {
 		const table = await createTable([
 			TEXT_COLUMN,
@@ -231,7 +180,7 @@ describe("lookup schema governance", () => {
 				expectedTableRevision: table.tableRevision,
 			},
 		]) {
-			await expectGovernanceError(runV1Core(operation), "accepted_design");
+			await expectGovernanceError(runCore(operation), "accepted_design");
 		}
 
 		const protections = await h
@@ -281,7 +230,7 @@ describe("lookup schema governance", () => {
 			.execute();
 
 		const tableBlocked = await expectGovernanceError(
-			runV1Core({
+			runCore({
 				kind: "delete-table",
 				tableId: table.id,
 				expectedTableRevision: table.tableRevision,
@@ -306,13 +255,13 @@ describe("lookup schema governance", () => {
 			},
 		]) {
 			const blocked = await expectGovernanceError(
-				runV1Core(operation),
+				runCore(operation),
 				"referenced",
 			);
 			expect(blocked.blockingAppIds).toEqual([appZ]);
 		}
 
-		const unreferenced = await runV1Core({
+		const unreferenced = await runCore({
 			kind: "remove-column",
 			tableId: table.id,
 			columnId: table.columns[2].id,
@@ -335,7 +284,7 @@ describe("lookup schema governance", () => {
 		const before = await getLookupTable(GOVERNOR, table.id);
 
 		await expectGovernanceError(
-			runV1Core({
+			runCore({
 				kind: "remove-column",
 				tableId: table.id,
 				columnId: table.columns[0].id,
@@ -384,7 +333,6 @@ describe("lookup schema governance", () => {
 		const beforeById = new Map(rawBefore.map((row) => [row.id, row]));
 
 		const listener = new Client({ connectionString: h.uri() });
-		await listener.connect();
 		const notifications: Array<{ projectId: string; revision: string }> = [];
 		const collect = (notification: Notification) => {
 			if (
@@ -396,18 +344,15 @@ describe("lookup schema governance", () => {
 		};
 		listener.on("notification", collect);
 		try {
+			await listener.connect();
 			await listener.query(`LISTEN ${LOOKUP_STREAM_CHANNEL}`);
-			const notification = nextLookupNotification(listener);
-			const result = await runV1Core({
+			const result = await runCore({
 				kind: "remove-column",
 				tableId: table.id,
 				columnId: rankId,
 				expectedTableRevision: third.tableRevision,
 			});
-			expect(await notification).toEqual({
-				projectId: GOVERNOR.projectId,
-				revision: result.projectRevision,
-			});
+			await vi.waitFor(() => expect(notifications).toHaveLength(1));
 			await listener.query("SELECT 1");
 			expect(notifications).toEqual([
 				{
@@ -464,7 +409,6 @@ describe("lookup schema governance", () => {
 			}
 			expect(afterById.get(second.rowId)).toEqual(beforeById.get(second.rowId));
 		} finally {
-			await listener.query("UNLISTEN *");
 			listener.off("notification", collect);
 			await listener.end();
 		}
@@ -507,7 +451,7 @@ describe("lookup schema governance", () => {
 			ORDER BY id
 		`.execute(h.db());
 
-		const result = await runV1Core({
+		const result = await runCore({
 			kind: "retype-column",
 			tableId: table.id,
 			columnId: rankId,
@@ -573,7 +517,7 @@ describe("lookup schema governance", () => {
 		const before = await getLookupTable(GOVERNOR, table.id);
 
 		const error = await expectGovernanceError(
-			runV1Core({
+			runCore({
 				kind: "retype-column",
 				tableId: table.id,
 				columnId: nameId,
@@ -596,7 +540,7 @@ describe("lookup schema governance", () => {
 		});
 		const before = await getLookupTable(GOVERNOR, table.id);
 
-		const result = await runV1Core({
+		const result = await runCore({
 			kind: "delete-table",
 			tableId: table.id,
 			expectedTableRevision: row.tableRevision,

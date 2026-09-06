@@ -6306,7 +6306,10 @@
 			"file": "lib/lookup/__tests__/actions.test.ts",
 			"lines": 587,
 			"ciMs": 227,
-			"status": "pending"
+			"status": "revised",
+			"review": "Use real access/governance error classes through partial mocks; split independently invalid UUID and revision cases, verify authorized mutation payloads/scopes, and remove incidental validation-copy pin and unsafe revision casts. Move fake SQL blocker naming into new actions.postgres.test.ts with actual auth/query, exact local blockers, foreign/unrelated/missing controls and trash/name order.",
+			"baselineSha256": "171c9c63fab0b5f27b573ad8a03fcf99f1b8a52a22ef74789f5c7136b99fac03",
+			"reviewedSha256": "44acc324ac40a7c32cb09450e9039a3c8d7ab9107eb8cd7b640fe61b091f12e7"
 		},
 		{
 			"file": "lib/lookup/__tests__/agentService.postgres.test.ts",
@@ -6321,7 +6324,10 @@
 			"file": "lib/lookup/__tests__/authoringBatch.postgres.test.ts",
 			"lines": 444,
 			"ciMs": 4473,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain meaningful same-batch anchors and retype/replacement coverage. Replace incomplete multi-table assertions with exact minted row/column identity, data, and full catalog checks; distinguish duplicate-tag preflight from new rollback regression that verifies earlier table/column/row writes inside the transaction before the later invalid-cell refusal. Compare all paginated identities/cells for 101 rows, large rows, and 250-column rows; retain exact envelope byte limits.",
+			"baselineSha256": "5851085097612dd32d5d445a8147e89b5a20e3e6fc3ff71812146f2ddb95c326",
+			"reviewedSha256": "6f4b9a2bb5c1ef948a7a70ceac25bcbc9934b324ec42beb82f0d48bbf367fe14"
 		},
 		{
 			"file": "lib/lookup/__tests__/coercion.test.ts",
@@ -6363,13 +6369,19 @@
 			"file": "lib/lookup/__tests__/schemaGovernance.postgres.test.ts",
 			"lines": 631,
 			"ciMs": 3738,
-			"status": "pending"
+			"status": "revised",
+			"review": "Remove obsolete disabled-rollout claims and unused lock polling helpers. Replace orphanable notification promise with owned collector and awaited polling, put connection acquisition inside cleanup scope, and remove cleanup query that could prevent close. Retain exact blockers/protections/byte accounting/type preservation/cascade tests and add wrapper/core opaque role, foreign-Project, and missing-column refusals with unchanged snapshot.",
+			"baselineSha256": "50ce8f745c3b54ce6ac4506eb1d5799a771344788c246786d969efac8ea076a4",
+			"reviewedSha256": "ce83cc5d51aada4df65dc5222b1d135ed41794006f02429bfb6a4354b1203094"
 		},
 		{
 			"file": "lib/lookup/__tests__/service.postgres.test.ts",
 			"lines": 885,
 			"ciMs": 6623,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain real locked row/column/byte caps, uniqueness races, identity-preserving edits, Postgres byte accounting, and exact revision behavior. Remove custom notification timer and redundant manifest exclusion, use revision parser and real error narrowing, guarantee listener cleanup, assert complete unchanged state after rejected replacement and no reused row identities for every replacement.",
+			"baselineSha256": "8db5331917c0afb735069a3ad5ccbb66a156ca7aa112295fc2e9fc967d315a8c",
+			"reviewedSha256": "aba8297176c7e77d5c004177b93d9dcfcff5d4f99fae4275604d75f022df65c5"
 		},
 		{
 			"file": "lib/mcp/__tests__/checkProjectSpaceCompatibility.test.ts",

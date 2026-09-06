@@ -238,3 +238,9 @@ Snapshot tests should hold a real writer between definition and row reads and
 assert that the complete result stays in one generation. A sequential read of
 matching revisions cannot prove snapshot isolation. Own the pending reader from
 start to finish, release database gates in `finally`, and join it before teardown.
+
+Prove rollback after writes have occurred; preflight rejection alone cannot
+establish batch atomicity. Pagination assertions should join all pages and check
+ordered identities and cells. Blocker-name filtering belongs in a real database
+test with foreign and unrelated apps, because a mocked query chain cannot prove
+Project isolation.
