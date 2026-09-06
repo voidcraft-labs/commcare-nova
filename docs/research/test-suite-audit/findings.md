@@ -219,3 +219,47 @@ split UTF-8 frames byte by byte and reject incomplete streams. The real file
 manager proves retry, Reading-to-Ready, completed title reconciliation, the
 information popover, and reopen without a second request, with controlled API
 responses and no model spend. The old badge CSS/callback test is removed.
+
+## Native media and real context boundaries
+
+The media client suite no longer claims typechecking covers fetch. Native files
+exercise the actual byte reader and SHA-256. Request tests cover initiation,
+exact signed headers and bytes, confirmation, deduplication, aborts, refusals,
+paged id resolution, deletion, and returned extract content. The unused hashing
+adapter that existed to avoid the old leak detector is removed.
+
+Library and upload orchestration now live in production state models. Tests
+drive those models through fetch, retain native responses and signals, and join
+all pending requests. They exercise failed-page retry without dropping earlier
+rows, overlapping requests, retired searches, local row updates, overlapping
+uploads, and live capability changes. The old hook mocks are removed.
+
+A Chromium test runs the actual upload client against a temporary HTTP server.
+Native progress, successful transfer, HTTP refusal and cancellation worked;
+invalid XHR setup left an abort listener attached. Setup now cleans up on a
+synchronous exception. The server and browser resources are closed after the
+check, and no Google service or model is called.
+
+The real Files journey found the header's account control outside the Builder
+provider. Its fallback capability stayed editable for a viewer, and its library
+requests lacked an app id. The old header test explicitly pinned that omission.
+The account control now portals from the Builder tree, preserving session and
+reset context, and supplies the app id to the file manager. The site retains
+its active-Project menu. This was an incorrect UI capability and Project choice;
+the server's media membership checks remained authoritative.
+
+A second native-browser failure showed why a mock pause/load assertion was
+insufficient: an audio preview could unmount before its reset callback read the
+ref, retaining its source and decoded state. The browser had already paused the
+detached player; this was not observed continued playback after revocation.
+Each mounted element is now captured and retired both on reset and on cleanup.
+Actual role changes prove image renewal and audio source/decoder retirement.
+
+Whole picker, preview, chip, header and account mock suites are removed. Browser
+journeys now cover touch actions, keyboard full-name disclosure, real geometry,
+inline refusal and dismiss, cancellation before attach, extraction retry,
+filename-preserving download intent and current Project authority. Chromium
+bypasses Playwright routes for native downloads, verified with a separate local
+server probe; the UI test cancels after asserting the download event and URL,
+and does not claim to validate mocked storage bytes. Geometry assertions wait
+for popup animation to settle before measuring the 44px floor.

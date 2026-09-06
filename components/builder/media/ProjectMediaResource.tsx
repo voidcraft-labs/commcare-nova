@@ -47,11 +47,20 @@ function useProjectResource<T extends ProjectResourceElement>(
 	const reconciler = useReconcilerContext();
 	const ref = useRef<T>(null);
 
+	// biome-ignore lint/correctness/useExhaustiveDependencies: each keyed native node and authorized mount needs its own captured resource
 	useLayoutEffect(() => {
-		return reconciler?.subscribeProjectScopeReset(() => {
-			retireResource(ref.current);
+		// Keep the mounted node itself: an earlier reset subscriber may make React
+		// clear the ref before this callback runs. Cleanup also retires a resource
+		// when a dialog closes or its keyed element is replaced.
+		const element = ref.current;
+		const unsubscribe = reconciler?.subscribeProjectScopeReset(() => {
+			retireResource(element);
 		});
-	}, [reconciler]);
+		return () => {
+			unsubscribe?.();
+			retireResource(element);
+		};
+	}, [reconciler, resourceUrl.scopeKey, resourceUrl.src]);
 
 	return { ref, scopeKey: resourceUrl.scopeKey, src: resourceUrl.src };
 }

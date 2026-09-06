@@ -291,7 +291,10 @@
 			"file": "components/builder/__tests__/BuilderHeader.test.tsx",
 			"lines": 214,
 			"ciMs": 2182,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full header, band claim, slots, AppChrome and AccountMenu. Removed mocked header/status/CSS test including false assumption that the shell-owned account menu inherited descendant Builder context. Native browser proves live role downgrade/upgrade, app-scoped media requests, and visible reachable 44px controls at 800/390px. Mock save-node identity was not an autosave behavior proof.",
+			"baselineSha256": "0b6e6e6501266546b6a2feb516bb68911dc4e39787ce67076175189536942dbd",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/__tests__/BuilderProvider.test.tsx",
@@ -1032,7 +1035,10 @@
 			"file": "components/builder/media/__tests__/AssetPreviewDialog.test.tsx",
 			"lines": 121,
 			"ciMs": 2172,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full preview. Removed mocked extract/CSS tests. Actual document preview browser flow retries a controlled failed extract, renders recovered text, measures wrapped full header and controls at handset width, opens info and emits a native download with the exact filename/scoped URL. Download intent is the browser assertion; Chromium download traffic bypasses Playwright routing, so no mocked-byte download claim.",
+			"baselineSha256": "e104599b33bfb0a0721cbdce31762719e508f07f453535f7b7947bd04e7a0eb7",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/media/__tests__/ExtractionStatusBadge.test.tsx",
@@ -1047,25 +1053,37 @@
 			"file": "components/builder/media/__tests__/MediaPickerDialog.test.tsx",
 			"lines": 337,
 			"ciMs": 2659,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read all 1370 lines of picker and its hook/client dependencies. Removed whole fake state/callback/CSS suite. Production browser covers empty-state upload, confirmation before readiness, authoritative search and paging, touch preview/delete, delete cancel/success, complete-name keyboard tooltip, built-in icon layout and live editor/viewer transitions through real DB membership and SSE.",
+			"baselineSha256": "ec97a6861e36370756081e6c3a3337945fddf4a41d4c1c5be8ac54065b3d6be4",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/media/__tests__/MediaSlot.test.tsx",
 			"lines": 41,
 			"ciMs": 2038,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full slot and staged-upload driver. Removed CSS-only failed-chip test and test-only export. Actual app-logo browser flow cancels pending upload without attaching across reload, surfaces complete server refusal in the chip, measures its control, and dismisses it. Separate native XHR test exercises byte progress and abort.",
+			"baselineSha256": "4e30ecc40d4c7e80781e0b4be6bbd4bb6815600d04c7c3357ea0bc3e3f8f4c91",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/media/__tests__/ProjectMediaResource.test.tsx",
 			"lines": 95,
 			"ciMs": 1673,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full wrappers. Removed mocked HTMLMediaElement pause/load test. Real browser retains decoded image and playing audio handles across actual Project-role reloads, asserts cleared source/decoder/playback and renewed authorized image URL. Exposed cleared-ref race; production captures mounted nodes and retires them on cleanup as well as reset.",
+			"baselineSha256": "68f35faba5845fa727d293736d3390385c6c8326f6542bad5368d6ed7e4954f2",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/media/__tests__/mediaClient.test.ts",
 			"lines": 156,
 			"ciMs": 176,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read entire client. Replaced hash-only and request-only assertions with native Blob/File vectors, complete initiate/PUT/confirm lifecycle, exact signed headers and bytes, dedup, errors, abort, chunked scoped id resolution, deletion and actual extract results. Native XHR runs in Chromium against a real local HTTP server and reproduced an abort-listener leak on setup failure.",
+			"baselineSha256": "52b90f82c407651dcb0954c4f6377b2f61fa1a28947b5a137add3e0ec844742a",
+			"reviewedSha256": "ce5e868256b9d146b06d9665580dbc4c42c0e0303c966fc9fd0a66e7cd2005bc"
 		},
 		{
 			"file": "components/builder/media/__tests__/useDocumentExtraction.test.tsx",
@@ -1080,7 +1098,10 @@
 			"file": "components/builder/media/__tests__/useMedia.test.tsx",
 			"lines": 142,
 			"ciMs": 1600,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read entire hooks. Removed whole mocked-hook suite after extracting production library and upload state models. Direct Node tests retain actual client and replace only fetch; cover paging retries, concurrent coalescing, retired/restarted requests, mutation immutability, live capability refusal, overlapping uploads and late completions. Production Files browser journeys verify the React binding.",
+			"baselineSha256": "51a228a5c088e185c87813d595d931edbb0b9daa288be2bc85213739d0fbe215",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/project-data/__tests__/LookupOrderingSection.test.tsx",
@@ -1692,7 +1713,10 @@
 			"file": "components/ui/AccountMenu.test.tsx",
 			"lines": 73,
 			"ciMs": 1217,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full menu and actual auth hook. Removed mocked MediaPickerDialog/CSS test. Browser uses actual menu with controlled auth response to verify long profile values wrap and Files/Settings/Sign out have real touch targets; follows Files into upload, preview and deletion. Builder menu now portals with the live session and explicit app id.",
+			"baselineSha256": "35f55991f0c2fee3d788e85f33de46ae3509a82f6e1ab75ee9e23bc4c57dc091",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/ui/AppChrome.test.tsx",

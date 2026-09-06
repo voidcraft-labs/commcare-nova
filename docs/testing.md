@@ -175,3 +175,13 @@ Postgres instances so destructive browser scenarios cannot race across shards.
 CI installs only the headless shell used by its smoke projects. Full Chromium
 is required for local headed/profiling workflows, but downloading it for a
 headless CI job adds setup time without exercising another browser.
+
+Media lifecycle tests drive production state models with native File, Response,
+and stream objects, replacing only fetch. Native upload progress and setup
+failure cleanup run in Chromium against a temporary HTTP server. The Files
+journeys use the actual production UI and controlled media endpoints; live role
+changes update the isolated smoke database and restore membership in `finally`.
+Retain actual media element handles across access changes to verify sources and
+playback were retired. A disappearing role locator alone cannot prove closure:
+a parent dialog becomes hidden to role queries while its child confirmation is
+open. Wait for the topmost dialog to be removed.

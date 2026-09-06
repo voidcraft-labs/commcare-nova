@@ -37,11 +37,6 @@ export function BuilderBandClaim({ newBuild }: { newBuild: boolean }) {
 			homeLabel: "Back to your apps",
 			markOnly: true,
 			stacked: false,
-			showAccount: true,
-			/* `canManageFiles` is deliberately absent: `MediaPickerDialog`
-			 * resolves `canWriteOverride ?? sessionCanEdit`, so omitting it
-			 * defers to the live session capability, while an explicit `false`
-			 * would take upload and delete away from an editor. */
 			/* This page WAS a build when it opened. Nothing changed hands, so
 			 * there is no gesture to play. */
 			handoff: false,

@@ -718,6 +718,19 @@ minutes.
 
 The App Settings panel carries a conditional **data-sources row** (`appSettings/AppDataSourcesSection.tsx`): when the app reads case properties no form in it writes (`lib/doc/unwrittenProperties.ts`, via `useUnwrittenPropertyCards`), the row states the count and opens `UnwrittenPropertiesDialog` — an informational list (property, case type, where it's read), deliberately neutral chrome with no semantic color and no action, because a no-writer read is a normal state (viewer apps, staged sample data), not a defect. At zero the row renders nothing.
 
+`media/mediaLibrary.ts` owns one immutable app/Project/search scope, page
+requests, retries, loaded rows, and cancellation. `media/mediaUpload.ts` owns
+one upload controller and checks live write authority before starting and
+returning a result. `useMedia` binds these state models to React and stops them
+synchronously on a Project reset. Tests drive the real client through fetch;
+Chromium checks native upload progress and cancellation against a local server.
+
+`ProjectMediaResource` captures each mounted native element, retires it on a
+Project reset and on unmount, and renews that capture when its keyed source
+changes. Reading only `ref.current` during reset is insufficient: an earlier
+subscriber can unmount the element and clear the ref before the callback runs.
+Browser coverage uses decoded image bytes and playing native audio.
+
 `media/documentExtraction.ts` owns one asset's extraction observation: terminal
 stored states remain idle until explicit retry, in-flight jobs poll every four
 seconds for at most 75 polls, and exhaustion becomes a retryable local failure.
