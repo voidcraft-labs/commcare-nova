@@ -88,7 +88,8 @@ interface AppLanguageIdentity {
 `scripts/generate-language-registry.ts` from the SIL ISO 639-3 tables and CLDR
 supplemental data (customary scripts, official-status territories, RTL
 scripts, endonyms, and labels). The generator reruns per ISO/CLDR release,
-asserts structural pins (62 macrolanguages, the living-individual count band,
+rejects changed ISO table column layouts before deriving catalogs,
+asserts structural pins (63 macrolanguages, the living-individual count band,
 the Hans/Hant region sets), and proves every emitted name round-trips the
 CommCare locale-file grammar, so a bad label is a generator failure rather
 than a runtime one.

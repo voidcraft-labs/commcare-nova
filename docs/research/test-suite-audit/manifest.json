@@ -7827,7 +7827,10 @@
 			"file": "scripts/lib/__tests__/languageRegistryGeneration.test.ts",
 			"lines": 364,
 			"ciMs": 107,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete derivation source, ISO/CLDR loader, output preconditions and registry architecture. Retain independent packed/name/identity/script/territory/endonym expectations. Remove two redundant negative-region tests already covered by complete output. Add row-order plus CRLF invariance and a predominant macro member that is not alphabetically first, with complete alias fixture. Reordered ISO and macro headers exposed silent layout acceptance; both readers now validate their expected columns before derivation. Sixteen cases pass; no live regeneration or model evaluation run.",
+			"baselineSha256": "9e9ada07929d112ab57037dadb24ee2bec00a8616295dc9e6156dd90bb773b9e",
+			"reviewedSha256": "354d2851ce383c02ad68e0d4536814a2c2f60ff24aa63d6120746efa6ab32a4a"
 		},
 		{
 			"file": "scripts/lib/__tests__/prodDb.test.ts",

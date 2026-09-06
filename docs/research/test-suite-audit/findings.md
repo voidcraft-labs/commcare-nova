@@ -398,3 +398,13 @@ shared parent tables, report extra tables, continue after malformed persisted
 entities and fail on an actual missing edge table. Whole-state comparisons show
 that successful and mismatched scans leave their inputs unchanged. The report
 suite remains pure and adds an overlapping nonempty set comparison.
+
+
+### Language registry source interpretation
+
+The fixture now distinguishes predominant macrolanguage ordering from ordinary
+alphabetical order and proves row-order/CRLF invariance. Two redundant region
+exclusions were removed because the complete region-list assertion already
+covers them. Changed ISO and macrolanguage column headers previously passed
+silently; both readers now verify their actual positional schema before deriving
+catalogs. Sixteen pure cases pass. No generated catalog was regenerated.
