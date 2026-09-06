@@ -16,7 +16,10 @@ import {
 	MutationBatchIdCollisionError,
 	RunHolderLostError,
 } from "@/lib/db/commitGuard";
-import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import {
+	type AdmittedMutationBatch,
+	admitMutationBatch,
+} from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import type { BlueprintDoc } from "@/lib/domain";
@@ -124,8 +127,8 @@ export function requireInvocationAppId(ctx: ToolInvocationContext): string {
  * collisions in their inner payload.
  *
  * - `kind`: the discriminator — always `"mutate"`.
- * - `mutations`: the computed batch. The tool has already persisted it
- *   through the workspace before returning when it is nonempty.
+ * - `mutations`: the admitted batch (or an empty no-op). The tool has
+ *   already persisted it through the workspace before returning when nonempty.
  * - `result`: the value the LLM sees as the tool's return. Per-tool
  *   typed via the `R` parameter.
  *
@@ -136,7 +139,9 @@ export function requireInvocationAppId(ctx: ToolInvocationContext): string {
  */
 export interface MutatingToolResult<R> {
 	kind: "mutate";
-	mutations: readonly Mutation[];
+	mutations:
+		| AdmittedMutationBatch
+		| (readonly Mutation[] & { readonly length: 0 });
 	result: R;
 }
 

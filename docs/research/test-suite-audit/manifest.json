@@ -1935,7 +1935,10 @@
 			"file": "lib/agent/__tests__/blueprintHelpers.updateForm.test.ts",
 			"lines": 134,
 			"ciMs": 956,
-			"status": "pending"
+			"status": "rewritten",
+			"review": "Read all form helpers and the complete prior suite. Schema- and validator-admitted case/Connect fixture replaces invalid close-form context. Actual admission, JSON round trip and reducer execution prove nullable clears, retained participation, allowed refinement and ignored extra Connect keys on structurally assignable generic inputs. Outcomes are validated and input immutability checked; no source introspection or persistence claim.",
+			"baselineSha256": "de7a853b67f2e04325ecde61e8e888f41041c8ab85c207d2ebb3d63583d5f27e",
+			"reviewedSha256": "966d4ce935cbd3ef73a1adf96aa3a6fdfe2a992614cb06aacf7b3a141a4cf36a"
 		},
 		{
 			"file": "lib/agent/__tests__/contentProcessing.test.ts",
@@ -5729,7 +5732,10 @@
 			"file": "lib/doc/__tests__/connectOwnershipSourceTripwire.test.ts",
 			"lines": 65,
 			"ciMs": 32,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed source slicing, helper-name searches and runtime comparison of compile-time true literals. Separate test-d contracts check helper and Builder Connect ownership. Real form mutation tests prove extra properties cannot add participation; existing builder/session execution owns rejected changes and exact restore. Larger store suites remain pending full review.",
+			"baselineSha256": "f5b32f93523e6d99968dfe88a947f0e95ad5d50e646e29274cf98be083992cf2",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/doc/__tests__/connectTargetState.test.ts",
@@ -5969,7 +5975,10 @@
 			"file": "lib/doc/__tests__/mutationLifecycleSourceTripwire.test.ts",
 			"lines": 659,
 			"ciMs": 7886,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed copied lifecycle families, call-site inventory and retired-token checks; these do not prove behavior. Replaced guessed mutation-return provenance with the actual branded result type and compiler negative controls. Retained only static frozen-package import architecture, parsed with explicit compiler ownership and positive/negative examples; no computed-loader claim.",
+			"baselineSha256": "22ddbb14ffa0b88cd1e3575929b94f68c42b992bf678cdac5c17ff0f20e456a1",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/doc/__tests__/mutationPrevalidation.test.ts",
@@ -6197,7 +6206,10 @@
 			"file": "lib/domain/__tests__/authoredIdentitySourceTripwire.test.ts",
 			"lines": 84,
 			"ciMs": 222,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed production-text searches for casts, empty narrowers and constant-looking UUID strings. Those scans cannot establish runtime identity admission; direct UUID/domain schema and mutation admission execution own that contract. No AST rewrite preserves the misleading behavior claim.",
+			"baselineSha256": "3ebd57f459761e722042ca1a05d64925b70a52099094828967f5062e61c82dc4",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/domain/__tests__/blueprintTopology.test.ts",

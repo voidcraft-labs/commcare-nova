@@ -145,6 +145,17 @@ expansion/archive per sample, then check all wire surfaces, form identity joins,
 and the complete bundled media bytes. Finite samples establish regressions,
 not exhaustive validity or native consumer acceptance.
 
+Source inspection is appropriate only when source structure is the rule being
+enforced, such as a forbidden dependency across an architectural boundary. It
+cannot establish runtime admission, persistence, rejection, or restoration. Use
+compiler checks for assignability contracts and execute the actual owner for
+behavior. A copied call-site inventory is review documentation, not a test.
+The frozen migration import policy parses static module specifiers, including
+relative imports; it does not claim to resolve computed runtime loaders. Its
+parser owns one isolated compiler session and does not load the application
+type graph. `.test-d.ts` contracts are checked by `npm run typecheck`, not counted
+as Vitest execution evidence.
+
 Do not pin incidental strings, source formatting, CSS class lists, or mock call
 sequences unless that exact value or order is the external contract. A test that
 restates its fixture, snapshots an implementation, or mocks away the behavior

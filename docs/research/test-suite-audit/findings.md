@@ -2095,3 +2095,28 @@ admission. Three negative controls fail with `allowedKeys.has is not a function`
 The projection now requires own membership and carries an unknown mode through
 to an ordinary schema refusal. This is a candidate-processing totality fix;
 typed, admitted repeat modes retain their existing behavior.
+
+
+### Source inspection proves source rules only
+
+Removed the copied mutation-lifecycle inventory, retired-token and identity-text
+scans, and Connect source-string checks. Replacing those scans with AST parsing
+would still not prove admission, commit, or restoration. The Connect API
+ownership assertions now run in TypeScript, and generic form helper tests apply
+real mutations to prove extra Connect properties cannot install participation.
+Existing builder and session execution tests own refusal and exact restoration;
+those larger suites remain subject to their separate full review.
+
+The shared mutation result type now preserves an admitted batch or permits a
+statically empty no-change array. The archive service already returns an admitted
+batch and now retains its type. The case-selection no-change branch exposes an
+empty value explicitly. Compiler negative controls reject the old raw-array
+return type; runtime admission tests remain the evidence for parsing and
+immutability. This does not make the admission brand proof of persistence.
+
+One architectural source rule remains: static imports cannot reach inside the
+frozen migration package from ordinary runtime code. It now reads parsed module
+specifiers, including relative imports, exports, import types, and loaders;
+comments and quoted examples are not imports. Positive and negative fixtures
+exercise the rule itself. Parsing uses one owned compiler process without the
+application import/type graph, and malformed-source cleanup is exercised too.

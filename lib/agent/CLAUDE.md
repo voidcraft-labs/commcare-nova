@@ -548,6 +548,13 @@ Every `lib/agent/tools/<name>.ts` `execute` takes `(input, ctx: ToolInvocationCo
 - `MutatingToolResult<R>` — `{ kind: "mutate", mutations, result }`. The tool body has already committed through the workspace (`guardedMutate`/`guardedMutateStages` over `ctx.applyBatch`/`applyStages`) before returning; there is no `newDoc` slot because the WORKSPACE owns the current document (an authoritative zero-diff proof adopts a fresher snapshot via `ctx.adoptAuthoritativeSnapshot`, never by nominating a doc in its result). On success `result` is `{ message, summary, ...extras }`: `message` is the prose the LLM reads; `summary` (`ToolCallSummary` in `tools/shared/toolCallSummary.ts`) is UI-only presentation for the chat transcript — the names the tool already resolved, exposed as discrete fields so the transcript renders a friendly action + location breadcrumb rather than the prose. The MCP projector strips `summary` from the wire (and unwraps a now-`{ message }`-only object back to the bare string), so the MCP shape is unchanged. `extras` is the per-tool addressing payload (e.g. a minted `uuid`). On failure `result` is `{ error }`. The no-change branches of `removeModule` / `removeForm` (target didn't exist) return a bare `string` — there's no entity to summarize, and the transcript falls back to that explanatory prose.
 - `ReadToolResult<R>` — `{ kind: "read", data }`. Pure read, no persistence.
 
+Nonempty `MutatingToolResult.mutations` retains the `AdmittedMutationBatch`
+brand returned by the workspace; a no-change result may carry a statically empty
+array. A property's name cannot establish admission. This type proves the batch
+passed wire admission, while runtime workspace and transaction tests establish
+the separate validity and persistence guarantees.
+
+
 **A read result that is bounded says so.** `searchBlueprint` caps at 50 matches (`MAX_RESULTS`) and, only when it withheld some, carries `truncated: { shown, total, message }`. The bound lives at the tool boundary and NOT in `lib/doc/searchBlueprint.ts`, whose other consumer is the builder's search hook — a person scrolling a list wants every match. The cap exists because the query is unbounded against an unbounded app: measured on production, a single-letter query against the largest app rendered 531,339 chars, which no tool result can carry to a model and which costs the chat SA six figures of tokens to read a haystack. `truncated`'s ABSENCE is the caller's proof it holds every match — a bound that can't be distinguished from completeness is worse than no bound, because an agent that asked which forms write a case property will edit the ones it saw and never learn about the rest.
 
 The `kind` discriminator is the contract two consumers dispatch on:
