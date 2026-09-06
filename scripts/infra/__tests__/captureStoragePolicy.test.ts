@@ -1,15 +1,13 @@
+import { execFileSync, spawnSync } from "node:child_process";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
 	assertCaptureBucketPolicy,
 	convergeCaptureBucketPolicy,
 	parseStorageIamPolicy,
 } from "../capture-bucket-policy.mjs";
-// This plain ESM module is also executed directly by the provisioning shell,
-// so the tested expression is the exact value sent to GCP.
-import {
-	captureCleanupIamCondition,
-	captureCleanupObjectKeyAllowed,
-} from "../capture-storage-policy.mjs";
 
 const policyArgs = {
 	bucket: "nova-multimedia-prod",
@@ -20,50 +18,6 @@ const policyArgs = {
 };
 
 describe("capture cleanup storage IAM policy", () => {
-	it.each([
-		"captures-staged/project-a/attachment.png",
-		"captures-staged/_health/probe-id.probe",
-		"projects/project-a/captures/attachment.png",
-		"projects/project-b/captures/attachment.wav",
-	])("admits capture object key %s", (key) => {
-		expect(captureCleanupObjectKeyAllowed(key)).toBe(true);
-	});
-
-	it.each([
-		"pending/project-a/media-id.png",
-		"projects/project-a/content-hash.png",
-		"projects/project-a/content-hash.requirements.md",
-		"projects/project-a/captures-not/attachment.png",
-		"projects/project-a/captures/",
-		"projects/project-a/captures//attachment.png",
-		"projects/project-a/captures/attachment//thumb.png",
-		"projects/project-a/nested/captures/attachment.png",
-		"projects//captures/attachment.png",
-		"captures-staged/",
-		"captures-staged//attachment.png",
-		"captures-staged/project-a//attachment.png",
-		"captures/project-a/attachment.png",
-	])("rejects authoring, pending, or malformed object key %s", (key) => {
-		expect(captureCleanupObjectKeyAllowed(key)).toBe(false);
-	});
-
-	it("uses only supported IAM string functions and a Storage Object type guard", () => {
-		const condition = captureCleanupIamCondition("nova-multimedia-prod");
-		expect(condition).toBe(
-			"resource.type == 'storage.googleapis.com/Object' && " +
-				"!resource.name.endsWith('/') && " +
-				"resource.name.extract('//{afterDoubleSlash}') == '' && " +
-				"( resource.name.startsWith('projects/_/buckets/nova-multimedia-prod/objects/captures-staged/') || " +
-				"( resource.name.startsWith('projects/_/buckets/nova-multimedia-prod/objects/projects/') && " +
-				"resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/captures/') != '' && " +
-				"resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/captures/') == resource.name.extract('projects/_/buckets/nova-multimedia-prod/objects/projects/{project}/') ) )",
-		);
-		expect(condition).toContain("resource.name.startsWith");
-		expect(condition).toContain("resource.name.endsWith");
-		expect(condition).toContain("resource.name.extract");
-		expect(condition).not.toMatch(/contains|matches|regex|pending\/|\+/i);
-	});
-
 	it("atomically removes stale conditions and broad grants before adding one exact binding", () => {
 		const cleanupMember = `serviceAccount:${policyArgs.cleanupAccount}`;
 		const mediaMember = `serviceAccount:${policyArgs.mediaPolicyAccount}`;
@@ -211,4 +165,85 @@ describe("capture cleanup storage IAM policy", () => {
 			),
 		).toThrow("malformed binding");
 	});
+});
+
+it("convergence preserves the input and is idempotent over the complete policy", () => {
+	const input = {
+		version: 1,
+		etag: "original-etag",
+		auditConfigs: [{ service: "storage.googleapis.com" }],
+		bindings: [
+			{
+				role: "roles/storage.objectViewer",
+				members: ["user:other@example.com"],
+			},
+		],
+	};
+	const before = structuredClone(input);
+	const output = convergeCaptureBucketPolicy(input, policyArgs);
+	expect(input).toEqual(before);
+	expect(output.version).toBe(3);
+	expect(output.etag).toBe("original-etag");
+	expect(output.auditConfigs).toEqual(input.auditConfigs);
+	expect(output.bindings).toHaveLength(3);
+	expect(output.bindings).toContainEqual(input.bindings[0]);
+	expect(convergeCaptureBucketPolicy(output, policyArgs)).toEqual(output);
+});
+
+it("the real CLI emits a fenced policy and refuses a broadened condition on verification", () => {
+	const directory = mkdtempSync(join(tmpdir(), "nova-capture-policy-"));
+	try {
+		const input = join(directory, "input.json");
+		const output = join(directory, "output.json");
+		writeFileSync(
+			input,
+			JSON.stringify({ version: 1, etag: "generation-7", bindings: [] }),
+		);
+		const args = [
+			resolve("scripts/infra/capture-bucket-policy.mjs"),
+			"render",
+			policyArgs.bucket,
+			policyArgs.cleanupAccount,
+			policyArgs.mediaPolicyAccount,
+			policyArgs.captureRole,
+			policyArgs.mediaPolicyRole,
+			input,
+			output,
+		];
+		execFileSync(process.execPath, args, {
+			cwd: directory,
+			encoding: "utf8",
+			timeout: 5000,
+		});
+		const policy = parseStorageIamPolicy(readFileSync(output, "utf8"));
+		expect(policy).toMatchObject({ version: 3, etag: "generation-7" });
+		expect(policy.bindings).toHaveLength(2);
+		expect(policy.bindings).toContainEqual({
+			role: policyArgs.mediaPolicyRole,
+			members: [`serviceAccount:${policyArgs.mediaPolicyAccount}`],
+		});
+		const capture = policy.bindings.find(
+			(binding: { role: string }) => binding.role === policyArgs.captureRole,
+		);
+		expect(capture.members).toEqual([
+			`serviceAccount:${policyArgs.cleanupAccount}`,
+		]);
+		const verify = [args[0], "verify", ...args.slice(2, 7), output];
+		execFileSync(process.execPath, verify, {
+			cwd: directory,
+			encoding: "utf8",
+			timeout: 5000,
+		});
+		capture.condition.expression = "true";
+		writeFileSync(output, JSON.stringify(policy));
+		const refused = spawnSync(process.execPath, verify, {
+			cwd: directory,
+			encoding: "utf8",
+			timeout: 5000,
+		});
+		expect(refused.status).toBe(1);
+		expect(refused.stderr).toContain("condition does not match policy");
+	} finally {
+		rmSync(directory, { recursive: true, force: true });
+	}
 });

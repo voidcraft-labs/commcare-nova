@@ -157,3 +157,26 @@ The shared Cloud Run transport now classifies those failures consistently while
 keeping uncertain writes terminal after one attempt. HTTP error responses are
 closed, and an incomplete diagnostic body preserves the original HTTP status
 rather than changing an authorization refusal into a retry.
+
+## IAM evaluation and database bootstrap admission
+
+The capture policy tests previously exercised a separate JavaScript predicate
+that no production caller used. That imitation accepted a trailing slash that
+the actual emitted IAM condition rejects. The unused predicate is removed;
+tests now evaluate the actual condition with CEL, restrict it to the supported
+IAM surface, and validate the `extract` extension against Google's published
+examples. This was a defect in the test imitation, not a production access leak.
+The real policy CLI also round-trips a policy file and rejects a widened grant.
+
+Database bootstrap's SQL string snapshots are removed. Existing real ownership
+transfer and rollback coverage is retained. A focused real-catalog test exposed
+four admitted grants outside the promised one-way migration-to-runtime edge,
+including indirect cleanup access and grants to/from audit. Bootstrap now
+inventories every application's direct parent, with the same managed-role
+exception as the later deployment privilege gate. The later gate already
+refused these grants; the defect was premature bootstrap admission.
+
+Actual CLI process tests also reproduced connector cleanup missing on option
+discovery failure and network preparation before credential validation. Input
+validation now precedes acquisition, and the connector's lifetime encloses
+option discovery and database-client construction as well as execution.

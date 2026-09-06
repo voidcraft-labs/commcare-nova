@@ -41,14 +41,14 @@ async function main(): Promise<void> {
 				"  NOVA_DB_BOOTSTRAP_PASSWORD  its password",
 				"",
 				"Privileged bootstrap order:",
-				"  1. Provision the runtime, migration, and capture-cleanup IAM database users.",
+				"  1. Provision the runtime, migration, capture-cleanup, and audit IAM database users.",
 				"  2. Create a temporary BUILT_IN user with a strong password and NO",
 				"     inline --database-roles (inline roles suppress cloudsqlsuperuser).",
-				"  3. After creation, assign runtime, migration, capture-cleanup, and any",
+				"  3. After creation, assign runtime, migration, capture-cleanup, audit, and any",
 				"     source owner the bootstrap must transfer WITHOUT",
 				"     --revoke-existing-roles, preserving cloudsqlsuperuser.",
-				"  4. Assign runtime as the sole custom role of migration; cleanup and",
-				"     runtime have no application parent.",
+				"  4. Assign runtime as the sole custom role of migration; cleanup, audit,",
+				"     and runtime have no application parent.",
 				"  5. Run this LOCAL command through the Cloud SQL connector without",
 				"     --apply to inspect extension owner/version/config/dependencies,",
 				"     then with --apply to create missing extensions, set role limits,",
@@ -63,21 +63,24 @@ async function main(): Promise<void> {
 		return;
 	}
 
+	const user = requiredEnvironment("NOVA_DB_BOOTSTRAP_USER");
+	const password = requiredEnvironment("NOVA_DB_BOOTSTRAP_PASSWORD");
 	const connector = new Connector();
-	const clientOptions = await connector.getOptions({
-		instanceConnectionName: INSTANCE_CONNECTION_NAME,
-		ipType: IpAddressTypes.PUBLIC,
-		authType: AuthTypes.PASSWORD,
-	});
-	const client = new Client({
-		...clientOptions,
-		user: requiredEnvironment("NOVA_DB_BOOTSTRAP_USER"),
-		password: requiredEnvironment("NOVA_DB_BOOTSTRAP_PASSWORD"),
-		database: DEPLOYMENT_DATABASE,
-		connectionTimeoutMillis: 10_000,
-	});
+	let client: Client | undefined;
 
 	try {
+		const clientOptions = await connector.getOptions({
+			instanceConnectionName: INSTANCE_CONNECTION_NAME,
+			ipType: IpAddressTypes.PUBLIC,
+			authType: AuthTypes.PASSWORD,
+		});
+		client = new Client({
+			...clientOptions,
+			user,
+			password,
+			database: DEPLOYMENT_DATABASE,
+			connectionTimeoutMillis: 10_000,
+		});
 		await client.connect();
 		if (!values.apply) {
 			const inspection = await inspectDatabaseOwnerBootstrap(client);
@@ -87,7 +90,7 @@ async function main(): Promise<void> {
 		const execution = await executeDatabaseOwnerBootstrap(client);
 		process.stdout.write(`${JSON.stringify(execution, null, 2)}\n`);
 	} finally {
-		await client.end().catch(() => undefined);
+		await client?.end().catch(() => undefined);
 		connector.close();
 	}
 }

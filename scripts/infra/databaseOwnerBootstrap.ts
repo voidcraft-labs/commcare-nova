@@ -88,22 +88,7 @@ export interface DatabaseBootstrapFacts {
 	readonly currentUserCanSetLegacy: boolean;
 	readonly migrationIsRuntimeMember: boolean;
 	readonly migrationCanSetRuntime: boolean;
-	readonly migrationIsCleanupMember: boolean;
-	readonly migrationCanSetCleanup: boolean;
-	readonly migrationIsLegacyMember: boolean;
-	readonly migrationCanSetLegacy: boolean;
-	readonly cleanupIsRuntimeMember: boolean;
-	readonly cleanupCanSetRuntime: boolean;
-	readonly cleanupIsMigrationMember: boolean;
-	readonly cleanupCanSetMigration: boolean;
-	readonly cleanupIsLegacyMember: boolean;
-	readonly cleanupCanSetLegacy: boolean;
-	readonly runtimeIsMigrationMember: boolean;
-	readonly runtimeCanSetMigration: boolean;
-	readonly runtimeIsCleanupMember: boolean;
-	readonly runtimeCanSetCleanup: boolean;
-	readonly runtimeIsLegacyMember: boolean;
-	readonly runtimeCanSetLegacy: boolean;
+	readonly unexpectedApplicationParents: readonly string[];
 	readonly runtimeCanCreateDatabase: boolean;
 	readonly runtimeCanCreatePublicSchema: boolean;
 	readonly legacyCanCreateDatabase: boolean;
@@ -172,22 +157,7 @@ interface DatabaseBootstrapFactRow extends QueryResultRow {
 	readonly current_user_can_set_legacy: boolean;
 	readonly migration_is_runtime_member: boolean;
 	readonly migration_can_set_runtime: boolean;
-	readonly migration_is_cleanup_member: boolean;
-	readonly migration_can_set_cleanup: boolean;
-	readonly migration_is_legacy_member: boolean;
-	readonly migration_can_set_legacy: boolean;
-	readonly cleanup_is_runtime_member: boolean;
-	readonly cleanup_can_set_runtime: boolean;
-	readonly cleanup_is_migration_member: boolean;
-	readonly cleanup_can_set_migration: boolean;
-	readonly cleanup_is_legacy_member: boolean;
-	readonly cleanup_can_set_legacy: boolean;
-	readonly runtime_is_migration_member: boolean;
-	readonly runtime_can_set_migration: boolean;
-	readonly runtime_is_cleanup_member: boolean;
-	readonly runtime_can_set_cleanup: boolean;
-	readonly runtime_is_legacy_member: boolean;
-	readonly runtime_can_set_legacy: boolean;
+	readonly unexpected_application_parents: string[];
 	readonly runtime_can_create_database: boolean;
 	readonly runtime_can_create_public_schema: boolean;
 	readonly legacy_can_create_database: boolean;
@@ -386,24 +356,7 @@ function assertApplicationRoleMemberships(facts: DatabaseBootstrapFacts): void {
 	if (!facts.migrationIsRuntimeMember || !facts.migrationCanSetRuntime) {
 		throw new Error("Migration must have MEMBER and SET access to runtime.");
 	}
-	if (
-		facts.cleanupIsRuntimeMember ||
-		facts.cleanupCanSetRuntime ||
-		facts.migrationIsCleanupMember ||
-		facts.migrationCanSetCleanup ||
-		facts.migrationIsLegacyMember ||
-		facts.migrationCanSetLegacy ||
-		facts.cleanupIsMigrationMember ||
-		facts.cleanupCanSetMigration ||
-		facts.cleanupIsLegacyMember ||
-		facts.cleanupCanSetLegacy ||
-		facts.runtimeIsMigrationMember ||
-		facts.runtimeCanSetMigration ||
-		facts.runtimeIsCleanupMember ||
-		facts.runtimeCanSetCleanup ||
-		facts.runtimeIsLegacyMember ||
-		facts.runtimeCanSetLegacy
-	) {
+	if (facts.unexpectedApplicationParents.length > 0) {
 		throw new Error(
 			"Application database role membership is wider than the one-way migration-to-runtime grant.",
 		);
@@ -691,93 +644,16 @@ export async function readDatabaseBootstrapFacts(
 						AND membership.roleid = role_oids.runtime_oid
 						AND membership.set_option
 				) END AS migration_can_set_runtime,
-			CASE WHEN role_oids.migration_oid IS NULL
-				OR role_oids.cleanup_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.migration_oid, role_oids.cleanup_oid, 'MEMBER'
-				) END AS migration_is_cleanup_member,
-			CASE WHEN role_oids.migration_oid IS NULL
-				OR role_oids.cleanup_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.migration_oid, role_oids.cleanup_oid, 'SET'
-				) END AS migration_can_set_cleanup,
-			CASE WHEN role_oids.migration_oid IS NULL
-				OR role_oids.legacy_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.migration_oid, role_oids.legacy_oid, 'MEMBER'
-				) END AS migration_is_legacy_member,
-			CASE WHEN role_oids.migration_oid IS NULL
-				OR role_oids.legacy_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.migration_oid, role_oids.legacy_oid, 'SET'
-				) END AS migration_can_set_legacy,
-			CASE WHEN role_oids.cleanup_oid IS NULL
-				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				EXISTS (
-					SELECT 1
-					FROM pg_catalog.pg_auth_members AS membership
-					WHERE membership.member = role_oids.cleanup_oid
-						AND membership.roleid = role_oids.runtime_oid
-				) END AS cleanup_is_runtime_member,
-			CASE WHEN role_oids.cleanup_oid IS NULL
-				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				EXISTS (
-					SELECT 1
-					FROM pg_catalog.pg_auth_members AS membership
-					WHERE membership.member = role_oids.cleanup_oid
-						AND membership.roleid = role_oids.runtime_oid
-						AND membership.set_option
-				) END AS cleanup_can_set_runtime,
-			CASE WHEN role_oids.cleanup_oid IS NULL
-				OR role_oids.migration_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.cleanup_oid, role_oids.migration_oid, 'MEMBER'
-				) END AS cleanup_is_migration_member,
-			CASE WHEN role_oids.cleanup_oid IS NULL
-				OR role_oids.migration_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.cleanup_oid, role_oids.migration_oid, 'SET'
-				) END AS cleanup_can_set_migration,
-			CASE WHEN role_oids.cleanup_oid IS NULL
-				OR role_oids.legacy_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.cleanup_oid, role_oids.legacy_oid, 'MEMBER'
-				) END AS cleanup_is_legacy_member,
-			CASE WHEN role_oids.cleanup_oid IS NULL
-				OR role_oids.legacy_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.cleanup_oid, role_oids.legacy_oid, 'SET'
-				) END AS cleanup_can_set_legacy,
-			CASE WHEN role_oids.migration_oid IS NULL
-				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.runtime_oid, role_oids.migration_oid, 'MEMBER'
-				) END AS runtime_is_migration_member,
-			CASE WHEN role_oids.migration_oid IS NULL
-				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.runtime_oid, role_oids.migration_oid, 'SET'
-				) END AS runtime_can_set_migration,
-			CASE WHEN role_oids.cleanup_oid IS NULL
-				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.runtime_oid, role_oids.cleanup_oid, 'MEMBER'
-				) END AS runtime_is_cleanup_member,
-			CASE WHEN role_oids.cleanup_oid IS NULL
-				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.runtime_oid, role_oids.cleanup_oid, 'SET'
-				) END AS runtime_can_set_cleanup,
-			CASE WHEN role_oids.legacy_oid IS NULL
-				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.runtime_oid, role_oids.legacy_oid, 'MEMBER'
-				) END AS runtime_is_legacy_member,
-			CASE WHEN role_oids.legacy_oid IS NULL
-				OR role_oids.runtime_oid IS NULL THEN false ELSE
-				pg_catalog.pg_has_role(
-					role_oids.runtime_oid, role_oids.legacy_oid, 'SET'
-				) END AS runtime_can_set_legacy,
+			ARRAY(
+				SELECT member.rolname || ' -> ' || parent.rolname
+				FROM pg_catalog.pg_auth_members AS membership
+				JOIN pg_catalog.pg_roles AS member ON member.oid = membership.member
+				JOIN pg_catalog.pg_roles AS parent ON parent.oid = membership.roleid
+				WHERE member.rolname IN ($1, $2, $3, $4)
+					AND parent.rolname <> 'cloudsqliamserviceaccount'
+					AND NOT (member.rolname = $1 AND parent.rolname = $2)
+				ORDER BY member.rolname, parent.rolname
+			) AS unexpected_application_parents,
 			CASE WHEN role_oids.runtime_oid IS NULL THEN false ELSE
 				pg_catalog.has_database_privilege(
 					role_oids.runtime_oid, database_row.oid, 'CREATE'
@@ -997,22 +873,7 @@ export async function readDatabaseBootstrapFacts(
 		currentUserCanSetLegacy: row.current_user_can_set_legacy,
 		migrationIsRuntimeMember: row.migration_is_runtime_member,
 		migrationCanSetRuntime: row.migration_can_set_runtime,
-		migrationIsCleanupMember: row.migration_is_cleanup_member,
-		migrationCanSetCleanup: row.migration_can_set_cleanup,
-		migrationIsLegacyMember: row.migration_is_legacy_member,
-		migrationCanSetLegacy: row.migration_can_set_legacy,
-		cleanupIsRuntimeMember: row.cleanup_is_runtime_member,
-		cleanupCanSetRuntime: row.cleanup_can_set_runtime,
-		cleanupIsMigrationMember: row.cleanup_is_migration_member,
-		cleanupCanSetMigration: row.cleanup_can_set_migration,
-		cleanupIsLegacyMember: row.cleanup_is_legacy_member,
-		cleanupCanSetLegacy: row.cleanup_can_set_legacy,
-		runtimeIsMigrationMember: row.runtime_is_migration_member,
-		runtimeCanSetMigration: row.runtime_can_set_migration,
-		runtimeIsCleanupMember: row.runtime_is_cleanup_member,
-		runtimeCanSetCleanup: row.runtime_can_set_cleanup,
-		runtimeIsLegacyMember: row.runtime_is_legacy_member,
-		runtimeCanSetLegacy: row.runtime_can_set_legacy,
+		unexpectedApplicationParents: row.unexpected_application_parents,
 		runtimeCanCreateDatabase: row.runtime_can_create_database,
 		runtimeCanCreatePublicSchema: row.runtime_can_create_public_schema,
 		legacyCanCreateDatabase: row.legacy_can_create_database,

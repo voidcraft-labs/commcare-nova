@@ -7653,13 +7653,19 @@
 			"file": "scripts/infra/__tests__/captureStoragePolicy.test.ts",
 			"lines": 214,
 			"ciMs": 61,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read all policy source and callers. Removed unused policy imitation and its false semantic coverage; actual emitted CEL now evaluated by independent @bufbuild/cel with documented IAM extension examples. Retained real policy convergence, input immutability, idempotence, and actual CLI render/verify refusal of a widened grant.",
+			"baselineSha256": "c5c53cfc45f9d3a7b65dd6cf9fee04e61d594087d74bdc1f00fa39b7e039b6fc",
+			"reviewedSha256": "9b77060ea7edeadd2c9d71501a33e168ae6a2a74bda3ef83cbbf15d51d25ad78"
 		},
 		{
 			"file": "scripts/infra/__tests__/databaseOwnerBootstrap.test.ts",
 			"lines": 356,
 			"ciMs": 376,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full bootstrap fact SQL, assertions, ownership statements, CLI, and existing real Postgres transfer/rollback suites. Removed copied SQL arrays; retain pure policy/production configuration assertions. New real-catalog admission test reproduced indirect cleanup and audit/custom-parent gaps; replace incomplete boolean inventory with complete direct-parent inventory. Actual CLI process tests reproduced credential ordering and connector cleanup defects; fixed with acquisition inside owned lifetime.",
+			"baselineSha256": "8e8f9f8cd3afbe4fa8c51515ad8693c09c05ae4622b743e593e91a64ecc60716",
+			"reviewedSha256": "2ada6dd7b05f3e838c9b8692069bce952cfa0c7c103e43be1f6ad45939a0c954"
 		},
 		{
 			"file": "scripts/infra/__tests__/deploymentInfrastructure.test.ts",

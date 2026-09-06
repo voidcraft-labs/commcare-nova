@@ -77,8 +77,9 @@ staging-prefix bytes and must never match the durable capture prefix. The media
 policy identity applies that policy with a metageneration fence, disables soft
 delete, versioning, and default event holds, and refuses to remove an operator
 retention policy. Capture object names are accepted only when every prefix
-segment is non-empty; the IAM condition and its domain mirror enforce the same
-shape. The condition uses only Cloud Storage's supported `resource.name`
+segment is non-empty. Tests evaluate the actual IAM condition with a CEL engine
+and Google's documented `extract` extension; there is no separate policy imitation.
+The condition uses only Cloud Storage's supported `resource.name`
 surface: `startsWith`, `endsWith`, `extract`, and equality.
 
 Every non-local database process declares one final workload:
@@ -125,7 +126,12 @@ Before either dry-run or apply, Cloud SQL's PG18 membership API must give that
 temporary administrator direct MEMBER plus SET access to migration, runtime,
 cleanup, audit, and the legacy source owner when present. The bootstrap audits
 all four permanent identities as direct non-superuser LOGIN roles and refuses
-to alter a role it cannot fully inspect or `SET ROLE` to.
+to alter a role it cannot fully inspect or `SET ROLE` to. It inventories every
+application role's direct parent, allowing only migration-to-runtime and the
+Cloud SQL-managed `cloudsqliamserviceaccount` membership. This also refuses
+indirect access through an unexpected intermediary before ownership changes.
+The CLI validates credentials before opening a connector and closes every
+created client/connector on failure, including option discovery.
 
 Delete the temporary administrator through Cloud SQL only after that audit
 succeeds. Subsequent deploys use only the permanent identities and the ordinary

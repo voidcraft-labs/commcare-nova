@@ -54,6 +54,13 @@ or streaming behavior matter; replacing the entire request helper hides those
 failures. Native-language suites belong in that language's test runner, with
 positive discovery and a bounded process lifetime when invoked from Vitest.
 
+For emitted policy languages, evaluate the actual output with an independent
+language implementation. `captureCondition.test.ts` uses CEL and checks its
+Google IAM-specific `extract` extension against Google's published examples.
+A hand-written predicate beside an emitter does not prove the emitted policy.
+Role-admission tests must query real PostgreSQL catalogs: fabricated booleans
+can exercise a refusal rule while hiding a broken membership query.
+
 A rejection test must begin with an otherwise admissible input. Prove the valid
 case succeeds before introducing the fault, or pair it with an accepted case
 that uses the same fixture. Matching a generic error cannot establish why the
