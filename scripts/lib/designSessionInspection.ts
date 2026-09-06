@@ -12,6 +12,10 @@ export interface DesignSessionResolution {
 	readonly alternatives: readonly DesignSessionResolutionMatch[];
 }
 
+function timestamp(value: Date | string): number {
+	return value instanceof Date ? value.getTime() : Date.parse(value);
+}
+
 /**
  * Pick the newest matching session while preserving the alternatives in the
  * result. App ids can legitimately name several edit sessions; silently
@@ -26,15 +30,13 @@ export function selectDesignSessionResolution(
 		const existing = bySession.get(match.sessionId);
 		if (
 			existing === undefined ||
-			Date.parse(String(match.updatedAt)) >
-				Date.parse(String(existing.updatedAt))
+			timestamp(match.updatedAt) > timestamp(existing.updatedAt)
 		) {
 			bySession.set(match.sessionId, match);
 		}
 	}
 	const ordered = [...bySession.values()].sort(
-		(left, right) =>
-			Date.parse(String(right.updatedAt)) - Date.parse(String(left.updatedAt)),
+		(left, right) => timestamp(right.updatedAt) - timestamp(left.updatedAt),
 	);
 	const selected = ordered[0];
 	if (selected === undefined) return null;

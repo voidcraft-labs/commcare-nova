@@ -7758,19 +7758,28 @@
 			"file": "scripts/lib/__tests__/designArtifactProducerRuns.test.ts",
 			"lines": 49,
 			"ciMs": 39,
-			"status": "pending"
+			"status": "retained",
+			"review": "Full helper and both inspector caller paths read. These are useful pure evidence-union tests: superseded revisions, parent reviews, recovered workspace steps, duplicate producers, summary-only runs and interrupted summary absence. The caller supplies the deduplicated producer list before computing missing-summary count; no fake database or cost-gate claim.",
+			"baselineSha256": "1b9b68b0b069a7740c75e183bd1ed159d288c3cb9ce0d78a04dabb9fc52de3d1",
+			"reviewedSha256": "1b9b68b0b069a7740c75e183bd1ed159d288c3cb9ce0d78a04dabb9fc52de3d1"
 		},
 		{
 			"file": "scripts/lib/__tests__/designPreviewInputTerminal.test.ts",
 			"lines": 50,
 			"ciMs": 53,
-			"status": "pending"
+			"status": "revised",
+			"review": "Full helper, preview consumer and production stream arbitration inspected. Retained pure selection boundary; assert complete question payload survives, reject invalid questions and uncompleted or malformed wait results. Tests do not claim to exercise production streaming or invoke the paid preview.",
+			"baselineSha256": "5ca218d0263556af94fbcdd36dc56d05c910424111a94829daec9f78ccd894a6",
+			"reviewedSha256": "37bf6fb2bfd39782b4cdff106485d31a047e4ca2a302df31f86097dfb75ce302"
 		},
 		{
 			"file": "scripts/lib/__tests__/designSessionInspection.test.ts",
 			"lines": 67,
 			"ciMs": 45,
-			"status": "pending"
+			"status": "revised",
+			"review": "Full helper and inspector selection/context/watch consumers inspected. Added native Date millisecond selection and duplicate evidence, exposing and fixing lossy String(Date) ordering; empty resolution, exact UTF-8 message/tool sizes, payload privacy and fatal distinction. Removed bare SHA-256 repeat-input assertion because it tested library hashing, not watch-mode behavior.",
+			"baselineSha256": "b0d8ec8e34bb84bd94c6662ab3d8e5647055b3352f0516e4f23df0171ba5f84a",
+			"reviewedSha256": "cdccc537e37f8e261952710ecde1b40dc258e2aebb18637c9b135e14633357dc"
 		},
 		{
 			"file": "scripts/lib/__tests__/languageIdentityRepair.test.ts",

@@ -4,7 +4,18 @@ import { designPreviewInputTerminal } from "../designPreviewInputTerminal";
 const call = (toolCallId: string, toolName: string, invalid = false) => ({
 	toolCallId,
 	toolName,
-	input: {},
+	input:
+		toolName === "askQuestions"
+			? {
+					header: "Visit schedule",
+					questions: [
+						{
+							question: "How often do workers visit?",
+							options: [{ label: "Weekly" }],
+						},
+					],
+				}
+			: {},
 	invalid,
 });
 
@@ -40,11 +51,35 @@ describe("design preview input-terminal arbitration", () => {
 			),
 		).toEqual({
 			kind: "questions",
-			questions: [expect.objectContaining({ toolCallId: "winner" })],
+			questions: [call("winner", "askQuestions")],
 		});
 	});
 
 	it("distinguishes no input terminal from a successful wait", () => {
 		expect(designPreviewInputTerminal([], [])).toEqual({ kind: "none" });
+	});
+	it("does not treat an uncompleted wait or an invalid question as accepted input", () => {
+		expect(
+			designPreviewInputTerminal(
+				[call("wait", "waitForInput"), call("bad", "askQuestions", true)],
+				[],
+			),
+		).toEqual({ kind: "none" });
+	});
+
+	it.each([
+		null,
+		{},
+		{ ok: true },
+		{ awaitingInput: true },
+		{ ok: false, awaitingInput: true },
+	])("keeps the valid question when wait did not succeed: %j", (output) => {
+		const question = call("question", "askQuestions");
+		expect(
+			designPreviewInputTerminal(
+				[question],
+				[{ toolName: "waitForInput", output }],
+			),
+		).toEqual({ kind: "questions", questions: [question] });
 	});
 });

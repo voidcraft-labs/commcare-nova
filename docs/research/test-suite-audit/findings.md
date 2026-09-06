@@ -288,3 +288,19 @@ and protected-prose validation, reconstructing the exact authored target fixture
 values. Review metadata is checked against usable criteria and real formatting
 signals; removing a protected reference must fail. These are offline fixture
 and protocol checks, without model calls or a claim about translation quality.
+
+### Inspection-script boundaries
+
+Retained the artifact-producer evidence-union tests after checking both real
+inspector consumers: interrupted summary writes and superseded artifacts must
+remain visible. Preview input arbitration now preserves the actual question
+payload and distinguishes accepted waits from incomplete or malformed results.
+These are pure protocol checks; they do not claim to run the paid preview or
+production stream arbiter.
+
+The design-session inspector converted database `Date` values to strings before
+sorting, losing milliseconds and selecting an older session within the same
+second. A native-Date regression failed before the timestamp comparison was
+corrected. Compact message and tool summaries now assert real UTF-8 byte sizes,
+payload omission and fatal-error distinction. The bare SHA-256 repeat-input test
+was removed: it did not exercise watch collection or suppression behavior.
