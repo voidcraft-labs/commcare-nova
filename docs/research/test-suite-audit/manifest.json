@@ -7665,7 +7665,10 @@
 			"file": "scripts/__tests__/translationEvaluationFixtures.test.ts",
 			"lines": 43,
 			"ciMs": 617,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole fixtures and actual evaluation consumer; replaced fixture-presence checks with six offline language-direction journeys through real batch planning, serialized prompt payload, output schema and protected-prose validation to exact target fixture values. Each review criterion resolves; declared formatting signals must exist; protected-reference fixtures reject removal. This proves fixture/protocol compatibility, not model translation quality.",
+			"baselineSha256": "8cbc8c74479f16b02233ec321678c732c8c8a8832bf47305e2c7b42384fc6f2f",
+			"reviewedSha256": "7cb6035fa39f504ae72aa3e3d2a75d1bb4a676a38267225b6d8cfd4dd52a9289"
 		},
 		{
 			"file": "scripts/ci/__tests__/testLint.test.ts",
@@ -7794,7 +7797,10 @@
 			"file": "scripts/lib/__tests__/schemaDrift.test.ts",
 			"lines": 67,
 			"ciMs": 495,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced the entire exported-decoder suite with real Postgres scan coverage: all current stored type identities, JSONB key order, legacy select refinement, unknown formats, app scope, read-only rows, additions/removals including prototype-shaped names. Existing indexConvergence tests retain actual repair, retirement and versioning coverage. Removed test-only decoder export and fixed current select identity and inherited-key report bugs.",
+			"baselineSha256": "84c84e656ead96374690d45c252df6f0770633115727e929217b339b8bfd0783",
+			"reviewedSha256": null
 		},
 		{
 			"file": "scripts/lib/__tests__/xpathCarrierCompatibilityRepair.test.ts",

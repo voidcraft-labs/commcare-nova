@@ -106,6 +106,13 @@ Retype planning lives in `lib/domain/caseRetype.ts::planCaseRetype`. Its richer 
 
 **Schema drift after a derivation change is a scan-then-migrate.** Stored `case_type_schemas` rows converge to the CURRENT derivation only when an edit touches their case type — `classifyCaseTypeChanges` diffs prior-vs-prospective views that both already carry the new derivation, so a deploy that changes what schemas derive FROM leaves stored rows stale until `scripts/scan-schema-drift.ts` (read-only sizing) + `scripts/migrate-schema-drift.ts --execute` (per-property `retype` migrations — uncastable values park — then a plain re-sync per case type) run over the old data.
 
+The drift report preserves current select identity through `x-novaDataType` and
+compares owned property keys, including names such as `constructor`. Its legacy
+enum recognition is diagnostic only: a repair still passes the writer's exact
+canonical stored-schema decoder. Real Postgres scan tests cover type reporting,
+JSONB key ordering, app scope, and additions/removals; versioned repair and
+retirement remain covered by the index-convergence tests.
+
 Historical ordinary extension edges follow the same scan-then-migrate rule.
 Before automations, ordinary parent writes always persisted `child`; advanced
 case-operation links already persisted their authored relationship and may own

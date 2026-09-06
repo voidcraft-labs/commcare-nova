@@ -263,3 +263,28 @@ bypasses Playwright routes for native downloads, verified with a separate local
 server probe; the UI test cancels after asserting the download event and URL,
 and does not claim to validate mocked storage bytes. Geometry assertions wait
 for popup animation to settle before measuring the 44px floor.
+
+### Schema drift and translation-evaluation fixtures
+
+The old drift suite explicitly pinned a branch order using a schema that never
+shipped. Its legacy-array assertion also never supplied the legacy enum it
+claimed to cover. The entire helper-only file is replaced by four real-Postgres
+scan tests, and the decoder is private. The tests read all nine current type
+shapes, classify changed destinations, exercise JSONB key ordering, distinguish
+legacy refinement from unknown formats, verify app scoping and unchanged rows,
+and preserve prototype-shaped property names. Existing index-convergence tests
+exercise actual versioned repair and retirement.
+
+The current single-select annotation was ignored by the scanner, reporting
+`text` as the source of a retype. A regression failed before recognizing the
+annotation. Another regression showed `constructor` removal disappearing and
+`toString` addition reported as an unresolvable inherited function. Owned-key
+checks now report both changes correctly. Diagnostic recognition of a legacy
+shape does not bypass the repair writer's canonical stored-schema admission.
+
+Translation evaluation now runs all six available source/target directions
+through production batching, prompt serialization, structured-output parsing,
+and protected-prose validation, reconstructing the exact authored target fixture
+values. Review metadata is checked against usable criteria and real formatting
+signals; removing a protected reference must fail. These are offline fixture
+and protocol checks, without model calls or a claim about translation quality.
