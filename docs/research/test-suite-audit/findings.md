@@ -677,3 +677,27 @@ gate, including a display column using Nova's canonical `case_name` property.
 All 232 MCP and settings consumer tests passed across 27 files in 17.26 seconds;
 type checking and strict formatting passed. This run does not claim a completed
 method review of the remaining settings or HQ client suites.
+
+### Deep links: actual evidence across the remote check
+
+The old MCP and release-verification suites supplied empty documents and mocked
+the publish manifest, endpoint inventory, signature, HQ responses, and final
+observation write. The replacement starts with a valid persisted app, prepares
+its export, compiles the published entry-point manifest, and records a real
+deployment. An actual MCP client then receives controlled native HTTP responses
+for the selected server's exact released build. The URL preserves external case
+ID order and encoding; its release metadata matches the observation actually
+stored in Postgres. Every recorded request is a check, never the claim-capable
+URL itself.
+
+Eleven database scenarios cover changed endpoint definitions, login XML,
+transient resource failures with historical observation retention, release
+withdrawal between reads, another publish invalidating the generation, an actual
+guarded authoring commit, membership demotion, and a native observation UPDATE
+trigger rejection followed by recovery. Admission and SDK schema refusals
+perform no HTTP or decryption. Two small direct argument tests retain the
+distinct single-selection and no-selection cases without service mocks.
+
+The focused run passed 40 tests across five files in 9.18 seconds. The final
+membership SQL check passed separately, and type checking passed. The compiler
+and manifest consumer runs do not mark their own method review complete.

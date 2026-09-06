@@ -5288,7 +5288,10 @@
 			"file": "lib/deployment/__tests__/entryPointLinks.test.ts",
 			"lines": 225,
 			"ciMs": 157,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "530e87f117cf1a79381da794b36676ff72fa64c3c4407e00a0363bb7e45e3818",
+			"review": "Replaced fabricated authorization, empty docs, and mocked manifest/signature/release/storage outcomes with entryPointLink.postgres.test.ts: real SDK, migrated database, strict export preparation, actual compiled manifest, controlled native HTTP profile/suite/version responses, and stored observations. Covers drift, login XML, transient retention, release withdrawal, actual publish invalidation, guarded authoring commit, membership loss, late native storage rejection and retry, and no network before input/admission refusal. Remaining direct argument tests cover no-selection and single-selection cardinality without module mocks.",
+			"reviewedSha256": "204960470cf79e69afd0bbfdfa50bad153ff5ae91f0a181e73778b3b4086fabe"
 		},
 		{
 			"file": "lib/deployment/__tests__/entryPointManifest.test.ts",
@@ -6548,7 +6551,9 @@
 			"file": "lib/mcp/__tests__/getEntryPointLink.test.ts",
 			"lines": 83,
 			"ciMs": 1355,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "774dae7d01849b1db4b2001779ac55d1d8dd6e4e3fc9ac7fb96374296c73de8b",
+			"review": "Replaced fabricated authorization, empty docs, and mocked manifest/signature/release/storage outcomes with entryPointLink.postgres.test.ts: real SDK, migrated database, strict export preparation, actual compiled manifest, controlled native HTTP profile/suite/version responses, and stored observations. Covers drift, login XML, transient retention, release withdrawal, actual publish invalidation, guarded authoring commit, membership loss, late native storage rejection and retry, and no network before input/admission refusal. Remaining direct argument tests cover no-selection and single-selection cardinality without module mocks."
 		},
 		{
 			"file": "lib/mcp/__tests__/getHqConnection.test.ts",
