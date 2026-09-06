@@ -39,10 +39,11 @@ import {
 const eb = expressionBuilder<Database, keyof Database>();
 
 /**
- * Compile a `Literal` to a Kysely expression. Three branches:
+ * Compile a `Literal` to a Kysely expression:
  * `null` → `eb.lit(null)` (SQL `NULL` keyword); `data_type !==
  * undefined` → `eb.cast(eb.val(value), <token>)` lifts the bound
- * parameter to the typed value; otherwise → bare `eb.val(value)`.
+ * parameter to the typed value; numbers without a declared type infer
+ * integer/numeric; other primitives keep bare `eb.val(value)`.
  * Date / time / datetime strings first pass through SQL `nullif`, so
  * the editor's intentional empty-string draft becomes typed `NULL`
  * instead of a Postgres `22007` cast failure. Non-empty values retain
@@ -83,6 +84,18 @@ export function compileLiteral(lit: Literal): AliasableExpression<unknown> {
 		) {
 			return eb.cast(eb.fn("nullif", [eb.val(lit.value), eb.val("")]), cast);
 		}
+		return eb.cast(eb.val(lit.value), cast);
+	}
+	if (typeof lit.value === "number") {
+		// Prepared parameters have no numeric type unless we supply one.
+		// Preserve integer arithmetic within the domain's int4 range; wider
+		// values and fractions need numeric rather than an overflowing int4 cast.
+		const cast =
+			Number.isInteger(lit.value) &&
+			lit.value >= -2_147_483_648 &&
+			lit.value <= 2_147_483_647
+				? "integer"
+				: "numeric";
 		return eb.cast(eb.val(lit.value), cast);
 	}
 	return eb.val(lit.value);

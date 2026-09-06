@@ -1,42 +1,4 @@
-// lib/case-store/sql/__tests__/compileExpression.harness.postgres.test.ts
-//
-// Execute-against-real-Postgres tests for the Expression compiler.
-// Insert a small fixture, build a wider query that selects the
-// compiled value-expression as a column, and assert the row-set
-// matches expectations. The cold-suite sibling
-// (`compileExpression.test.ts`) pins the SQL string shape; this
-// file pins runtime semantics.
-//
-// ## Why a separate file from the cold compile-only suite
-//
-// Cold tests use Kysely's `DummyDriver` and assert on the
-// `.compile()` output's tokens. They never execute. A regression
-// that emitted `::dates` instead of `::date`, or `INTERVAL '1
-// dayz'` instead of `INTERVAL '1 days'`, would still pass every
-// `toContain("::date")` / `toContain("interval")` check the cold
-// suite makes — Postgres rejects the typo only at parse time. This
-// file's tests answer that question.
-//
-// ## Round-trip coverage
-//
-//   1. `today` / `now` constants resolve to today / current time.
-//   2. `date-coerce` / `datetime-coerce` lift wire strings into
-//      typed values and round-trip through ordered comparisons.
-//   3. `double` casts a numeric string to numeric.
-//   4. Each `arith` op resolves to the expected numeric value.
-//   5. `concat` returns the concatenation; `null` parts coerce to
-//      empty (matching Postgres's `concat(...)` NULL-tolerant
-//      semantic and the type checker's spec).
-//   6. `coalesce` returns the first non-null value.
-//   7. `format-date` renders a sample pattern.
-//   8. `date-add` adds the expected interval for each unit.
-//   9. `count` returns the cardinality of the relation walk.
-//
-// `if` / `switch` / `count(where)` use a stub predicate thunk that
-// emits `(true)` so the harness exercises the arm dispatch in
-// isolation from the Predicate compiler's internals. The
-// integrating caller wires the real predicate compiler at the
-// composition boundary.
+// Execute compiled expressions against Postgres; assert values, types, and row correlation.
 
 import { sql } from "kysely";
 import { describe } from "vitest";
@@ -54,11 +16,13 @@ import {
 	datetimeCoerce,
 	datetimeLiteral,
 	double,
+	eq,
 	formatDate,
 	formField,
 	ifExpr,
 	input,
 	literal,
+	matchNone,
 	now,
 	prop,
 	relationStep,
@@ -68,7 +32,10 @@ import {
 	term,
 	today,
 } from "@/lib/domain/predicate/builders";
-import type { DateAddInterval } from "@/lib/domain/predicate/types";
+import type {
+	DateAddInterval,
+	ValueExpression,
+} from "@/lib/domain/predicate/types";
 import { proseText } from "@/lib/domain/prose";
 import { evaluate } from "@/lib/preview/xpath/evaluator";
 import type { EvalContext } from "@/lib/preview/xpath/types";
@@ -76,6 +43,7 @@ import {
 	compileExpression,
 	type ExpressionCompileContext,
 } from "../compileExpression";
+import { compilePredicate } from "../compilePredicate";
 import { expect, makeCaseRow, test } from "./setup";
 
 // ---------------------------------------------------------------
@@ -130,6 +98,8 @@ function makeCtx(
 		currentCaseType: "patient",
 		caseTypeSchemas: SCHEMAS,
 		bindings: {},
+		compilePredicate: (predicate, context) =>
+			compilePredicate(predicate, context),
 		...overrides,
 	};
 }
@@ -417,7 +387,7 @@ describe("compileExpression — round-trip — coercion arms", () => {
 		const expr = compileExpression(double(term(literal("42.5"))), makeCtx(db));
 		const rows = await db
 			.selectFrom(sql`(values (1))`.as("v"))
-			.select(sql<boolean>`${expr} > 42`.as("matches"))
+			.select(sql<boolean>`${expr} = 42.5`.as("matches"))
 			.execute();
 		expect(rows).toEqual([{ matches: true }]);
 	});
@@ -431,48 +401,56 @@ describe("compileExpression — round-trip — coercion arms", () => {
 // swapped `*` for `+` would surface immediately because the
 // expected value differs.
 
-describe("compileExpression — round-trip — arith arm", () => {
-	const cases = [
-		{ op: "+", left: 10, right: 3, expected: 13 },
-		{ op: "-", left: 10, right: 3, expected: 7 },
-		{ op: "*", left: 10, right: 3, expected: 30 },
-		{ op: "div", left: 10, right: 3, expected: 3 }, // integer division
-		{ op: "mod", left: 10, right: 3, expected: 1 },
-	] as const;
-
-	for (const { op, left, right, expected } of cases) {
-		test(`arith op '${op}' resolves to the expected value`, async ({ db }) => {
-			// Cast both operands to `int` at the AST layer so the
-			// resulting parameter bindings carry an explicit Postgres
-			// type. Without the cast, `$1 + $2` is structurally
-			// untypeable in Postgres (each parameter is "unknown" and
-			// the operator overload set is ambiguous), which surfaces
-			// at parse time as `operator is not unique`. The
-			// `data_type` slot on the literal AST is the single source
-			// of truth for parameter casts; threading it here mirrors
-			// how typed temporal literals (`dateLiteral` etc.) carry
-			// their cast through `compileTerm`.
-			const expr = compileExpression(
+describe("compileExpression — arithmetic", () => {
+	test("evaluates ordinary numeric literals and preserves integer versus decimal operations", async ({
+		db,
+	}) => {
+		const cases: ReadonlyArray<[ValueExpression, number | null]> = [
+			[arith("+", term(literal(10)), term(literal(3))), 13],
+			[arith("-", term(literal(10)), term(literal(3))), 7],
+			[arith("*", term(literal(10)), term(literal(3))), 30],
+			[arith("div", term(literal(10)), term(literal(3))), 3],
+			[arith("mod", term(literal(10)), term(literal(3))), 1],
+			[arith("div", term(literal(10.5)), term(literal(3))), 3.5],
+			[arith("+", term(literal(10)), term(literal(0.5))), 10.5],
+			[arith("-", term(literal(-2147483649)), term(literal(1))), -2147483650],
+			[arith("+", term(literal(2147483648)), term(literal(1))), 2147483649],
+			[
 				arith(
-					op,
-					term({ kind: "literal", value: left, data_type: "int" }),
-					term({ kind: "literal", value: right, data_type: "int" }),
+					"*",
+					arith("+", term(literal(2)), term(literal(3))),
+					term(literal(4)),
 				),
-				makeCtx(db),
-			);
-			const rows = await db
-				.selectFrom(sql`(values (1))`.as("v"))
-				.select(sql<number>`${expr}`.as("v"))
-				.execute();
-			// pg-driver returns integer arithmetic as `number`; numeric
-			// arithmetic returns `string` (Postgres's arbitrary-precision
-			// numerics). Both `+` / `-` / `*` / `mod` against integer
-			// literals stay integer; `div` against integer literals
-			// returns integer (Postgres `/` on int operands). Cast the
-			// returned value to number to compare uniformly.
-			expect(Number(rows[0].v)).toBe(expected);
-		});
-	}
+				20,
+			],
+			[
+				arith(
+					"-",
+					term(literal(10)),
+					arith("-", term(literal(5)), term(literal(2))),
+				),
+				7,
+			],
+			[
+				arith(
+					"+",
+					coalesce(term(literal(null)), term(literal(2))),
+					term(literal(3)),
+				),
+				5,
+			],
+			[arith("+", term(literal(null)), term(literal(1))), null],
+		];
+		for (const [expression, expected] of cases) {
+			const row = await db
+				.selectNoFrom(compileExpression(expression, makeCtx(db)).as("value"))
+				.executeTakeFirstOrThrow();
+			expect(
+				row.value === null ? null : Number(row.value),
+				JSON.stringify(expression),
+			).toBe(expected);
+		}
+	});
 });
 
 // ---------------------------------------------------------------
@@ -500,9 +478,9 @@ describe("compileExpression — round-trip — concat arm", () => {
 	test("concat joins string parts in order", async ({ db }) => {
 		const expr = compileExpression(
 			concat(
-				term({ kind: "literal", value: "Hello, ", data_type: "text" }),
-				term({ kind: "literal", value: "World", data_type: "text" }),
-				term({ kind: "literal", value: "!", data_type: "text" }),
+				term(literal("Hello, ")),
+				term(literal("World")),
+				term(literal("!")),
 			),
 			makeCtx(db),
 		);
@@ -536,9 +514,9 @@ describe("compileExpression — round-trip — concat arm", () => {
 
 		const expr = compileExpression(
 			concat(
-				term({ kind: "literal", value: "[", data_type: "text" }),
+				term(literal("[")),
 				term(prop("patient", "nickname")),
-				term({ kind: "literal", value: "]", data_type: "text" }),
+				term(literal("]")),
 			),
 			makeCtx(db),
 		);
@@ -676,10 +654,11 @@ describe("compileExpression — round-trip — format-date arm", () => {
 		pgClient,
 	}) => {
 		await pgClient.query("SET LOCAL TIME ZONE 'UTC'");
+		const customDatetime = "2026-08-05T03:04:05.123Z";
 		const pattern =
 			"%Y|%y|%m|%n|%B|%b|%d|%e|%H|%h|%M|%S|%3|%A|%a|%w|%Z|%%|Day DD";
 		const expr = compileExpression(
-			formatDate(datetimeCoerce(term(literal(FIXTURE_DATETIME))), pattern),
+			formatDate(datetimeCoerce(term(literal(customDatetime))), pattern),
 			makeCtx(db),
 		);
 		const rows = await db
@@ -690,12 +669,12 @@ describe("compileExpression — round-trip — format-date arm", () => {
 		process.env.TZ = "UTC";
 		try {
 			const previewValue = evaluate(
-				`format-date('${FIXTURE_DATETIME}', '${pattern}')`,
+				`format-date('${customDatetime}', '${pattern}')`,
 				EMPTY_PREVIEW_CONTEXT,
 			);
 			expect(rows[0].v).toBe(previewValue);
 			expect(rows[0].v).toBe(
-				"2026|26|05|5|May|May|02|2|12|12|00|00|000|Saturday|Sat|6|Z|%|Day DD",
+				"2026|26|08|8|August|Aug|05|5|03|3|04|05|123|Wednesday|Wed|3|Z|%|Day DD",
 			);
 		} finally {
 			if (previousTimeZone === undefined) {
@@ -907,7 +886,7 @@ describe("compileExpression — round-trip — date-add arm", () => {
 		expect(rows).toEqual([{ matches: true, is_date: true }]);
 	});
 
-	test("date-add scales fractional fixed-duration units without promoting a date", async ({
+	test("date-add preserves a pre-epoch date after a sub-day addition", async ({
 		db,
 	}) => {
 		const expr = compileExpression(
@@ -1017,12 +996,12 @@ describe("compileExpression — round-trip — count arm", () => {
 	}) => {
 		const one = compileExpression(count(selfPath()), makeCtx(db));
 		const falseCount = compileExpression(
-			count(selfPath(), { kind: "match-all" }),
-			makeCtx(db, { compilePredicate: () => sql`(false)` }),
+			count(selfPath(), matchNone()),
+			makeCtx(db),
 		);
 		const trueCount = compileExpression(
 			count(selfPath(), { kind: "match-all" }),
-			makeCtx(db, { compilePredicate: () => sql`(true)` }),
+			makeCtx(db),
 		);
 		const rows = await db
 			.selectFrom(sql`(values (1))`.as("v"))
@@ -1064,7 +1043,7 @@ describe("compileExpression — round-trip — count arm", () => {
 			.values({
 				case_id: PATIENT_CASE_ID,
 				ancestor_id: HOUSEHOLD_CASE_ID,
-				target_case_type: "test",
+				target_case_type: "household",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -1158,7 +1137,7 @@ describe("compileExpression — round-trip — count arm", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: HOUSEHOLD_CASE_ID,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1166,7 +1145,7 @@ describe("compileExpression — round-trip — count arm", () => {
 				{
 					case_id: PATIENT_CASE_ID,
 					ancestor_id: SECOND_HOUSEHOLD_CASE_ID,
-					target_case_type: "test",
+					target_case_type: "household",
 					identifier: "parent",
 					relationship: "child",
 					depth: 1,
@@ -1174,23 +1153,12 @@ describe("compileExpression — round-trip — count arm", () => {
 			])
 			.execute();
 
-		// Stub thunk that hand-emits the JSONB predicate against the
-		// leaf alias. The leaf alias for the count subquery is the
-		// inner `rp_leaf` alias (per `compileRelationPath`). The
-		// stub's signature mirrors what an integrating caller would
-		// compose with the real predicate compiler.
-		const stub: ExpressionCompileContext["compilePredicate"] = (_p, _ctx) =>
-			sql`("rp_leaf"."properties" ->> 'size')::int = 4`;
-
 		const expr = compileExpression(
 			count(
 				ancestorPath(relationStep("parent", "household")),
-				// Predicate body is unused in the stub — the stub emits
-				// a fixed SQL fragment regardless. The arm dispatch is
-				// what's under test.
-				{ kind: "match-all" },
+				eq(prop("household", "size"), literal(4)),
 			),
-			makeCtx(db, { compilePredicate: stub }),
+			makeCtx(db),
 		);
 		const rows = await db
 			.selectFrom("cases as c")
@@ -1232,7 +1200,7 @@ describe("compileExpression — round-trip — relational term arm", () => {
 			.values({
 				case_id: PATIENT_CASE_ID,
 				ancestor_id: HOUSEHOLD_CASE_ID,
-				target_case_type: "test",
+				target_case_type: "household",
 				identifier: "parent",
 				relationship: "child",
 				depth: 1,
@@ -1277,7 +1245,7 @@ describe("compileExpression — round-trip — relational term arm", () => {
 			.values({
 				case_id: PATIENT_CASE_ID,
 				ancestor_id: GUARDIAN_CASE_ID,
-				target_case_type: "test",
+				target_case_type: "guardian",
 				identifier: "guardian_link",
 				relationship: "child",
 				depth: 1,
@@ -1309,22 +1277,9 @@ describe("compileExpression — round-trip — relational term arm", () => {
 
 describe("compileExpression — round-trip — if / switch arms", () => {
 	test("if branches by the predicate thunk's verdict", async ({ db }) => {
-		// Stub thunk emits a fixed `false` so the `else` branch wins.
-		// An integrating caller would supply the real predicate
-		// compiler in this slot; this test only verifies arm dispatch.
-		const stub: ExpressionCompileContext["compilePredicate"] = () =>
-			sql`(false)`;
-		// Use the `ifExpr` builder rather than an inline object
-		// literal — building the AST through the builder keeps the
-		// `then` / `else` slots inside the builder's
-		// `noThenProperty`-suppressed scope.
 		const expr = compileExpression(
-			ifExpr(
-				{ kind: "match-all" },
-				term({ kind: "literal", value: "then", data_type: "text" }),
-				term({ kind: "literal", value: "else", data_type: "text" }),
-			),
-			makeCtx(db, { compilePredicate: stub }),
+			ifExpr(matchNone(), term(literal("then")), term(literal("else"))),
+			makeCtx(db),
 		);
 		const rows = await db
 			.selectFrom(sql`(values (1))`.as("v"))
@@ -1375,21 +1330,6 @@ describe("compileExpression — round-trip — if / switch arms", () => {
 	test("switch dispatches simple CASE end-to-end against an outer-row property discriminator", async ({
 		db,
 	}) => {
-		// Pin the simple-CASE shape end-to-end against a
-		// row-correlated discriminator (`prop("patient", "age")`).
-		// Three patients at distinct ages exercise all three switch
-		// arms; the runtime returns the correct branch per row only
-		// if the discriminator evaluates correctly per-row and the
-		// `when` literal comparisons match Postgres's semantics for
-		// simple CASE.
-		//
-		// A regression to searched-CASE (`case when <on> = <when>
-		// then ...`) would still produce correct rows on this
-		// fixture but re-evaluate the JSONB-cast read per branch.
-		// The cold-suite sibling (`compileExpression.test.ts`)
-		// pins the structural shape (`count(*)` discriminator
-		// emitted exactly once); this harness pins the runtime
-		// correctness end-to-end.
 		const PATIENT_LOW = "60000000-0000-0000-0000-000000000001";
 		const PATIENT_MEDIUM = "60000000-0000-0000-0000-000000000002";
 		const PATIENT_HIGH = "60000000-0000-0000-0000-000000000003";
@@ -1425,6 +1365,7 @@ describe("compileExpression — round-trip — if / switch arms", () => {
 				[
 					switchCase(literal(5), term(literal("low"))),
 					switchCase(literal(30), term(literal("medium"))),
+					switchCase(literal(30), term(literal("duplicate"))),
 				],
 				term(literal("high")),
 			),
@@ -1443,4 +1384,85 @@ describe("compileExpression — round-trip — if / switch arms", () => {
 			{ case_id: PATIENT_HIGH, category: "high" },
 		]);
 	});
+});
+
+test("date arithmetic resolves property and nullable-wrapper types, including scalar metadata", async ({
+	db,
+}) => {
+	const schemas = new Map(SCHEMAS);
+	schemas.set("patient", {
+		...PATIENT_SCHEMA,
+		properties: [
+			...PATIENT_SCHEMA.properties,
+			{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+		],
+	});
+	await db
+		.insertInto("cases")
+		.values(
+			makeCaseRow({
+				case_id: PATIENT_CASE_ID,
+				app_id: APP_ID,
+				project_id: OWNER_ID,
+				case_type: "patient",
+				opened_on: new Date("2026-01-01T12:30:00Z"),
+				properties: JSON.stringify({
+					dob: "2026-01-01",
+					registered_at: "2026-01-01T12:30:00Z",
+				}),
+			}),
+		)
+		.execute();
+	const ctx = makeCtx(db, { caseTypeSchemas: schemas });
+	const cases: ReadonlyArray<[ValueExpression, string, string]> = [
+		[term(prop("patient", "dob")), "date", "2026-01-02"],
+		[
+			coalesce(term(literal(null)), term(prop("patient", "dob"))),
+			"date",
+			"2026-01-02",
+		],
+		[
+			term(prop("patient", "registered_at")),
+			"timestamp with time zone",
+			"2026-01-02T12:30:00+00:00",
+		],
+		[
+			term(prop("patient", "date_opened")),
+			"timestamp with time zone",
+			"2026-01-02T12:30:00+00:00",
+		],
+	];
+	for (const [base, type, expected] of cases) {
+		const expr = compileExpression(
+			dateAdd(base, "days", term(literal(1))),
+			ctx,
+		);
+		const row = await db
+			.selectFrom("cases as c")
+			.where("c.case_id", "=", PATIENT_CASE_ID)
+			.select([
+				sql<string>`pg_typeof(${expr})::text`.as("type"),
+				sql<string>`to_jsonb(${expr})`.as("value"),
+			])
+			.executeTakeFirstOrThrow();
+		expect(row).toEqual({ type, value: expected });
+	}
+});
+
+test("date formatting propagates null even with surrounding literal text", async ({
+	db,
+}) => {
+	const row = await db
+		.selectNoFrom([
+			compileExpression(
+				formatDate(term(literal(null)), "Recorded: %Y"),
+				makeCtx(db),
+			).as("missing"),
+			compileExpression(
+				formatDate(term(literal("2026-01-01")), ""),
+				makeCtx(db),
+			).as("emptyPattern"),
+		])
+		.executeTakeFirstOrThrow();
+	expect(row).toEqual({ missing: null, emptyPattern: "" });
 });

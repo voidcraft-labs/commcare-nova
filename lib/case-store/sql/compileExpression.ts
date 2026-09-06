@@ -306,7 +306,7 @@ function compileArith(
 	const leftExpr = compileExpression(left, ctx);
 	const rightExpr = compileExpression(right, ctx);
 	const opToken = ARITH_OP_TO_SQL[op];
-	return eb(leftExpr, opToken, rightExpr);
+	return eb.parens(eb(leftExpr, opToken, rightExpr));
 }
 
 /**
@@ -554,7 +554,7 @@ function compileIf(
 	// Passing typed expressions (not raw values) to `.then` /
 	// `.else` keeps the parameter channel consistent — Kysely
 	// otherwise inlines numbers / booleans / null directly into the
-	// SQL, which would shift the parameter list cold tests pin.
+	// SQL instead of retaining the common bound-value path.
 	return eb
 		.case()
 		.when(condExpr as Expression<boolean>)

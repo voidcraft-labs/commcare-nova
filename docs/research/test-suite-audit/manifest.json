@@ -3168,13 +3168,19 @@
 			"file": "lib/case-store/sql/__tests__/compileExpression.harness.postgres.test.ts",
 			"lines": 1446,
 			"ciMs": 1300,
-			"status": "pending"
+			"status": "revised",
+			"review": "Remove arithmetic test casts that hid unknown-parameter errors; exercise ordinary integer/decimal/wide literals and nested associativity, revealing and fixing literal types and missing grouping. Use real predicate callbacks; verify date base types and distinguish every date token with nonzero millisecond and padded values. Preserve null formatting and first-match switch semantics.",
+			"baselineSha256": "22dacc1e66760b35c57732510ad2d089adbf4204f42104d863e0740b35f1b2dd",
+			"reviewedSha256": "c0c61776ce1d639d8aaceb182790cfd3ca5f32cd97723fa7b88f1c0481c09dad"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compileExpression.test.ts",
 			"lines": 950,
 			"ciMs": 910,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replace cast/token/alias/count-fragment assertions with nine database-free preconditions and exact parameter namespace ownership. Runtime semantics, including date property resolution and branch ordering, execute in the harness.",
+			"baselineSha256": "d08bb7705398c6d47bd2ccd379fa21d74e6bef87b3e41bd0dea8cf3441159ac1",
+			"reviewedSha256": "ed9e2da5bf87367ae80a2347d02334ffad3534e719ba717fe32c2a9217fa69b7"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compileLookup.harness.postgres.test.ts",
@@ -3189,19 +3195,28 @@
 			"file": "lib/case-store/sql/__tests__/compilePredicate.harness.postgres.test.ts",
 			"lines": 2209,
 			"ciMs": 2136,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replace repeated one-row cases with behavioral operator-family matrices for booleans, all six comparisons, blank/null/empty, intervals, select quantifiers and input presence. Fix actual numeric blank failure; add literal prefix wildcard exclusion, a mile-versus-kilometer boundary, scalar metadata blank checks, and fully composed operands while retaining calendar/fuzzy/phonetic/PostGIS/nested-quantifier regressions.",
+			"baselineSha256": "9ac5d04783cd1c5f0cc30b04c6dad9bbb7d8fbd0e12f8e5b74aea9355624026b",
+			"reviewedSha256": "98cb45dfe5ff45faca7cc994b8365c80add82f114313243bfbc7f2472caa9280"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compilePredicate.relationReads.harness.postgres.test.ts",
 			"lines": 631,
 			"ciMs": 1085,
-			"status": "pending"
+			"status": "revised",
+			"review": "Move two pure rejection cases to the ordinary compiler suite. Share generic and explicitly quantified between fixture, make blank exclude an empty relation and a present first row, add positive control for inferred destination exclusion. Correct misleading both-direction parent fixture to a custom relationship and require each direction to match independently; use actual target case types.",
+			"baselineSha256": "5993ea4bfbfd6f8ab0abbca3f8c96c15aeb59a282c8d961c8901ef2da305a9c1",
+			"reviewedSha256": "dda99441a713c106e1f7b786c6bdf124b340258e2dbb10dad7de5559154e2194"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compilePredicate.test.ts",
 			"lines": 947,
 			"ciMs": 916,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain only pure rejection paths: malformed fuzzy dates, invalid select tokens, and three mixed-relation-scope combinations moved from the database harness. Numeric blank checks now execute in Postgres rather than asserting SQL fragments.",
+			"baselineSha256": "b649b722c7ae1a8f893ebc5c8018f0a53a3a9502b5d4a1371a95b0d8a1aa8a29",
+			"reviewedSha256": "8b050fe1bc7a402271839c41dbba7259d2df3f39eb622cef2e3f24d612345d5b"
 		},
 		{
 			"file": "lib/case-store/sql/__tests__/compileRelationPath.harness.postgres.test.ts",
