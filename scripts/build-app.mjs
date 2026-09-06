@@ -51,7 +51,7 @@ async function removeSourceMaps(directory) {
 		else if (entry.isFile() && /\.(?:js|mjs|cjs|css)$/.test(entry.name)) {
 			const source = await readFile(filename, "utf8");
 			const stripped = source.replace(
-				/\n?(?:\/\/[#@] sourceMappingURL=[^\n]+|\/\*[#@] sourceMappingURL=[^\n]+\*\/)$/,
+				/\n?(?:\/\/[#@] sourceMappingURL=[^\n]+|\/\*[#@] sourceMappingURL=[^\n]+\*\/)[\r\n]*$/,
 				"",
 			);
 			if (stripped !== source) await writeFile(filename, stripped);

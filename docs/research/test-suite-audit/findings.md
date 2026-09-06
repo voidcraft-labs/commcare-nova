@@ -64,3 +64,18 @@ that window because the hook's effect depended on the already-true `saved`
 boolean. A focused reproduction against the previous hook failed after two
 saves one second apart. The model restarts its sole timer on each successful
 save and cancels it when the editor is disposed.
+
+## Build execution and source-map cleanup
+
+The production build CLI now runs against external executable fixtures that
+require each predecessor's completed artifact. The suite covers every phase's
+failure, release identity, credential isolation, and the no-token local build.
+It no longer uses delayed child processes or relative indexes that can accept
+a missing event. Maps remain present through release finalization and failures;
+only the shipped application directories are cleaned afterward.
+
+Generated files ending in a newline retained their terminal source-map comment
+even after the corresponding map was deleted. The new real CLI scenario failed
+on that content. The cleanup expression now accepts terminal line endings;
+JS, MJS, CJS, and CSS pass while code containing a literal sourceMappingURL and
+compiler-cache/dependency maps remain intact.

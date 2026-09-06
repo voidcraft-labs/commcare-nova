@@ -7623,7 +7623,10 @@
 			"file": "scripts/infra/__tests__/buildApplication.test.ts",
 			"lines": 135,
 			"ciMs": 1112,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced timer-delayed executable fixtures with the actual build CLI and deterministic predecessor artifacts. Full ordered lifecycle and all five phase failures, missing release identity, local no-token build, phase-specific secret isolation, and shipped-map removal versus cache/dependency preservation. Newline-terminated JS/MJS/CJS/CSS exposed a real sourceMappingURL removal defect, corrected in scripts/build-app.mjs.",
+			"baselineSha256": "dfce67b8f81f7b7ce5d6a2e78bfae9ee9d79c993ae7c8ccfbff5a6c797b8dda1",
+			"reviewedSha256": "3470ff999250781bf0bcd11b85631fbdd132019ea4b06a28094d462805f9daee"
 		},
 		{
 			"file": "scripts/infra/__tests__/captureStoragePolicy.test.ts",
