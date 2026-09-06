@@ -61,6 +61,9 @@ This step only appears when your app has one of them.
 Nova puts them there and replaces their rows with the rows in Nova. Tables your
 app does not read are left alone.
 
+If Nova cannot reliably read the tables already on your project space, it
+stops before sending data. Check your CommCare HQ connection, then publish again.
+
 **Places.** If your app has an [organization](/docs/organization), Nova creates
 and updates its places there, working down from the top so each one can name the
 place above it. It sends every place that is not archived, along with whatever
@@ -99,6 +102,10 @@ Immediately before an update, Nova reads the current CommCare HQ app and keeps
 destination-specific behavior it does not own. If that app cannot be read
 safely, Nova leaves the existing HQ app unchanged instead of guessing what to
 keep.
+
+If the app arrives but its media upload cannot be confirmed, Nova keeps the
+published app and reports the media warning. Publishing again updates that app
+and retries its media upload.
 
 Nova never deletes anything on CommCare HQ. So when a publish stops pointing at
 something it put there before, whether that is an app it replaced or a lookup

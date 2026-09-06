@@ -1,245 +1,196 @@
-/**
- * Fetch-level tests for the CommCare HQ app import client
- * (`lib/commcare/client.ts::importApp`).
- *
- * The wire shape is verified against the HQ source
- * (`app_manager/views/app_import_api.py::_handle_import_app`, NOT a
- * hand-rolled echo of our assumptions):
- *   - `POST /a/{domain}/apps/api/import_app/`, multipart `waf_padding` +
- *     `app_name` + `app_file`, with `ApiKey {username}:{api_key}` as the
- *     sole auth header (the endpoint is `@csrf_exempt`, so no CSRF token
- *     dance; `@waf_allow('XSS_BODY')` registers the view for WAF operators
- *     but changes nothing at request time, so the padding field stays),
- *   - create (no `app_id` field) → 201 `{ success, app_id }`, no version,
- *   - update (`app_id` field) → 200 `{ success, app_id, version }`,
- *   - unknown `app_id` → 404 `{ success: false, error }`,
- *   - HTTP 200 with `success: false` → application-level rejection.
- *
- * `fetch` is stubbed via `vi.spyOn(globalThis, "fetch")` and restored
- * after each test so no real network call escapes.
- */
-
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+/** Native fetch and multipart decoding against the real HQ import contract.
+ * HQ's app_import_api.py returns literal success, an app id, optional warnings,
+ * and the updated version. The persisted publish consequences live in the MCP
+ * Postgres suite; this file owns response and request protocol edge cases. */
+import { expect, it } from "vitest";
+import {
+	readMultipartRequest,
+	withHttpPeer,
+} from "@/__tests__/helpers/httpPeer";
 import { importApp } from "../client";
 
 const CREDS = {
-	username: "user@example.org",
-	apiKey: "abc123",
-	server: "production",
+	username: "account",
+	apiKey: "fixture-key",
+	server: "india",
 } as const;
-const DOMAIN = "myproject";
-const APP_JSON = { doc_type: "Application", name: "Household Survey" };
+const HOST = "https://india.commcarehq.org",
+	PATH = "/a/clinic/apps/api/import_app/";
+const APP = { doc_type: "Application", name: "Visits" };
+const AUTH = { authorization: "ApiKey account:fixture-key" };
 
-describe("importApp", () => {
-	let fetchMock: ReturnType<typeof vi.spyOn>;
-
-	beforeEach(() => {
-		fetchMock = vi.spyOn(globalThis, "fetch");
+it("sends create and update multipart bytes, preserving the explicit name, mapped id and returned warnings/version", async () => {
+	await withHttpPeer(async (peer) => {
+		for (const update of [false, true]) {
+			const uploads: FormData[] = [];
+			peer
+				.get(HOST)
+				.intercept({ path: PATH, method: "POST", headers: AUTH })
+				.reply(async (request) => {
+					uploads.push(await readMultipartRequest(request));
+					return {
+						statusCode: update ? 200 : 201,
+						data: JSON.stringify({
+							success: true,
+							app_id: "working-app",
+							...(update ? { version: 7 } : {}),
+							warnings: ["Unknown multimedia path"],
+						}),
+					};
+				});
+			expect(
+				await importApp(
+					CREDS,
+					"clinic",
+					"Visits & follow-up",
+					APP,
+					update ? "working-app" : undefined,
+				),
+			).toEqual({
+				success: true,
+				appId: "working-app",
+				version: update ? 7 : null,
+				warnings: ["Unknown multimedia path"],
+			});
+			expect(uploads).toHaveLength(1);
+			const form = uploads[0];
+			expect([...form.keys()]).toEqual([
+				"waf_padding",
+				"app_name",
+				...(update ? ["app_id"] : []),
+				"app_file",
+			]);
+			expect(String(form.get("waf_padding")).length).toBeGreaterThanOrEqual(
+				8192,
+			);
+			expect(form.get("app_name")).toBe("Visits & follow-up");
+			expect(form.get("app_id")).toBe(update ? "working-app" : null);
+			const file = form.get("app_file");
+			if (!(file instanceof Blob)) throw new Error("Expected app file");
+			expect(file.type).toBe("application/json");
+			expect(JSON.parse(await file.text())).toEqual(APP);
+		}
 	});
-	afterEach(() => {
-		fetchMock.mockRestore();
-	});
+});
 
-	function lastPost(): [string, RequestInit] {
-		const call = fetchMock.mock.calls.at(-1) as [
-			RequestInfo | URL,
-			RequestInit,
-		];
-		return [String(call[0]), call[1]];
-	}
-
-	it("creates: POSTs app_name + app_file only, and returns the new app id with no version", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(JSON.stringify({ success: true, app_id: "new-app-1" }), {
-				status: 201,
-				headers: { "Content-Type": "application/json" },
-			}),
-		);
-
-		const result = await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
-		expect(result).toEqual({
-			success: true,
-			appId: "new-app-1",
-			version: null,
-			warnings: [],
+it.each(
+	[
+		{ name: "null envelope", data: null },
+		{ name: "array envelope", data: [] },
+		{ name: "missing verdict", data: {} },
+		{
+			name: "truthy non-boolean verdict",
+			data: { success: "false", app_id: "working-app" },
+		},
+		{ name: "missing app id", data: { success: true } },
+		{ name: "blank app id", data: { success: true, app_id: "" } },
+		{ name: "unroutable app id", data: { success: true, app_id: "../other" } },
+		{
+			name: "wrong update id",
+			data: { success: true, app_id: "other-app" },
+			update: true,
+		},
+		{
+			name: "invalid version",
+			data: { success: true, app_id: "working-app", version: 1.5 },
+		},
+		{
+			name: "non-array warnings",
+			data: {
+				success: true,
+				app_id: "working-app",
+				warnings: "private diagnostic",
+			},
+		},
+		{
+			name: "non-text warning",
+			data: { success: true, app_id: "working-app", warnings: [{}] },
+		},
+	].map((row) => ({ ...row, update: "update" in row && row.update })),
+)(
+	"refuses an unusable import acknowledgement: $name",
+	async ({ data, update }) => {
+		await withHttpPeer(async (peer) => {
+			peer
+				.get(HOST)
+				.intercept({ path: PATH, method: "POST" })
+				.reply(200, JSON.stringify(data));
+			expect(
+				await importApp(
+					CREDS,
+					"clinic",
+					"Visits",
+					APP,
+					update ? "working-app" : undefined,
+				),
+			).toEqual({ success: false, status: 502 });
 		});
+	},
+);
 
-		const [url, init] = lastPost();
-		expect(url).toBe(
-			`https://www.commcarehq.org/a/${DOMAIN}/apps/api/import_app/`,
-		);
-		expect(init.method).toBe("POST");
-		const headers = init.headers as Record<string, string>;
-		expect(headers.Authorization).toBe(
-			`ApiKey ${CREDS.username}:${CREDS.apiKey}`,
-		);
-		// The endpoint is @csrf_exempt: the ApiKey header is the only header,
-		// with no CSRF token. No app_id on the create path.
-		expect(headers["X-CSRFToken"]).toBeUndefined();
-		expect(headers.Cookie).toBeUndefined();
-		const body = init.body as FormData;
-		expect(body).toBeInstanceOf(FormData);
-		expect([...body.keys()]).toEqual(["waf_padding", "app_name", "app_file"]);
-		expect(body.get("app_name")).toBe("Household Survey");
-		const file = body.get("app_file") as Blob;
-		expect(await file.text()).toBe(JSON.stringify(APP_JSON));
+it("keeps HQ's explicit application rejection distinct from a malformed or lost response", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: PATH, method: "POST" })
+			.reply(200, { success: false, error: "Invalid source" });
+		peer
+			.get(HOST)
+			.intercept({ path: PATH, method: "POST" })
+			.reply(200, "<html>Sign in</html>");
+		peer
+			.get(HOST)
+			.intercept({ path: PATH, method: "POST" })
+			.replyWithError(new Error("connection lost"));
+		for (const status of [422, 502, 503])
+			expect(await importApp(CREDS, "clinic", "Visits", APP)).toEqual({
+				success: false,
+				status,
+			});
 	});
+});
 
-	it("updates: sends the app_id field and parses the resulting version", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({ success: true, app_id: "hq-app-9", version: 7 }),
-				{ status: 200, headers: { "Content-Type": "application/json" } },
-			),
-		);
-
-		const result = await importApp(
-			CREDS,
-			DOMAIN,
-			"Household Survey",
-			APP_JSON,
-			"hq-app-9",
-		);
-		expect(result).toEqual({
-			success: true,
-			appId: "hq-app-9",
-			version: 7,
-			warnings: [],
-		});
-
-		const body = lastPost()[1].body as FormData;
-		expect([...body.keys()]).toEqual([
-			"waf_padding",
-			"app_name",
-			"app_id",
-			"app_file",
-		]);
-		// app_name rides on updates too — HQ applies it after the merge, so
-		// the HQ app's name tracks Nova's.
-		expect(body.get("app_name")).toBe("Household Survey");
-		expect(body.get("app_id")).toBe("hq-app-9");
+it("distinguishes a missing mapped app, an HQ permission refusal and an edge refusal without following redirects", async () => {
+	await withHttpPeer(async (peer) => {
+		for (const [status, text] of [
+			[404, "Application not found"],
+			[403, "CommCare HQ permission refused"],
+			[403, "<html><title>403 Forbidden</title></html>"],
+			[302, "Moved"],
+		] as const)
+			peer
+				.get(HOST)
+				.intercept({ path: PATH, method: "POST" })
+				.reply(status, text, {
+					headers: { location: "https://redirected.invalid/" },
+				});
+		for (const [status, edgeRefusal] of [
+			[404, false],
+			[403, false],
+			[403, true],
+			[302, false],
+		] as const)
+			expect(
+				await importApp(CREDS, "clinic", "Visits", APP, "working-app"),
+			).toEqual({ success: false, status, edgeRefusal });
+		expect(
+			peer
+				.getCallHistory()
+				?.calls()
+				.map((call) => call.fullUrl),
+		).toEqual(Array(4).fill(HOST + PATH));
 	});
+});
 
-	it("passes HQ's import warnings through", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({
-					success: true,
-					app_id: "new-app-1",
-					warnings: ["Unknown multimedia path"],
-				}),
-				{ status: 201, headers: { "Content-Type": "application/json" } },
-			),
-		);
-
-		const result = await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
-		expect(result).toEqual({
-			success: true,
-			appId: "new-app-1",
-			version: null,
-			warnings: ["Unknown multimedia path"],
-		});
-	});
-
-	it("passes a 404 through when the update target is gone from HQ", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				JSON.stringify({ success: false, error: "Application not found" }),
-				{ status: 404, headers: { "Content-Type": "application/json" } },
-			),
-		);
-
-		const result = await importApp(
-			CREDS,
-			DOMAIN,
-			"Household Survey",
-			APP_JSON,
-			"deleted-app",
-		);
-		expect(result).toEqual({
+it("rejects unroutable target identifiers before sending bytes", async () => {
+	await withHttpPeer(async (peer) => {
+		expect(await importApp(CREDS, "../outside", "Visits", APP)).toEqual({
 			success: false,
-			status: 404,
-			edgeRefusal: false,
+			status: 400,
 		});
-	});
-
-	it("returns a 422 when HQ answers 200 with success:false", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(JSON.stringify({ success: false }), {
-				status: 200,
-				headers: { "Content-Type": "application/json" },
-			}),
-		);
-
-		const result = await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
-		expect(result).toEqual({ success: false, status: 422 });
-	});
-
-	/* The padding is the whole reason a small app can be published at all:
-	 * the WAF in front of CommCare HQ matches an `xmlns=` declaration in
-	 * roughly the first 8 KiB of the body, and a one-question app puts its
-	 * first form's XML about 4.5 KiB into the JSON. Both properties are
-	 * load-bearing — a field that is not FIRST, or not big enough, leaves the
-	 * XML inside the window. */
-	it("sends the WAF padding first, sized past the inspection window", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(JSON.stringify({ success: true, app_id: "new-app-1" }), {
-				status: 201,
-				headers: { "Content-Type": "application/json" },
-			}),
-		);
-
-		await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
-
-		const body = lastPost()[1].body as FormData;
-		expect([...body.keys()][0]).toBe("waf_padding");
-		expect((body.get("waf_padding") as string).length).toBeGreaterThanOrEqual(
-			8 * 1024,
-		);
-	});
-
-	/* A refusal from the edge, which CommCare HQ never saw. Marked so no
-	 * surface reports it as a verdict about the key or the permissions. */
-	it("marks a generic proxy 403 as an edge refusal", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				"<html>\r\n<head><title>403 Forbidden</title></head>\r\n<body>\r\n<center><h1>403 Forbidden</h1></center>\r\n</body>\r\n</html>\r\n",
-				{ status: 403, headers: { "Content-Type": "text/html" } },
-			),
-		);
-
-		const result = await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
-		expect(result).toEqual({
-			success: false,
-			status: 403,
-			edgeRefusal: true,
-		});
-	});
-
-	it("leaves a 403 CommCare HQ itself answered unmarked", async () => {
-		fetchMock.mockResolvedValue(
-			new Response(
-				"Sorry, you don't have permission to do this action! Contact your CommCare HQ administrator.",
-				{ status: 403, headers: { "Content-Type": "text/plain" } },
-			),
-		);
-
-		const result = await importApp(CREDS, DOMAIN, "Household Survey", APP_JSON);
-		expect(result).toEqual({
-			success: false,
-			status: 403,
-			edgeRefusal: false,
-		});
-	});
-
-	it("rejects an invalid domain slug before any network call", async () => {
-		const result = await importApp(
-			CREDS,
-			"../etc/passwd",
-			"Household Survey",
-			APP_JSON,
-		);
-		expect(result).toEqual({ success: false, status: 400 });
-		expect(fetchMock).not.toHaveBeenCalled();
+		expect(
+			await importApp(CREDS, "clinic", "Visits", APP, "../outside"),
+		).toEqual({ success: false, status: 400 });
+		expect(peer.getCallHistory()?.calls()).toEqual([]);
 	});
 });

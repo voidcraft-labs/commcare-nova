@@ -1,5 +1,5 @@
 /**
- * `nova.upload_app_to_hq`: publish an owned app's blueprint to CommCare
+ * `nova.upload_app_to_hq`: publish an editable Project app's blueprint to CommCare
  * HQ, into a project space the user's API key can reach.
  *
  * Scope: `nova.hq.write` (per-tool, in addition to the route-layer
@@ -101,7 +101,7 @@
  * save/refresh and re-checked here against the reachable set), so it
  * cannot smuggle path components into the URL `importApp` constructs.
  *
- * Pre-gate ordering (scope → ownership → settings/domain) is defensive:
+ * Pre-gate ordering (scope → Project edit access → settings/domain) is defensive:
  * each gate leaks strictly less information than the one after it, so
  * the earliest-applicable rejection always closes more probe channels
  * than it opens.
@@ -139,8 +139,8 @@ import { describeDeployment } from "./deploymentProjection";
  * variant to the union without a matching entry here is a compile
  * error, so the wire taxonomy cannot silently drift.
  *
- * Exported as a frozen record so tests can reference the literals the
- * handler emits without hardcoding raw strings.
+ * The handler shares this compile-checked record; protocol tests assert
+ * independently authored wire literals.
  *
  * These tags are part of the MCP wire contract: any client branching
  * on an upload error expects exactly these values. Treat them as public API.
@@ -273,12 +273,12 @@ export function registerUploadAppToHq(
 		"upload_app_to_hq",
 		{
 			description:
-				"Upload an owned app to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. A success returns the same checked `project_space_compatibility` report and the durable deployment state.",
+				"Upload an app you can edit in its Project to CommCare HQ. Call `get_hq_connection` first to list reachable spaces (`available_domains`); when there are several, ask the user which one and never choose for them. Before asking for confirmation, call `check_project_space_compatibility` with the explicit chosen domain and relay its friendly capability report. Pass that same `domain` here. You can omit it only when the key reaches exactly one space; a multi-space key with no `domain` returns `domain_ambiguous` and never guesses. This upload performs its own final authoritative compatibility check immediately before remote writes: required support that is missing or could not be verified returns `project_space_incompatible` with `project_space_compatibility`, while a performance advisory never blocks. The first upload creates the app there; uploading again updates that same HQ app in place, and `hq_app_action` says which happened. If the current HQ app source cannot be read safely before an update, the call returns `hq_app_state_unknown` and leaves the existing HQ app unchanged. If the linked app was deleted there, the call returns `remote_app_missing`; uploading again then creates a fresh one. A success returns the same checked `project_space_compatibility` report and the durable deployment state.",
 			inputSchema: z.object({
 				app_id: z
 					.string()
 					.describe(
-						"App id to upload. Must be an app the authenticated user owns.",
+						"App id to upload. Requires edit access in the app’s Project.",
 					),
 				app_name: z
 					.string()
@@ -313,12 +313,12 @@ export function registerUploadAppToHq(
 				 * the surrounding catch stamps `app_id` from `ctx`. */
 				assertScope(ctx, SCOPES.hqWrite, "upload_app_to_hq");
 
-				/* Pre-gate 1: ownership + blueprint load in one
+				/* Pre-gate 1: Project edit access + blueprint load in one
 				 * read. `loadAppBlueprint` throws `McpAccessError` on
 				 * cross-tenant probe or vanished row; both collapse to
 				 * `not_found` on the wire so a probing client cannot
 				 * surface settings-level failure reasons for an app the
-				 * caller doesn't own. */
+				 * caller cannot edit. */
 				const { doc, app, access } = await loadAppBlueprint(
 					appId,
 					ctx.userId,
@@ -327,8 +327,8 @@ export function registerUploadAppToHq(
 
 				/* Gate 2: credentials + target-space resolution in one read.
 				 * The optional `domain` arg picks the target (required for a
-				 * multi-space key); the decrypted key is only attached when a
-				 * target resolves. The three failure shapes map 1:1 to distinct
+				 * multi-space key). This read keeps the key encrypted; only the
+				 * shared publish lifecycle decrypts it after target resolution. The three failure shapes map 1:1 to distinct
 				 * wire error types so a client can branch (configure, pick a
 				 * valid space, or disambiguate). */
 				const requested = args.domain?.trim() || undefined;

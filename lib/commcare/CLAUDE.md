@@ -80,6 +80,14 @@ wrong-build bytes is unverified. Version and build-list readers validate the
 JSON envelope before reading fields, so JSON `null` remains an unavailable HQ
 answer rather than an internal exception.
 
+The same response boundary applies to publishing. Import acknowledgements
+validate the verdict, remote identity, optional version and warnings before
+the deployment service records them; an update cannot return a different app.
+Lookup inventory validates every identity and an explicit pagination cursor,
+and stays within the selected project space and resource path. Inventory reads
+and app imports do not follow redirects. Unknown lookup-upload verdicts retain
+the possibility that rows landed, so the service re-reads ownership evidence.
+
 Public surfaces speak only semantic capabilities from
 `lib/publish/projectSpaceCompatibility.ts`: Case search, CommCare Connect,
 attachments saved to cases, and links to captured files. Literal HQ setting

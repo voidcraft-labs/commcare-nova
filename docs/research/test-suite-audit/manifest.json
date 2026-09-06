@@ -3771,7 +3771,10 @@
 			"file": "lib/commcare/__tests__/hqLookupTables.test.ts",
 			"lines": 325,
 			"ciMs": 112,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced global fetch spies and four-byte fake workbook with native HTTP peer decoding and actual XLSX bytes. Independent response fixtures prove complete pagination, empty-vs-malformed inventory, malformed row rejection, same-space/resource cursors and manual redirects, late-page refusal, page ceiling, HTTP/network/JSON failures, encoded multipart replacement policy, format refusal vs partial acceptance, and unknown verdict uncertainty. Root fixes refuse incomplete inventory rather than overwriting by an assumed absence, and treat unknown upload verdicts as possibly landed rather than losing ownership evidence.",
+			"baselineSha256": "747f00f63114603194172daf9d6311ffad2924f8acc14167b6857ee44de460d2",
+			"reviewedSha256": "9325a272a94410ced503c66df00ca8c3f76fe1e9fc81ec19abe7e0c6db457e22"
 		},
 		{
 			"file": "lib/commcare/__tests__/hqWorkers.test.ts",
@@ -3789,7 +3792,10 @@
 			"file": "lib/commcare/__tests__/importApp.test.ts",
 			"lines": 245,
 			"ciMs": 99,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced fetch spies with native requests and platform multipart decoding. Source-verified create/update request fields, name/id/bytes and WAF prefix, version/warnings responses, explicit application refusal, unreachable/non-JSON replies, missing-target and permission/edge distinction, non-followed redirect, and unroutable input. Independent malformed acknowledgement cases demonstrate old truthiness, missing/wrong ids, invalid versions/warnings and JSON null failures; client now validates an acknowledgement before it can become a durable mapping.",
+			"baselineSha256": "d05d5eab8246c65e904c6cfb4d6a14865876761a79bf67dc27e7dd8e7e60dc87",
+			"reviewedSha256": "bf9f148894d34304b244d66b63ac462f6aef02296450d097eb18231a02cb14f4"
 		},
 		{
 			"file": "lib/commcare/__tests__/inlineSearchEmission.test.ts",
@@ -6723,7 +6729,10 @@
 			"file": "lib/mcp/__tests__/uploadAppToHq.test.ts",
 			"lines": 1494,
 			"ciMs": 2984,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced the entire 1494-line fake-SDK and mocked loader/compiler/ledger suite with uploadAppToHq.postgres.test.ts. Actual SDK, migrated auth/app/deployment/event rows, real export compilers, native multipart HTTP and external-only KMS/GCS peers prove shared-editor publish, create/update and complete target-profile preservation, source/import 404 recovery, resumable rejection, real permission/credential gates, explicit lookup adoption, actual XLSX-before-app ordering, partial-upload ownership and retry, finalized dependency manifests, real progress, and native event INSERT drain. Malformed inventory reproduces an unauthorized workbook attempt before repair; media upload/status disconnect reproduces a false whole-publish failure after import. The final fakeServer helper is deleted.",
+			"baselineSha256": "ca8020248e3863f9e53d06539509102b0395996996fa5066148a89cdf8a270bd",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/mcp/__tests__/uploadMediaAsset.test.ts",

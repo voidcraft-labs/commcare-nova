@@ -821,3 +821,58 @@ error ownership outside the session-lock owner remains a separate audit lead.
 A negative control removed global lock sorting: the native order test failed
 because the later identity was already held. Restoring the original source
 restored the implementation previously validated by the complete run.
+
+## Publishing: real protocol, ownership and partial completion
+
+The old 1,494-line MCP upload suite replaced the SDK, app/permission loader,
+export boundary, compiler, deployment ledger, media archive and event writer.
+It could prove which mocked answers the orchestrator forwarded, but could not
+prove the uploaded app, persisted target, ownership decisions or acknowledged
+log drain. It is removed, along with the last fake SDK capture helper.
+
+Its replacement uses real SDK dispatch, migrated auth/app/lookup/media and
+ledger rows, the real export boundary and compiler, and a controlled HTTP peer.
+The platform multipart parser reads transmitted bytes. XLSX and ZIP consumers
+inspect actual workbook cells and multimedia entries. KMS and GCS remain the
+external service substitutes. Twenty tests cover create/update, preservation of
+target-owned profile data while removing a stale Nova-owned key, both deleted
+app paths and next-call recovery, failed-import retry, scope and Project/target
+admission, explicit lookup adoption, partial lookup upload and ownership retry,
+finalized dependency manifests, progress, real event INSERT drain, compatibility
+preflight, missing media, successful attachment, standalone-logo disclosure and
+media disconnects after a committed import.
+
+This method found production defects that the former mocks supplied away:
+
+- A malformed lookup envelope or invalid remote row could become an empty
+  inventory and authorize a workbook write. A native publishing regression
+  observed the write. JSON null instead escaped as an internal exception.
+  Inventory now requires all identities and an explicit page cursor, refuses
+  incomplete answers and cross-space/resource cursors, and follows no redirect.
+- An unrecognized workbook-upload verdict claimed nothing landed, although the
+  write had been sent and its result was unknown. JSON null also threw. Only
+  the source-verified 405 format verdict proves no change; unknown verdicts
+  now preserve uncertainty and trigger the ownership re-read.
+- A disconnect during media upload or its status read returned a whole-publish
+  connection error after the app and its mapping already existed. The shared
+  lifecycle now retains that success and reports a media warning with retry.
+- App import accepted truthy non-boolean verdicts, absent or unrelated ids and
+  malformed optional fields as success, and leaked transport/JSON exceptions.
+  The client validates acknowledgements before they can become ownership
+  mappings, keeps update identity exact, classifies unreadable responses and
+  follows no redirects.
+
+The lookup and import driver suites are also replaced by native HTTP tests;
+there is no global fetch spy or fake four-byte workbook. Their request checks
+cover encoded file bytes, selected installation, authentication, ordered padding
+and explicit replacement/update fields. Current upstream evidence is
+`app_manager/views/app_import_api.py::_handle_import_app`,
+`fixtures/resources/v0_1.py::LookupTableResource` and
+`fixtures/views.py::UploadFixtureAPIResponse` in the local HQ checkout.
+
+Before-fix logs separately reproduce malformed inventory writes, both media
+false failures, unknown upload-verdict certainty, import acknowledgement errors
+and followed inventory redirects. The complete affected MCP/deployment/driver
+run passed 536 tests across 44 files in 23.82 seconds. Request deadlines in the
+other HQ readers and broader media-poll protocol behavior remain open audit
+work; this replacement does not establish those properties.

@@ -1918,6 +1918,15 @@ attributed to who and when. `pushed_identity` holds the external name a
 resource carries there, which is what makes a renamed resource reportable as
 left behind. `lib/deployment/CLAUDE.md` owns the detail.
 
+Remote inventory is authority for replacement only after every identity and
+pagination cursor has been validated against the selected space and resource.
+Malformed inventory stops publishing before data writes. Unknown lookup-upload
+verdicts preserve the possibility of partial acceptance and trigger the
+ownership re-read. An app import acknowledgement must identify the app that
+was created or the exact mapped app requested for an update. After import and
+its mapping commit, media transport failures remain warnings alongside that
+published app and its retry guidance.
+
 The lifecycle is `preflight → resources → uploaded → built → released →
 runnable`, plus the
 terminal refusal `incomplete`, which carries the phase a retry resumes at and

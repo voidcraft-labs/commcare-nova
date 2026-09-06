@@ -236,3 +236,18 @@ owned and drained. A transaction-held contention observer calls
 `pg_stat_clear_snapshot()` before each `pg_stat_activity` read so it can see a
 newly connected waiter; it also fails immediately if the operation finishes
 without reaching the expected lock.
+
+## Publishing across boundaries
+
+MCP publishing uses the actual SDK, migrated Postgres, export validation and
+compilers, with only KMS/object storage and the remote HTTP peer controlled.
+Inspect the peer's actual multipart bytes with the platform parser, then read
+the workbook or ZIP using its consumer. Observe persisted ownership and phase
+records at the point the next remote write arrives. A called-spy assertion
+cannot establish those ordering or recovery properties.
+
+Malformed inventory and upload replies must exercise the real decoders. A
+malformed inventory cannot authorize replacement, and an unknown upload verdict
+cannot establish that nothing landed. Native table locks prove that upload
+responses wait for event persistence. Fake SDK handler capture is removed;
+registration, input validation, progress and results use linked SDK transports.

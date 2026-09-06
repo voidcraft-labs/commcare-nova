@@ -57,15 +57,8 @@ export interface HqLookupTable {
 	readonly fields: readonly string[];
 }
 
-/** Tastypie's list envelope, only the parts Nova reads. */
-interface LookupTableListResponse {
-	readonly meta?: { readonly next?: string | null };
-	readonly objects?: readonly {
-		readonly id?: unknown;
-		readonly tag?: unknown;
-		readonly is_global?: unknown;
-		readonly fields?: unknown;
-	}[];
+function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -87,13 +80,15 @@ const LOOKUP_TABLE_PAGE_SIZE = 100;
  */
 const MAX_LOOKUP_TABLE_PAGES = 20;
 
-function toHqLookupTable(raw: {
-	readonly id?: unknown;
-	readonly tag?: unknown;
-	readonly is_global?: unknown;
-	readonly fields?: unknown;
-}): HqLookupTable | null {
-	if (typeof raw.id !== "string" || typeof raw.tag !== "string") return null;
+function toHqLookupTable(raw: unknown): HqLookupTable | null {
+	if (
+		!isRecord(raw) ||
+		typeof raw.id !== "string" ||
+		raw.id.trim() === "" ||
+		typeof raw.tag !== "string" ||
+		raw.tag.trim() === ""
+	)
+		return null;
 	/* `dehydrate_fields` answers `[{field_name, properties}]`; older rows
 	 * and the XML serializer spell it `name`. Reading both is not an alias
 	 * layer — Nova stores neither, it only needs enough to compare shape
@@ -137,6 +132,8 @@ export async function listHqLookupTables(
 		try {
 			res = await fetch(url, {
 				headers: { Authorization: authHeader(creds) },
+				redirect: "manual",
+				cache: "no-store",
 			});
 		} catch (error) {
 			log.warn("[commcare] lookup table list unreachable", {
@@ -152,27 +149,59 @@ export async function listHqLookupTables(
 			 * rather than a fault in Nova. */
 			return warnAndReturnError("lookup table list failed", res);
 		}
-		let body: LookupTableListResponse;
+		let body: unknown;
 		try {
-			body = (await res.json()) as LookupTableListResponse;
+			body = await res.json();
 		} catch {
 			log.error("[commcare] lookup table list returned non-JSON", undefined, {
 				domain,
 			});
 			return { success: false, status: 502 };
 		}
-		for (const raw of body.objects ?? []) {
-			const table = toHqLookupTable(raw);
-			if (table !== null) tables.push(table);
+		// This inventory authorizes replacement by name. An incomplete or
+		// malformed answer cannot prove a table absent, including a malformed
+		// row that would otherwise disappear during projection.
+		if (
+			!isRecord(body) ||
+			!Array.isArray(body.objects) ||
+			!isRecord(body.meta) ||
+			(body.meta.next !== null && typeof body.meta.next !== "string")
+		) {
+			log.error("[commcare] lookup table list is malformed", undefined, {
+				domain,
+			});
+			return { success: false, status: 502 };
 		}
-		const next = body.meta?.next;
-		if (typeof next !== "string" || next === "") return tables;
-		/* Resolve against the server's own base so a rewritten `next`
-		 * cannot walk this request off CommCare HQ. */
-		const resolved = new URL(next, baseUrl(creds));
-		if (resolved.origin !== new URL(baseUrl(creds)).origin) {
+		for (const raw of body.objects) {
+			const table = toHqLookupTable(raw);
+			if (table === null) {
+				log.error("[commcare] lookup table identity is malformed", undefined, {
+					domain,
+				});
+				return { success: false, status: 502 };
+			}
+			tables.push(table);
+		}
+		const next = body.meta.next;
+		if (next === null) return tables;
+		/* Resolve relative cursors against this page; every next page must
+		 * still describe the same resource in the same project space. */
+		let resolved: URL;
+		try {
+			resolved = new URL(next, url);
+		} catch {
+			return { success: false, status: 502 };
+		}
+		if (
+			next === "" ||
+			resolved.origin !== new URL(baseUrl(creds)).origin ||
+			resolved.pathname !== `/a/${domain}/api/lookup_table/v1/` ||
+			resolved.username !== "" ||
+			resolved.password !== "" ||
+			resolved.hash !== ""
+		) {
 			log.error(
-				"[commcare] lookup table pagination left CommCare HQ",
+				"[commcare] lookup table pagination changed target",
 				undefined,
 				{
 					domain,
@@ -219,11 +248,7 @@ const FIXTURE_UPLOAD_SUCCESS_CODE = 200;
  * anything was written.
  */
 const FIXTURE_UPLOAD_PARTIAL_CODE = 402;
-
-interface FixtureUploadResponse {
-	readonly message?: unknown;
-	readonly code?: unknown;
-}
+const FIXTURE_UPLOAD_FORMAT_FAILURE_CODE = 405;
 
 /**
  * A refusal that keeps CommCare HQ's own sentence.
@@ -329,15 +354,30 @@ export async function uploadLookupTableWorkbook(
 			mayHaveLanded: writeMayHaveLanded(res.status, refusal.edgeRefusal),
 		};
 	}
-	let body: FixtureUploadResponse;
+	let body: unknown;
 	try {
-		body = (await res.json()) as FixtureUploadResponse;
+		body = await res.json();
 	} catch {
 		log.error("[commcare] lookup table upload returned non-JSON", undefined, {
 			domain,
 		});
 		/* CommCare HQ answered something Nova cannot read, which says
 		 * nothing about what it did with the workbook. */
+		return { success: false, status: 502, message: "", mayHaveLanded: true };
+	}
+	if (
+		!isRecord(body) ||
+		(body.code !== FIXTURE_UPLOAD_SUCCESS_CODE &&
+			body.code !== FIXTURE_UPLOAD_PARTIAL_CODE &&
+			body.code !== FIXTURE_UPLOAD_FORMAT_FAILURE_CODE)
+	) {
+		log.error(
+			"[commcare] lookup table upload verdict is malformed",
+			undefined,
+			{ domain },
+		);
+		// Only HQ's explicit pre-write format refusal proves nothing landed.
+		// An unknown verdict cannot authorize dropping the ownership evidence.
 		return { success: false, status: 502, message: "", mayHaveLanded: true };
 	}
 	const message = typeof body.message === "string" ? body.message : "";

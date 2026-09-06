@@ -621,7 +621,10 @@ export async function importApp(
 	appJson: object,
 	updateAppId?: string,
 ): Promise<ImportResponse> {
-	if (!isValidDomainSlug(domain)) {
+	if (
+		!isValidDomainSlug(domain) ||
+		(updateAppId !== undefined && !/^[A-Za-z0-9_-]+$/.test(updateAppId))
+	) {
 		return { success: false, status: 400 };
 	}
 	const base = baseUrl(creds);
@@ -642,11 +645,18 @@ export async function importApp(
 		"app.json",
 	);
 
-	const res = await fetch(url, {
-		method: "POST",
-		headers: { Authorization: authHeader(creds) },
-		body: formData,
-	});
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			method: "POST",
+			headers: { Authorization: authHeader(creds) },
+			body: formData,
+			redirect: "manual",
+		});
+	} catch (error) {
+		log.error("[commcare] import response unavailable", error, { domain });
+		return { success: false, status: 503 };
+	}
 
 	if (!res.ok) {
 		/* A 404 on the update arm is an ANSWER — the app Nova mapped was
@@ -659,26 +669,52 @@ export async function importApp(
 		return logAndReturnError("import failed", res);
 	}
 
-	const data = (await res.json()) as {
-		success: boolean;
-		app_id: string;
-		version?: number;
-		warnings?: string[];
-	};
+	let data: unknown;
+	try {
+		data = await res.json();
+	} catch {
+		log.error("[commcare] import returned non-JSON", undefined, { domain });
+		return { success: false, status: 502 };
+	}
+	if (typeof data !== "object" || data === null || Array.isArray(data)) {
+		return { success: false, status: 502 };
+	}
+	const acknowledgement = data as Record<string, unknown>;
 
 	/* HQ can return HTTP 200 with success:false for application-level
 	 * import failures (malformed JSON, schema violations). The response
 	 * body is already consumed so we log the parsed result directly. */
-	if (!data.success) {
+	if (acknowledgement.success === false) {
 		log.error("[commcare] import rejected by HQ", undefined, { domain, data });
 		return { success: false, status: 422 };
+	}
+	const { app_id: appId, version, warnings } = acknowledgement;
+	if (
+		acknowledgement.success !== true ||
+		typeof appId !== "string" ||
+		!/^[A-Za-z0-9_-]+$/.test(appId) ||
+		(updateAppId !== undefined && appId !== updateAppId) ||
+		(version !== undefined &&
+			(typeof version !== "number" ||
+				!Number.isSafeInteger(version) ||
+				version < 0)) ||
+		(warnings !== undefined &&
+			(!Array.isArray(warnings) ||
+				!warnings.every((warning) => typeof warning === "string")))
+	) {
+		// This id becomes the durable ownership mapping. A truthy verdict or
+		// an unrelated returned id cannot establish what this publish wrote.
+		log.error("[commcare] import acknowledgement is malformed", undefined, {
+			domain,
+		});
+		return { success: false, status: 502 };
 	}
 
 	return {
 		success: true,
-		appId: data.app_id,
-		version: typeof data.version === "number" ? data.version : null,
-		warnings: data.warnings ?? [],
+		appId,
+		version: typeof version === "number" ? version : null,
+		warnings: warnings ?? [],
 	};
 }
 

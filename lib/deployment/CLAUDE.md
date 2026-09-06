@@ -40,6 +40,20 @@ a BLOCKING preflight edge. Treating "could not ask" as "there are none" is the
 one reading that turns a permissions problem into somebody's data being
 overwritten.
 
+Lookup inventory must be a complete, well-formed list: every row needs its
+remote identity, and every page needs an explicit next-page or terminal cursor.
+A malformed row cannot be skipped, a malformed envelope cannot become an empty
+list, and pagination cannot switch project spaces or resource types. Reads do
+not follow redirects. An unknown workbook-upload verdict means data may have
+landed; only HQ's explicit format-refusal verdict proves that none did.
+
+Once an app import and its ownership mapping have landed, a media transport or
+status-read failure remains a media warning. Publishing still returns the app
+and its deployment record, with a retry step for the unconfirmed attachment.
+Import acknowledgements must carry a literal success verdict and a routable
+remote id; an update acknowledgement must name the app requested. Malformed
+responses cannot become ownership mappings.
+
 Both location resources sit behind FOUR gates and Nova cannot tell them apart
 from the answer: the project space's `LOCATIONS` privilege (a bodyless 403 from
 `v0_5.py::BaseLocationsResource.dispatch`), its `API_ACCESS` privilege (401,

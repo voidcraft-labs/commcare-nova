@@ -5,6 +5,24 @@ import {
 	setGlobalDispatcher,
 } from "undici";
 
+/** Consume the actual request bytes at the remote peer, then use the platform
+ * multipart parser. This checks serialization as well as FormData assembly. */
+export async function readMultipartRequest(request: {
+	headers?: unknown;
+	body?: unknown;
+}): Promise<FormData> {
+	const headers = new Headers(request.headers as Record<string, string>);
+	const body = request.body;
+	const chunks: Uint8Array[] = [];
+	if (typeof body === "string") chunks.push(Buffer.from(body));
+	else if (body instanceof Uint8Array) chunks.push(body);
+	else if (body !== undefined && body !== null) {
+		for await (const chunk of body as AsyncIterable<Uint8Array>)
+			chunks.push(chunk);
+	}
+	return new Response(Buffer.concat(chunks), { headers }).formData();
+}
+
 /** Real fetch request construction and response parsing, with only the remote
  * HTTP peer controlled. Unexpected destinations cannot reach the network.
  * Inspect call history as well as pending replies: a client may catch a refused

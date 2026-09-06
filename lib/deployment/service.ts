@@ -1215,12 +1215,27 @@ async function uploadMediaBytes(
 	},
 	appId: string,
 ): Promise<string[]> {
-	const mediaResult = await uploadAppMediaBundle(
-		creds,
-		domain,
-		hqAppId,
-		buildMediaBulkUploadZip(prepared.assets),
-	);
+	let mediaResult: Awaited<ReturnType<typeof uploadAppMediaBundle>>;
+	try {
+		mediaResult = await uploadAppMediaBundle(
+			creds,
+			domain,
+			hqAppId,
+			buildMediaBulkUploadZip(prepared.assets),
+		);
+	} catch (error) {
+		// Import and its ownership mapping are already committed. A byte
+		// upload or status-read failure cannot turn that fact into a failed
+		// publish. Keep the URL and report which remaining work is uncertain.
+		log.error("[deployment] media attachment could not be confirmed", error, {
+			domain,
+			hqAppId,
+			appId,
+		});
+		return [
+			"Media upload could not be confirmed; the app was published but its media may not display. Publish again to retry the media upload.",
+		];
+	}
 	if ("success" in mediaResult) {
 		log.error("[deployment] media bundle upload failed", undefined, {
 			domain,
