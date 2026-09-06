@@ -73,6 +73,13 @@ runtime use.
 
 ### CommCare HQ project-space compatibility
 
+Deployment readiness uses the bounded `readBuildXml` path for an exact released
+build. `probeBuildProfile` confirms the profile's remote suite identity with
+`profileReferencesBuildSuite`; HTTP 200 with empty, malformed, unrelated, or
+wrong-build bytes is unverified. Version and build-list readers validate the
+JSON envelope before reading fields, so JSON `null` remains an unavailable HQ
+answer rather than an internal exception.
+
 Public surfaces speak only semantic capabilities from
 `lib/publish/projectSpaceCompatibility.ts`: Case search, CommCare Connect,
 attachments saved to cases, and links to captured files. Literal HQ setting

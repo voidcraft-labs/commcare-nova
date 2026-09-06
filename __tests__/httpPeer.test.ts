@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { withHttpPeer } from "./http";
+import { withHttpPeer } from "./helpers/httpPeer";
 
 it("intercepts Node's native fetch and refuses unmatched destinations at the mock transport", async () => {
 	await withHttpPeer(async (peer) => {

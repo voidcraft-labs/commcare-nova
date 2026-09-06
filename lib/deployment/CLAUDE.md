@@ -72,6 +72,18 @@ A 3xx is "could not check", never "not installable":
 `check_access_and_redirect` answers 302 for any domain carrying a
 `redirect_url`.
 
+HTTP 200 alone does not confirm readiness. The bounded resource reader must
+finish reading a valid profile whose remote suite names the exact selected
+server, project space, and released build. Empty, malformed, unrelated, or
+wrong-build content leaves the probe pending. A missing profile (404) remains a
+build verdict; a transport or body-read failure means the check was unavailable.
+
+The left-behind list describes unused remote objects, not historical ledger
+rows. It excludes every currently active `(kind, remoteId)` and reports each
+remaining object once, using its latest mapping. When current resource names
+cannot be read, the same selector returns only unused apps. Builder and MCP
+share this rule, including that fallback.
+
 ## The state machine
 
 `preflight → resources → uploaded → built → released → runnable`, plus

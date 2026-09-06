@@ -216,7 +216,7 @@ export async function refreshDeploymentAction(
 			success: true,
 			data: {
 				...refreshed,
-				leftBehind: leftBehindFor(
+				leftBehind: leftBehindResources(
 					refreshed.deployment,
 					await currentResourceIdentities(resolved.scope, doc),
 				),
@@ -274,30 +274,13 @@ export async function readDeploymentsAction(
 						doc,
 						locations,
 					),
-					leftBehind: leftBehindFor(deployment, identities),
+					leftBehind: leftBehindResources(deployment, identities),
 				})),
 			),
 		};
 	} catch (error) {
 		return failure(error, "read", resolved.scope);
 	}
-}
-
-/**
- * One deployment's left-behind list, or nothing when Nova could not tell.
- *
- * `null` identities means the Project read was unavailable, which is NOT
- * the same as every table having been deleted. Falling back to apps only
- * keeps the honest half of the answer rather than sending somebody to
- * CommCare HQ after tables that are perfectly fine.
- */
-function leftBehindFor(
-	deployment: DeploymentWithResources,
-	identities: ReadonlyMap<string, string> | null,
-): readonly DeploymentResource[] {
-	return identities === null
-		? deployment.superseded.filter((resource) => resource.kind === "app")
-		: leftBehindResources(deployment, identities);
 }
 
 /**
@@ -419,7 +402,7 @@ async function provisionedView(
 		return {
 			deployment,
 			artifact: await setupArtifactFor(scope, deployment, doc, locations),
-			leftBehind: leftBehindFor(
+			leftBehind: leftBehindResources(
 				deployment,
 				await currentResourceIdentities(scope, doc),
 			),

@@ -34,6 +34,7 @@ import {
 	type ProjectSpaceCapabilityProbe,
 	projectSpaceCompatibilityForTarget,
 } from "@/lib/publish/projectSpaceCompatibility";
+import { profileReferencesBuildSuite } from "./buildProfile";
 import {
 	authHeader,
 	baseUrl,
@@ -917,22 +918,21 @@ export async function readAppVersions(
 		return { success: false, status: 503 };
 	}
 	if (!res.ok) return warnAndReturnError("current_version failed", res);
-	let data: {
-		currentVersion?: unknown;
-		latestBuild?: unknown;
-		latestReleasedBuild?: unknown;
-	};
+	let data: unknown;
 	try {
-		data = (await res.json()) as typeof data;
+		data = await res.json();
 	} catch {
 		return { success: false, status: 502 };
 	}
-	const currentVersion = finiteIntOrNull(data.currentVersion);
+	if (typeof data !== "object" || data === null || Array.isArray(data))
+		return { success: false, status: 502 };
+	const record = data as Record<string, unknown>;
+	const currentVersion = finiteIntOrNull(record.currentVersion);
 	if (currentVersion === null) return { success: false, status: 502 };
 	return {
 		currentVersion,
-		latestBuildVersion: finiteIntOrNull(data.latestBuild),
-		latestReleasedVersion: finiteIntOrNull(data.latestReleasedBuild),
+		latestBuildVersion: finiteIntOrNull(record.latestBuild),
+		latestReleasedVersion: finiteIntOrNull(record.latestReleasedBuild),
 	};
 }
 
@@ -971,13 +971,19 @@ export async function listAppBuilds(
 		return { success: false, status: 503 };
 	}
 	if (!res.ok) return warnAndReturnError("application resource failed", res);
-	let data: { versions?: unknown };
+	let data: unknown;
 	try {
-		data = (await res.json()) as typeof data;
+		data = await res.json();
 	} catch {
 		return { success: false, status: 502 };
 	}
-	if (!Array.isArray(data.versions)) return { success: false, status: 502 };
+	if (
+		typeof data !== "object" ||
+		data === null ||
+		!("versions" in data) ||
+		!Array.isArray(data.versions)
+	)
+		return { success: false, status: 502 };
 	const builds: HqAppBuild[] = [];
 	for (const entry of data.versions) {
 		if (typeof entry !== "object" || entry === null) continue;
@@ -1001,8 +1007,8 @@ export async function listAppBuilds(
  * Ask CommCare HQ for the profile a device installs one BUILD from.
  *
  * This is the strongest honest proof that a released build can be run: it
- * is the first request a real device makes, so a 200 means a device would
- * get one too.
+ * is the first request a real device makes. A successful response must contain
+ * a valid profile naming the exact selected build's remote suite.
  *
  * **It is a device install request, not a pure read, and the difference is
  * worth stating plainly.** Despite the URL, this does NOT reach
@@ -1039,50 +1045,22 @@ export async function probeBuildProfile(
 	| { readonly ok: true }
 	| { readonly ok: false; readonly reason: "unavailable" | "not-installable" }
 > {
-	if (!isValidDomainSlug(domain)) return { ok: false, reason: "unavailable" };
-	const url = `${baseUrl(creds)}/a/${domain}/apps/download/${encodeURIComponent(buildId)}/profile.ccpr`;
-	let res: Response;
-	try {
-		res = await fetch(url, {
-			headers: { Authorization: authHeader(creds) },
-			redirect: "manual",
-		});
-	} catch (err) {
-		log.warn("[commcare] build profile probe failed", {
-			domain,
-			error: err instanceof Error ? err.message : String(err),
-		});
-		return { ok: false, reason: "unavailable" };
-	}
-	if (res.status >= 300 && res.status < 400) {
-		log.warn("[commcare] build profile probe redirected", {
-			domain,
-			status: res.status,
-		});
-		try {
-			await res.body?.cancel();
-		} catch {}
-		return { ok: false, reason: "unavailable" };
-	}
-	if (!res.ok) {
-		await warnAndReturnError("build profile probe failed", res);
-		/* Only a 404 is a verdict on the BUILD: CommCare HQ served the
-		 * request and had no profile for it. Every other refusal is Nova
-		 * failing to ask — a 401 or 403 is the key's permissions, a 429 is
-		 * rate limiting, a 5xx is CommCare HQ being unwell — and reporting
-		 * those as `not-installable` tells somebody their release is broken
-		 * when nothing was learned about it at all. */
+	const result = await readBuildXml(creds, domain, buildId, "profile.ccpr");
+	if ("success" in result) {
+		// A missing profile is a verdict on this build. A redirect, denied
+		// request, interrupted body or timeout means we could not check it.
 		return {
 			ok: false,
-			reason: res.status === 404 ? "not-installable" : "unavailable",
+			reason: result.status === 404 ? "not-installable" : "unavailable",
 		};
 	}
-	// Drain the body so the connection is released; the bytes themselves
-	// are not what is being checked, only that CommCare HQ served them.
-	try {
-		await res.text();
-	} catch {}
-	return { ok: true };
+	return profileReferencesBuildSuite(result.xml, {
+		server: creds.server,
+		domain,
+		buildId,
+	})
+		? { ok: true }
+		: { ok: false, reason: "unavailable" };
 }
 
 /** Read an exact BUILD resource. Never resolves working apps or follows redirects. */

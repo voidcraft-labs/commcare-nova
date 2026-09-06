@@ -3564,7 +3564,10 @@
 			"file": "lib/commcare/__tests__/buildProfile.test.ts",
 			"lines": 31,
 			"ciMs": 80,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "7dbe51507dee5c3daa4a9e61cfccf5621cfc33d280360847927eca24eacbd0c4",
+			"review": "Read parser and local HQ profile.xml primary template. Retained independent exact target, malformed XML and wrong-origin/domain/build/query cases; added real template structure with media suite and local fallback plus ambiguous duplicate main resource/remote location refusals. No DOM environment or fetch mock.",
+			"reviewedSha256": "af3ae36507abb60125b5affb288c48bfa7ad401907d056ba4ac1ceb446270527"
 		},
 		{
 			"file": "lib/commcare/__tests__/captureAttachmentEmission.test.ts",
@@ -3876,7 +3879,10 @@
 			"file": "lib/commcare/__tests__/probeBuildProfile.test.ts",
 			"lines": 81,
 			"ciMs": 122,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "5bc005ffc57371cc664b49ea9a1e40c142fac397208287cb24c096238d139b9d",
+			"review": "Replaced global fetch stubs and fake profile text with native HTTP transport cases: exact selected-build profile, malformed/empty/wrong-target content, status classification and non-followed redirects, actual network failure, invalid build IDs before requests, and a deterministic abort with timer ownership. Empty HTTP 200 and invalid-ID requests fail before production repair; readiness now reuses the bounded validated resource reader.",
+			"reviewedSha256": "05f5b995c8e033a05613800d9b97e366c9ca7779028871604106fe65ffe590d7"
 		},
 		{
 			"file": "lib/commcare/__tests__/projectSpaceCompatibility.test.ts",
@@ -5303,7 +5309,10 @@
 			"file": "lib/deployment/__tests__/leftBehindResources.test.ts",
 			"lines": 155,
 			"ciMs": 79,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "d3a7a3fd96c5389e531a40ce44eb4dac5c912dc10aea16225243d7f31e48fe3f",
+			"review": "Real pure resource selection is the appropriate boundary. Consolidated exact resource outcomes for renamed/recreated/removed/unnamed table and location states; added inactive-object deduplication, current remote reuse, kind-scoped identity, immutable inputs and unavailable-name fallback. Native deployment history reproduces live apps reported as abandoned, and the one shared selector now fixes browser and MCP including fallback.",
+			"reviewedSha256": "caf7654a3d25e515be13292df9885d2cb73a6889cb803092150f9af49e725aff"
 		},
 		{
 			"file": "lib/deployment/__tests__/locationResourcePlan.test.ts",
@@ -5321,7 +5330,10 @@
 			"file": "lib/deployment/__tests__/observe.test.ts",
 			"lines": 299,
 			"ciMs": 93,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "3c8d25f2d209f9a11148b81b6c99beab62c1149d1c2d471b5640ad492157a11d",
+			"review": "Replaced HQ service-result mocks with actual client decoding of controlled HTTP. Proves stage short-circuiting for not-built/stale-build/unreleased/stale-release, confirmed earlier stages surviving permission/network/redirect/missing-profile responses, exact released-build requests, and malformed JSON envelopes. JSON null exposed an uncaught TypeError; both version readers now fail safely. Real persistence and concurrency observations live in the MCP Postgres suite.",
+			"reviewedSha256": "aed52713e8361ca80b61b4046bce05c4f65e6c95572cda8801e06de8873a798e"
 		},
 		{
 			"file": "lib/deployment/__tests__/provisionWorkers.test.ts",
@@ -6510,7 +6522,9 @@
 			"file": "lib/mcp/__tests__/deploymentTools.test.ts",
 			"lines": 294,
 			"ciMs": 1500,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "ee85e2d9a96d2fd36fb60951f3684b1148016069256d4879a59b64838315482a",
+			"review": "Replaced captured SDK handlers and mocked app/service/deployment results with deploymentTools.postgres.test.ts: real migrated records, native HTTP and actual stage folding. Proves complete viewer projection and target-specific artifacts, nonmutating reads, readiness/withdrawal/unavailable retention, 404 recovery, publish races, atomic rollback of late remote-revision failure, credential ownership, and actual SDK/scope/access refusal. Historical mapping reuse exposed live resources being reported as abandoned; shared selector now excludes active IDs and deduplicates remote objects."
 		},
 		{
 			"file": "lib/mcp/__tests__/errors.test.ts",

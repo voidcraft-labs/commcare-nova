@@ -43,7 +43,7 @@ tests is preferable to preserving the shape or count of the previous suite.
   retain the real code that interprets it. Never spend on model calls by default.
 
 For native Node `fetch`, the controlled peer must cover the dispatch path that
-Node actually uses. `lib/mcp/__tests__/http.ts` supplies an Undici Agent factory
+Node actually uses. `__tests__/helpers/httpPeer.ts` supplies an Undici Agent factory
 that resolves every connection key to a mock transport. Its regression test
 proves both interception and refusal of unmatched destinations without DNS.
 Assert consumed replies and request history, since a production client may

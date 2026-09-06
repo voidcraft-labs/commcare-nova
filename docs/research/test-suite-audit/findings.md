@@ -701,3 +701,46 @@ distinct single-selection and no-selection cases without service mocks.
 The focused run passed 40 tests across five files in 9.18 seconds. The final
 membership SQL check passed separately, and type checking passed. The compiler
 and manifest consumer runs do not mark their own method review complete.
+
+### Deployment status: response bytes must establish the claim
+
+The install probe accepted every HTTP 200 response, including empty bytes and
+login HTML, and swallowed body-read failures. Its old positive fixture was the
+literal string `profile`. Native HTTP tests first reproduced the false success.
+The probe now shares the bounded exact-build XML reader and validates the
+profile's remote suite identity. Only a missing profile is a build verdict;
+unreadable or unrelated content remains unconfirmed. The parser tests also
+cover HQ's separate media suite, optional local fallback, and ambiguous main
+resources. Local HQ `views/download.py::download_file` and the `profile.xml`
+template supplied the resource and profile contracts.
+
+Observation tests now interpret real HTTP responses instead of receiving
+invented HQ client results. They cover unfinished and stale build/release
+stages, permission versus transport failures, redirects, missing profiles, and
+malformed JSON. JSON `null` exposed an uncaught property access in the version
+reader; both version-envelope readers now reject malformed envelopes safely.
+An unanswered build-resource test advances a controlled clock, observes the
+actual abort, releases its pending peer response, and proves no timer remains.
+The native HTTP helper now lives at `__tests__/helpers/httpPeer.ts` for reuse
+across all service adapters.
+
+The MCP deployment suite now starts from migrated Postgres and real stored
+publication records. It verifies the viewer's full deployment projection,
+target-specific setup links, no-write reads, persisted readiness, unavailable
+checks retaining all rows, release withdrawal, missing-app restoration, a
+publish winning during an HTTP request, late transactional rollback of remote
+revision updates, and actual connection/scope/access/schema refusals. Empty
+and login responses demonstrably leave the stored state at `released`.
+
+A real mapping history A → B → A exposed a second false report: A appeared in
+`left_behind` even while it was active. The shared selector now excludes active
+remote identities and deduplicates unused objects using their latest mapping.
+Both Builder and MCP use the same selector even when resource-name reads are
+unavailable. The database test repeats the mapping history to prove both live
+exclusion and deduplication, while pure tests cover identity kinds, fallback,
+rename/recreation semantics, and immutable inputs.
+
+The complete MCP/deployment consumer run and affected reader checks passed 542
+tests across 44 files in 20.76 seconds. Type checking and formatting passed.
+Consumers run here retain their pending review status until their own testing
+method has been evaluated.

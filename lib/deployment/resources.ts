@@ -102,11 +102,23 @@ export function plannedInPlaceUpdate(
  */
 export function leftBehindResources(
 	deployment: DeploymentWithResources,
-	currentIdentities: ReadonlyMap<string, string>,
+	currentIdentities: ReadonlyMap<string, string> | null,
 ): readonly DeploymentResource[] {
-	return deployment.superseded.filter((resource) => {
+	// History can contain several past mappings to the same remote object,
+	// including one the current publish uses again. Report remote objects once
+	// and never suggest cleanup of an object that is active now.
+	const key = (resource: DeploymentResource) =>
+		`${resource.kind}:${resource.remoteId}`;
+	const active = new Set(deployment.active.map(key));
+	const historical = new Map(
+		deployment.superseded.map((resource) => [key(resource), resource]),
+	);
+	return [...historical.values()].filter((resource) => {
+		if (active.has(key(resource))) return false;
 		if (resource.kind === "app") return true;
-		if (resource.pushedIdentity === null) return false;
+		// Unavailable names are not evidence that every named resource vanished.
+		if (currentIdentities === null || resource.pushedIdentity === null)
+			return false;
 		const current = currentIdentities.get(resource.novaResourceId);
 		/* The Nova resource itself is gone — deleted, or no longer
 		 * referenced by this app — so whatever was pushed under its name is

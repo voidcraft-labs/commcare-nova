@@ -2052,7 +2052,9 @@ key can make are `views/releases.py::current_app_version` (`@login_or_api_key`)
 for the version numbers, the read-only
 `api/resources/v0_4.py::ApplicationResource.dehydrate_versions` for build ids and
 release flags, and one build's `profile.ccpr` as the runnable proof. That last
-one is the device's own install request rather than a pure read: the catch-all
+response must be a valid profile referring to the selected build's exact remote
+suite; a successful HTTP status with empty or unrelated content does not prove
+readiness. The request is the device's own install request rather than a pure read: the catch-all
 `^download/<app_id>/<path>` route reaches `views/download.py::download_file`,
 not `::download_odk_profile`, and that view regenerates a build's files when
 they are missing — CommCare HQ repairing a build for a device, which cannot

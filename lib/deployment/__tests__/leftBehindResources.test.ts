@@ -60,96 +60,116 @@ function view(
 }
 
 describe("leftBehindResources", () => {
-	it("reports a table still wearing the name a rename moved away from", () => {
-		const left = leftBehindResources(
-			view([resource({})]),
-			new Map([[TABLE, "areas"]]),
-		);
-		expect(left.map((entry) => entry.pushedIdentity)).toEqual(["districts"]);
+	it.each([
+		{
+			label: "renamed table",
+			resource: resource({}),
+			identities: new Map([[TABLE, "areas"]]),
+			report: true,
+		},
+		{
+			label: "recreated table with unchanged name",
+			resource: resource({}),
+			identities: new Map([[TABLE, "districts"]]),
+			report: false,
+		},
+		{
+			label: "removed table",
+			resource: resource({}),
+			identities: new Map<string, string>(),
+			report: true,
+		},
+		{
+			label: "replaced app",
+			resource: resource({
+				kind: "app",
+				novaResourceId: "app-1",
+				remoteId: "old-app",
+				pushedIdentity: null,
+			}),
+			identities: new Map<string, string>(),
+			report: true,
+		},
+		{
+			label: "archived place",
+			resource: resource({ kind: "location", pushedIdentity: "colorado" }),
+			identities: new Map<string, string>(),
+			report: true,
+		},
+		{
+			label: "place recreated under the same code",
+			resource: resource({ kind: "location", pushedIdentity: "colorado" }),
+			identities: new Map([[TABLE, "colorado"]]),
+			report: false,
+		},
+		{
+			label: "historical unnamed non-app resource",
+			resource: resource({ pushedIdentity: null }),
+			identities: new Map<string, string>(),
+			report: false,
+		},
+	])(
+		"reports $label only when the current identity establishes it is unused",
+		({ resource: old, identities, report }) => {
+			expect(leftBehindResources(view([old]), identities)).toEqual(
+				report ? [old] : [],
+			);
+		},
+	);
+
+	it("excludes reused remote objects and reports each inactive object once using its latest mapping", () => {
+		const live = resource({
+			kind: "app",
+			remoteId: "live-app",
+			pushedIdentity: null,
+			supersededAt: null,
+		});
+		const oldLive = { ...live, supersededAt: "2026-08-01T00:00:00.000Z" };
+		const old = resource({
+			remoteId: "unused-table",
+			pushedIdentity: "old-tag",
+		});
+		const latest = {
+			...old,
+			pushedIdentity: "latest-tag",
+			supersededAt: "2026-09-01T00:00:00.000Z",
+		};
+		const sameIdOtherKind = resource({
+			remoteId: "live-app",
+			pushedIdentity: "unrelated-table",
+		});
+		const deployment = {
+			...view([oldLive, old, sameIdOtherKind, latest]),
+			active: [live],
+		};
+		const before = structuredClone(deployment);
+		expect(leftBehindResources(deployment, new Map())).toEqual([
+			latest,
+			sameIdOtherKind,
+		]);
+		expect(deployment).toEqual(before);
 	});
 
-	it("reports nothing when the table was recreated under the same name", () => {
-		/* Deleted on CommCare HQ, re-pushed: the mapping is superseded
-		 * because the remote id changed, but the old table is gone and the
-		 * new one carries the same name. Nothing is sitting there. */
-		const left = leftBehindResources(
-			view([resource({})]),
-			new Map([[TABLE, "districts"]]),
-		);
-		expect(left).toEqual([]);
-	});
-
-	it("reports a table whose Nova side is gone entirely", () => {
-		/* Deleted in Project data, or simply no longer referenced by this
-		 * app. Whatever was pushed under that name is certainly still there,
-		 * and nothing in Nova names it any more. */
-		const left = leftBehindResources(view([resource({})]), new Map());
-		expect(left).toHaveLength(1);
-	});
-
-	it("always reports a superseded app, which has no name to compare", () => {
-		/* An app's remote id IS how CommCare HQ names it, so a superseded app
-		 * mapping is unambiguously an app sitting there. */
-		const left = leftBehindResources(
-			view([
-				resource({
-					kind: "app",
-					novaResourceId: "app-1",
-					remoteId: "hq-old-app",
-					pushedIdentity: null,
-				}),
+	it("reports only unused apps when resource names could not be loaded", () => {
+		const live = resource({
+			kind: "app",
+			remoteId: "live-app",
+			supersededAt: null,
+		});
+		const unused = resource({
+			kind: "app",
+			remoteId: "unused-app",
+			pushedIdentity: null,
+		});
+		const deployment = {
+			...view([
+				{ ...live, supersededAt: "2026-08-01T00:00:00.000Z" },
+				unused,
+				resource({}),
+				unused,
 			]),
-			new Map(),
-		);
-		expect(left.map((entry) => entry.remoteId)).toEqual(["hq-old-app"]);
-	});
-
-	it("reports an archived place, which Nova can no longer take down", () => {
-		/* Archiving in Nova stops the push naming that place, so its mapping
-		 * is superseded and no current identity answers to it. CommCare HQ's
-		 * v0.6 resource exposes no archive and no delete, so the place is
-		 * still there and its site code is still reserved
-		 * (`util.py::validate_site_code` counts archived rows). */
-		const left = leftBehindResources(
-			view([
-				resource({
-					kind: "location",
-					novaResourceId: "018f0000-0000-7000-8000-0000000000b1",
-					remoteId: "hq-colorado",
-					pushedIdentity: "colorado",
-				}),
-			]),
-			new Map(),
-		);
-		expect(left.map((entry) => entry.pushedIdentity)).toEqual(["colorado"]);
-	});
-
-	it("says nothing about a place that is still live under the same code", () => {
-		/* A site code is create-once in Nova, so a live place always answers
-		 * with the code it was pushed under. A superseded row beside it is a
-		 * place CommCare HQ lost and the next push recreated. */
-		const left = leftBehindResources(
-			view([
-				resource({
-					kind: "location",
-					novaResourceId: "018f0000-0000-7000-8000-0000000000b1",
-					remoteId: "hq-old",
-					pushedIdentity: "colorado",
-				}),
-			]),
-			new Map([["018f0000-0000-7000-8000-0000000000b1", "colorado"]]),
-		);
-		expect(left).toEqual([]);
-	});
-
-	it("says nothing about a non-app mapping that never recorded a name", () => {
-		/* A row from before pushed identities existed. Nova cannot say what
-		 * it is called over there, and guessing would send somebody looking
-		 * for a table by a name that may not be its name. */
-		const left = leftBehindResources(
-			view([resource({ pushedIdentity: null })]),
-			new Map(),
-		);
-		expect(left).toEqual([]);
+			active: [live],
+		};
+		expect(leftBehindResources(deployment, null)).toEqual([unused]);
 	});
 });

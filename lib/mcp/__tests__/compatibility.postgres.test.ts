@@ -2,6 +2,7 @@
 import type { Client } from "@modelcontextprotocol/client";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
+import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
@@ -11,7 +12,6 @@ import { loadAppBlueprint } from "../loadApp";
 import { registerCheckProjectSpaceCompatibility } from "../tools/checkProjectSpaceCompatibility";
 import { registerGetAppHqFeatureFlagsCompatibility } from "../tools/getAppHqFeatureFlagsCompatibility";
 import { withMcpClient } from "./client";
-import { withHttpPeer } from "./http";
 import { resultText } from "./promptClient";
 
 // KMS is the remaining external service boundary. The production settings

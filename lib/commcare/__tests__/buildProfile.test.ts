@@ -14,6 +14,25 @@ describe("released profile suite identity", () => {
 	it("accepts the exact selected-server build resource with optional local location absent", () => {
 		expect(profileReferencesBuildSuite(profile(url), target)).toBe(true);
 	});
+	it("accepts HQ's separate media suite and local fallback without confusing them with the main remote suite", () => {
+		const xml = `<profile><suite><resource id="media-suite"><location authority="remote">https://india.commcarehq.org/a/demo/apps/download/released/media_suite.xml</location></resource></suite><suite><resource id="suite"><location authority="local">./suite.xml</location><location authority="remote">${url}</location></resource></suite></profile>`;
+		expect(profileReferencesBuildSuite(xml, target)).toBe(true);
+	});
+	it("refuses ambiguous main-suite resources and remote locations", () => {
+		const resource = `<resource id="suite"><location authority="remote">${url}</location></resource>`;
+		expect(
+			profileReferencesBuildSuite(
+				`<profile><suite>${resource}${resource}</suite></profile>`,
+				target,
+			),
+		).toBe(false);
+		expect(
+			profileReferencesBuildSuite(
+				`<profile><suite><resource id="suite"><location authority="remote">${url}</location><location authority="remote">${url}</location></resource></suite></profile>`,
+				target,
+			),
+		).toBe(false);
+	});
 	it.each([
 		url.replace("india.", "www."),
 		url.replace("/released/", "/working/"),

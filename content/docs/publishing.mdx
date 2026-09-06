@@ -106,6 +106,8 @@ table whose tag you renamed, Nova names it and leaves it to you. A table
 is named by the tag it still carries on CommCare HQ, which is what you will
 look for on the Lookup Tables screen. Nothing appears here for a table you
 simply republished, only for one nothing in your app points at any more.
+If a later publish uses an earlier resource again, Nova removes it from this
+list. Each unused resource appears only once.
 
 ### Version made, and Released
 
@@ -123,8 +125,9 @@ again.
 ### Ready for workers
 
 Once a version is released, Nova checks that it actually serves the file a
-device installs from. That is the strongest sign it will open for workers, and
-the only one of the five steps Nova can confirm rather than take on trust.
+device installs from, with a valid reference to that released version. An empty
+file or sign-in page leaves the version **Released**, with a note that Nova
+couldn't confirm it is ready. Choose **Check status** to try again.
 
 The **Open in CommCare HQ** link appears as soon as the app is there, and it
 goes to the app's page for you to work on. It is not the link workers use.

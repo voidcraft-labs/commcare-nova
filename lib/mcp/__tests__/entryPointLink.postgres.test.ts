@@ -4,6 +4,7 @@ import AdmZip from "adm-zip";
 import { sql } from "kysely";
 import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
+import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -24,7 +25,6 @@ import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
 import { loadAppBlueprint } from "../loadApp";
 import { registerGetEntryPointLink } from "../tools/getEntryPointLink";
 import { withMcpClient } from "./client";
-import { withHttpPeer } from "./http";
 import { resultText } from "./promptClient";
 
 vi.mock("@/lib/commcare/encryption", () => ({ decrypt: vi.fn() }));
