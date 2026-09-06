@@ -3558,7 +3558,10 @@
 			"file": "lib/commcare/__tests__/bindingResolutionOracle.fuzz.test.ts",
 			"lines": 253,
 			"ciMs": 20656,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed duplicate 500-sample compile corpus, empty byte manifest, HTML event parser and index-zipped resource/entry pairing. Both remaining corpora check post-compile binding resolution by actual suite form namespace to archived main-instance namespace, with full cardinality checks and missing/duplicate identities rejected. Removed endOnFailure mode that disabled shrinking.",
+			"baselineSha256": "907ac466c48e364927c883878037cb786e6035d59c170ef594dfb60a9346ec6c",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/commcare/__tests__/bindingResolutionOracle.test.ts",
@@ -3774,7 +3777,10 @@
 			"file": "lib/commcare/__tests__/hqJsonOracle.fuzz.test.ts",
 			"lines": 206,
 			"ciMs": 14248,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed entire duplicate 400-sample expansion corpus and shared-across-tests census. All HQ import checks and original coverage floors now run in suiteOracle.fuzz.test.ts via compilerEvidence.ts on the same workflow corpus and strict admissibility guard.",
+			"baselineSha256": "390bfa742e79cae8b06b8066b6830e52f416b668831a9deb2a653706f9a56439",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/commcare/__tests__/hqJsonOracle.test.ts",
@@ -3975,7 +3981,10 @@
 			"file": "lib/commcare/__tests__/suiteOracle.fuzz.test.ts",
 			"lines": 289,
 			"ciMs": 27156,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full suite corpus and all 1060 lines of suite generator with shared field generator. One expansion/archive per 400 workflow samples feeds HQ, suite, media, XForm and identity-joined binding checks. Preserved all original coverage floors in same test as local census, including nested menus and active case actions. Strict schema rejects invalid capture/label fixtures; real bytes verify dedup and archive contents. Shrinking enabled; both production corruption controls fail decisively.",
+			"baselineSha256": "7a67ea69572b10f7d80b2c4105652e378e3591d7e87d34b1725718942c8c4d52",
+			"reviewedSha256": "5d5650c065947479c75dd1d410f27d1aba61b9f375db8d1d04751f1bb90c076c"
 		},
 		{
 			"file": "lib/commcare/__tests__/suiteOracle.test.ts",
@@ -4023,7 +4032,10 @@
 			"file": "lib/commcare/__tests__/xformOracle.fuzz.test.ts",
 			"lines": 233,
 			"ciMs": 29201,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete field corpus, duplicate companion corpora, and both constructive generators. Consolidated expansion/archive once per 500 samples with strict schema plus semantic guard, all wire oracles, namespace-joined form bindings, real media bytes and actual SHA-256. Local census in same synchronous property; shrinking enabled; markup-named data IDs exercise scope. Generator label/capture schema violations fixed at construction; removed unchecked Field casts. Empty-media and absent-form production negative controls fail both corpora and shrink.",
+			"baselineSha256": "167f440a8b0ec806490532928dbfa04d315b17e5720422ce7ab11777c1a088de",
+			"reviewedSha256": "894ea8f4d50ef99447d4baa5b2fd2917db4331a9addd805181f070be4ad1e4e0"
 		},
 		{
 			"file": "lib/commcare/__tests__/xformOracle.test.ts",

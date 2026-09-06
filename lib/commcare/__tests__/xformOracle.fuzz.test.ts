@@ -1,233 +1,28 @@
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-/**
- * Property-based fuzzer that proves the XForm emitter TOTAL: for every doc the
- * generator produces, every emitted XForm passes the oracle clean — both off
- * the raw `expandDoc` output AND off the `compileCcz` output (after the
- * compiler splices `<case>`/`<subcase>` blocks in, the second oracle call site).
- *
- * The oracle (`validateXForm`) and this fuzzer are co-developed — the oracle is
- * defined by its fuzzer role. A failing case is one of two things, never a new
- * reject rule:
- *   (A) the oracle is too strict (Core would accept the form) → fix the ORACLE;
- *   (B) the emitter produced output Core rejects → fix the EMITTER at source.
- *
- * The generator (`blueprintDocArbitrary`) builds docs valid BY CONSTRUCTION,
- * but each property body re-asserts `runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).length === 0` first:
- * the totality claim is scoped to schema-valid docs, so a generator slip must
- * fail loud as a generator bug rather than silently feed an invalid doc to the
- * emitter.
- *
- * **Coverage scope (honest).** The generator exercises FIELD / FORM / REPEAT
- * structure: all field kinds, all four form types, all three repeat modes
- * (incl. query_bound model-iteration), nested groups + repeats, same-id COUSIN
- * fields (different parents sharing an `id` — the case the path + itext
- * arithmetic must disambiguate), selects with duplicate option values, the
- * relevant/required/constraint/calculate/default_value/hint XPath surfaces, and
- * case-bearing forms (so case-block injection runs in the compileCcz pass). It
- * also generates CommCare Connect apps (learn + deliver, every sub-config
- * shape), so `buildConnectBlocks`'s data + bind emission is exercised here too.
- * It does NOT yet generate module-level `caseSearchConfig`, `form_links`, or
- * multi-language itext — those are suite-emission / app-shape surfaces outside
- * the XForm parse-time oracle's scope, and out of scope for this fuzzer until
- * those oracles exist.
- *
- * Seeded for reproducibility; 500 runs to be meaningful without ballooning CI.
- */
-
 import * as fc from "fast-check";
-import { describe, expect, it } from "vitest";
-import { compileCcz } from "@/lib/commcare/compiler";
-import { expandDoc } from "@/lib/commcare/expander";
-import type {
-	AssetManifest,
-	ResolvedMediaAsset,
-} from "@/lib/commcare/multimedia/assetWirePath";
-import { errorToString } from "@/lib/commcare/validator/errors";
-import { runValidation } from "@/lib/commcare/validator/runner";
-import { validateXForm } from "@/lib/commcare/validator/xformOracle";
-import { rebuildFieldParent } from "@/lib/doc/fieldParent";
-import type { BlueprintDoc } from "@/lib/domain";
-import type { MediaAssetId } from "@/lib/domain/multimedia";
+import { expect, it } from "vitest";
+import { assertGenerated, checkCompilerEvidence } from "./compilerEvidence";
 import {
 	blueprintDocArbitrary,
-	type FuzzMediaAsset,
-	fuzzManifestFromDoc,
 	hasFormItextMedia,
 	hasSectionedForm,
 } from "./xformDocArbitrary";
 
-/** Fixed seed + run count so a failure reproduces exactly across runs + CI. */
-const SEED = 20260522;
-const NUM_RUNS = 500;
-
-/**
- * Generous per-test budget for the two emit-heavy properties below. Each is
- * SYNCHRONOUS and emits / compiles `NUM_RUNS` docs — seconds normally, longer
- * under CI / leak-detector load. Vitest's default 5s `testTimeout` flagged them
- * "timed out" whenever a run crossed 5s on a busy machine: a load-dependent
- * FALSE failure, not a hang (bounded by `NUM_RUNS`). Size to the real workload.
- */
-const FUZZ_TIMEOUT_MS = 120_000;
-
-/**
- * Prepare a generated doc for consumption: rebuild the reverse parent index
- * (the generator leaves it empty, like `buildDoc`) and assert the doc is
- * schema-valid. A non-empty domain-validator result is a GENERATOR bug, thrown
- * loud here rather than fed to the emitter — the totality claim is scoped to
- * schema-valid docs.
- */
-function prepareAndGuard(doc: BlueprintDoc): void {
-	rebuildFieldParent(doc);
-	const domainErrors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-	if (domainErrors.length > 0) {
-		throw new Error(
-			`Generator produced a doc the domain validator rejects (generator bug, not an emitter finding):\n${domainErrors
-				.map((e) => `  - [${e.code}] ${errorToString(e)}`)
-				.join("\n")}`,
-		);
-	}
-}
-
-/**
- * Lift the fuzz-synthesized manifest to the shape `expandDoc` / `compileCcz`
- * expect. `withBytes: true` attaches a single shared empty buffer to every
- * asset so the CCZ bundler completes without the byte-load contract throw
- * — the fuzz doesn't validate archive bytes (the file gets sniffed at the
- * upload route, not by the oracles), so empty placeholder bytes are fine.
- */
-function toAssetManifest(
-	fuzzManifest: ReadonlyMap<MediaAssetId, FuzzMediaAsset>,
-	withBytes: boolean,
-): AssetManifest {
-	// All assets share one zero-byte buffer — the wire-path dedup in the
-	// bundler keys on `wirePath`, not on the buffer identity, and the
-	// archive bytes themselves aren't an oracle concern in this fuzz.
-	const placeholderBytes = withBytes ? Buffer.alloc(0) : undefined;
-	const m = new Map<MediaAssetId, ResolvedMediaAsset>();
-	for (const [id, fuzz] of fuzzManifest) {
-		m.set(id, {
-			assetId: fuzz.assetId,
-			wirePath: fuzz.wirePath,
-			kind: fuzz.kind,
-			mimeType: fuzz.mimeType,
-			contentHash: fuzz.contentHash,
-			extension: fuzz.extension,
-			...(placeholderBytes !== undefined ? { bytes: placeholderBytes } : {}),
-		});
-	}
-	return m;
-}
-
-/** The set of wire paths the oracle's media-resolution check resolves against. */
-function wirePathSet(
-	fuzzManifest: ReadonlyMap<MediaAssetId, FuzzMediaAsset>,
-): Set<string> {
-	return new Set(Array.from(fuzzManifest.values(), (asset) => asset.wirePath));
-}
-
-describe("XForm emitter totality (property-based fuzz)", () => {
-	// Census counters accumulated across the run; asserted after. The XForm
-	// oracle's `XFORM_DANGLING_MEDIA_REF` resolution path only fires on forms
-	// that actually emit a `<value form=...>jr://...` sibling — i.e. only on
-	// docs with field message-slot or option media. A drift in the field-media
-	// arbitrary toward all-empty slots would leave that path unexercised while
-	// every other assertion stayed green; the floor below catches it.
+// Finite seeded corpus, with shrinking enabled. These checks complement the
+// independent wire examples; they do not prove acceptance by a native runtime.
+it("compiles 500 field-tree samples with valid schema, bindings, and archived resources", {
+	timeout: 30_000,
+}, () => {
 	const census = { total: 0, formItextMedia: 0, sectioned: 0 };
-
-	it("every form of every schema-valid doc emits oracle-clean XForm", {
-		timeout: FUZZ_TIMEOUT_MS,
-	}, async () => {
-		await fc.assert(
-			fc.property(blueprintDocArbitrary, (doc) => {
-				prepareAndGuard(doc);
-
-				// Census the doc shape before emitting: count docs carrying
-				// form-itext media (the population the media-resolution check
-				// below exercises).
-				census.total += 1;
-				if (hasFormItextMedia(doc)) census.formItextMedia += 1;
-				if (hasSectionedForm(doc)) census.sectioned += 1;
-
-				// Build the fuzz manifest covering every media reference the doc
-				// makes; thread it into `expandDoc` so the XForm emitter actually
-				// emits the `<value form="image|audio|video">jr://...` siblings the
-				// oracle's media-resolution check resolves. The set of wire paths
-				// drives the oracle's manifest gate.
-				const fuzzManifest = fuzzManifestFromDoc(doc);
-				// `expandDoc` is the path-only consumer — no bytes needed.
-				const manifest = toAssetManifest(fuzzManifest, false);
-				const manifestPaths = wirePathSet(fuzzManifest);
-
-				const hqJson = expandDoc(doc, { assets: manifest });
-				for (const [key, attachment] of Object.entries(hqJson._attachments)) {
-					if (!key.endsWith(".xml")) continue;
-					if (typeof attachment !== "string") continue;
-					const oracleErrors = validateXForm(
-						attachment,
-						key,
-						"fuzz",
-						manifestPaths,
-					);
-					if (oracleErrors.length > 0) {
-						throw new Error(
-							`Oracle flagged emitted XForm "${key}":\n${oracleErrors
-								.map((e) => `  - [${e.code}] ${errorToString(e)}`)
-								.join("\n")}\n\n--- emitted XForm ---\n${attachment}`,
-						);
-					}
-				}
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED },
-		);
-	});
-
-	it("compileCcz never trips its post-case-block-injection oracle re-check", {
-		timeout: FUZZ_TIMEOUT_MS,
-	}, async () => {
-		// The SECOND oracle call site: `compiler.ts` splices <case>/<subcase>
-		// blocks into each case-bearing form's XForm, then re-runs `validateXForm`
-		// and THROWS if the spliced output is invalid. Driving compileCcz here
-		// fuzzes that injected-XForm shape — a throw is a finding (the case-block
-		// splice produced output the oracle rejects: classify A vs B from the
-		// thrown message). expandDoc-direct fuzzing above never reaches it.
-		//
-		// Media-on path: thread the same fuzz manifest through compile so the
-		// case-block splice runs against media-bearing forms too, exercising
-		// the media path through the second oracle invocation.
-		await fc.assert(
-			fc.property(blueprintDocArbitrary, (doc) => {
-				prepareAndGuard(doc);
-				// `compileCcz` requires bytes per the buildMediaBundle contract —
-				// attach placeholder bytes to every asset.
-				const manifest = toAssetManifest(fuzzManifestFromDoc(doc), true);
-				const hqJson = expandDoc(doc, { assets: manifest });
-				// Throws on any post-injection oracle failure; surface it verbatim
-				// as the property failure (the message already names the form +
-				// the offending oracle codes).
-				compileCcz(hqJson, doc.appName, doc, { assets: manifest });
-			}),
-			{ numRuns: NUM_RUNS, seed: SEED },
-		);
-	});
-
-	it("the run exercised the form-itext media-resolution path", () => {
-		// A floor, not a target: the media-resolution check
-		// (`XFORM_DANGLING_MEDIA_REF`) only runs on docs that emit a
-		// `<value form=...>jr://...` sibling, which only field message-slot
-		// and option media produce. If `FIELD_MEDIA_SPEC_ARB` drifts toward
-		// all-empty slots this ratio collapses and the check silently stops
-		// firing; failing here forces the generator drift to be noticed.
-		// Raising the floor is fine; lowering it to paper over a drift is the
-		// failure mode this guards against.
-		expect(census.total).toBeGreaterThan(0);
-		expect(census.formItextMedia / census.total).toBeGreaterThan(0.3);
-	});
-
-	it("the run exercised sectioned forms", () => {
-		// Same discipline: `sectionRoot` pages roughly one form in four, and a
-		// doc holds up to four forms, so well over a third of docs carry a
-		// sectioned form. A collapse here means the section arbitrary went
-		// dead and every oracle silently stopped meeting the shape.
-		expect(census.sectioned / census.total).toBeGreaterThan(0.3);
-	});
+	assertGenerated(
+		fc.property(blueprintDocArbitrary, (doc) => {
+			checkCompilerEvidence(doc);
+			census.total++;
+			if (hasFormItextMedia(doc)) census.formItextMedia++;
+			if (hasSectionedForm(doc)) census.sectioned++;
+		}),
+		{ seed: 20260522, numRuns: 500 },
+	);
+	expect(census.total).toBe(500);
+	expect(census.formItextMedia / census.total).toBeGreaterThan(0.3);
+	expect(census.sectioned / census.total).toBeGreaterThan(0.3);
 });

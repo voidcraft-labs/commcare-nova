@@ -57,6 +57,16 @@ checks HQ source and unpacked CCZ; `xformDefinitionScope.test.ts` distinguishes
 form markup from answer data and pairs each refusal with an accepted form.
 These structural checks do not claim to execute CommCare itself.
 
+Generated corpora must pass the actual strict schema as well as semantic
+validation; TypeScript casts and a domain-rule pass cannot establish schema
+validity. Construct admissible values at the generator, without filtering or
+parse-and-strip repairs. Share expensive compilation when multiple properties
+consume the same samples. Keep coverage thresholds in the test that gathers
+them and enable counterexample shrinking. The two compiler corpora share one
+expansion/archive per sample, then check all wire surfaces, form identity joins,
+and the complete bundled media bytes. Finite samples establish regressions,
+not exhaustive validity or native consumer acceptance.
+
 Do not pin incidental strings, source formatting, CSS class lists, or mock call
 sequences unless that exact value or order is the external contract. A test that
 restates its fixture, snapshots an implementation, or mocks away the behavior
