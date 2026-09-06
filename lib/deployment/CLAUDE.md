@@ -50,6 +50,9 @@ landed; only HQ's explicit format-refusal verdict proves that none did.
 Once an app import and its ownership mapping have landed, a media transport or
 status-read failure remains a media warning. Publishing still returns the app
 and its deployment record, with a retry step for the unconfirmed attachment.
+A polling timeout confirms only that HQ accepted the ZIP, not that its task is
+still running or will eventually attach the media. The warning preserves that
+distinction.
 Import acknowledgements must carry a literal success verdict and a routable
 remote id; an update acknowledgement must name the app requested. Malformed
 responses cannot become ownership mappings.

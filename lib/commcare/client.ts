@@ -745,8 +745,7 @@ export interface UnmatchedMediaFileReport {
  * detail behind `unmatched` (path + reason) so the caller can name what didn't
  * attach instead of a bare count; `errors` carries any processing errors HQ
  * reported. `timedOut` means we stopped polling before HQ finished — the ZIP
- * was accepted and is still processing server-side, so the media will appear
- * shortly even though we didn't confirm the match.
+ * was accepted, but we could not confirm the final attachment result.
  */
 export interface MediaBundleUploadResult {
 	readonly matched: number;
@@ -759,6 +758,7 @@ export interface MediaBundleUploadResult {
 /* Poll cadence + ceiling for the async bulk-upload processing. The bytes
  * are already accepted when polling starts, so this only confirms the match
  * result — bounded so a slow/stuck task can't hold the request open. */
+const MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS = 60_000;
 const MEDIA_BUNDLE_POLL_INTERVAL_MS = 1500;
 const MEDIA_BUNDLE_POLL_TIMEOUT_MS = 45_000;
 
@@ -793,13 +793,10 @@ export async function uploadAppMediaBundle(
 	appId: string,
 	zipBytes: Buffer,
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
-	if (!isValidDomainSlug(domain)) {
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(appId)) {
 		return { success: false, status: 400 };
 	}
-	const hqBase = baseUrl(creds);
-	const base = `${hqBase}/a/${domain}/apps/api/${appId}/multimedia`;
-	const uploadUrl = `${base}/`;
-
+	const base = `${baseUrl(creds)}/a/${domain}/apps/api/${appId}/multimedia`;
 	const formData = new FormData();
 	formData.append("waf_padding", WAF_PADDING);
 	formData.append(
@@ -807,91 +804,139 @@ export async function uploadAppMediaBundle(
 		new Blob([new Uint8Array(zipBytes)], { type: "application/zip" }),
 		"multimedia.zip",
 	);
-
-	const res = await fetch(uploadUrl, {
-		method: "POST",
-		headers: { Authorization: authHeader(creds) },
-		body: formData,
-	});
-	if (!res.ok) {
-		return logAndReturnError("media bundle upload failed", res);
-	}
-
-	const started = (await res.json()) as {
-		success?: boolean;
-		processing_id?: string;
-		error?: string;
-	};
-	if (!started.success || !started.processing_id) {
-		log.error("[commcare] media bundle upload rejected by HQ", undefined, {
+	const controller = new AbortController();
+	const timer = setTimeout(
+		() => controller.abort(),
+		MEDIA_BUNDLE_UPLOAD_TIMEOUT_MS,
+	);
+	let started: unknown;
+	try {
+		const response = await fetch(`${base}/`, {
+			method: "POST",
+			headers: { Authorization: authHeader(creds) },
+			body: formData,
+			redirect: "manual",
+			signal: controller.signal,
+		});
+		if (!response.ok)
+			return await warnAndReturnError("media bundle upload refused", response);
+		try {
+			started = await response.json();
+		} catch {
+			return { success: false, status: controller.signal.aborted ? 503 : 502 };
+		}
+	} catch (error) {
+		log.warn("[commcare] media bundle upload could not be confirmed", {
 			domain,
 			appId,
-			error: started.error,
+			error,
 		});
-		return { success: false, status: 422 };
+		return { success: false, status: 503 };
+	} finally {
+		clearTimeout(timer);
 	}
-
+	if (!isHqObject(started)) return { success: false, status: 502 };
+	if (started.success === false) return { success: false, status: 422 };
+	if (
+		started.success !== true ||
+		typeof started.processing_id !== "string" ||
+		!/^[\w-]+$/.test(started.processing_id)
+	)
+		return { success: false, status: 502 };
 	return pollMediaBundleStatus(creds, base, started.processing_id);
 }
 
-/**
- * Poll HQ's `multimedia_status_api` until the bulk upload finishes or the
- * deadline passes. The bytes are already accepted, so a transient status
- * read (a non-200 between processing steps) is retried until the deadline
- * rather than failed. On timeout, `timedOut` signals the work is still
- * queued server-side. Status shape verified against
- * `commcare-hq/.../hqmedia/cache.py::BulkMultimediaStatusCache.get_response`
- * (`complete` / `errors` / `matched_count` / `unmatched_count`).
+/** One deadline owns all status fetches, their bodies and the waits between
+ * reads. HQ's cache can briefly be absent; HTTP failures are retried, whereas
+ * a disconnected or malformed answer returns an unconfirmed typed error.
+ * Expiry proves only that we stopped observing, never that HQ is still working.
+ * Wire fields come from hqmedia/cache.py::BulkMultimediaStatusCache.get_response.
  */
 async function pollMediaBundleStatus(
 	creds: CommCareCredentials,
 	base: string,
 	processingId: string,
-): Promise<MediaBundleUploadResult> {
-	const statusUrl = `${base}/status/${processingId}/`;
-	const deadline = Date.now() + MEDIA_BUNDLE_POLL_TIMEOUT_MS;
-	const statusHeaders = { Authorization: authHeader(creds) };
-
-	// Check first, then sleep between checks — so a fast task (or, in tests,
-	// a mocked status) returns with no mandatory delay, and a transient 404
-	// right after the POST (processing_id not yet registered) just retries.
-	while (Date.now() < deadline) {
-		const res = await fetch(statusUrl, {
-			method: "GET",
-			headers: statusHeaders,
-		});
-		if (res.ok) {
-			const status = (await res.json()) as {
-				complete?: boolean;
-				errors?: string[];
-				matched_count?: number;
-				unmatched_count?: number;
-				// HQ's `BulkMultimediaStatusCache.get_response` records each
-				// unmatched ZIP entry as `{path, reason}` (`add_unmatched_path`).
-				unmatched_files?: { path?: string; reason?: string }[];
-			};
-			if (status.complete) {
-				return {
-					matched: status.matched_count ?? 0,
-					unmatched: status.unmatched_count ?? 0,
-					unmatchedFiles: (status.unmatched_files ?? []).map((f) => ({
-						path: f.path ?? "",
-						reason: f.reason ?? "",
-					})),
-					errors: status.errors ?? [],
-					timedOut: false,
-				};
+): Promise<MediaBundleUploadResult | CommCareApiError> {
+	return withHqReadDeadline(async (signal) => {
+		const deadline = Date.now() + MEDIA_BUNDLE_POLL_TIMEOUT_MS;
+		while (!signal.aborted && Date.now() < deadline) {
+			let response: Response;
+			try {
+				response = await fetch(`${base}/status/${processingId}/`, {
+					headers: {
+						Authorization: authHeader(creds),
+						Accept: "application/json",
+					},
+					redirect: "manual",
+					cache: "no-store",
+					signal,
+				});
+			} catch {
+				if (signal.aborted) break;
+				return { success: false, status: 503 };
 			}
+			if (response.status >= 300 && response.status < 400)
+				return await warnAndReturnError(
+					"media bundle status redirected",
+					response,
+				);
+			if (response.ok) {
+				let status: unknown;
+				try {
+					status = await response.json();
+				} catch {
+					if (signal.aborted) break;
+					return { success: false, status: 502 };
+				}
+				if (
+					!isHqObject(status) ||
+					status.success !== true ||
+					status.processing_id !== processingId ||
+					typeof status.complete !== "boolean" ||
+					typeof status.matched_count !== "number" ||
+					finiteIntOrNull(status.matched_count) === null ||
+					finiteIntOrNull(status.unmatched_count) === null ||
+					!Array.isArray(status.errors) ||
+					!status.errors.every((error) => typeof error === "string") ||
+					!Array.isArray(status.unmatched_files) ||
+					status.unmatched_files.length !== status.unmatched_count
+				)
+					return { success: false, status: 502 };
+				const unmatchedFiles: UnmatchedMediaFileReport[] = [];
+				for (const file of status.unmatched_files) {
+					if (
+						!isHqObject(file) ||
+						typeof file.path !== "string" ||
+						!file.path ||
+						typeof file.reason !== "string"
+					)
+						return { success: false, status: 502 };
+					unmatchedFiles.push({ path: file.path, reason: file.reason });
+				}
+				if (status.complete)
+					return {
+						matched: status.matched_count,
+						unmatched: unmatchedFiles.length,
+						unmatchedFiles,
+						errors: status.errors,
+						timedOut: false,
+					};
+			} else {
+				// Release even refused response bodies before another status request.
+				await response.body?.cancel();
+			}
+			const remaining = deadline - Date.now();
+			if (signal.aborted || remaining <= 0) break;
+			await delay(Math.min(MEDIA_BUNDLE_POLL_INTERVAL_MS, remaining));
 		}
-		await delay(MEDIA_BUNDLE_POLL_INTERVAL_MS);
-	}
-	return {
-		matched: 0,
-		unmatched: 0,
-		unmatchedFiles: [],
-		errors: [],
-		timedOut: true,
-	};
+		return {
+			matched: 0,
+			unmatched: 0,
+			unmatchedFiles: [],
+			errors: [],
+			timedOut: true,
+		};
+	}, MEDIA_BUNDLE_POLL_TIMEOUT_MS);
 }
 
 // ── Reading what CommCare HQ has done with an app ──────────────────

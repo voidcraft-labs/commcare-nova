@@ -269,3 +269,10 @@ Response-shaped objects. URL tests assert the request the peer actually saw,
 including legacy domain spellings, dot-segment refusal, pagination and redirects.
 A recorded runnable deployment supplies the before/after proof that malformed
 version JSON cannot become an authoritative release withdrawal.
+
+Media upload tests serialize a real deduplicated PNG ZIP through native multipart
+and decode HQ's acknowledgement and completion reports. Controlled timers prove
+the upload and whole-poll deadlines. For partial JSON, use an actual local HTTP
+socket and confirm abort closes it: an in-memory whole-body response cannot prove
+ownership after headers arrive. Persisted SDK publishing covers malformed media
+status alongside disconnections and verifies the app mapping survives.

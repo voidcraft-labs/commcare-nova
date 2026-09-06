@@ -753,7 +753,13 @@ it.each(
 	},
 );
 
-it.each(["complete", "logo", "upload-disconnect", "status-disconnect"])(
+it.each([
+	"complete",
+	"logo",
+	"upload-disconnect",
+	"status-disconnect",
+	"malformed-status",
+])(
 	"keeps the imported app and reports actual media attachment outcome: %s",
 	async (outcome) => {
 		const image = testMediaAssetId("publish-image");
@@ -818,7 +824,8 @@ it.each(["complete", "logo", "upload-disconnect", "status-disconnect"])(
 				else
 					request(peer, status).reply(200, {
 						success: true,
-						complete: true,
+						processing_id: "media-job",
+						complete: outcome === "malformed-status" ? "true" : true,
 						matched_count: outcome === "logo" ? 0 : 1,
 						unmatched_count: outcome === "logo" ? 1 : 0,
 						unmatched_files:

@@ -949,3 +949,29 @@ whole answer. A real runnable PostgreSQL deployment remains byte-for-byte
 unchanged after malformed release JSON; only a subsequent explicit null release
 moves it back to built. The actual SDK compatibility test also rejects a next
 page that drops its private capability filter.
+
+
+## Media upload transport and completion evidence
+
+Replaced the bulk-media suite's fetch spies, fake ZIP/image bytes, and contradictory
+WAF comment with native multipart serialization of a real content-hashed PNG ZIP.
+The remote peer opens the archive, proves exact bytes and deduplication, and returns
+HQ responses checked against app_import_api.py and BulkMultimediaStatusCache.
+The original client threw on null/network/HTML answers, accepted truthy flags and
+missing completion counts, used unguarded app and processing paths, and followed
+redirects. Native before tests reproduced five failures. The decoder now requires
+complete, internally consistent evidence from the acknowledged processing ID.
+
+The old 45-second polling loop checked time only between unbounded requests.
+A 60-second upload deadline and separate 45-second polling deadline now own fetch,
+body reads and retry waits. Controlled-clock tests hold the first or later status
+reply; actual local HTTP sockets send headers and partial JSON, then prove abort
+closes the connection. All peer gates, connections and timers have explicit owners.
+The first shared-clock test incorrectly advanced time before native response work
+had established its retry timer; it now observes each peer response and drains one
+native turn before advancing the next interval. No sleeps or timeouts were raised.
+
+Publishing previously described a timeout as HQ still processing with media due to
+appear shortly. It now distinguishes acceptance from unconfirmed processing.
+The actual persisted SDK publish verifies malformed completion still returns the
+published app and its ownership mapping with an actionable media warning.

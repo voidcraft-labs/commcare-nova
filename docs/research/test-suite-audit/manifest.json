@@ -3861,7 +3861,10 @@
 			"file": "lib/commcare/__tests__/mediaUpload.test.ts",
 			"lines": 277,
 			"ciMs": 213,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced fetch spies and fake ZIP/media bytes with native serialized multipart, a real PNG archive consumer, strict upstream acknowledgement/completion evidence, selected-target and redirect refusal, connection/JSON failures, owned 60s upload and shared 45s polling clocks, and actual partial-body TCP abort/close proof. Actual SDK/PG publish covers malformed status while preserving imported app mapping; corrected production decoders, cancellation, and truthful uncertainty copy.",
+			"baselineSha256": "aeb700eaa0cf6b7116ce144d59c2b140db5012f24ab87fd5b8a6103542705bc2",
+			"reviewedSha256": "eb919cf7d9af645b66fff166aaac474eea973e9517ce664ec8c80aa3ad9c3897"
 		},
 		{
 			"file": "lib/commcare/__tests__/moveReorderOnWire.test.ts",

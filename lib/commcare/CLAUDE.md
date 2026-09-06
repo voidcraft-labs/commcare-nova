@@ -1022,6 +1022,14 @@ rather than a wire one. `isEdgeRefusal` marks those responses
 (`CommCareApiError.edgeRefusal`) so no surface reports a proxy's 403 as a
 verdict about the key or the account's permissions.
 
+Media ZIP uploads own a 60-second deadline through their response body; accepted
+ZIPs start a separate 45-second status clock shared by every fetch and retry wait.
+Both requests refuse redirects and bind routeable app/processing IDs. A completion
+requires HQ's literal success and completion flags, the acknowledged processing ID,
+nonnegative integer counts, and complete error/unmatched-file lists whose count
+agrees. Malformed evidence is unconfirmed attachment, never zero-file success.
+A polling timeout makes no claim about whether the remote task is still running.
+
 **The generated app shell carries only fields Nova authors.** HQ's update is an
 overlay merge (`_merge_source_into_app`): a field present in the source
 overwrites the HQ app's value, and an absent one is retained. So target-owned

@@ -1249,12 +1249,12 @@ async function uploadMediaBytes(
 			status: mediaResult.status,
 		});
 		return [
-			"Media upload could not be completed; the app was published but its media may not display.",
+			"Media upload could not be confirmed; the app was published but its media may not display. Publish again to retry the media upload.",
 		];
 	}
 	if (mediaResult.timedOut) {
 		return [
-			"The app was published and its media uploaded. CommCare is still processing it, so it may take a few minutes to appear.",
+			"The app was published and CommCare HQ accepted its media. Nova could not confirm whether processing finished. Check the app’s media in CommCare HQ, or publish again to retry.",
 		];
 	}
 	return reportMediaAttach({
