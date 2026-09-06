@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -34,7 +36,9 @@ describe("LabelContent reference projection", () => {
 
 		const html = renderToStaticMarkup(textWithChips(label, provider, FORM));
 		expect(html).toContain('data-ref-raw="#form/first_name"');
-		expect(html).toContain("first_name");
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		expect(container.textContent).toBe("Hello first_name");
 		expect(html).not.toContain(FIELD);
 	});
 
@@ -49,7 +53,12 @@ describe("LabelContent reference projection", () => {
 
 		const html = renderToStaticMarkup(textWithChips(label, provider, FORM));
 		expect(html).toContain('data-reference-repair="field-ref"');
-		expect(html).toContain("Reference needs repair");
+		const container = document.createElement("div");
+		container.innerHTML = html;
+		expect(container.textContent).toBe("Hello Reference needs repair");
+		expect(
+			container.querySelector("[role=img]")?.getAttribute("aria-label"),
+		).toBe("Form field reference needs repair");
 		expect(html).not.toContain(FIELD);
 	});
 });

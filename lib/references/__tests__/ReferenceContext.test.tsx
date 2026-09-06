@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import { act, render, screen } from "@testing-library/react";
-import { type ReactNode, useRef } from "react";
+import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
@@ -39,14 +39,17 @@ describe("useReferenceTemplateProjection", () => {
 		let currentContext = context("group_a/value", "other/a");
 		let invalidate = () => {};
 		let renders = 0;
+		let subscribed = false;
 		const wrapper = ({ children }: { children: ReactNode }) => (
 			<ReferenceProviderWrapper
 				getContextForForm={() => currentContext}
 				currentFormUuid="form-a"
 				subscribeMutation={(listener) => {
 					invalidate = listener;
+					subscribed = true;
 					return () => {
 						invalidate = () => {};
+						subscribed = false;
 					};
 				}}
 			>
@@ -56,18 +59,11 @@ describe("useReferenceTemplateProjection", () => {
 		function Projection() {
 			renders += 1;
 			const projected = useReferenceTemplateProjection(template, "form-a");
-			const firstProjection = useRef(projected);
-			return (
-				<output
-					data-first-projection={firstProjection.current}
-					aria-label="Projection"
-				>
-					{projected}
-				</output>
-			);
+			return <output aria-label="Projection">{projected}</output>;
 		}
 
-		render(<Projection />, { wrapper });
+		const { unmount } = render(<Projection />, { wrapper });
+		expect(subscribed).toBe(true);
 		expect(screen.getByLabelText("Projection").textContent).toBe(
 			"#form/group_a/value",
 		);
@@ -83,5 +79,7 @@ describe("useReferenceTemplateProjection", () => {
 		expect(screen.getByLabelText("Projection").textContent).toBe(
 			"#form/group_b/value",
 		);
+		unmount();
+		expect(subscribed).toBe(false);
 	});
 });

@@ -24,7 +24,10 @@
 			"file": "__tests__/nextConfigRedirects.test.ts",
 			"lines": 37,
 			"ciMs": 272,
-			"status": "pending"
+			"status": "retained",
+			"review": "Read actual docsRedirects and next.config wiring; real Next config matcher verifies permanent status, preserved query, exact hostname escaping, and unchanged nonmatching host/path. No source pin or external request.",
+			"baselineSha256": "99919d7fc6a4fd7d4478f5dbe5cc02aff42938a907f71011eba19e4fdab682c8",
+			"reviewedSha256": "99919d7fc6a4fd7d4478f5dbe5cc02aff42938a907f71011eba19e4fdab682c8"
 		},
 		{
 			"file": "__tests__/proxy.test.ts",
@@ -1722,7 +1725,10 @@
 			"file": "config/reactProfiler.test.ts",
 			"lines": 51,
 			"ciMs": 62,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain real pure config validation; add disabled opt-in control, both port limits and malformed/out-of-range values, token syntax/length refusals, and independent query/hash/credential/deceptive-host origin cases with accepted localhost normalization.",
+			"baselineSha256": "547d0c325bcd1fd40c0e5bf8a0b7304bb40faabbb158f77fae51001b237f542a",
+			"reviewedSha256": "e009deaf5b0d6597871a63cc4e0b857cc5e4f29adaa5c88beab050c3fb1c80b3"
 		},
 		{
 			"file": "e2e/lib/caseChangesSeed.test.ts",
@@ -7137,19 +7143,28 @@
 			"file": "lib/references/__tests__/LabelContent.test.tsx",
 			"lines": 55,
 			"ciMs": 577,
-			"status": "pending"
+			"status": "revised",
+			"review": "Parse real server-rendered chip markup and assert visible combined text and accessible repair label, preventing data attributes alone from satisfying visible-label assertions; retain identity non-disclosure checks.",
+			"baselineSha256": "71fdfdde62f847b30e5cb583347b129d167ca214cc5bf41470479b9398fafabb",
+			"reviewedSha256": "2a3f7430bda4bfe36fae24902d0ed1b514659ab890eee0a336ec19575360629c"
 		},
 		{
 			"file": "lib/references/__tests__/ReferenceContext.test.tsx",
 			"lines": 87,
 			"ciMs": 1026,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain actual selective React subscription/render behavior for unrelated versus referenced mutations; remove unused first-projection markup and require mutation subscription release on unmount.",
+			"baselineSha256": "1cbaa14b4586c9c965abdd544352c321db1c0932a6d83555ffacac115cf7a77b",
+			"reviewedSha256": "c571ecad38b261b210d1f47497a778242bb3c79f166930f2eb420f9503078c30"
 		},
 		{
 			"file": "lib/references/__tests__/provider.test.ts",
 			"lines": 428,
 			"ciMs": 576,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read provider implementation and every test; verify per-form cache reuse across resolve/search with counted context access, fresh scoped provider per test, remove duplicate child-ref and redundant serialized identity checks; retain identity rename, live user namespace and registration gates.",
+			"baselineSha256": "82a4c3bb2ed4fbcc8eb6c86849dfd5a41bb75670a722214f91a9ab86c683c4ef",
+			"reviewedSha256": "3aad534150fccad9c836a6c97c9e28913494fa2ea8ef43919fdb317bc88ee4d1"
 		},
 		{
 			"file": "lib/routing/__tests__/LocationRecoveryEffect.test.tsx",
@@ -7575,7 +7590,10 @@
 			"file": "scripts/ci/__tests__/testLint.test.ts",
 			"lines": 37,
 			"ciMs": 216,
-			"status": "pending"
+			"status": "retained",
+			"review": "Actual Biome CLI reads shipped configuration against accepted awaited code and rejected floating promise; exact diagnostic distinguishes rule failure from infrastructure error. Temporary directory cleanup owns both executions.",
+			"baselineSha256": "022271eea5ffd22089f856282d6cb242b90a829924276d2741b656cef2983501",
+			"reviewedSha256": "022271eea5ffd22089f856282d6cb242b90a829924276d2741b656cef2983501"
 		},
 		{
 			"file": "scripts/infra/__tests__/buildApplication.test.ts",

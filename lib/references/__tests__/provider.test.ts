@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import type { XPathLintContext } from "@/lib/codemirror/xpath-lint";
 import {
@@ -58,7 +58,8 @@ describe("ReferenceProvider — form-entry cache is keyed per form", () => {
 			formA: formCtx("formA", [["visit_grp/edd_final", "EDD"]]),
 			formB: formCtx("formB", [["preg_grp/ga_weeks", "Gestational age"]]),
 		};
-		const provider = new ReferenceProvider((id) => contexts[id]);
+		const getContext = vi.fn((id: string) => contexts[id]);
+		const provider = new ReferenceProvider(getContext);
 
 		expect(provider.resolve("#form/visit_grp/edd_final", "formA")?.path).toBe(
 			"visit_grp/edd_final",
@@ -66,6 +67,10 @@ describe("ReferenceProvider — form-entry cache is keyed per form", () => {
 		expect(provider.resolve("#form/preg_grp/ga_weeks", "formB")?.path).toBe(
 			"preg_grp/ga_weeks",
 		);
+		expect(
+			provider.search("form", "EDD", "formA").map((ref) => ref.raw),
+		).toEqual(["#form/visit_grp/edd_final"]);
+		expect(getContext.mock.calls).toEqual([["formA"], ["formB"]]);
 		// Form A's field doesn't resolve against form B's scope.
 		expect(provider.resolve("#form/visit_grp/edd_final", "formB")).toBeNull();
 	});
@@ -238,7 +243,6 @@ describe("ReferenceProvider — custom worker properties", () => {
 				repairText: "#user/[reference needs repair]",
 			},
 		});
-		expect(JSON.stringify(projected)).not.toContain(missing);
 	});
 
 	it("projects open external worker names without requiring a built-in catalog row", () => {
@@ -344,12 +348,15 @@ describe("ReferenceProvider.resolve — per-case-type scoping", () => {
 		},
 	];
 
-	const provider = new ReferenceProvider((formUuid) => {
-		if (formUuid === "formMother")
-			return caseCtx("formMother", "mother", caseTypes);
-		if (formUuid === "formPreg")
-			return caseCtx("formPreg", "pregnancy", caseTypes);
-		return undefined;
+	let provider: ReferenceProvider;
+	beforeEach(() => {
+		provider = new ReferenceProvider((formUuid) => {
+			if (formUuid === "formMother")
+				return caseCtx("formMother", "mother", caseTypes);
+			if (formUuid === "formPreg")
+				return caseCtx("formPreg", "pregnancy", caseTypes);
+			return undefined;
+		});
 	});
 
 	it("resolves an own-type property to a chip", () => {
@@ -370,11 +377,6 @@ describe("ReferenceProvider.resolve — per-case-type scoping", () => {
 	it("returns null for an unreachable (non-ancestor) case type", () => {
 		// From a mother form, pregnancy is a CHILD, not an ancestor.
 		expect(provider.resolve("#pregnancy/edd", "formMother")).toBeNull();
-	});
-
-	it("returns null for a child-type property", () => {
-		// child's parent is mother, so it's never reachable from a mother form.
-		expect(provider.resolve("#child/vaccine", "formMother")).toBeNull();
 	});
 
 	it("returns null for a property the reachable type doesn't declare", () => {
