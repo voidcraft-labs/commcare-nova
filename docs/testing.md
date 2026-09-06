@@ -49,6 +49,14 @@ proves both interception and refusal of unmatched destinations without DNS.
 Assert consumed replies and request history, since a production client may
 catch an unexpected request failure and turn it into a normal refusal result.
 
+For XML wire structure, validate syntax before reading a parsed tree, then
+assert the relationships the consumer follows: control to answer bind, label to
+translation, and archive entry to emitted form. Expected wire types come from
+upstream consumer contracts, not Nova's emitter tables. `questionWire.test.ts`
+checks HQ source and unpacked CCZ; `xformDefinitionScope.test.ts` distinguishes
+form markup from answer data and pairs each refusal with an accepted form.
+These structural checks do not claim to execute CommCare itself.
+
 Do not pin incidental strings, source formatting, CSS class lists, or mock call
 sequences unless that exact value or order is the external contract. A test that
 restates its fixture, snapshots an implementation, or mocks away the behavior

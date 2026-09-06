@@ -60,7 +60,7 @@
 
 import type { SyntaxNode } from "@lezer/common";
 import { isTag } from "domhandler";
-import { findAll, getAttributeValue, getChildren } from "domutils";
+import { getAttributeValue, getChildren } from "domutils";
 import { parser } from "@/lib/commcare/xpath";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "../sessionContext";
 import {
@@ -238,9 +238,8 @@ function checkItextMediaValues(
 	if (mediaManifest === undefined) return [];
 	const errors: ValidationError[] = [];
 
-	for (const valueEl of findAll(
+	for (const valueEl of model.definitionElements.filter(
 		(el) => el.name === "value",
-		model.doc.children,
 	)) {
 		const form = getAttributeValue(valueEl, "form");
 		if (form !== "image" && form !== "audio" && form !== "video") continue;
@@ -296,7 +295,9 @@ function collectXPathSurfaces(model: XFormDataModel): XPathSurface[] {
 	// `xformOracle.ts::checkBinds` — JavaRosa evaluates all five attributes
 	// via `buildCondition` / `buildCalculate` at parse, and references
 	// inside any of them resolve at form-init.
-	for (const bind of findAll((el) => el.name === "bind", model.doc.children)) {
+	for (const bind of model.definitionElements.filter(
+		(el) => el.name === "bind",
+	)) {
 		const nodeset = getAttributeValue(bind, "nodeset") ?? "<bind>";
 		for (const attr of [
 			"calculate",
@@ -317,9 +318,8 @@ function collectXPathSurfaces(model: XFormDataModel): XPathSurface[] {
 
 	// `<setvalue>` value attribute. The `ref` is path-only (already checked
 	// by xformOracle); `value` is the ANY-expression slot we resolve here.
-	for (const setvalue of findAll(
+	for (const setvalue of model.definitionElements.filter(
 		(el) => el.name === "setvalue",
-		model.doc.children,
 	)) {
 		const ref = getAttributeValue(setvalue, "ref") ?? "<setvalue>";
 		const value = getAttributeValue(setvalue, "value");
@@ -333,9 +333,8 @@ function collectXPathSurfaces(model: XFormDataModel): XPathSurface[] {
 
 	// `<output>` body elements. The `value` attribute is the expression
 	// JavaRosa evaluates when rendering an itext label.
-	for (const output of findAll(
+	for (const output of model.definitionElements.filter(
 		(el) => el.name === "output",
-		model.doc.children,
 	)) {
 		const value = getAttributeValue(output, "value");
 		if (value) {

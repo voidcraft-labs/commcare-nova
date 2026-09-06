@@ -1904,7 +1904,7 @@ function buildRepeatBody(
 const BIND_TYPE_BY_KIND: Record<FieldKind, string | null> = {
 	text: "xsd:string",
 	int: "xsd:int",
-	decimal: "xsd:decimal",
+	decimal: "xsd:double",
 	date: "xsd:date",
 	time: "xsd:time",
 	datetime: "xsd:dateTime",

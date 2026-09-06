@@ -202,6 +202,18 @@ rename without changing the stored AST.
 
 ### Capture uploads — a closed enum, not a conditional
 
+The delivered question contract joins the control, answer bind, and itext label
+in both HQ source and the actual CCZ. Decimal questions emit `xsd:double`, the
+Decimal type HQ and Vellum classify; Core accepts both `decimal` and `double`,
+so runtime parse success alone does not prove HQ round-trip behavior.
+
+The XForm model keeps form definitions separate from every instance's data
+subtree. Both oracles read binds, controls, actions, and localization from that
+definition inventory. An answer named `secret`, `bind`, or `translation` is
+ordinary data; data cannot declare a secondary instance or satisfy a missing
+itext reference. A missing localization catalog does not make a referenced
+label valid.
+
 `xform/captureUpload.ts` owns the `<upload mediatype>` vocabulary. It is a table rather than a conditional because an unmatched `mediatype` does not fail: `XFormParser::parseUpload` matches with literal `String.equals` against exactly four strings (`image/*`, `audio/*`, `video/*`, `application/*,text/*` — comma, NO space), anything else leaves the control at `CONTROL_UPLOAD`, `entries.js::getEntry` falls through to `UnsupportedEntry`, and that constructor SETS the answer to the literal string `Not Supported by Web Entry`, which submits. Silent bad data, not a visible error — so `UploadMediatype` admits only the four literals and `UPLOAD_MEDIATYPE_BY_CAPTURE_KIND` is total over `captureFieldKinds`, making the bad state unrepresentable. Signature shares `image/*` and is split out by `appearance="signature"`; `appearance="face"` and `jr:imageDimensionScaledMax` stay out because both are inert on every runtime Nova targets.
 
 `build_spec.version` in `hqShells.ts` is fixed output metadata for Nova's one application-shell target (`2.54.0`). It is not a feature floor, reader gate, or capability switch; no producer or runtime branch may consult it. The upload path is declarative (`import_app` deletes `build_spec`; `ApplicationBase.wrap` substitutes the domain default).

@@ -138,15 +138,14 @@ function directChildElementsNamed(el: Element, name: string): Element[] {
  * keys and must not be flagged.
  */
 function checkItextDefinitions(
-	doc: Document,
+	model: XFormModel,
 	formName: string,
 	loc: ValidationLocation,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 
-	for (const translation of findAll(
+	for (const translation of model.definitionElements.filter(
 		(el) => el.name === "translation",
-		doc.children,
 	)) {
 		const lang = getAttributeValue(translation, "lang") ?? "unknown";
 		const seenKeys = new Set<string>();
@@ -222,15 +221,19 @@ function checkItextDefinitions(
  * block is present — a form with no labels has no itext and that is legal.
  */
 function checkTranslations(
-	doc: Document,
+	model: XFormModel,
 	formName: string,
 	loc: ValidationLocation,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	const itextBlocks = findAll((el) => el.name === "itext", doc.children);
+	const itextBlocks = model.definitionElements.filter(
+		(el) => el.name === "itext",
+	);
 	if (itextBlocks.length === 0) return errors;
 
-	const translations = findAll((el) => el.name === "translation", doc.children);
+	const translations = model.definitionElements.filter(
+		(el) => el.name === "translation",
+	);
 
 	// ≥1 translation when an itext block exists. Core's parseIText requires at
 	// least one to anchor the default locale.
@@ -337,7 +340,9 @@ function checkBinds(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 
-	for (const bind of findAll((el) => el.name === "bind", model.doc.children)) {
+	for (const bind of model.definitionElements.filter(
+		(el) => el.name === "bind",
+	)) {
 		const nodeset = getAttributeValue(bind, "nodeset");
 
 		// #2: every bind has a nodeset (processStandardBindAttributes).
@@ -435,9 +440,8 @@ function checkControls(
 
 	// Controls + structural containers that carry a ref/nodeset Core resolves.
 	const controlTags = [...REF_CONTROL_TAGS, "group", "repeat"];
-	for (const ctrl of findAll(
-		(el) => controlTags.includes(el.name),
-		model.doc.children,
+	for (const ctrl of model.definitionElements.filter((el) =>
+		controlTags.includes(el.name),
 	)) {
 		// `<repeat>` carries `nodeset`; every other control + `<group>` carry
 		// `ref`. Both are PATH-only surfaces.
@@ -621,9 +625,8 @@ function checkRepeats(
 
 	// #4: a repeat's nodeset may not be the document root or the data root.
 	// Core's verifyBindings rejects a repeat binding to `/` or `/data`.
-	for (const repeat of findAll(
+	for (const repeat of model.definitionElements.filter(
 		(el) => el.name === "repeat",
-		model.doc.children,
 	)) {
 		const nodeset = getAttributeValue(repeat, "nodeset");
 		if (nodeset === "/" || nodeset === model.rootPath) {
@@ -674,9 +677,8 @@ function checkRepeats(
 	// keeps the namespace prefix in `name`, so match on the local name (the
 	// part after the `:`) to stay robust to the prefix the emitter happens to
 	// pick. We descend from the body root.
-	const bodyEls = findAll(
+	const bodyEls = model.definitionElements.filter(
 		(el) => localName(el.name) === "body",
-		model.doc.children,
 	);
 	for (const body of bodyEls) {
 		walkRepeatScope(body, null, model, formName, loc, errors);
@@ -878,9 +880,8 @@ function checkSetValues(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 
-	for (const sv of findAll(
+	for (const sv of model.definitionElements.filter(
 		(el) => el.name === "setvalue",
-		model.doc.children,
 	)) {
 		// #15: the action event must be one Core recognizes (Action.isValidEvent).
 		const event = getAttributeValue(sv, "event");
@@ -961,7 +962,9 @@ function checkOutputs(
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
 
-	for (const out of findAll((el) => el.name === "output", model.doc.children)) {
+	for (const out of model.definitionElements.filter(
+		(el) => el.name === "output",
+	)) {
 		// #18: an <output> must carry a ref or a value (parseOutput); the value
 		// expression must parse as valid XPath (ANY-expression surface). Nova
 		// emits `value` (and a parallel `vellum:value`); Core also accepts `ref`.
@@ -1036,7 +1039,6 @@ function checkItextReferences(
 	loc: ValidationLocation,
 ): ValidationError[] {
 	const errors: ValidationError[] = [];
-	if (model.itextIds.size === 0) return errors;
 
 	const reportMissing = (textId: string): void => {
 		if (model.itextIds.has(textId)) return;
@@ -1051,10 +1053,10 @@ function checkItextReferences(
 	};
 
 	// Surface 1 — body element `ref` attributes that hold `jr:itext('X')`.
-	for (const el of findAll((el) => {
+	for (const el of model.definitionElements.filter((el) => {
 		const ref = getAttributeValue(el, "ref");
 		return !!ref && ref.startsWith("jr:itext('");
-	}, model.doc.children)) {
+	})) {
 		const ref = getAttributeValue(el, "ref");
 		if (!ref) continue;
 		const match = ref.match(JR_ITEXT_REF_PATTERN);
@@ -1066,7 +1068,9 @@ function checkItextReferences(
 	// scan ALWAYS runs against `<bind>` regardless of the attribute holding the
 	// reference, because the prefix predicate above can't reach attributes other
 	// than `ref` (it filters on `ref`'s value).
-	for (const bind of findAll((el) => el.name === "bind", model.doc.children)) {
+	for (const bind of model.definitionElements.filter(
+		(el) => el.name === "bind",
+	)) {
 		const constraintMsg = getAttributeValue(bind, "jr:constraintMsg");
 		if (constraintMsg === undefined) continue;
 		const match = constraintMsg.match(JR_ITEXT_REF_PATTERN);
@@ -1117,9 +1121,8 @@ function checkMediaValues(
 	if (mediaManifest === undefined) return [];
 	const errors: ValidationError[] = [];
 
-	for (const valueEl of findAll(
+	for (const valueEl of model.definitionElements.filter(
 		(el) => el.name === "value",
-		model.doc.children,
 	)) {
 		const form = getAttributeValue(valueEl, "form");
 		// Media values carry one of the three image/audio/video forms. The plain
@@ -1259,8 +1262,8 @@ export function validateXForm(
 	// accumulate into one flat array the caller renders.
 	return [
 		...checkNamespacePrefixes(doc, formName, loc),
-		...checkTranslations(doc, formName, loc),
-		...checkItextDefinitions(doc, formName, loc),
+		...checkTranslations(model, formName, loc),
+		...checkItextDefinitions(model, formName, loc),
 		...checkBinds(model, formName, loc),
 		...checkControls(model, formName, loc),
 		...checkRepeats(model, formName, loc),

@@ -20,7 +20,7 @@
  */
 
 import { type Document, type Element, isTag } from "domhandler";
-import { findAll, getAttributeValue, getChildren } from "domutils";
+import { getAttributeValue, getChildren } from "domutils";
 import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
 import { type ValidationError, validationError } from "./errors";
@@ -36,26 +36,30 @@ export function localName(name: string): string {
 	return colon === -1 ? name : name.slice(colon + 1);
 }
 
-/**
- * Direct `<instance>` element children of `<model>`. The XForm spec scopes
- * `<instance>` declarations to the model block; an element named `instance`
- * appearing deeper in the document is a data-tree node, not a declaration,
- * and reading its `id` attribute as a declared instance would suppress
- * legitimate "undeclared instance" errors. Searching descendant `<model>`
- * elements covers both the typical `h:head > model` layout and any future
- * deviation. JavaRosa's `XFormParser` is structurally equivalent — its
- * `parseInstance` call sites all root from the model element.
- */
-function findInstanceDeclarations(doc: Document): Element[] {
-	const out: Element[] = [];
-	for (const model of findAll((e) => e.name === "model", doc.children)) {
-		for (const child of getChildren(model)) {
-			if (isTag(child) && child.name === "instance") {
-				out.push(child);
-			}
+/** Form markup stops at instance declarations. Their children are user data,
+ * even when a question happens to be named bind, input, model, or itext.
+ * Core parseModel saves each instance for the separate parseInstance walk. */
+function collectDefinitionElements(doc: Document): Element[] {
+	const elements: Element[] = [];
+	function visit(parent: Document | Element): void {
+		for (const child of parent.children) {
+			if (!isTag(child)) continue;
+			elements.push(child);
+			if (localName(child.name) !== "instance") visit(child);
 		}
 	}
-	return out;
+	visit(doc);
+	return elements;
+}
+
+function findInstanceDeclarations(elements: readonly Element[]): Element[] {
+	return elements.filter(
+		(el) =>
+			el.name === "instance" &&
+			el.parent !== null &&
+			isTag(el.parent) &&
+			el.parent.name === "model",
+	);
 }
 
 const XML_OPTS = { xmlMode: true } as const;
@@ -66,6 +70,8 @@ const XML_OPTS = { xmlMode: true } as const;
 export interface XFormDataModel {
 	/** Parsed document (well-formedness already proven by the strict gate). */
 	readonly doc: Document;
+	/** Form markup in document order, excluding every instance data subtree. */
+	readonly definitionElements: readonly Element[];
 	/** The main `<instance>`'s data root element (`<data>`). */
 	readonly dataEl: Element;
 	/** Root path of the main instance (`/data`, or whatever the root is named). */
@@ -134,9 +140,15 @@ function walkInstance(
 }
 
 /** Collect every `<text id>` defined under any `<translation>`. */
-function collectItextIds(doc: Document): Set<string> {
+function collectItextIds(elements: readonly Element[]): Set<string> {
 	const ids = new Set<string>();
-	for (const el of findAll((e) => e.name === "text", doc.children)) {
+	for (const el of elements.filter(
+		(e) =>
+			e.name === "text" &&
+			e.parent !== null &&
+			isTag(e.parent) &&
+			e.parent.name === "translation",
+	)) {
 		const id = getAttributeValue(el, "id");
 		if (id) ids.add(id);
 	}
@@ -149,9 +161,9 @@ function collectItextIds(doc: Document): Set<string> {
  * convention, and callers compare its data tree against `instancePaths`
  * rather than checking it as a declared external instance.
  */
-function collectDeclaredInstanceIds(doc: Document): Set<string> {
+function collectDeclaredInstanceIds(elements: readonly Element[]): Set<string> {
 	const ids = new Set<string>();
-	for (const el of findInstanceDeclarations(doc)) {
+	for (const el of findInstanceDeclarations(elements)) {
 		const id = getAttributeValue(el, "id");
 		if (id) ids.add(id);
 	}
@@ -185,7 +197,8 @@ export function buildXFormDataModel(
 
 	const doc = parseDocument(xml, XML_OPTS);
 
-	const instances = findInstanceDeclarations(doc).filter(
+	const definitionElements = collectDefinitionElements(doc);
+	const instances = findInstanceDeclarations(definitionElements).filter(
 		(el) => !getAttributeValue(el, "src"),
 	);
 	if (instances.length === 0) {
@@ -221,12 +234,13 @@ export function buildXFormDataModel(
 	return {
 		model: {
 			doc,
+			definitionElements,
 			dataEl,
 			rootPath,
 			instancePaths,
 			repeatablePaths,
-			itextIds: collectItextIds(doc),
-			declaredInstanceIds: collectDeclaredInstanceIds(doc),
+			itextIds: collectItextIds(definitionElements),
+			declaredInstanceIds: collectDeclaredInstanceIds(definitionElements),
 		},
 	};
 }

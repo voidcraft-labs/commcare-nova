@@ -1186,3 +1186,39 @@ One shared socket peer now owns the native server and dispatcher used by these
 checks and the writer/media deadlines. The duplicate media-upload body case was
 removed because the shared writer suite already covers it; the distinct media
 status response retains its 45-second socket proof.
+
+
+### Delivered question structure and the definition/data boundary
+
+Removed `bindTypes.test.ts` and `captureUpload.test.ts`: byte-fragment matches
+pinned attribute order, the table checks repeated TypeScript guarantees, and
+passing Nova's own oracle did not independently establish the emitted question
+contract. One replacement parses strict XML from both HQ source and an actual
+CCZ and joins all 14 scalar/capture controls to their answer types and decoded
+labels. It checks order, unique binds, exact attributes, label ownership, and
+nested data paths against independent expected types. It imports no emission
+tables and does not claim to execute Core or HQ.
+
+That broader fixture failed on two production defects. Decimal emitted
+`xsd:decimal`; Core accepts it, but HQ `xform.py::VELLUM_TYPES` classifies
+`xsd:double`, and Vellum `parser.js::buildControlNodeAdaptorMap` falls back to
+Text for decimal. Emission now uses `xsd:double` (Vellum's Decimal wire type).
+A question with ID `secret` also prevented actual CCZ export: the oracle's
+whole-document name search mistook its instance-data node for a body control.
+
+The shared XForm model now collects definition elements while stopping at
+instance declarations, following Core `XFormParser::parseModel`'s separation
+of saved instances from parsed markup. Both oracles use that inventory for
+binds, controls, actions, output, and localization. Five new boundary scenarios
+all fail with the original validators: actual CCZ compilation with colliding
+question/group IDs; a fake nested instance declaration masking an unresolved
+reference; missing-label references with empty or nonempty catalogs despite
+decoy text in data; and exact malformed-markup findings beside identically
+named valid answers. The empty-catalog early return also wrongly accepted
+missing label definitions and is removed. Each synthetic refusal has a paired
+accepted form. Namespace checks and repeat-template checks still inspect data
+because those contracts apply there.
+
+Validation: 300 tests across ten compiler, expander, capture, oracle, and fuzz
+files pass; full TypeScript check passes. The full old oracle suites remain to
+be reviewed as testing methods; running them here does not count as that audit.

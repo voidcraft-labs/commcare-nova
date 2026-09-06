@@ -3549,7 +3549,10 @@
 			"file": "lib/commcare/__tests__/bindTypes.test.ts",
 			"lines": 122,
 			"ciMs": 886,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full tests, emitter bind/control/capture contracts, and upstream HQ/Core/Vellum consumers. Replaced overlapping byte-order assertions and TypeScript-table duplication with questionWire.test.ts: strict parsed HQ source and actual CCZ joins all scalar/capture controls to typed answers and decoded labels. Found and fixed decimal misclassification and definition/data scope errors; new xformDefinitionScope cases all fail under original validators.",
+			"baselineSha256": "c878289e4b4f11f44aac052126af2f61725ea99a79751093dc66cc0580244e93",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/commcare/__tests__/bindingResolutionOracle.fuzz.test.ts",
@@ -3582,7 +3585,10 @@
 			"file": "lib/commcare/__tests__/captureUpload.test.ts",
 			"lines": 139,
 			"ciMs": 880,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full tests, emitter bind/control/capture contracts, and upstream HQ/Core/Vellum consumers. Replaced overlapping byte-order assertions and TypeScript-table duplication with questionWire.test.ts: strict parsed HQ source and actual CCZ joins all scalar/capture controls to typed answers and decoded labels. Found and fixed decimal misclassification and definition/data scope errors; new xformDefinitionScope cases all fail under original validators.",
+			"baselineSha256": "dedff23aeff0290bedcade31ef9b794f6c576fb23fc10c2d2d406e7135ce9e00",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/commcare/__tests__/captureUrlEmission.test.ts",
