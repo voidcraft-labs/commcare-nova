@@ -6579,7 +6579,10 @@
 			"file": "lib/media/__tests__/assetDeletion.test.ts",
 			"lines": 573,
 			"ciMs": 378,
-			"status": "pending"
+			"status": "revised",
+			"review": "Use typed asset/ref fixtures, distinct unrelated carrier, and missing/deleted/foreign candidate matrix. Remove obsolete direct-delete mock and reset mock implementations between cases. Replace invocation-order-only deletion proof with a held metadata promise and no-cleanup assertion. Own both concurrent lock-client scenarios with immediate settled observers and finally release/join; assert deletion/publication order and exact pinned metadata handle. Keep actual publication and Postgres locking proofs in their integration owners.",
+			"baselineSha256": "3620691f001fe14be661324530ee8f85da37249344e69a730169d8e578588b1a",
+			"reviewedSha256": "4281233a830caf93b7bf267172322049507b4123c6b2c6f88dd759287ae663ca"
 		},
 		{
 			"file": "lib/media/__tests__/attachVerdicts.test.ts",
