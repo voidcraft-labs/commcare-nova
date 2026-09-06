@@ -1040,3 +1040,13 @@ typed document containers and real UUIDs, removed failure-hiding early returns,
 proved primary/additional-place order against reversed mappings, and added partial
 adoption refusal. Session-store-wide review remains pending; these checks cover
 its provisioning slice rather than claiming the whole 1,822-line suite.
+
+### Same username is not confirmed credential identity
+
+An actual session-store sequence (create, update, adopt a different remote ID
+under the same name) reproduced the old password being attributed to the new
+account. The fold now retains passwords as confirmed only when the remote ID
+agrees; displaced credentials remain visible and copyable as unconfirmed. The
+programmatic check spans session state through the real display/clipboard model.
+The browser transport failure copy also acknowledges that creation may have
+completed and explains recovery when the answer and password never arrived.

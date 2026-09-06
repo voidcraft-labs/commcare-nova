@@ -1,4 +1,8 @@
 import { expect, it } from "vitest";
+import {
+	workerCredentialRows,
+	workerCredentialsText,
+} from "@/lib/deployment/workerCredentialRows";
 import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
 import { createBuilderSessionStore } from "../store";
 
@@ -117,4 +121,45 @@ it("a confirmed create clears every old candidate only for that exact persona an
 	).toEqual([
 		{ ...doubtful, username: "other@clinic.commcarehq.org", password: "other" },
 	]);
+});
+
+it("does not certify a retained password when the same username now identifies a different account", () => {
+	const store = createBuilderSessionStore();
+	const record = store.getState().recordProvisioningOutcome;
+	const original = {
+		...doubtful,
+		userId: "original",
+		created: true,
+		adopted: false,
+	};
+	record({ ...answer, workers: [original] });
+	// Ordinary updates keep a credential only while remote identity agrees.
+	record({
+		...answer,
+		workers: [{ ...original, created: false, password: null }],
+	});
+	expect(store.getState().provisioningOutcomes[key].workers[0].password).toBe(
+		doubtful.password,
+	);
+	const replacement = {
+		...original,
+		userId: "replacement",
+		created: false,
+		adopted: true,
+		password: null,
+	};
+	record({ ...answer, workers: [replacement] });
+	const held = store.getState().provisioningOutcomes[key];
+	expect(held.workers).toEqual([replacement]);
+	expect(Object.values(held.unconfirmed)).toEqual([doubtful]);
+	const rows = workerCredentialRows(
+		held.workers,
+		Object.entries(held.unconfirmed),
+	);
+	expect(rows).toHaveLength(1);
+	expect(workerCredentialsText(rows)).toBe(
+		`${doubtful.username}\t${doubtful.password}\tPassword unconfirmed`,
+	);
+	record({ ...answer, workers: [replacement] });
+	expect(store.getState().provisioningOutcomes[key]).toEqual(held);
 });

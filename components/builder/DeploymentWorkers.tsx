@@ -167,7 +167,7 @@ export function DeploymentWorkers({
 				if (response.data.view !== null) onUpdated(response.data.view);
 			} catch {
 				setRequestError(
-					"Nova couldn't reach the server to make these workers. Try again in a moment.",
+					"Nova couldn’t confirm the result. Some workers may already exist. You can check their usernames in CommCare HQ before trying again; any password that didn’t reach this page will need to be reset there.",
 				);
 			}
 		});

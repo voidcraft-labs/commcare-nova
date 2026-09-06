@@ -699,3 +699,8 @@ explicit dismissal removes one candidate on one target. Hooks select that target
 before rendering. Account adoption proves existence, not a candidate password;
 `workerCredentialRows` shares the complete rows and uncertainty labels with the
 clipboard. Nothing persists these values; reset/page teardown clears them.
+
+A same-named replacement account cannot inherit a confirmed password: the held
+fold checks the remote account ID and retains the displaced password as an
+unconfirmed candidate. A lost browser response may follow a completed create;
+the panel invites checking HQ and explains that undelivered passwords need reset.

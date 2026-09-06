@@ -671,8 +671,8 @@ export function unconfirmedWorkerKey(
  *
  * An ADOPTED account is never dropped either. That is the account that
  * was in doubt, now proven real and claimed in the ledger, and the
- * generated password held here is the one it was made with — CommCare HQ
- * never told Nova a second one.
+ * generated passwords held here remain candidates; adoption proves neither
+ * which attempt created it nor which password it accepts.
  */
 export function retainUnconfirmedWorkers(
 	held: Readonly<Record<string, UnconfirmedWorker>>,
@@ -753,8 +753,9 @@ export function provisioningOutcomeKey(server: string, domain: string): string {
  * then two more, is handing out five passwords, and an answer that simply
  * replaced the last one would destroy the first three's only copies. A
  * later answer for the same account wins except for its password — an
- * update carries none (`password: null`), and the password the account
- * was MADE with is still the one it signs in with.
+ * update carries none (`password: null`). A retained password is confirmed
+ * only while the remote account ID agrees; a different account under the
+ * same username keeps the old credential as an unconfirmed candidate.
  *
  * The refusal is the latest call's, verbatim, including null: it describes
  * one attempt, and the newest attempt's answer is the standing one.
@@ -768,6 +769,7 @@ export function foldProvisioningOutcome(
 	},
 ): HeldProvisioningOutcome {
 	const merged = [...(held?.workers ?? [])];
+	const displaced: UnconfirmedWorker[] = [];
 	for (const worker of answer.workers) {
 		const key = unconfirmedWorkerKey(worker.personaUuid, worker.username);
 		const at = merged.findIndex(
@@ -778,14 +780,31 @@ export function foldProvisioningOutcome(
 			merged.push(worker);
 			continue;
 		}
+		const previous = merged[at];
+		const sameIdentity = previous.userId === worker.userId;
+		if (
+			!sameIdentity &&
+			previous.password !== null &&
+			worker.password === null
+		) {
+			displaced.push({
+				personaUuid: previous.personaUuid,
+				personaName: previous.personaName,
+				username: previous.username,
+				password: previous.password,
+			});
+		}
 		merged[at] = {
 			...worker,
-			password: worker.password ?? merged[at].password,
+			password: worker.password ?? (sameIdentity ? previous.password : null),
 		};
 	}
 	return {
 		workers: merged,
 		refusal: answer.refusal,
-		unconfirmed: retainUnconfirmedWorkers(held?.unconfirmed ?? {}, answer),
+		unconfirmed: retainUnconfirmedWorkers(held?.unconfirmed ?? {}, {
+			...answer,
+			unconfirmed: [...displaced, ...(answer.unconfirmed ?? [])],
+		}),
 	};
 }
