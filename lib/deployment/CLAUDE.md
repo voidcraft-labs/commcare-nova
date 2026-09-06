@@ -464,6 +464,13 @@ because each fold states its precondition against that fresh row:
 stored. A stored copy goes stale the first time a worker property is
 renamed, and somebody following stale instructions has no way to tell.
 
+Worker fields and automations retain authored order. Organization levels and
+their place summaries share a parent-before-child projection, preserving
+authored order between available branches. Place summaries key by level UUID,
+so names remain projections through renames; only live places count toward
+current totals and adoption. This is generated guidance, not an assertion
+that a manual HQ setup step has been completed.
+
 Every section is target-aware — the project space slug is in each URL —
 and no section claims Nova installed anything. When a push driver ships
 for one of them, that section becomes a record of what Nova did: the same

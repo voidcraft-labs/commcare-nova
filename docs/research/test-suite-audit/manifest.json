@@ -5558,7 +5558,10 @@
 			"file": "lib/deployment/__tests__/setupArtifact.test.ts",
 			"lines": 636,
 			"ciMs": 939,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "7c091633224cb54a4d312ff657784bc3424797195543e23113921c6a4fb7a5b2",
+			"reviewedSha256": "fafe5f14528159e7363efcd48c3cd2370cc70a45b3f4ce8c06caf567f2a0721a",
+			"review": "Whole method replaced: schema-admitted and fully validated documents, immutable inputs, all manual case-flow/address-book arms checked against current local HQ controls and query precedence, exact target links, current worker/place definitions, both automation routes, named destination presence, and live/adopted/partial-push summaries. Regeneration checks reproduce ignored authored order and name-based summary IDs, then require canonical order and stable level UUIDs. Typed Preview state matrix covers no target, every reached/refused phase, deduplication and ambiguity. No fake DOM or claim of manually executed HQ setup."
 		},
 		{
 			"file": "lib/deployment/__tests__/stateMachine.test.ts",

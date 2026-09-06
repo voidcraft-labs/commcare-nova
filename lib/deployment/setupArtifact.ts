@@ -35,10 +35,12 @@ import { COMMCARE_SERVERS, type CommCareServer } from "@/lib/commcare/servers";
 import type { BlueprintDoc, OrganizationLevel } from "@/lib/domain";
 import {
 	entryPointInventory,
+	orderedAutomations,
 	orderedLocationProperties,
+	orderedOrganizationLevels,
+	orderedUserProperties,
 	organizationLevelsOf,
 	ownRecordValue,
-	userPropertiesOf,
 } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 
@@ -254,19 +256,11 @@ function levelAddressBookSteps(
 	}
 }
 
-function organizationSection(
-	input: SetupArtifactInput,
-): SetupArtifactSection | null {
-	const levels = Object.values(organizationLevelsOf(input.doc));
-	if (levels.length === 0) return null;
-	const byUuid = organizationLevelsOf(input.doc);
-	const levelName = (uuid: string): string =>
-		ownRecordValue(byUuid, uuid)?.name ?? "the level with that id";
-
+function setupLevels(doc: BlueprintDoc): OrganizationLevel[] {
 	// Parents before children, so the page can be filled top down:
-	// CommCare HQ needs a parent level to exist before anything names it.
+	// retain authored order whenever the parent dependency permits it.
 	const ordered: OrganizationLevel[] = [];
-	const remaining = [...levels];
+	const remaining = orderedOrganizationLevels(doc);
 	while (remaining.length > 0) {
 		const index = remaining.findIndex(
 			(level) =>
@@ -280,6 +274,17 @@ function organizationSection(
 		const [next] = remaining.splice(index, 1);
 		if (next !== undefined) ordered.push(next);
 	}
+	return ordered;
+}
+
+function organizationSection(
+	input: SetupArtifactInput,
+): SetupArtifactSection | null {
+	const ordered = setupLevels(input.doc);
+	if (ordered.length === 0) return null;
+	const byUuid = organizationLevelsOf(input.doc);
+	const levelName = (uuid: string): string =>
+		ownRecordValue(byUuid, uuid)?.name ?? "the level with that id";
 
 	const steps = ordered.map((level) => {
 		const parent =
@@ -328,7 +333,7 @@ function organizationSection(
 function workerDataSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
-	const properties = Object.values(userPropertiesOf(input.doc));
+	const properties = orderedUserProperties(input.doc);
 	if (properties.length === 0) return null;
 	const steps = properties.map((property) => {
 		const detail = [
@@ -368,7 +373,7 @@ function workerDataSection(
 function automationsSection(
 	input: SetupArtifactInput,
 ): SetupArtifactSection | null {
-	const automations = Object.values(input.doc.automations ?? {});
+	const automations = orderedAutomations(input.doc);
 	if (automations.length === 0) return null;
 	const base = hqBase(input.server);
 	const steps: SetupArtifactStep[] = [];
@@ -583,25 +588,33 @@ function placesSection(input: SetupArtifactInput): SetupArtifactSection | null {
 	const byLevel = new Map<string, { total: number; pushed: number }>();
 	let adopted = 0;
 	for (const place of live) {
-		const levelName = ownRecordValue(levels, place.levelUuid)?.name ?? "Places";
-		const tally = byLevel.get(levelName) ?? { total: 0, pushed: 0 };
+		const tally = byLevel.get(place.levelUuid) ?? { total: 0, pushed: 0 };
 		tally.total += 1;
 		const pushedPlace = input.pushedPlaces?.get(place.id);
 		if (pushedPlace !== undefined) {
 			tally.pushed += 1;
 			if (pushedPlace.adopted) adopted += 1;
 		}
-		byLevel.set(levelName, tally);
+		byLevel.set(place.levelUuid, tally);
 	}
-	const steps = [...byLevel.entries()].map(([levelName, tally]) =>
-		step(levelName, `${levelName}: ${countOf(tally.total, "place")}`, [
-			tally.pushed === tally.total
-				? `All of these are on “${input.domain}”.`
-				: tally.pushed === 0
-					? `Nova will put these on “${input.domain}” the next time you publish.`
-					: `${tally.pushed} of these are on “${input.domain}”; Nova sends the rest the next time you publish.`,
-		]),
-	);
+	const levelOrder = new Set([
+		...setupLevels(input.doc).map((level) => level.uuid),
+		...byLevel.keys(),
+	]);
+	const steps = [...levelOrder].flatMap((levelUuid) => {
+		const tally = byLevel.get(levelUuid);
+		if (tally === undefined) return [];
+		const levelName = ownRecordValue(levels, levelUuid)?.name ?? "Places";
+		return [
+			step(levelUuid, `${levelName}: ${countOf(tally.total, "place")}`, [
+				tally.pushed === tally.total
+					? `All of these are on “${input.domain}”.`
+					: tally.pushed === 0
+						? `Nova will put these on “${input.domain}” the next time you publish.`
+						: `${tally.pushed} of these are on “${input.domain}”; Nova sends the rest the next time you publish.`,
+			]),
+		];
+	});
 	return {
 		id: "places",
 		title: "Places",

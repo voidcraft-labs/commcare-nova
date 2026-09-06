@@ -442,6 +442,14 @@ cancelled before the peer finishes its response. The limit applies after HTTP
 decompression. A separate partial-body case proves the deadline closes the
 socket; a complete in-memory response cannot establish that lifetime.
 
+Generated setup guidance runs against complete schema-admitted, fully validated
+documents. Its assertions cover exact manual controls, each independent
+case-flow and address-book projection, current ordered fields and automations,
+live/adopted/partly-pushed places, regeneration after edits, and stable step
+identities. HQ's current templates, views and location query establish the
+manual instructions; a passing projection test does not prove a person applied
+them or that HQ executed the result.
+
 XML checks must distinguish syntax from value preservation. `xmlBoundary.test.ts`
 shares a malformedness corpus with the native HQ/libxml proof, exercises the
 actual mutation gates, and checks exact decoded whitespace and Unicode. The

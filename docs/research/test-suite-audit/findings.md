@@ -2036,3 +2036,23 @@ Both oversized streaming peers observe connection closure before sending their
 terminal response, and an unfinished native XML body closes at the 30-second
 deadline. The unchanged reader fails three of these controls. These are actual
 HTTP socket proofs with a test-only hostname remap, without TLS or live HQ.
+
+### Setup guidance follows the current document
+
+Replaced the whole setup-artifact suite's cast documents and isolated phrase
+checks with schema admission, full validation, immutable input assertions and
+complete branch projections. Current local HQ source confirms the named controls,
+hidden-column behavior, include-only precedence and whole-list save refusal.
+The suite covers both automation routes, current worker/place field definitions,
+live place counts and partial/adopted pushes, named destination presence, and
+Preview's unambiguous Project-space projection.
+
+Four negative controls reproduced ignored authored ordering in worker fields,
+automations and organization branches, plus name-based place-summary identities
+and row-arrival ordering. Those sections now use the canonical ordered selectors;
+organization instructions and place totals share a parent-before-child order,
+and a renamed level keeps its summary identity. Duplicate level names were a
+discarded hypothesis: the full validator already rejects them, so no invalid
+document is used to claim a reachable name collision. Regeneration is proven as
+a document projection; neither HTTP execution nor manually applied HQ settings
+are claimed by this suite.
