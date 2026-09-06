@@ -41,6 +41,7 @@ import { buildMultimediaMap } from "@/lib/commcare/multimedia/bundle";
 import { buildLogoRefs } from "@/lib/commcare/multimedia/logoEntry";
 import { buildNavMediaDicts } from "@/lib/commcare/multimedia/navMenuMedia";
 import { toHqWorkflow } from "@/lib/commcare/session";
+import { hqCaseActions } from "@/lib/commcare/subcaseWire";
 import {
 	NEVER_RELEVANT,
 	NO_MATCHES_RELEVANCY,
@@ -321,10 +322,8 @@ export function expandDoc(
 					...(form.type === "close" && {
 						multiSelectCloseCondition: formActions.close_case.condition,
 					}),
-					...(formActions.subcases.length > 0 && {
-						multiSelectSubcases: formActions.subcases,
-					}),
 				}),
+				ordinarySubcases: formActions.subcases,
 				...(effectiveConnect && { connect: effectiveConnect }),
 				...(assets && { assets }),
 				...(opts.lookupNaming && { lookupNaming: opts.lookupNaming }),
@@ -360,7 +359,7 @@ export function expandDoc(
 				localization.textMap(makeTranslationUnitId("form", formUuid, "name")),
 				xmlns,
 				CASE_LOADING_FORM_TYPES.has(form.type) ? "case" : "none",
-				formActions,
+				hqCaseActions(formActions),
 				// Raw `mod.caseType` for the same reason as `buildXForm`'s
 				// `moduleCaseType` above: the depth map must match the deep
 				// validator's accept map.

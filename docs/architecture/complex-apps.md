@@ -814,6 +814,17 @@ FormActions-driven blocks, with its single collision guard reading the direct
 `/data/case` child. Operations therefore ride the XForm source on both export
 paths, at nested container paths, never at bare `/data/case`.
 
+Ordinary extension-case creation also rides the source XForm. HQ's basic
+`_create_casexml` ignores the relationship in an `OpenSubCaseAction`, so emitting
+that action alone would silently create a child relationship. Nova retains the
+extension action with condition `never` solely to preserve HQ's case ID datums
+and navigation matching, and emits the active extension under `__nova_subcases`
+at its exact root or repeat scope. The native redundant block is irrelevant;
+local CCZ compilation omits it. Non-repeat source creates consume the retained
+session IDs, and repeat creates mint one ID per iteration. Several-case forms
+continue using the shared selected-parent iteration. `scripts/fixtures/hq/`
+records the reproducible native import/build and navigation evidence.
+
 Authored case ids follow Vellum's repeat-context split: creates outside a repeat
 seed `@case_id` via `<setvalue event="xforms-ready">`, while creates under a
 repeat use a bind calculate over the per-instance path. Generated UUIDs take the

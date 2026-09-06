@@ -3603,7 +3603,10 @@
 			"file": "lib/commcare/__tests__/caseBlocks.test.ts",
 			"lines": 235,
 			"ciMs": 694,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced hand-built hosts, apostrophe de-escaping, duplicated owner/name checks, and unscoped substring/order assertions. Real builder plus meta output feeds strict XML and direct-child transaction/model reads: exact no-op bytes; selected-case and metadata preload joins; merged unique required-name binds; generated parent/child identities; guarded child writes; isolated inactive/always/conditional close wire contracts. Native HQ import/build testing of actual Nova exports exposed ignored extension relationships; source emission now preserves those links and native navigation IDs. Private owner preload now reads @owner_id as verified in native HQ; no claim this dormant input was authorable.",
+			"baselineSha256": "82f9c5a7bbc1bde7497f8cc572f416ea26d4a9992c7137e8decd47adfc05c1d1",
+			"reviewedSha256": "e2fe25ebfc4388f307b3342b5fda2f2c56334f9447af4d8d1087dc4ffef18ed2"
 		},
 		{
 			"file": "lib/commcare/__tests__/caseOps.test.ts",

@@ -58,6 +58,7 @@ import {
 	collectPredicateInstances,
 	instanceSourceFor,
 } from "./predicate/instances";
+import { subcaseSessionDatumId } from "./subcaseWire";
 import {
 	emitExcludedOwnerNodesetFilter,
 	emitNodesetFilter,
@@ -613,7 +614,7 @@ function accumulateCaseLoadingInstances(
  *   2. A `case_id_new_<casetype>_0` function datum for case-create
  *      forms (registration). CommCare evaluates `uuid()` once at entry
  *      to mint a fresh id for the case the form will create.
- *   3. One `case_id_new_<subcasetype>_<idx>` function datum per active
+ *   3. One `case_id_new_<subcasetype>_<idx>` function datum per
  *      subcase action with no `repeat_context` (subcases in a repeat
  *      get their id minted per-iteration via a calculate bind rather
  *      than a session datum — handled by the XForm emitter).
@@ -736,7 +737,6 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		const opensCase =
 			actions.open_case.condition.type === "always" ||
 			actions.open_case.condition.type === "if";
-		const opensSubcaseIndexOffset = opensCase ? 1 : 0;
 		if (opensCase && caseType) {
 			datums.push({
 				id: `case_id_new_${validateCaseType(caseType)}_0`,
@@ -745,13 +745,10 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 			});
 		}
 
-		// (3) Per-subcase datums. Skip subcases whose action is inactive or
-		// that live in a repeat — CCHQ also skips repeat-context subcases
-		// for session emission and uses a per-iteration calculate bind on
-		// the form side. The wire-layer datum index counts ALL active
-		// subcases (including any repeat-context ones), then this function
-		// only EMITS for the non-repeat-context ones — matching the
-		// `Form.session_var_for_action` numbering at the CCHQ side.
+		// (3) HQ's get_new_case_id_datums_meta includes every non-repeat
+		// subcase, even condition=never. Extension actions use that metadata
+		// while their active transactions live in the source XForm. Filtering
+		// inactive actions here would strand source ID seeds and form links.
 		//
 		// HQ also emits this scalar `uuid()` datum on a multi-select form even
 		// though Nova's authored XForm creates one child per selected parent with
@@ -760,12 +757,9 @@ export function deriveSessionDatums(args: SessionDatumsInput): SessionDatum[] {
 		// refuses a direct form link that would mistake it for one created child.
 		for (let i = 0; i < actions.subcases.length; i++) {
 			const sc = actions.subcases[i];
-			if (sc.condition.type !== "always" && sc.condition.type !== "if") {
-				continue;
-			}
 			if (sc.repeat_context) continue;
 			datums.push({
-				id: `case_id_new_${validateCaseType(sc.case_type)}_${i + opensSubcaseIndexOffset}`,
+				id: subcaseSessionDatumId(sc, i, opensCase),
 				function: "uuid()",
 				caseType: sc.case_type,
 			});

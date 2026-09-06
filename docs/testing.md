@@ -57,6 +57,14 @@ checks HQ source and unpacked CCZ; `xformDefinitionScope.test.ts` distinguishes
 form markup from answer data and pairs each refusal with an accepted form.
 These structural checks do not claim to execute CommCare itself.
 
+For transformations performed by an external compiler, exercise that compiler
+against actual exported artifacts when its behavior matters. The read-only proof
+in `scripts/fixtures/hq/` caught HQ accepting an extension relationship and then
+silently compiling it as a child. It checks the corrected import/build and
+navigation paths using native HQ classes with all socket connections refused.
+The accompanying export tests run in ordinary CI; the native proof requires an
+installed HQ environment and makes no device-execution claim.
+
 Generated corpora must pass the actual strict schema as well as semantic
 validation; TypeScript casts and a domain-rule pass cannot establish schema
 validity. Construct admissible values at the generator, without filtering or

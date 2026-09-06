@@ -210,7 +210,7 @@ describe("case-operation XForm emission", () => {
 			xmlns: XMLNS,
 			moduleCaseType: "patient",
 			selectedCasesInstanceId: "selected_cases",
-			multiSelectSubcases: actions.subcases,
+			ordinarySubcases: actions.subcases,
 		});
 		expect(xml).toContain(
 			`<__nova_subcase_0 vellum:role="SaveToCase" vellum:case_type="visit">`,
@@ -276,7 +276,7 @@ describe("case-operation XForm emission", () => {
 			xmlns: XMLNS,
 			moduleCaseType: "patient",
 			selectedCasesInstanceId: "selected_cases",
-			multiSelectSubcases: actions.subcases,
+			ordinarySubcases: actions.subcases,
 		});
 		expect(xml).toContain(
 			`<update/><attachment><photo src="" from="local"/></attachment>`,

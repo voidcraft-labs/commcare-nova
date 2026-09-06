@@ -1289,3 +1289,54 @@ finite checks do not claim native CommCare execution or exhaustive validity.
 Final validation: both 900-sample corpora plus independent question-wire and
 scope regressions pass (four files, nine tests, 14.87 seconds); full TypeScript
 check passes.
+
+## HQ silently changed ordinary extension relationships
+
+A strictly valid Nova registration exported an `OpenSubCaseAction` with
+`relationship: extension`. Native HQ `Application.from_source` retained that
+value, but `XForm._create_casexml` called `add_index_ref` without passing it and
+emitted an ordinary child index. The local CCZ retained the extension index.
+Existing tests asserted Nova's own output and missed this external transformation.
+
+Extensions now use the existing source case-transaction emitter. Their HQ action
+is retained with condition `never`: HQ still allocates its case ID and uses its
+type for navigation, while the generated transaction receives `relevant=false()`.
+The source transaction consumes that same ID. Removing the action entirely would
+break links to the newly created extension. Repeated creates retain per-iteration
+IDs and correct answer scope; source-created names become required, and property
+writes retain presence guards. Scalar extension groups append after authored
+operation/answer trees, preserving their position among submission effects.
+
+The six strict-schema and semantic-validity export fixtures mix two extensions
+with a child and cover registration, followup, ordinary repeats, query repeats,
+multiple selected parents, and repeated entries under multiple selected parents. The native proof executes HQ import, case building,
+datum allocation, and navigation matching at
+`f391f622123f52c8943098d1228986f6999cddb8`, with network connections refused.
+`scripts/fixtures/hq/README.md` contains the reproducible commands. This is native
+HQ compilation evidence, not a claim of device or server submission execution.
+
+The case-block unit suite was replaced with structurally scoped checks over
+actual builder/meta output. It now checks byte-preserving no-op behavior,
+selected-case identity and preload joins, unique merged name binds, guarded
+writes, and exact child-close ownership/order. Repeated substring assertions,
+apostrophe de-escaping, and fake hosts missing metadata or name questions were
+removed. The rewrite also exposed the private owner preload reading an element
+instead of `@owner_id`; this now matches native `XForm.add_case_preloads`.
+Ordinary field-write admission does not currently produce an owner preload, so
+this correction is not evidence of observed user data loss.
+
+The native proof also fails under a negative control that re-enables HQ's
+extension actions: registration has no disabled native transaction, so the proof
+rejects the duplicate child path. The passing evidence records input and native
+source hashes in `native-hq-case-emission.json`. The broader affected run passed
+185 tests across 11 files, including both seeded corpora (900 documents); after
+the private preload correction and case-block rewrite, the final focused run
+passed 128 tests across five files after adding the combined repeat/selection case. Typecheck and strict Biome checks passed.
+
+Adding captured files to the source-emission fixtures exposed an attribute-context
+error: a repeated attachment's `@src` reused the expression anchored at its parent
+element, so it stopped one level short of the answer. The shared emitter now
+binds each expression from its actual target. The ordinary-repeat and query-repeat
+examples failed before this correction, and the matrix now also covers repeated
+entries under multiple selected parents. These are explicit wire-scope checks;
+the native HQ proof preserves the source and does not evaluate JavaRosa XPath.

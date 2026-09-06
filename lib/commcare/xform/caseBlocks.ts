@@ -5,8 +5,9 @@
  * (`commcare-hq/.../app_manager/xform.py::XFormCaseBlock`) so the local CCZ
  * pipeline injects the `<case>` / `<subcase_n>` transaction blocks (plus the
  * matching `<bind>` and `<setvalue>` elements) that the mobile runtime needs
- * to read and write the case database. The shape of the emission is the only
- * place the form's `FormActions` cross into XForm wire syntax.
+ * to read and write the case database. Extensions and several-case actions
+ * instead ride source XForms through `caseOps.ts`; see `subcaseWire.ts` for
+ * the HQ compatibility lowering and retained navigation metadata.
  *
  * The emitter CONSTRUCTS `domhandler` element trees (via the shared helpers
  * in `elementBuilders.ts`) and splices them into the form's parsed DOM, then
@@ -16,9 +17,8 @@
  * single, exclusive escaping authority. The earlier string-template emitter
  * leaked every interpolated XPath body, case-type name, and field path into the
  * output unescaped — the validator gates closed that gap reactively, but the
- * structural fix is to make malformed bytes unrepresentable by construction.
- * See `lib/commcare/xform/builder.ts`'s file-level comment for the same totality
- * argument applied to the main emitter.
+ * shared serializer handles escaping and element nesting. Wire regression
+ * tests validate syntax before examining the emitted tree.
  *
  * The `<case>` element carries three attributes JavaRosa needs at submission
  * time — `case_id`, `date_modified`, `user_id` — plus the cx2 namespace. The
@@ -50,6 +50,7 @@ import {
 	validatePropertyName,
 	validateXFormPath,
 } from "@/lib/commcare/identifierValidation";
+import { subcaseSessionDatumId } from "@/lib/commcare/subcaseWire";
 import { SESSION_USERCASE_ID } from "@/lib/commcare/usercaseWire";
 import {
 	caseScalarTextValueCalculation,
@@ -272,10 +273,6 @@ function buildCaseBlocks(
 	const metaTimeEnd = FormPath.root().child("meta").child("timeEnd").toXPath();
 	const metaUserID = FormPath.root().child("meta").child("userID").toXPath();
 
-	// Index rule mirrors `commcare-hq/.../app_manager/models.py::Form
-	// .session_var_for_action`: subcase indices start at 1 when an `open_case`
-	// is active (so the primary is always `_0`), else 0.
-	const subcaseIndexOffset = isCreate ? 1 : 0;
 	// Lazy, because a form whose only write is to the worker's record has no
 	// case type of its own and never reaches a branch that needs one. Eager
 	// validation would refuse that form for lacking something it does not use.
@@ -517,13 +514,18 @@ function buildCaseBlocks(
 		for (const [questionPath, caseProperty] of Object.entries(
 			preloadAction.preload,
 		)) {
+			const property = validatePropertyName(
+				formActionsPropertyToWire(caseProperty),
+			);
+			// HQ's add_case_preloads maps owner_id to the casedb attribute;
+			// update transactions still write the owner_id child, so this is a
+			// read-only projection rather than a change to the shared name mapper.
+			const propertyPath = property === "owner_id" ? "@owner_id" : property;
 			setvalues.push(
 				el("setvalue", {
 					ref: validateXFormPath(questionPath),
 					event: "xforms-ready",
-					value: `instance('casedb')/casedb/case[@case_id=${selectedCaseIdRef}]/${validatePropertyName(
-						formActionsPropertyToWire(caseProperty),
-					)}`,
+					value: `instance('casedb')/casedb/case[@case_id=${selectedCaseIdRef}]/${propertyPath}`,
 				}),
 			);
 		}
@@ -615,7 +617,7 @@ function buildCaseBlocks(
 				(repeatCtxPath as FormPath);
 		const subcaseCasePath = basePath.child("case");
 		const validatedSubcaseType = validateCaseType(sc.case_type);
-		const subcaseDatumId = `case_id_new_${validatedSubcaseType}_${sIdx + subcaseIndexOffset}`;
+		const subcaseDatumId = subcaseSessionDatumId(sc, sIdx, isCreate);
 
 		const scChildren: Element[] = [];
 		// Subcase `<create>` mirrors the primary case's child order (case_name,

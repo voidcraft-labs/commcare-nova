@@ -34,6 +34,7 @@ import {
 	type OnDeviceExpressionBindings,
 	type OnDeviceTermEmissionContext,
 } from "@/lib/commcare/predicate/termEmitter";
+import { subcaseSessionDatumId } from "@/lib/commcare/subcaseWire";
 import type {
 	FormActionCondition,
 	OpenSubCaseAction,
@@ -152,6 +153,7 @@ export interface CaseOperationsEmission {
 	readonly instances: ReadonlySet<RequiredInstance>;
 	/** Lookup-fixture declarations the operation expressions need, id → src. */
 	readonly fixtureInstances: ReadonlyMap<string, string>;
+	readonly requiredNamePaths: readonly string[];
 }
 
 /** Build every operation block for one form. Pure: returned DOM nodes are
@@ -174,7 +176,12 @@ export function buildCaseOperations(
 		operations.length === 0 &&
 		ordinaryCloseCondition === undefined &&
 		Object.keys(ordinaryPrimaryUpdate).length === 0 &&
-		ordinarySubcases.length === 0
+		!ordinarySubcases.some(
+			(subcase) =>
+				subcase.condition.type !== "never" &&
+				(selectedCasesInstanceId !== undefined ||
+					subcase.relationship === "extension"),
+		)
 	)
 		return null;
 
@@ -843,6 +850,11 @@ export function buildCaseOperations(
 		readonly idPath: FormPath;
 	}
 	const selectedScopes = new Map<string, SelectedScope>();
+	const subcaseGroups = new Map<
+		string,
+		{ parentPath: FormPath; wrappers: Element[] }
+	>();
+	const requiredNamePaths: string[] = [];
 	for (const location of locations) {
 		if (location.selectedCaseIdPath === undefined) continue;
 		selectedScopes.set(location.authoredParentPath.toXPath(), {
@@ -996,31 +1008,39 @@ export function buildCaseOperations(
 		}
 	}
 
-	// Ordinary child-case actions depend on the loaded parent, so they join the
-	// selected-case inner iteration. Generated ids remain fresh per selected
-	// parent; authored-key creates are refused by the absolute validator.
+	// A several-case form needs one create per selected parent. Scalar extension
+	// creates also live in source because HQ ignores the basic action's relationship.
 	for (const [subcaseIndex, subcase] of ordinarySubcases.entries()) {
+		const multiple = selectedCasesInstanceId !== undefined;
+		if (!multiple && subcase.relationship !== "extension") continue;
+		if (subcase.condition.type === "never") continue;
 		const authoredParentPath = subcase.repeat_context
 			? FormPath.parse(subcase.repeat_context)
 			: FormPath.root();
 		const containerPath = authoredParentPath.child(SELECTED_CASES_CONTAINER);
-		const itemPath = containerPath.queryBoundIteration();
+		const itemPath = multiple
+			? containerPath.queryBoundIteration()
+			: authoredParentPath;
 		const idPath = itemPath.attr("id");
-		selectedScopes.set(authoredParentPath.toXPath(), {
-			authoredParentPath,
-			itemPath,
-			idPath,
-		});
+		if (multiple)
+			selectedScopes.set(authoredParentPath.toXPath(), {
+				authoredParentPath,
+				itemPath,
+				idPath,
+			});
 
 		const operationId = `__nova_subcase_${subcaseIndex}`;
-		const wrapperPath = itemPath.child(OPERATIONS_CONTAINER).child(operationId);
+		const wrapperPath = itemPath
+			.child(multiple ? OPERATIONS_CONTAINER : "__nova_subcases")
+			.child(operationId);
 		const casePath = wrapperPath.child("case");
 		const createPath = casePath.child("create");
 		const updatePath = casePath.child("update");
 		const indexPath = casePath.child("index");
 		const indexId = subcase.reference_id || "parent";
 		const groupKey = itemPath.toXPath();
-		const group = groups.get(groupKey) ?? {
+		const targetGroups = multiple ? groups : subcaseGroups;
+		const group = targetGroups.get(groupKey) ?? {
 			parentPath: itemPath,
 			wrappers: [],
 		};
@@ -1090,7 +1110,7 @@ export function buildCaseOperations(
 				],
 			),
 		);
-		groups.set(groupKey, group);
+		targetGroups.set(groupKey, group);
 
 		const sourceRef = (raw: string, target: FormPath): string => {
 			const source = FormPath.parse(validateXFormPath(raw));
@@ -1099,11 +1119,29 @@ export function buildCaseOperations(
 				: source.toXPath();
 		};
 		const namePath = createPath.child("case_name");
+		requiredNamePaths.push(
+			validateXFormPath(subcase.name_update.question_path),
+		);
+		if (multiple || subcase.repeat_context) {
+			binds.push(
+				el("bind", {
+					nodeset: casePath.attr("case_id").toXPath(),
+					calculate: "uuid()",
+				}),
+			);
+		} else {
+			instances.add("commcaresession");
+			setvalues.push(
+				el("setvalue", {
+					ref: casePath.attr("case_id").toXPath(),
+					event: "xforms-ready",
+					value: `instance('commcaresession')/session/data/${subcaseSessionDatumId(subcase, subcaseIndex, form.type === "registration")}`,
+				}),
+			);
+		}
+		if (!multiple && form.type !== "registration")
+			instances.add("commcaresession");
 		binds.push(
-			el("bind", {
-				nodeset: casePath.attr("case_id").toXPath(),
-				calculate: "uuid()",
-			}),
 			el("bind", {
 				nodeset: casePath.attr("date_modified").toXPath(),
 				calculate: META_TIME_END,
@@ -1122,7 +1160,7 @@ export function buildCaseOperations(
 				calculate: caseScalarTextValueCalculation(
 					sourceRef(subcase.name_update.question_path, namePath),
 				),
-				required: "true()",
+				constraint: caseScalarTextValueGuard(".", "reject"),
 			}),
 			el("bind", {
 				nodeset: createPath.child("owner_id").toXPath(),
@@ -1130,15 +1168,28 @@ export function buildCaseOperations(
 			}),
 			el("bind", {
 				nodeset: indexPath.child(indexId).toXPath(),
-				calculate: originalContextPath(indexPath.child(indexId), idPath),
+				calculate: multiple
+					? originalContextPath(indexPath.child(indexId), idPath)
+					: form.type === "registration"
+						? "/data/case/@case_id"
+						: selectedCaseIdRef,
 			}),
 		);
 		for (const [property, mapping] of scalarPropertyEntries) {
 			const propertyPath = updatePath.child(property);
+			const source = sourceRef(mapping.question_path, propertyPath);
+			const fixedScalar =
+				property === "external_id" || property === "case_name";
 			binds.push(
 				el("bind", {
 					nodeset: propertyPath.toXPath(),
-					calculate: sourceRef(mapping.question_path, propertyPath),
+					calculate: fixedScalar
+						? caseScalarTextValueCalculation(source)
+						: source,
+					relevant: `count(${source}) > 0`,
+					...(fixedScalar && {
+						constraint: caseScalarTextValueGuard(".", "allow"),
+					}),
 				}),
 			);
 		}
@@ -1152,7 +1203,7 @@ export function buildCaseOperations(
 				}),
 				el("bind", {
 					nodeset: propertyPath.attr("src").toXPath(),
-					calculate: source,
+					calculate: sourceRef(mapping.question_path, propertyPath.attr("src")),
 				}),
 			);
 		}
@@ -1268,6 +1319,13 @@ export function buildCaseOperations(
 			parentPath: group.parentPath,
 			element: el(OPERATIONS_CONTAINER, {}, group.wrappers),
 		}));
+	for (const group of subcaseGroups.values()) {
+		dataChildren.push({
+			parentPath: group.parentPath,
+			placement: "append",
+			element: el("__nova_subcases", {}, group.wrappers),
+		});
+	}
 
 	for (const scope of selectedScopes.values()) {
 		const group = groups.get(scope.itemPath.toXPath());
@@ -1346,6 +1404,7 @@ export function buildCaseOperations(
 		bodyChildren,
 		instances,
 		fixtureInstances,
+		requiredNamePaths,
 	};
 }
 

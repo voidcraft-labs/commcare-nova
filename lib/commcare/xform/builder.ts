@@ -480,8 +480,8 @@ export interface BuildXFormOptions {
 	multiSelectCloseCondition?: FormActionCondition;
 	/** Ordinary primary writes lowered through the selected-case iteration. */
 	multiSelectPrimaryUpdate?: UpdateCaseAction["update"];
-	/** Ordinary child creates lowered through the selected-case iteration. */
-	multiSelectSubcases?: readonly OpenSubCaseAction[];
+	/** Ordinary child actions; extensions and several-case creates ride source. */
+	ordinarySubcases?: readonly OpenSubCaseAction[];
 	/**
 	 * Resolved media assets for this emission run. When present, the
 	 * itext entries gain `<value form="image|audio|video">` siblings for
@@ -797,11 +797,19 @@ export function buildXForm(
 		opts.selectedCasesInstanceId,
 		opts.multiSelectCloseCondition,
 		opts.multiSelectPrimaryUpdate,
-		opts.multiSelectSubcases,
+		opts.ordinarySubcases,
 	);
 	if (caseOperations !== null) {
 		attachCaseOperationData(dataEl, caseOperations.dataChildren);
 		binds.push(...caseOperations.binds);
+		for (const namePath of caseOperations.requiredNamePaths) {
+			const bind = binds.find(
+				(candidate) => candidate.attribs.nodeset === namePath,
+			);
+			if (bind === undefined)
+				binds.push(el("bind", { nodeset: namePath, required: "true()" }));
+			else bind.attribs.required = "true()";
+		}
 		setvalues.push(...caseOperations.setvalues);
 		for (const id of caseOperations.instances) instances.require(id);
 		for (const [id, src] of caseOperations.fixtureInstances) {

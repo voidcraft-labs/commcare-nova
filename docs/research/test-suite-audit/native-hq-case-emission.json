@@ -1,0 +1,146 @@
+{
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"nativeSourceSha256": {
+		"corehq/apps/app_manager/xform.py": "2315052dfe55553b6e70b9bd0492c018ceb4e34fece56981430118fabd0a2601",
+		"corehq/apps/app_manager/models/applications.py": "816abfcf2db34c7412b85cf4c6e098886debec9b03a27dec04bd67d862d75516",
+		"corehq/apps/app_manager/models/forms.py": "06db242757ca10c4008a98997de4583a59a82cf0aa2899b99cb5cb40caba4835",
+		"corehq/apps/app_manager/models/form_actions.py": "5b8de2ee1a693c51818c3176936e32751be37f939e8ebdd3d97c7df317987ea0",
+		"corehq/apps/app_manager/suite_xml/sections/entries.py": "b039df4d381ad1250d473f323cba8831472303f187735aa5e5877506b1f97286",
+		"corehq/apps/app_manager/suite_xml/post_process/workflow.py": "a42796de258496247d60d2343fb509a5f7feb164b4f35777f94b9570b0278fcd"
+	},
+	"evidence": [
+		{
+			"scenario": "registration",
+			"inputSha256": "d1b8fcdc127fe4187ecf43ff0cabfdd83f48e8f91e5b7aedeace904a8a8e7233",
+			"extensionIndexes": [
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				},
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				}
+			],
+			"disabledNativeTransactions": [
+				"/data/subcase_0/case",
+				"/data/subcase_2/case"
+			],
+			"nativeCreateDatums": [
+				"case_id_new_patient_0",
+				"case_id_new_episode_1",
+				"case_id_new_visit_2",
+				"case_id_new_consent_3"
+			],
+			"nativeLinkSourceId": "case_id_new_episode_1",
+			"nativeOwnerPreload": null
+		},
+		{
+			"scenario": "followup",
+			"inputSha256": "654e644bdadfe2e98b2c8d363a5c7b247416b66b8d90141866139492ccae807f",
+			"extensionIndexes": [
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				},
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				}
+			],
+			"disabledNativeTransactions": [
+				"/data/subcase_0/case",
+				"/data/subcase_2/case"
+			],
+			"nativeCreateDatums": [
+				"case_id_new_episode_0",
+				"case_id_new_visit_1",
+				"case_id_new_consent_2"
+			],
+			"nativeLinkSourceId": null,
+			"nativeOwnerPreload": "instance('casedb')/casedb/case[@case_id=instance('commcaresession')/session/data/case_id]/@owner_id"
+		},
+		{
+			"scenario": "repeat",
+			"inputSha256": "f98a617cad6b38b1aef40f1435e53502cf260389b54c7f7d3e2012219e4b29ae",
+			"extensionIndexes": [
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				},
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				}
+			],
+			"disabledNativeTransactions": [
+				"/data/records/subcase_0/case",
+				"/data/records/subcase_2/case"
+			],
+			"nativeCreateDatums": ["case_id_new_patient_0"],
+			"nativeLinkSourceId": null,
+			"nativeOwnerPreload": null
+		},
+		{
+			"scenario": "query",
+			"inputSha256": "eae9f891d9604e04d4407f340da4993f9eec9743026eca2c2d3189d2bb1a3519",
+			"extensionIndexes": [
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				},
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				}
+			],
+			"disabledNativeTransactions": [
+				"/data/records/item/subcase_0/case",
+				"/data/records/item/subcase_2/case"
+			],
+			"nativeCreateDatums": ["case_id_new_patient_0"],
+			"nativeLinkSourceId": null,
+			"nativeOwnerPreload": null
+		},
+		{
+			"scenario": "multiple",
+			"inputSha256": "14e065cfb84d26de029b79e471b7ee71934025d1901dd698cc841f7752e4650b",
+			"extensionIndexes": [
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				},
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				}
+			],
+			"disabledNativeTransactions": [],
+			"nativeCreateDatums": [
+				"case_id_new_episode_0",
+				"case_id_new_visit_1",
+				"case_id_new_consent_2"
+			],
+			"nativeLinkSourceId": null,
+			"nativeOwnerPreload": null
+		},
+		{
+			"scenario": "multiple-repeat",
+			"inputSha256": "275ef42a2fc8d80ca164d01fa750b418bff96f55ded34f464f3c246389726780",
+			"extensionIndexes": [
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				},
+				{
+					"case_type": "patient",
+					"relationship": "extension"
+				}
+			],
+			"disabledNativeTransactions": [],
+			"nativeCreateDatums": [],
+			"nativeLinkSourceId": null,
+			"nativeOwnerPreload": null
+		}
+	]
+}
