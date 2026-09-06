@@ -68,6 +68,15 @@ stops before sending data. Check your CommCare HQ connection, then publish again
 and updates its places there, working down from the top so each one can name the
 place above it. It sends every place that is not archived, along with whatever
 place information you filled in.
+Nova keeps other information already stored on those places, including fields
+this app does not use. Clearing one of your app's fields clears it on the
+project space too.
+
+If a connection drops while data is being sent, Nova reports what it could
+confirm and holds back the app. Some data may already have arrived. Publishing
+again checks what is there and may ask you to confirm which existing resources
+Nova can update. If CommCare HQ names an invalid row or place, that detail stays
+with the refusal so you can fix it before retrying.
 
 **If something of that name is already there and Nova did not make it**, Nova
 stops rather than write over it, and names it. CommCare HQ matches a lookup

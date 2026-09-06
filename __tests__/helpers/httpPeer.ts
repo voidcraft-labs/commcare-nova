@@ -5,13 +5,10 @@ import {
 	setGlobalDispatcher,
 } from "undici";
 
-/** Consume the actual request bytes at the remote peer, then use the platform
- * multipart parser. This checks serialization as well as FormData assembly. */
-export async function readMultipartRequest(request: {
-	headers?: unknown;
+/** Bytes emitted by native fetch, including its streaming request bodies. */
+export async function readHttpRequestBody(request: {
 	body?: unknown;
-}): Promise<FormData> {
-	const headers = new Headers(request.headers as Record<string, string>);
+}): Promise<Buffer<ArrayBuffer>> {
 	const body = request.body;
 	const chunks: Uint8Array[] = [];
 	if (typeof body === "string") chunks.push(Buffer.from(body));
@@ -20,7 +17,19 @@ export async function readMultipartRequest(request: {
 		for await (const chunk of body as AsyncIterable<Uint8Array>)
 			chunks.push(chunk);
 	}
-	return new Response(Buffer.concat(chunks), { headers }).formData();
+	return Buffer.concat(chunks);
+}
+
+/** Consume the actual request bytes at the remote peer, then use the platform
+ * multipart parser. This checks serialization as well as FormData assembly. */
+export async function readMultipartRequest(request: {
+	headers?: unknown;
+	body?: unknown;
+}): Promise<FormData> {
+	const headers = new Headers(request.headers as Record<string, string>);
+	return new Response(await readHttpRequestBody(request), {
+		headers,
+	}).formData();
 }
 
 /** Real fetch request construction and response parsing, with only the remote

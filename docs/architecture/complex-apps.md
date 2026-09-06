@@ -1926,6 +1926,12 @@ ownership re-read. An app import acknowledgement must identify the app that
 was created or the exact mapped app requested for an update. After import and
 its mapping commit, media transport failures remain warnings alongside that
 published app and its retry guidance.
+Organization reads preserve complete foreign JSON metadata and resolve level
+parents from the whole inventory. Every paginated inventory shares one bounded
+deadline. Place batches remain atomic, but a lost acknowledgement is an unknown
+outcome; only confirmed batches acquire mappings, and a retry resolves unowned
+site-code matches through explicit adoption. Lookup warning verdicts and lost
+responses remain distinct, with actionable HQ details preserved through MCP.
 
 The lifecycle is `preflight → resources → uploaded → built → released →
 runnable`, plus the

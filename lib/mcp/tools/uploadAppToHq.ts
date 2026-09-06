@@ -537,7 +537,9 @@ export function registerUploadAppToHq(
 						}
 						return makeGateError(
 							UPLOAD_ERROR_TAGS.hq_upload_failed,
-							failure.message,
+							failure.details.length > 0
+								? `${failure.message}\n${failure.details.join("\n")}`
+								: failure.message,
 							appId,
 						);
 					}

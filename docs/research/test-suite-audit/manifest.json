@@ -3765,7 +3765,10 @@
 			"file": "lib/commcare/__tests__/hqLocations.test.ts",
 			"lines": 380,
 			"ciMs": 117,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced global fetch spies with native HTTP peer requests and parsed upstream-shaped JSON. Proves full cross-page parent identity resolution, malformed/incomplete inventory refusal, preservation of nested foreign metadata, same-target cursor/redirect rules, exact JSON PATCH serialization and 100-object limit, unique positional update identities, known rollback versus uncertain acknowledgement, and one owned deadline spanning multiple pages. Source fixes no longer guess missing parents as roots, silently drop foreign JSON, accept wrong acknowledgements, or claim a disconnected write rolled back.",
+			"baselineSha256": "dbab58e94851176824ea48b41741f8a7207086899ecd3fac79b17cf15d0e09fb",
+			"reviewedSha256": "28647246167c01419b7d8da43adceb0dd1f7cf5fef92c9557ccd68c353ec12b3"
 		},
 		{
 			"file": "lib/commcare/__tests__/hqLookupTables.test.ts",
@@ -5324,7 +5327,10 @@
 			"file": "lib/deployment/__tests__/locationResourcePlan.test.ts",
 			"lines": 486,
 			"ciMs": 619,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read the full pure planner and suite against upstream placement, ownership, and metadata replacement rules. Retained fast programmatic plan proof, replaced untyped fake organization casts with complete typed vocabulary and real UUID identities, added partial-adoption refusal for a remotely replaced mapping, and required exact reverse-hop findings through skipped levels. Integration counterparts now execute real organization writes, inventories, depth batches, metadata overlay, adoption and archive supersession.",
+			"baselineSha256": "b36502d39344ee14d227cb2f5725676abf369e36e3c87e3679bc87c9237ccbed",
+			"reviewedSha256": "c6fcd72bb650ae7ea3b70700991689f65ec53f0525681930369b2a066a391fb5"
 		},
 		{
 			"file": "lib/deployment/__tests__/lookupResourcePlan.test.ts",
@@ -5357,7 +5363,10 @@
 			"file": "lib/deployment/__tests__/publishLifecycle.test.ts",
 			"lines": 1801,
 			"ciMs": 1799,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed the entire 1801-line in-memory ledger and service/compiler/HTTP-mock lifecycle. Actual SDK/Postgres/native-HTTP publishing in lib/mcp/__tests__/uploadAppToHq.postgres.test.ts and deploymentTools.postgres.test.ts now proves durable phase/mapping transitions, wire artifacts, progress/event drain, multi-level 100-place batches, archive supersession, adoption and foreign JSON preservation, partial/unknown/refused resource writes, actionable lookup failures, stale credentials on an actually runnable deployment, and observation recovery/races. New methods found metadata loss, false rollback certainty, discarded MCP error details, and false partial-success reporting; negative control restores the old place message and fails the lost-response test.",
+			"baselineSha256": "19ca69beb5e70a32a9a5815a65c57fcb6ab1f4318d72688e78f43ddd362b1d85",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/deployment/__tests__/runtimeTarget.test.ts",

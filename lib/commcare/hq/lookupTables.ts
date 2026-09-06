@@ -42,9 +42,9 @@ import {
 	isValidDomainSlug,
 	logAndReturnError,
 	WAF_PADDING,
-	warnAndReturnError,
 	writeMayHaveLanded,
 } from "./http";
+import { isHqObject, readHqCollection } from "./readCollection";
 
 /** One lookup table as CommCare HQ reports it. */
 export interface HqLookupTable {
@@ -55,10 +55,6 @@ export interface HqLookupTable {
 	readonly isGlobal: boolean;
 	/** Field names in CommCare HQ's stored order. */
 	readonly fields: readonly string[];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -82,7 +78,7 @@ const MAX_LOOKUP_TABLE_PAGES = 20;
 
 function toHqLookupTable(raw: unknown): HqLookupTable | null {
 	if (
-		!isRecord(raw) ||
+		!isHqObject(raw) ||
 		typeof raw.id !== "string" ||
 		raw.id.trim() === "" ||
 		typeof raw.tag !== "string" ||
@@ -125,97 +121,25 @@ export async function listHqLookupTables(
 ): Promise<readonly HqLookupTable[] | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return INVALID_DOMAIN_SLUG;
 
+	const rows = await readHqCollection(
+		creds,
+		`${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`,
+		"lookup table list",
+		MAX_LOOKUP_TABLE_PAGES,
+	);
+	if ("success" in rows) return rows;
 	const tables: HqLookupTable[] = [];
-	let url = `${baseUrl(creds)}/a/${domain}/api/lookup_table/v1/?limit=${LOOKUP_TABLE_PAGE_SIZE}`;
-	for (let page = 0; page < MAX_LOOKUP_TABLE_PAGES; page += 1) {
-		let res: Response;
-		try {
-			res = await fetch(url, {
-				headers: { Authorization: authHeader(creds) },
-				redirect: "manual",
-				cache: "no-store",
-			});
-		} catch (error) {
-			log.warn("[commcare] lookup table list unreachable", {
-				domain,
-				error: error instanceof Error ? error.message : String(error),
-			});
-			return { success: false, status: 503 };
-		}
-		if (!res.ok) {
-			/* Warn rather than error: a project space without the API
-			 * privilege answers this on every publish of a table-bearing
-			 * app, and it is a state a person resolves in CommCare HQ
-			 * rather than a fault in Nova. */
-			return warnAndReturnError("lookup table list failed", res);
-		}
-		let body: unknown;
-		try {
-			body = await res.json();
-		} catch {
-			log.error("[commcare] lookup table list returned non-JSON", undefined, {
+	for (const raw of rows) {
+		const table = toHqLookupTable(raw);
+		if (table === null) {
+			log.error("[commcare] lookup table identity is malformed", undefined, {
 				domain,
 			});
 			return { success: false, status: 502 };
 		}
-		// This inventory authorizes replacement by name. An incomplete or
-		// malformed answer cannot prove a table absent, including a malformed
-		// row that would otherwise disappear during projection.
-		if (
-			!isRecord(body) ||
-			!Array.isArray(body.objects) ||
-			!isRecord(body.meta) ||
-			(body.meta.next !== null && typeof body.meta.next !== "string")
-		) {
-			log.error("[commcare] lookup table list is malformed", undefined, {
-				domain,
-			});
-			return { success: false, status: 502 };
-		}
-		for (const raw of body.objects) {
-			const table = toHqLookupTable(raw);
-			if (table === null) {
-				log.error("[commcare] lookup table identity is malformed", undefined, {
-					domain,
-				});
-				return { success: false, status: 502 };
-			}
-			tables.push(table);
-		}
-		const next = body.meta.next;
-		if (next === null) return tables;
-		/* Resolve relative cursors against this page; every next page must
-		 * still describe the same resource in the same project space. */
-		let resolved: URL;
-		try {
-			resolved = new URL(next, url);
-		} catch {
-			return { success: false, status: 502 };
-		}
-		if (
-			next === "" ||
-			resolved.origin !== new URL(baseUrl(creds)).origin ||
-			resolved.pathname !== `/a/${domain}/api/lookup_table/v1/` ||
-			resolved.username !== "" ||
-			resolved.password !== "" ||
-			resolved.hash !== ""
-		) {
-			log.error(
-				"[commcare] lookup table pagination changed target",
-				undefined,
-				{
-					domain,
-				},
-			);
-			return { success: false, status: 502 };
-		}
-		url = resolved.toString();
+		tables.push(table);
 	}
-	log.error("[commcare] lookup table list did not terminate", undefined, {
-		domain,
-		pages: MAX_LOOKUP_TABLE_PAGES,
-	});
-	return { success: false, status: 508 };
+	return tables;
 }
 
 /** What CommCare HQ said about a workbook it accepted. */
@@ -247,7 +171,7 @@ const FIXTURE_UPLOAD_SUCCESS_CODE = 200;
  * (405) is the opposite — `validate_fixture_file_format` raised before
  * anything was written.
  */
-const FIXTURE_UPLOAD_PARTIAL_CODE = 402;
+export const FIXTURE_UPLOAD_PARTIAL_CODE = 402;
 const FIXTURE_UPLOAD_FORMAT_FAILURE_CODE = 405;
 
 /**
@@ -366,7 +290,7 @@ export async function uploadLookupTableWorkbook(
 		return { success: false, status: 502, message: "", mayHaveLanded: true };
 	}
 	if (
-		!isRecord(body) ||
+		!isHqObject(body) ||
 		(body.code !== FIXTURE_UPLOAD_SUCCESS_CODE &&
 			body.code !== FIXTURE_UPLOAD_PARTIAL_CODE &&
 			body.code !== FIXTURE_UPLOAD_FORMAT_FAILURE_CODE)

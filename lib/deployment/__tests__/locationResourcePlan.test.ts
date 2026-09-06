@@ -14,6 +14,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { asUuid, type OrganizationCollections } from "@/lib/domain";
+import type { StoredLocation } from "@/lib/organization/types";
 import {
 	ambiguousReverseHopsOnTarget,
 	type PlannedPlace,
@@ -24,11 +26,11 @@ import {
 } from "../locationResourcePlan";
 import type { DeploymentResource } from "../types";
 
-const STATE = "018f0000-0000-7000-8000-0000000000a1";
-const CITY = "018f0000-0000-7000-8000-0000000000a2";
-const COLORADO = "018f0000-0000-7000-8000-000000000001";
-const DENVER = "018f0000-0000-7000-8000-000000000002";
-const BOULDER = "018f0000-0000-7000-8000-000000000003";
+const STATE = asUuid("018f0000-0000-7000-8000-0000000000a1");
+const CITY = asUuid("018f0000-0000-7000-8000-0000000000a2");
+const COLORADO = asUuid("018f0000-0000-7000-8000-000000000001");
+const DENVER = asUuid("018f0000-0000-7000-8000-000000000002");
+const BOULDER = asUuid("018f0000-0000-7000-8000-000000000003");
 
 const LEVELS: readonly RemoteLevel[] = [
 	{ code: "state", parentCode: null },
@@ -103,7 +105,7 @@ describe("a project space Nova has never pushed to", () => {
 	it("creates every live place, parents before children", () => {
 		const result = plan({ places: [CHILD, place()] });
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error(JSON.stringify(result));
 		expect(
 			result.batches.map((batch) => batch.map((push) => push.siteCode)),
 		).toEqual([["colorado"], ["denver"]]);
@@ -142,7 +144,7 @@ describe("a project space Nova has never pushed to", () => {
 			adoptLocationUuids: [COLORADO],
 		});
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error(JSON.stringify(result));
 		expect(result.batches[0]?.[0]).toMatchObject({
 			remoteId: "somebody-elses",
 			ownership: "adopted",
@@ -151,6 +153,36 @@ describe("a project space Nova has never pushed to", () => {
 });
 
 describe("a project space Nova already owns places on", () => {
+	it("requires adoption for every unowned place, including a mapped identity replaced remotely", () => {
+		const result = plan({
+			places: [place(), CHILD],
+			mappings: [mapping()],
+			hqPlaces: [
+				remote({ locationId: "replacement" }),
+				remote({
+					locationId: "hq-denver",
+					siteCode: "denver",
+					parentLocationId: "replacement",
+					name: "Denver",
+				}),
+			],
+			adoptLocationUuids: [COLORADO],
+		});
+		expect(result).toEqual({
+			ok: false,
+			reason: "conflict",
+			conflicts: [
+				{
+					locationUuid: DENVER,
+					siteCode: "denver",
+					name: "Denver",
+					remoteName: "Denver",
+					remoteId: "hq-denver",
+				},
+			],
+		});
+	});
+
 	it("updates in place under the claim already recorded", () => {
 		const result = plan({
 			places: [place()],
@@ -158,7 +190,7 @@ describe("a project space Nova already owns places on", () => {
 			hqPlaces: [remote()],
 		});
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error(JSON.stringify(result));
 		expect(result.batches[0]?.[0]).toMatchObject({
 			remoteId: "hq-colorado",
 			ownership: "nova-created",
@@ -172,14 +204,14 @@ describe("a project space Nova already owns places on", () => {
 			hqPlaces: [remote()],
 		});
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error(JSON.stringify(result));
 		expect(result.batches[0]?.[0]?.ownership).toBe("adopted");
 	});
 
 	it("recreates a place that is gone from the target", () => {
 		const result = plan({ places: [place()], mappings: [mapping()] });
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error(JSON.stringify(result));
 		expect(result.batches[0]?.[0]).toMatchObject({
 			remoteId: null,
 			ownership: "nova-created",
@@ -271,7 +303,8 @@ describe("shapes CommCare HQ will not hold", () => {
 			],
 		});
 		expect(result.ok).toBe(false);
-		if (result.ok || result.reason !== "unpushable") return;
+		if (result.ok || result.reason !== "unpushable")
+			throw new Error(JSON.stringify(result));
 		expect(result.problems.map((problem) => problem.siteCode).sort()).toEqual([
 			"boulder",
 			"denver",
@@ -335,16 +368,27 @@ describe("batching", () => {
 		);
 		const result = plan({ places });
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error(JSON.stringify(result));
 		expect(result.batches.map((batch) => batch.length)).toEqual([100, 100, 50]);
 	});
 });
 
 describe("plannedPlacesFor", () => {
-	const doc = {
+	const POPULATION = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+	const WARDS = asUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+	const behavior = {
+		caseFlow: {
+			workers: "assigned",
+			ownsCases: true,
+			descendantCases: { kind: "none" },
+		},
+		addressBook: { reach: "own-branch" },
+	} as const;
+	const doc: OrganizationCollections = {
 		organizationLevels: {
-			[STATE]: { uuid: STATE, code: "state", name: "State" },
+			[STATE]: { uuid: STATE, code: "state", name: "State", ...behavior },
 			[CITY]: {
+				...behavior,
 				uuid: CITY,
 				code: "city",
 				name: "City",
@@ -352,18 +396,22 @@ describe("plannedPlacesFor", () => {
 			},
 		},
 		locationProperties: {
-			"p-1": { uuid: "p-1", slug: "population", label: "Population" },
-			"p-2": {
-				uuid: "p-2",
+			[POPULATION]: {
+				uuid: POPULATION,
+				slug: "population",
+				label: "Population",
+			},
+			[WARDS]: {
+				uuid: WARDS,
 				slug: "ward_count",
 				label: "Wards",
 				levelUuids: [CITY],
 			},
 		},
-		locationPropertyOrder: ["p-1", "p-2"],
-	} as unknown as Parameters<typeof plannedPlacesFor>[0];
+		locationPropertyOrder: [POPULATION, WARDS],
+	};
 
-	function stored(over: Record<string, unknown> = {}) {
+	function stored(over: Partial<StoredLocation> = {}): StoredLocation {
 		return {
 			id: COLORADO,
 			levelUuid: STATE,
@@ -377,12 +425,12 @@ describe("plannedPlacesFor", () => {
 			archivedAt: null,
 			orderKey: "a0",
 			...over,
-		} as unknown as Parameters<typeof plannedPlacesFor>[1][number];
+		};
 	}
 
 	it("resolves the level's current code and each property's current slug", () => {
 		const [projected] = plannedPlacesFor(doc, [
-			stored({ values: { "p-1": "5,758,736" } }),
+			stored({ values: { [POPULATION]: "5,758,736" } }),
 		]);
 		expect(projected).toMatchObject({
 			levelCode: "state",
@@ -464,7 +512,14 @@ describe("ambiguousReverseHopsOnTarget", () => {
 				place("c1", "clinic", "w1", "Riverside"),
 				place("c2", "clinic", "w1", "Hilltop"),
 			]),
-		).toHaveLength(1);
+		).toEqual([
+			{
+				destinationCode: "clinic",
+				sourceCode: "district",
+				ownerName: "North",
+				destinationNames: ["Hilltop", "Riverside"],
+			},
+		]);
 	});
 
 	it("ignores a destination with no owning ancestor over there", () => {

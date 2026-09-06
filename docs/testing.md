@@ -251,3 +251,12 @@ malformed inventory cannot authorize replacement, and an unknown upload verdict
 cannot establish that nothing landed. Native table locks prove that upload
 responses wait for event persistence. Fake SDK handler capture is removed;
 registration, input validation, progress and results use linked SDK transports.
+
+Organization publishing follows the same actual-boundary method: create places
+through the production store, send their real JSON payloads to the controlled
+peer, and inspect ownership before app import. Cover a tree that crosses the
+100-place batch boundary, archived subtrees, exact adoption, preservation of
+foreign JSON, and refused versus unacknowledged writes. Test a shared inventory
+deadline by advancing a controlled clock between real HTTP pages; own and drain
+the peer's blocked response promises. Do not imitate the deployment ledger in
+an in-memory mock.

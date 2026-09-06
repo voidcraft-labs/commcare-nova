@@ -83,10 +83,16 @@ answer rather than an internal exception.
 The same response boundary applies to publishing. Import acknowledgements
 validate the verdict, remote identity, optional version and warnings before
 the deployment service records them; an update cannot return a different app.
-Lookup inventory validates every identity and an explicit pagination cursor,
+Lookup and organization inventories validate every identity and an explicit pagination cursor,
 and stays within the selected project space and resource path. Inventory reads
 and app imports do not follow redirects. Unknown lookup-upload verdicts retain
 the possibility that rows landed, so the service re-reads ownership evidence.
+The shared collection reader owns one 30-second deadline across every page and
+body read. Location levels resolve parent resource URIs across the full list;
+an unresolved parent or cycle refuses the inventory. Place reads preserve all
+foreign JSON metadata for the replacement write. Atomic place acknowledgements
+must be HTTP 202 with unique positional ids, and every update must return its
+requested id. A lost or malformed acknowledgement carries uncertainty.
 
 Public surfaces speak only semantic capabilities from
 `lib/publish/projectSpaceCompatibility.ts`: Case search, CommCare Connect,

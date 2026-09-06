@@ -119,6 +119,13 @@ and part of it did not take. `_run_upload` is not one transaction either — onl
 — so a 5xx can leave tables behind too. A place push is a batch per level
 (`v0_6.py::patch_list` is `@atomic` at 100), so a tree can genuinely stop partway
 with three levels of places really sitting on somebody's project space.
+A missing or unusable acknowledgement cannot prove an atomic place batch rolled
+back. Only HQ's known 400/401/403 refusals establish that nothing in that batch
+landed. Earlier confirmed batches stay recorded; an uncertain batch creates no
+mapping, and a retry requires explicit adoption if its site codes now exist
+without recorded ownership. Lookup warnings (body code 402) report partial
+acceptance; transport and malformed-verdict failures report uncertainty. MCP
+preserves the same row-level refusal details the browser receives.
 `recordPushedResources`
 therefore takes a `ResourcePushOutcome`: a `complete` push names the kinds it
 speaks for and supersedes every live mapping of those kinds it did not name; a
@@ -280,6 +287,14 @@ iterates the project space's OWN fields and never rejects an unknown key, so an
 undefined slug arrives as loose data — real, unvalidated, and unfilterable. What
 it DOES refuse is a field it marks required with no value in Nova's bag, which
 takes the whole batch down.
+
+The location reader preserves the entire remote metadata object, including
+foreign numbers, booleans, arrays and nested objects. HQ validates its modeled
+fields and then replaces this whole object; filtering unknown JSON values to
+strings would delete another editor's data. Nova overlays its applicable
+modeled values, including empty strings for cleared values. Location inventories
+require complete identities and resolvable, acyclic level parents; malformed
+parents never become roots. All inventory pages share one 30-second deadline.
 
 Project-space compatibility is derived from what the app actually uses. A
 missing or unverified required capability blocks before Nova writes any remote

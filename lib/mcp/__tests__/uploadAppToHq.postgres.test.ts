@@ -9,6 +9,7 @@ import type { MockAgent } from "undici";
 import { beforeEach, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
 import {
+	readHttpRequestBody,
 	readMultipartRequest,
 	withHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
@@ -17,10 +18,22 @@ import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
 import { readDeployment } from "@/lib/deployment/store";
-import type { BlueprintDoc } from "@/lib/domain";
+import {
+	asUuid,
+	type BlueprintDoc,
+	type OrganizationLevel,
+	type Uuid,
+} from "@/lib/domain";
 import { createLookupTable, replaceLookupRows } from "@/lib/lookup/service";
+import {
+	createLocation,
+	describeArchiveImpact,
+	setLocationArchived,
+} from "@/lib/organization/service";
 import { downloadAssetBytes } from "@/lib/storage/media";
+import { loadAppBlueprint } from "../loadApp";
 import { registerUploadAppToHq } from "../tools/uploadAppToHq";
 import { withMcpClient } from "./client";
 import { resultText } from "./promptClient";
@@ -952,5 +965,583 @@ it("refuses a missing media reference before creating a deployment or recording 
 		expect(await h.db().selectFrom("events").selectAll().execute()).toEqual([]);
 		expect(requests(peer)).toEqual([]);
 		expect(downloadAssetBytes).not.toHaveBeenCalled();
+	});
+});
+
+const REGION = asUuid("11111111-1111-4111-8111-111111111111");
+const DISTRICT = asUuid("22222222-2222-4222-8222-222222222222");
+const FACILITY = asUuid("33333333-3333-4333-8333-333333333333");
+const PHONE = asUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
+const CLEAR = asUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
+const LEVELS = "/a/clinic/api/location_type/v1/?limit=1000";
+const PLACES = "/a/clinic/api/location/v2/?limit=1000";
+const PLACE_PUSH = "/a/clinic/api/location/v2/";
+const remoteLevels = [
+	{
+		id: 1,
+		name: "Region",
+		code: "region",
+		parent: null,
+		administrative: false,
+		shares_cases: true,
+		view_descendants: false,
+	},
+	{
+		id: 2,
+		name: "District",
+		code: "district",
+		parent: `${HOST}/a/clinic/api/v0.5/location_type/1/`,
+		administrative: false,
+		shares_cases: true,
+		view_descendants: false,
+	},
+	{
+		id: 3,
+		name: "Facility",
+		code: "facility",
+		parent: `${HOST}/a/clinic/api/v0.5/location_type/2/`,
+		administrative: false,
+		shares_cases: true,
+		view_descendants: false,
+	},
+];
+function orgDocument(metadata = false) {
+	const levels: OrganizationLevel[] = [
+		{
+			uuid: REGION,
+			code: "region",
+			name: "Region",
+			caseFlow: {
+				workers: "assigned",
+				ownsCases: true,
+				descendantCases: { kind: "none" },
+			},
+			addressBook: { reach: "own-branch" },
+		},
+		{
+			uuid: DISTRICT,
+			code: "district",
+			name: "District",
+			parentLevelUuid: REGION,
+			caseFlow: {
+				workers: "assigned",
+				ownsCases: true,
+				descendantCases: { kind: "none" },
+			},
+			addressBook: { reach: "own-branch" },
+		},
+		{
+			uuid: FACILITY,
+			code: "facility",
+			name: "Facility",
+			parentLevelUuid: DISTRICT,
+			caseFlow: {
+				workers: "assigned",
+				ownsCases: true,
+				descendantCases: { kind: "none" },
+			},
+			addressBook: { reach: "own-branch" },
+		},
+	];
+	return {
+		...document(),
+		organizationLevels: Object.fromEntries(
+			levels.map((level) => [level.uuid, level]),
+		),
+		organizationLevelOrder: levels.map((level) => level.uuid),
+		...(metadata
+			? {
+					locationProperties: {
+						[PHONE]: { uuid: PHONE, slug: "phone", label: "Phone" },
+						[CLEAR]: { uuid: CLEAR, slug: "old_note", label: "Old note" },
+					},
+					locationPropertyOrder: [PHONE, CLEAR],
+				}
+			: {}),
+	};
+}
+async function place(
+	levelUuid: Uuid,
+	name: string,
+	siteCode: string,
+	parentId: Uuid | null = null,
+	values: Record<string, string> = {},
+) {
+	return (
+		await createLocation(SCOPE, {
+			levelUuid,
+			name,
+			siteCode,
+			parentId,
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values,
+		})
+	).location;
+}
+function inventory(
+	peer: MockAgent,
+	objects: unknown[] = [],
+	levels: unknown[] = remoteLevels,
+) {
+	request(peer, LEVELS).reply(200, { meta: { next: null }, objects: levels });
+	request(peer, PLACES).reply(200, { meta: { next: null }, objects });
+}
+function remotePlace(
+	site: string,
+	level: string,
+	parent = "",
+	metadata: object = {},
+) {
+	return {
+		location_id: `hq-${site}`,
+		name: site,
+		site_code: site,
+		location_type_code: level,
+		parent_location_id: parent,
+		location_data: metadata,
+	};
+}
+function acceptPlaces(peer: MockAgent, payloads: unknown[], ids: string[]) {
+	request(peer, PLACE_PUSH, "PATCH").reply(async (opts) => {
+		payloads.push(JSON.parse((await readHttpRequestBody(opts)).toString()));
+		return { statusCode: 202, data: JSON.stringify(ids) };
+	});
+}
+
+it("publishes a real three-level tree in bounded parent-first batches, then relinquishes archived mappings", async () => {
+	await seed(orgDocument());
+	const north = await place(REGION, "North", "north");
+	const central = await place(DISTRICT, "Central", "central", north.id);
+	const created = await createLocation(SCOPE, {
+		levelUuid: REGION,
+		name: "South",
+		siteCode: "south",
+		parentId: null,
+		externalId: null,
+		latitude: null,
+		longitude: null,
+		values: {},
+		descendants: [
+			{
+				levelUuid: DISTRICT,
+				name: "South district",
+				siteCode: "south_district",
+				externalId: null,
+				latitude: null,
+				longitude: null,
+				values: {},
+				descendants: Array.from({ length: 101 }, (_, i) => ({
+					levelUuid: FACILITY,
+					name: `Clinic ${i}`,
+					siteCode: `clinic_${i}`,
+					externalId: null,
+					latitude: null,
+					longitude: null,
+					values: {},
+				})),
+			},
+		],
+	});
+	const payloads: {
+		objects: {
+			site_code: string;
+			parent_location_id?: string;
+			location_id?: string;
+			location_data?: unknown;
+		}[];
+	}[] = [];
+	await withHttpPeer(async (peer) => {
+		inventory(peer);
+		// The peer assigns ids from actual serialized site codes. Assertions
+		// below independently prove grouping and parent ids, not call spies.
+		for (let i = 0; i < 4; i++)
+			request(peer, PLACE_PUSH, "PATCH").reply(async (opts) => {
+				const payload = JSON.parse(
+					(await readHttpRequestBody(opts)).toString(),
+				);
+				payloads.push(payload);
+				return {
+					statusCode: 202,
+					data: JSON.stringify(
+						payload.objects.map(
+							(row: { site_code: string }) => `hq-${row.site_code}`,
+						),
+					),
+				};
+			});
+		request(peer, IMPORT, "POST").reply(async () => {
+			const saved = await state();
+			expect(saved?.active).toHaveLength(105);
+			expect(saved?.active.every((row) => row.kind === "location")).toBe(true);
+			return {
+				statusCode: 201,
+				data: JSON.stringify({ success: true, app_id: "working-app" }),
+			};
+		});
+		await asUser(async (client) => {
+			expect(body(await call(client)).deployment_state).toBe("uploaded");
+			expect(payloads.map((payload) => payload.objects.length)).toEqual([
+				2, 2, 100, 1,
+			]);
+			expect(payloads[0].objects.map((row) => row.site_code).sort()).toEqual([
+				"north",
+				"south",
+			]);
+			expect(
+				payloads[0].objects.every(
+					(row) =>
+						row.parent_location_id === undefined &&
+						row.location_data === undefined,
+				),
+			).toBe(true);
+			expect(payloads[1].objects).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						site_code: "central",
+						parent_location_id: "hq-north",
+					}),
+					expect.objectContaining({
+						site_code: "south_district",
+						parent_location_id: "hq-south",
+					}),
+				]),
+			);
+			const leaves = payloads.slice(2).flatMap((payload) => payload.objects);
+			expect(new Set(leaves.map((row) => row.site_code)).size).toBe(101);
+			expect(
+				leaves.every((row) => row.parent_location_id === "hq-south_district"),
+			).toBe(true);
+			const initial = await state();
+			expect(
+				initial?.active.find((row) => row.novaResourceId === central.id),
+			).toMatchObject({
+				kind: "location",
+				remoteId: "hq-central",
+				pushedIdentity: "central",
+				ownership: "nova-created",
+			});
+			const impact = await describeArchiveImpact(SCOPE, created.location.id);
+			expect(
+				(
+					await setLocationArchived(
+						SCOPE,
+						created.location.id,
+						true,
+						impact.revision,
+						impact,
+					)
+				).archivedCount,
+			).toBe(103);
+			inventory(peer, [
+				remotePlace("north", "region"),
+				remotePlace("central", "district", "hq-north"),
+			]);
+			acceptPlaces(peer, payloads, ["hq-north"]);
+			acceptPlaces(peer, payloads, ["hq-central"]);
+			source(peer);
+			imported(peer, "working-app", 2);
+			expect(body(await call(client)).deployment_state).toBe("uploaded");
+			const final = await state();
+			expect(final?.active.map((row) => row.remoteId).sort()).toEqual([
+				"hq-central",
+				"hq-north",
+				"working-app",
+			]);
+			expect(final?.superseded).toHaveLength(103);
+			expect(final?.superseded.every((row) => row.kind === "location")).toBe(
+				true,
+			);
+		});
+		expect(
+			requests(peer).filter((value) => value.startsWith("PATCH")),
+		).toHaveLength(6);
+	});
+});
+
+it("requires exact adoption and preserves foreign JSON while applying and clearing Nova's modeled place values", async () => {
+	await seed(orgDocument(true));
+	const north = await place(REGION, "North", "north", null, { [PHONE]: "001" });
+	const remote = remotePlace("north", "region", "", {
+		phone: "old",
+		old_note: "clear this",
+		foreign_count: 3,
+		foreign_policy: { flags: [true, null] },
+	});
+	const payloads: unknown[] = [];
+	await withHttpPeer(async (peer) => {
+		inventory(peer, [remote]);
+		inventory(peer, [remote]);
+		acceptPlaces(peer, payloads, ["hq-north"]);
+		imported(peer);
+		await asUser(async (client) => {
+			expect(body(await call(client), true)).toMatchObject({
+				error_type: "hq_resource_conflict",
+				resource_conflicts: [
+					{
+						kind: "location",
+						nova_resource_id: north.id,
+						hq_name: "north",
+						hq_id: "hq-north",
+					},
+				],
+			});
+			expect(await snapshot()).toEqual({ deployments: [], resources: [] });
+			expect(
+				body(await call(client, { adopt_resources: [north.id] }))
+					.deployment_state,
+			).toBe("uploaded");
+			expect(
+				(await state())?.active.find((row) => row.kind === "location"),
+			).toMatchObject({
+				novaResourceId: north.id,
+				ownership: "adopted",
+				adoptedBy: ACTOR,
+				remoteId: "hq-north",
+			});
+		});
+		expect(payloads).toEqual([
+			{
+				objects: [
+					{
+						location_id: "hq-north",
+						name: "North",
+						site_code: "north",
+						location_type_code: "region",
+						location_data: {
+							phone: "001",
+							old_note: "",
+							foreign_count: 3,
+							foreign_policy: { flags: [true, null] },
+						},
+					},
+				],
+			},
+		]);
+	});
+});
+
+it.each(["refused", "lost response"] as const)(
+	"records only confirmed batches after a %s and safely resumes using real remote inventory",
+	async (mode) => {
+		await seed(orgDocument());
+		const north = await place(REGION, "North", "north");
+		const central = await place(DISTRICT, "Central", "central", north.id);
+		const payloads: unknown[] = [];
+		await withHttpPeer(async (peer) => {
+			inventory(peer);
+			acceptPlaces(peer, payloads, ["hq-north"]);
+			if (mode === "refused")
+				request(peer, PLACE_PUSH, "PATCH").reply(400, {
+					error: "A place already has this name. Location site code: central.",
+				});
+			else
+				request(peer, PLACE_PUSH, "PATCH").replyWithError(
+					new Error("acknowledgement lost"),
+				);
+			await asUser(async (client) => {
+				const failure = body(await call(client), true);
+				expect(failure.error_type).toBe("hq_upload_failed");
+				if (mode === "lost response") {
+					expect(failure.message).toContain("couldn’t confirm");
+					expect(failure.message).not.toContain("Nothing in the group");
+				} else expect(failure.message).toContain("Nothing in the group");
+				const partial = await state();
+				expect(partial?.deployment).toMatchObject({
+					state: "incomplete",
+					resumePhase: "resources",
+				});
+				expect(partial?.active).toEqual([
+					expect.objectContaining({
+						novaResourceId: north.id,
+						remoteId: "hq-north",
+					}),
+				]);
+				const remotes = [
+					remotePlace("north", "region"),
+					...(mode === "lost response"
+						? [remotePlace("central", "district", "hq-north")]
+						: []),
+				];
+				if (mode === "lost response") {
+					inventory(peer, remotes);
+					expect(body(await call(client), true)).toMatchObject({
+						error_type: "hq_resource_conflict",
+						resource_conflicts: [
+							{ nova_resource_id: central.id, hq_id: "hq-central" },
+						],
+					});
+					expect((await state())?.active).toEqual(partial?.active);
+				}
+				inventory(peer, remotes);
+				acceptPlaces(peer, payloads, ["hq-north"]);
+				acceptPlaces(peer, payloads, ["hq-central"]);
+				imported(peer);
+				expect(
+					body(
+						await call(
+							client,
+							mode === "lost response" ? { adopt_resources: [central.id] } : {},
+						),
+					).deployment_state,
+				).toBe("uploaded");
+				expect(
+					(await state())?.active.find(
+						(row) => row.novaResourceId === central.id,
+					),
+				).toMatchObject({
+					remoteId: "hq-central",
+					ownership: mode === "lost response" ? "adopted" : "nova-created",
+				});
+			});
+			expect(
+				requests(peer).filter((value) => value.startsWith("POST")),
+			).toEqual([`POST ${HOST}${IMPORT}`]);
+		});
+	},
+);
+
+it.each([
+	"unreadable",
+	"missing level",
+	"skipped level",
+	"duplicate siblings",
+] as const)(
+	"refuses an organization with %s before any ledger or remote write",
+	async (mode) => {
+		await seed(orgDocument());
+		const north = await place(REGION, "North", "north");
+		if (mode === "skipped level")
+			await place(FACILITY, "Clinic", "clinic", north.id);
+		if (mode === "duplicate siblings")
+			await place(REGION, "North", "another_north");
+		await withHttpPeer(async (peer) => {
+			if (mode === "unreadable") request(peer, LEVELS).reply(200, {});
+			else inventory(peer, [], mode === "missing level" ? [] : remoteLevels);
+			await asUser(async (client) => {
+				expect(body(await call(client), true).error_type).toBe(
+					mode === "unreadable"
+						? "hq_upload_failed"
+						: "hq_organization_mismatch",
+				);
+			});
+			expect(await snapshot()).toEqual({ deployments: [], resources: [] });
+			expect(requests(peer).every((value) => value.startsWith("GET"))).toBe(
+				true,
+			);
+		});
+	},
+);
+
+it.each([
+	"format refusal",
+	"partial then unreadable",
+	"success then absent",
+	"lost acknowledgement",
+] as const)(
+	"keeps lookup failure evidence and never sends the app after %s",
+	async (mode) => {
+		await seedLookup();
+		await withHttpPeer(async (peer) => {
+			tables(peer);
+			if (mode === "lost acknowledgement")
+				request(peer, WORKBOOK, "POST").replyWithError(
+					new Error("response lost"),
+				);
+			else
+				request(peer, WORKBOOK, "POST").reply(200, {
+					code:
+						mode === "format refusal"
+							? 405
+							: mode === "partial then unreadable"
+								? 402
+								: 200,
+					message: "Column code has an invalid row.",
+				});
+			if (mode === "partial then unreadable") request(peer, TABLES).reply(403);
+			else if (mode !== "format refusal") tables(peer);
+			await asUser(async (client) => {
+				const result = body(await call(client), true);
+				expect(result.error_type).toBe("hq_upload_failed");
+				if (mode === "format refusal" || mode === "partial then unreadable")
+					expect(result.message).toContain("Column code has an invalid row.");
+				if (mode === "lost acknowledgement") {
+					expect(result.message).toContain("couldn’t confirm");
+					expect(result.message).not.toContain("took only part");
+				}
+				if (mode === "success then absent")
+					expect(result.message).toContain("does not list them all");
+				expect((await state())?.deployment).toMatchObject({
+					state: "incomplete",
+					resumePhase: "resources",
+				});
+				expect((await state())?.active).toEqual([]);
+			});
+			expect(
+				requests(peer).filter((value) => value.startsWith("POST")),
+			).toEqual([`POST ${HOST}${WORKBOOK}`]);
+		});
+	},
+);
+
+it("keeps an actually runnable deployment intact when a later publish has a missing key or a stale target server", async () => {
+	await seed();
+	await withHttpPeer(async (peer) => {
+		imported(peer);
+		await asUser(async (client) => {
+			body(await call(client));
+		});
+		const { doc, app } = await loadAppBlueprint(APP, ACTOR, "edit");
+		request(peer, "/a/clinic/apps/view/working-app/current_version/").reply(
+			200,
+			{ currentVersion: 1, latestBuild: 1, latestReleasedBuild: 1 },
+		);
+		request(peer, "/a/clinic/api/application/v1/working-app/").reply(200, {
+			versions: [{ id: "released-build", version: 1, is_released: true }],
+		});
+		request(peer, "/a/clinic/apps/download/released-build/profile.ccpr").reply(
+			200,
+			`<profile><suite><resource id="suite"><location authority="remote">${HOST}/a/clinic/apps/download/released-build/suite.xml</location></resource></suite></profile>`,
+		);
+		expect(
+			(await refreshDeployment(SCOPE, TARGET, doc))?.deployment.deployment
+				.state,
+		).toBe("runnable");
+		const before = await snapshot();
+		await h
+			.db()
+			.updateTable("user_settings")
+			.set({ commcare_server: "eu" })
+			.where("user_id", "=", ACTOR)
+			.execute();
+		// A caller prepared India before the account changed to Europe.
+		// The actual second credential read must refuse this stale input.
+		const result = await publishAppToHq({
+			scope: SCOPE,
+			...TARGET,
+			doc,
+			compiledAtSeq: app.mutation_seq,
+			appName: app.app_name,
+			adoptResourceIds: [],
+		});
+		expect(result.landed).toBe(false);
+		expect(result.refusal).toMatchObject({
+			phase: "preflight",
+			failure: { code: "hq_not_connected" },
+		});
+		expect(await snapshot()).toEqual(before);
+		await h
+			.db()
+			.deleteFrom("user_settings")
+			.where("user_id", "=", ACTOR)
+			.execute();
+		await asUser(async (client) => {
+			expect(body(await call(client), true).error_type).toBe(
+				"hq_not_configured",
+			);
+		});
+		expect(await snapshot()).toEqual(before);
+		expect(requests(peer)).toHaveLength(4);
 	});
 });

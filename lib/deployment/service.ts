@@ -12,6 +12,7 @@ import { readHqAppSourceProfile } from "@/lib/commcare/hq/appSource";
 import type { HqLocationPush } from "@/lib/commcare/hq/locations";
 import { patchHqLocations } from "@/lib/commcare/hq/locations";
 import {
+	FIXTURE_UPLOAD_PARTIAL_CODE,
 	type FixtureUploadRefusal,
 	listHqLookupTables,
 	uploadLookupTableWorkbook,
@@ -1048,9 +1049,11 @@ function lookupUploadFailure(
 		 * project space is as they left it. */
 		message: permissions
 			? `CommCare HQ wouldn't let Nova put this app's lookup tables on “${domain}”, so the app was not sent. Uploading them needs the Edit Data permission on your CommCare HQ account.`
-			: refusal.mayHaveLanded
+			: refusal.status === FIXTURE_UPLOAD_PARTIAL_CODE
 				? `CommCare HQ took only part of this app's lookup tables for “${domain}”, so the app was not sent. The tables it did take now hold what Nova sent. Fix what it names below, then publish again to put the rest there.`
-				: `CommCare HQ would not take this app's lookup tables for “${domain}”, so the app was not sent and nothing on the project space changed.`,
+				: refusal.mayHaveLanded
+					? `Nova couldn’t confirm how much of this app’s lookup data CommCare HQ saved for “${domain}”, so the app was not sent. Some tables may now hold what Nova sent. Publishing again checks what is there before updating it.`
+					: `CommCare HQ would not take this app's lookup tables for “${domain}”, so the app was not sent and nothing on the project space changed.`,
 		/* One bullet per line: `_upload_fixture_api` joins a formatting
 		 * complaint's errors with newlines, and a list reads as a list. */
 		details: refusal.message
@@ -1157,9 +1160,11 @@ async function pushLocations(
 			const permissions = result.status === 401 || result.status === 403;
 			return stopped({
 				code: "hq_rejected_resource_push",
-				message: permissions
-					? `CommCare HQ wouldn't take this app's places for “${domain}”, so the app wasn't sent. Creating places needs the Edit Locations permission on your CommCare HQ account.`
-					: `CommCare HQ wouldn't take some of this app's places for “${domain}”, so the app wasn't sent. Nothing in the group that stopped was created, and any places sent before it are on the project space. Publishing again carries on from there.`,
+				message: result.mayHaveLanded
+					? `Nova couldn’t confirm whether CommCare HQ saved the last group of places for “${domain}”, so the app wasn’t sent. Earlier confirmed groups are recorded. Publishing again checks what is there and may ask you to confirm which existing places Nova can update.`
+					: permissions
+						? `CommCare HQ wouldn't take this app's places for “${domain}”, so the app wasn't sent. Creating places needs the Edit Locations permission on your CommCare HQ account.`
+						: `CommCare HQ wouldn't take some of this app's places for “${domain}”, so the app wasn't sent. Nothing in the group that stopped was created, and any places sent before it are on the project space. Publishing again carries on from there.`,
 				details: result.message === "" ? [] : [result.message],
 			});
 		}

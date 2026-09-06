@@ -876,3 +876,43 @@ and followed inventory redirects. The complete affected MCP/deployment/driver
 run passed 536 tests across 44 files in 23.82 seconds. Request deadlines in the
 other HQ readers and broader media-poll protocol behavior remain open audit
 work; this replacement does not establish those properties.
+
+
+## Organization inventory and uncertain publish results
+
+The entire mocked publish lifecycle was removed. Its replacement runs the
+actual MCP SDK, migrated PostgreSQL, organization writers, compilers, HTTP
+serialization and durable ledger. The organization scenario sends 105 places
+in groups of 2, 2, 100 and 1, proves parent IDs at the peer, observes all 105
+location mappings before the app POST, then archives 103 places through the
+store and proves their mappings become superseded on the next publish.
+
+Actual HQ JSON exposed three reader/writer defects: malformed inventories were
+accepted as empty, an unresolvable level parent became a root, and the place
+reader silently dropped foreign metadata values unless they were strings.
+Local HQ `locations/resources/v0_6.py::_update` validates modeled fields and
+then replaces the full metadata object; `custom_data_fields/models.py` does
+not reject arbitrary foreign JSON. The corrected readers require complete
+inventories, unique identities, locally resolvable acyclic level parents and
+same-target cursors. Foreign JSON survives the real read → plan → PATCH path
+while Nova's modeled values overwrite or clear only their own fields. All
+collection pages share one owned 30-second deadline; a controlled clock proves
+a second page receives only the remaining time, with no live timer afterward.
+
+Atomicity does not establish what happened when an acknowledgement is lost.
+The place writer used to accept duplicate IDs and an unrelated ID for an
+update, and the lifecycle said nothing in the stopped group was created even
+after a network failure. HTTP 202 and unique positional identities are now
+required. Known validation/permission refusals prove rollback; other answers
+carry uncertainty. Only prior confirmed groups acquire mappings. A retry sees
+an unrecorded place as a conflict and requires its exact Nova UUID for adoption.
+
+The same native tests exposed two lookup-reporting defects: a lost workbook
+response was described as confirmed partial acceptance, and MCP dropped HQ's
+specific invalid-row message. The service now distinguishes body-code-402
+partial acceptance from uncertainty, and the MCP error retains the service's
+actionable details. Tests also cover format refusal with no readback, a partial
+upload followed by an unreadable inventory, and success followed by an absent
+table; none imports an app. An actually published and HTTP-confirmed runnable
+deployment remains byte-for-byte unchanged when a later publish has missing
+credentials or a stale target server.
