@@ -154,7 +154,7 @@ export function remainingWallClockMs(
 	);
 }
 
-/** Deterministic budget for one slice — pure, and pinned by test. */
+/** Deterministic budget for one slice. Tests exercise scaling and each ceiling. */
 export function budgetForSlice(slice: BuildSlice): SliceExecutionBudget {
 	const groupCount = slice.constructionGroups.length;
 	const risk = RISK_ALLOWANCE[slice.risk];

@@ -639,11 +639,18 @@ export function makeNestedMenuContract(): AppDesignContract {
  * one record/property it alone constructs. It is deliberately semantically
  * plain so projection tests can see accidental cross-workflow leakage. */
 export function makeThirteenWorkflowContract(): AppDesignContract {
-	const workflowIds = Array.from({ length: 13 }, (_, index) =>
+	return makeWorkflowChainContract(13);
+}
+
+/** A graph-admitted chain with unique records, forms and inputs per workflow. */
+export function makeWorkflowChainContract(count: number): AppDesignContract {
+	const workflowIds = Array.from({ length: count }, (_, index) =>
 		did(3000 + index),
 	);
-	const recordIds = Array.from({ length: 13 }, (_, index) => did(1000 + index));
-	const propertyIds = Array.from({ length: 13 }, (_, index) =>
+	const recordIds = Array.from({ length: count }, (_, index) =>
+		did(1000 + index),
+	);
+	const propertyIds = Array.from({ length: count }, (_, index) =>
 		did(2000 + index),
 	);
 	const base = makeContract();

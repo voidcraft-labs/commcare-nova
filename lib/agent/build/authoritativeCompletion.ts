@@ -28,7 +28,7 @@ export interface FrozenBuildLineage {
  * attempt and canonical-app checks deliberately happen after this pure gate.
  */
 export function assertExactCommittedSliceReceipts(args: {
-	readonly expectedSlices: readonly BuildSlice[];
+	readonly expectedSlices: readonly Pick<BuildSlice, "id">[];
 	readonly receipts: readonly CommittedSliceReceipt[];
 	readonly lineage: FrozenBuildLineage;
 }): void {

@@ -14,7 +14,7 @@ import type { SubGenerationImage } from "@/lib/agent/subGeneration";
 
 export const DESIGN_PROMPT_VERSIONS = {
 	agent: "design-agent-v24",
-	reviewer: "design-reviewer-v17",
+	reviewer: "design-reviewer-v18",
 	planner: "design-plan-v6",
 } as const;
 
@@ -285,7 +285,9 @@ export function renderSourcePackage(pkg: DesignSourcePackage): string {
 		lines.push(
 			"",
 			"## Normalized source notes",
-			JSON.stringify(projectClaimRefsToTags(pkg.claims, tags), null, 1),
+			neutralizeSourceDelimiters(
+				JSON.stringify(projectClaimRefsToTags(pkg.claims, tags), null, 1),
+			),
 		);
 	}
 	lines.push("", "## Citable platform constraints");

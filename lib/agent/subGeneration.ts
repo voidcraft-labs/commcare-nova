@@ -87,20 +87,21 @@ function schemaIssueSummary(
  * the PRODUCTION policy stands — model output is a rendering of customer
  * content and never lands in Cloud Logging or Sentry.
  */
-function debugDumpUnparseableText(err: NoObjectGeneratedError): void {
+async function debugDumpUnparseableText(
+	err: NoObjectGeneratedError,
+): Promise<void> {
 	const dir = process.env.NOVA_DEBUG_STRUCTURED_OUTPUT_DIR;
 	if (!dir || !err.text) return;
-	void import("node:fs/promises")
-		.then((fs) =>
-			fs.writeFile(
-				`${dir}/unparseable-${err.response?.id ?? Date.now()}.json.txt`,
-				err.text ?? "",
-				"utf8",
-			),
-		)
-		.catch(() => {
-			// debugging aid only — never let it alter the failure path
-		});
+	try {
+		const fs = await import("node:fs/promises");
+		await fs.writeFile(
+			`${dir}/unparseable-${err.response?.id ?? Date.now()}.json.txt`,
+			err.text,
+			"utf8",
+		);
+	} catch {
+		// A diagnostic write may fail, but its work still belongs to this model call.
+	}
 }
 
 /**
@@ -117,7 +118,9 @@ function debugDumpUnparseableText(err: NoObjectGeneratedError): void {
  * that failed to narrow is a compile error instead of a silent no-op — the
  * exact observability gap this function exists to close.
  */
-function logUnparseableStructuredOutput(err: NoObjectGeneratedError): void {
+async function logUnparseableStructuredOutput(
+	err: NoObjectGeneratedError,
+): Promise<void> {
 	const detail = {
 		finishReason: err.finishReason,
 		responseId: err.response?.id,
@@ -128,7 +131,7 @@ function logUnparseableStructuredOutput(err: NoObjectGeneratedError): void {
 		textShape: classifyUnparseableText(err.text),
 		schemaIssues: schemaIssueSummary(err),
 	};
-	debugDumpUnparseableText(err);
+	await debugDumpUnparseableText(err);
 	if (err.finishReason === "length") {
 		log.warn(
 			"[subGeneration] structured output truncated at the output ceiling",
@@ -313,7 +316,7 @@ export async function generateObjectWith<T>(opts: {
 		// caller can meter spent tokens and detect truncation. Any other error (a
 		// real network/auth/server failure) propagates.
 		if (NoObjectGeneratedError.isInstance(err)) {
-			logUnparseableStructuredOutput(err);
+			await logUnparseableStructuredOutput(err);
 			return {
 				object: null,
 				usage: err.usage,
@@ -419,17 +422,19 @@ export async function streamObjectWith<T>(opts: {
 					providerOptions: opts.providerOptions,
 				});
 
+		const outputPromise = result.output;
+		const usagePromise = result.usage;
+		const warningsPromise = result.warnings;
+		const finishReasonPromise = result.finishReason;
 		pending = [
-			result.output,
-			result.usage,
-			result.warnings,
-			result.finishReason,
+			outputPromise,
+			usagePromise,
+			warningsPromise,
+			finishReasonPromise,
 		];
-		// `output` (and its siblings) are GETTERS minting a fresh promise per
-		// access, so the instances captured above are never the ones handled
-		// below — observe them NOW or an invalid object's rejection surfaces
-		// as an unhandled rejection even on the clean-drain path.
-		for (const p of pending) void Promise.resolve(p).catch(() => {});
+		// Getters start SDK drains. Capture each once and immediately observe every
+		// outcome; join this same set on success and failure before returning.
+		const settled = Promise.allSettled(pending);
 
 		// Draining `stream` advances generation; the result promises resolve once
 		// it's done. Feed progress from BOTH reasoning and output deltas — reasoning
@@ -441,6 +446,11 @@ export async function streamObjectWith<T>(opts: {
 		// a caller may persist to the run event log.
 		let reasoningText = "";
 		for await (const part of result.stream) {
+			if (part.type === "error") throw part.error;
+			if (part.type === "abort") {
+				opts.abortSignal?.throwIfAborted();
+				throw new DOMException("The model call was aborted.", "AbortError");
+			}
 			if (part.type === "reasoning-delta" || part.type === "text-delta") {
 				if (part.type === "reasoning-delta") reasoningText += part.text;
 				if (part.text.length > 0) {
@@ -453,20 +463,21 @@ export async function streamObjectWith<T>(opts: {
 			}
 		}
 
-		// Stream drained → the result promises have settled.
+		// Join all captured result work before interpreting any individual failure.
+		await settled;
 		const [usage, warnings, finishReason] = await Promise.all([
-			result.usage,
-			result.warnings,
-			result.finishReason,
+			usagePromise,
+			warningsPromise,
+			finishReasonPromise,
 		]);
 		// Any output failure (truncation / malformed / type-mismatch) → null object:
 		// same "no partial salvage" contract as the blocking path; the caller treats
 		// null as a failed extraction. Two-arg `then` because `output` is a PromiseLike.
-		const object = await result.output.then(
+		const object = await outputPromise.then(
 			(o) => o as T,
-			(err: unknown) => {
+			async (err: unknown) => {
 				if (NoObjectGeneratedError.isInstance(err)) {
-					logUnparseableStructuredOutput(err);
+					await logUnparseableStructuredOutput(err);
 				} else {
 					/* The stream drained cleanly yet the output promise rejected
 					 * with something other than a parse failure. The caller only
@@ -500,14 +511,11 @@ export async function streamObjectWith<T>(opts: {
 			...(reasoningText.length > 0 && { reasoningText }),
 		};
 	} catch (err) {
-		// A stream-stopping error (transport failure) reaches here before the result
-		// promises are awaited and may reject them too. Observe each (wrapped, since
-		// they're PromiseLike) WITHOUT awaiting — a failed stream could leave one
-		// unsettled — so an unawaited rejection can't escape as an unhandled rejection
-		// (which fails the suite). The original error is what the caller classifies.
-		for (const p of pending) void Promise.resolve(p).catch(() => {});
+		// SDK result readers belong to this call even when the stream fails.
+		// Do not detach them with catch-and-ignore callbacks.
+		await Promise.allSettled(pending);
 		if (NoObjectGeneratedError.isInstance(err)) {
-			logUnparseableStructuredOutput(err);
+			await logUnparseableStructuredOutput(err);
 			return {
 				object: null,
 				usage: err.usage,

@@ -245,6 +245,13 @@ valid direct Builder or MCP edit.
   conversational per-block renderers stay byte-identical because the author
   transcript is prefix-cached and tag numbering shifts when an answered round
   extends the package — tags are derived per render and never persisted.
+  Message, attachment, image-label and normalized-claim text all neutralize
+  source delimiters before projection. Rendering tests prove this formatting
+  boundary; they do not prove that a model obeys the source-data instruction.
+- `artifactResult.ts` admits an independent review or architect decision only
+  after normal provider completion and successful schema parsing. Cancellation
+  and token truncation take precedence even if complete JSON arrived earlier.
+  Provider/transport errors retain their original classification and throw.
 - Localization intent belongs to the accepted Design Contract, never inferred
   from conversation language. It names canonical source, runtime default,
   target metadata, each target's existing seed language, and `copy-only` versus

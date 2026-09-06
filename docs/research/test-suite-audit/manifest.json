@@ -1950,7 +1950,10 @@
 			"file": "lib/agent/__tests__/designGenerationContextWire.test.ts",
 			"lines": 197,
 			"ciMs": 406,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "9b5b61e1b66fe59ae43c10761c209f41b2864e9a635286a57b80d7bb13509165",
+			"review": "Read DesignGenerationContext and UsageAccumulator; replaced deliberate doStream failure capture with actual production contract schema over HTTP/SSE and real provider transport injection. Actual structured output, usage and design role wire verified; existing real usage accumulator sink-failure test retained. SDK pending-promise diagnostics acknowledged, not suppressed.",
+			"reviewedSha256": "9376982dae52582e7aac46cfb0b6249bd9ec89be09733731f39a1322c20b5b56"
 		},
 		{
 			"file": "lib/agent/__tests__/documentExtraction.test.ts",
@@ -2016,7 +2019,10 @@
 			"file": "lib/agent/__tests__/modelRunContext.test.ts",
 			"lines": 110,
 			"ciMs": 231,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "392224a7356ee942c58504dcdd0aadbfc20ffe6eb2ba17d88b63a61bac1c9ea7",
+			"review": "Read modelRunContext.ts. Removed duplicated mocked streamText/Output.object facade; actual model-run adapter is exercised through native Responses HTTP peer in subGeneration and designGenerationContextWire tests, including strict schema, provider options, usage and cancellation.",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/agent/__tests__/moduleHierarchyReads.test.ts",
@@ -2079,7 +2085,10 @@
 			"file": "lib/agent/__tests__/subGeneration.test.ts",
 			"lines": 398,
 			"ciMs": 128,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "8a9b428c951e3be3b81565b7b08c943ef0d97f55eac29db9b8eeb6ea1df09222",
+			"review": "Read subGeneration/modelRunContext/provider transport owners. Replaced whole-SDK mocks with actual SDK against scoped loopback Responses HTTP/SSE peer. Exercises actual request normalization, structured JSON, partial/schema-invalid output, usage, callbacks, input image/PDF serialization, HTTP refusal, header/body cancellation and disconnected body. Found and fixed swallowed SDK stream error/abort frames and joined all SDK result promises. Guard-disabling negative control failed. Pending inert SDK promise diagnostics remain; socket/transport lifetimes explicitly owned, no live-provider quality claim.",
+			"reviewedSha256": "a3032e9f63caa396832ec168af08af2316abc8528d1be49fe2a7d54bbff6220a"
 		},
 		{
 			"file": "lib/agent/__tests__/summarizeBlueprint-reminders.test.ts",
@@ -2172,13 +2181,19 @@
 			"file": "lib/agent/build/__tests__/authoritativeCompletion.test.ts",
 			"lines": 92,
 			"ciMs": 622,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "85bb0d6d60492867a375925f5875b9341748b1ac755bdade060885ac141e5820",
+			"review": "Read entire receipt-set owner and callers. Replaced fixture self-confirmation with independent frozen-lineage, empty/missing/extra receipt, repeated/backward sequence, reordered/duplicate/foreign slice cases; accepts noncontiguous increasing app revisions. Narrowed source input to consumed slice identity. Pure receipt admission only; database completion remains separately owned.",
+			"reviewedSha256": "567b23da298b661368aba4caf463edbbead9407683a4f9b75a1df50676099e38"
 		},
 		{
 			"file": "lib/agent/build/__tests__/budgets.test.ts",
 			"lines": 122,
 			"ciMs": 755,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "779f1cf12222c048fa9ba422fb1d97c7cae93e4c4823adfdc14c0502eb89cf44",
+			"review": "Read whole budget owner and rules. Replaced enum membership and prompt-version pins with every risk arm, arithmetic contribution, each tier boundary and saturation; fixtures exercise actual budget inputs. Removed false source comment claiming compiler version coupling was tested.",
+			"reviewedSha256": "1cf9812db294ae0f2034600ea29a42eec2b4818d806fd18b4cd8047280d7258d"
 		},
 		{
 			"file": "lib/agent/build/__tests__/designLoopRunner.test.ts",
@@ -2202,7 +2217,10 @@
 			"file": "lib/agent/build/__tests__/executionBlocker.test.ts",
 			"lines": 59,
 			"ciMs": 1693,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "aca8d8671b24c5c20a3fbf113b6efeb8e9793c5d04a0963900700950b39f92f1",
+			"review": "Replaced 59-line schema pins with real DesignGenerationContext, provider SDK and loopback Responses HTTP across four decision branches, invalid schemas, usage and exact accepted contract/plan/brief/diagnostic request binding. Complete JSON with max_output_tokens reproduced false produced disposition; fixed shared artifact gate and added separate terminal-reason regressions. Offline transport/schema proof only.",
+			"reviewedSha256": "348766a36958c5986eb1cb8121d57ac1194789f85a1dee3150b1f87458113005"
 		},
 		{
 			"file": "lib/agent/build/__tests__/executionBrief.test.ts",
@@ -2214,7 +2232,10 @@
 			"file": "lib/agent/build/__tests__/executorCacheConfig.test.ts",
 			"lines": 121,
 			"ciMs": 2201,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "1e1a58c13fada9713012a28a81207f534f381084efcd879804c591823297e2e6",
+			"review": "Read production executor step and actual SDK boundary. Replaced mocked streamText with native Responses HTTP request serialization, fragmented ordered function calls, text/reasoning/usage, refusal, preabort and live socket cancellation. Native HTTP400 previously became missing-output error; owner now throws original SDK error/abort events and captures/joins aggregate readers once. No live model judgment proof; SDK inert promise diagnostics remain documented.",
+			"reviewedSha256": "f0953be8b1244ed4ba3a050866696632ece24ea22dd282ca707846de2f0245d2"
 		},
 		{
 			"file": "lib/agent/build/__tests__/executorLoop.test.ts",
@@ -2352,13 +2373,19 @@
 			"file": "lib/agent/design/__tests__/capabilityCatalog.test.ts",
 			"lines": 66,
 			"ciMs": 1627,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "bb0c7595f89d03af74f1c40dc80c6bf9840dbf5d5ed5e7633813b13b343de484",
+			"review": "Read full catalog source and consumer. Removed generated snapshot and copied inventories that could not prove native capabilities; real catalog-to-review rendering now covered in prompts test, constructibility remains native consumer responsibility.",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/agent/design/__tests__/complexity.test.ts",
 			"lines": 56,
 			"ciMs": 797,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "71027ff957cfa69011f0cdc2ba2c49492a89c5368f3a2415c15b048ee8a62ce5",
+			"review": "Read whole complexity owner and graph/schema fixtures. Replaced duplicated invalid workflows and enum inclusion with schema/graph-admitted contracts carrying unique workflows/forms/inputs, exact component readings and compact/standard/extended boundaries. Pure complexity classification proof only.",
+			"reviewedSha256": "c90fca3a4d69bf31fcdcdc2da2ff3dba2764e1db0b8d0651c05a86533c1c674e"
 		},
 		{
 			"file": "lib/agent/design/__tests__/contractStorageNormalization.test.ts",
@@ -2400,7 +2427,10 @@
 			"file": "lib/agent/design/__tests__/prompts.test.ts",
 			"lines": 489,
 			"ciMs": 272,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "9c8b31a67cc774308fed888e1228c97bb0e386c3c01a73f4dfbe65fb08b370b1",
+			"review": "Read full renderer and prompt content. Removed phrase pins and malformed cast gate packet. Kept genuine source/citation formatting, uses actual admitted contract and real image bytes, renders actual full capability catalog. Two normalized claim delimiter counterexamples failed; claims now share source delimiter neutralization and reviewer version bumped. Formatting does not prove model obedience or app quality.",
+			"reviewedSha256": "c748aaae39702a207558e0f12372f6513073b42356a2a53e81a7795fb3e5e459"
 		},
 		{
 			"file": "lib/agent/design/__tests__/reviewVocabulary.test.ts",

@@ -265,6 +265,14 @@ in the ordinary checks. They are guardrails, not a proof that arbitrary async
 work cannot leak; resource-owning code needs explicit lifecycle assertions.
 There is no duplicate async-hooks test run.
 
+Native provider tests retain the real SDK and use an owned loopback HTTP peer.
+Some SDK stream implementations leave unreachable pending promise allocations
+after their sockets, readers and result work have settled. Record those
+async-hooks diagnostics honestly; an exit code of zero does not make the run
+leak-clean. Do not replace the SDK with a mock, exclude its dependencies, or
+isolate the test in a child merely to hide allocations. Verify completion,
+transport failure and cancellation through observable resource ownership.
+
 ## Database fixtures
 
 Use `sql/__tests__/setup.ts` for SQL that fits a rollback transaction. Code that

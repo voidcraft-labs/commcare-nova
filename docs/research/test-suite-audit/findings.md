@@ -2120,3 +2120,50 @@ specifiers, including relative imports, exports, import types, and loaders;
 comments and quoted examples are not imports. Positive and negative fixtures
 exercise the rule itself. Parsing uses one owned compiler process without the
 application import/type graph, and malformed-source cleanup is exercised too.
+
+
+### Executor tests retain the native provider and stream
+
+Replaced the executor's mocked `streamText` boundary with native Responses HTTP
+requests to a loopback peer. The suite observes serialized cache/privacy and tool
+policy, fragmented ordered function calls, complete text/reasoning/usage,
+midstream cancellation and pre-aborted calls. It caught a real classification
+loss: an HTTP 400 tool-policy refusal surfaced as `AI_NoOutputGeneratedError`
+because the executor ignored SDK error events. The executor now propagates the
+original event error, reads aggregate getters once, and joins those same readers
+on every exit. No paid model call is involved; this proves request and stream
+handling, not model judgment.
+
+Receipt-set admission now consumes only slice identity and has independent
+negative cases for every frozen-lineage dimension, missing/extra receipts, empty
+batches, repeated/backward sequence and reordered/duplicate/foreign slices.
+Noncontiguous increasing app revisions are accepted. Database completion authority
+and persistence remain separate PostgreSQL obligations.
+
+
+### Parsed structured output still requires normal provider completion
+
+Native architect decision tests replace schema-shape-only assertions with the
+real design context, SDK, strict output adapter and local Responses peer. Every
+supported decision branch is decoded; invalid branches and fields are refused,
+and the serialized request carries the exact frozen design, plan, brief and
+current diagnostics. A complete JSON decision followed by provider
+`max_output_tokens` previously became an actionable artifact. The shared
+reviewer/architect artifact gate now requires normal completion and gives
+cancellation and truncation precedence over a parsed object. Its pure disposition
+tests also refuse filtered, erroneous, tool-call and unknown terminal reasons.
+
+Removed design prompt phrase pins and the generated capability snapshot. These
+could confirm that instructions were present but could not prove design quality
+or native constructibility. Renderer tests cover actual review composition and
+citation projection. Normalized source claims were missing the delimiter
+neutralization already applied to message/document/image text; two direct
+counterexamples reproduced extra source tags. Claim rendering now applies the
+same neutralization. This establishes delimiter formatting, not model obedience.
+
+Complexity fixtures now pass full schema and graph admission, including all
+unique workflow/form/input identities. Exact component readings and compact,
+standard and extended boundaries replace enum-membership and duplicated invalid
+workflow assertions. Budget tests cover each risk arm and saturation boundary;
+the unrelated prompt-version pin was removed because it did not enforce the
+claimed coupling between a budget retune and a compiler-version bump.
