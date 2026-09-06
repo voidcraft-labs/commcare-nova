@@ -513,8 +513,7 @@ export function emitTerm(
  * leaf identifier is identical regardless of root.
  *
  * Reserved CommCare attributes pick up the `@` prefix at the leaf;
- * everything else flows through `quoteIdentifier` for the lexical
- * pass-through.
+ * other properties retain their declared names.
  */
 export function emitOnDevicePropertyRef(
 	prop: PropertyRef,

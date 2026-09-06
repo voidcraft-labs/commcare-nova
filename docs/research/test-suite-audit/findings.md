@@ -1737,3 +1737,30 @@ while the copy suite exercises every code with missing and populated details,
 internal fallbacks, ordered lists and withheld choices. All 130 checks across
 four files and full typecheck pass. The 19 stale organization UI-mock failures
 from the broader run remain part of the pending method redesign.
+
+## Quoting evidence must execute the original program
+
+The runtime suite replaced input-node expressions and their presence checks
+with literals before calling Nova's preview evaluator. That simulated program
+hid the difference between an absent node and an explicitly empty answer; its
+injection checks only looked for the original string inside the output. The
+whole suite is removed. A new fully admitted app supplies six query shapes to
+Core's actual query manager, followed by native HQ compilation of the complete
+resulting queries. Ordinary CI checks its complete export joins.
+
+Twelve answer states on each export path produce 144 native queries. HQ compiles
+130 to independently expected complete filters and refuses 14 unsafe whole
+queries. The corpus includes negation, OR, nested presence, adversarial quote
+text, Unicode/newlines, values combining both delimiters, clearing and an unused
+conditional branch. Prompt-error ownership is checked separately from raw-query
+refusal. No runtime quoting production defect was found by this replacement.
+
+The lexical suite is reduced to explicit per-dialect examples and decimal
+round-trip properties over finite IEEE values, including extremes and 2,000
+seeded samples. The identifier identity helper, its export and tests are removed;
+actual property-to-attribute mapping remains owned and tested by casePropertyWire.
+Native source/artifact evidence is recorded in `native-{hq,core,csql}-quotes.json`.
+
+Validation: 70 focused checks across six files, including the 2,000-sample
+numeric property, and full typecheck pass. Native HQ regenerates the complete
+entry and remote-request trees with no differences.

@@ -439,3 +439,11 @@ user-reachable code needs a renderer. Copy tests cover missing and populated
 details, internal fallbacks, ordered collections, choice refusals and specific
 repair reasons. Boundary tests carry real findings through that renderer so
 missing location details cannot be hidden by a synthetic rich finding.
+
+Runtime quote safety uses a single admitted app with six complete query shapes.
+Core owns input presence, computed values and prompt-error transitions; native
+HQ consumes all 144 resulting query strings and compares full filters or exact
+refusals. The former tests that replaced XPath nodes with literal strings before
+calling Nova's evaluator are gone. Ordinary CI checks artifact assembly only.
+Lexical helper tests retain explicit per-dialect examples and a deterministic
+finite-double decimal round-trip property, without claiming native acceptance.

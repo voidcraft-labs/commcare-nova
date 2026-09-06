@@ -4232,7 +4232,10 @@
 			"file": "lib/commcare/predicate/__tests__/csqlRuntimeQuoting.test.ts",
 			"lines": 149,
 			"ciMs": 619,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read complete suite and runtime guards. Remove the method that replaces input XPath and node presence with literals before using Nova preview evaluation. Replace with one fully admitted six-query app, native Core query-manager input/error transitions for 12 states on both carriers, and all 144 actual payloads compiled or refused by native HQ with full independently expected filters. Keep only complete artifact assembly in csqlQuoteExport.test.ts; no native acceptance claim for its string joins.",
+			"baselineSha256": "61d8a6d2293d92a1285757a2cbbfff1497b0c632615b64fd21c945d0682b8a36",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/commcare/predicate/__tests__/csqlRuntimeWalk.test.ts",
@@ -4262,7 +4265,10 @@
 			"file": "lib/commcare/predicate/__tests__/stringQuoting.test.ts",
 			"lines": 366,
 			"ciMs": 49,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete lexical helper and consumers. Collapse duplicated per-dialect examples into one explicit output table with direct representability refusals. Add decimal-only and exact Number round trips over IEEE extremes and 2000 seeded finite doubles. Remove quoteIdentifier passthrough abstraction/export/tests; real casePropertyWire mapping remains independently covered. These are private lexical contracts, not native consumer acceptance.",
+			"baselineSha256": "b7b9e1f351e73236cdfe1c0229e0fa3c258ba952509817aa0adb40ddecf18b5b",
+			"reviewedSha256": "eee9f94b0cd3c3bfd7ddd4f47efdbb8758504433a6ee7e58960951e56e3c4307"
 		},
 		{
 			"file": "lib/commcare/suite/__tests__/displayConditions.test.ts",

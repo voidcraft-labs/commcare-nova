@@ -198,3 +198,31 @@ root and dependency overlay, plus `--corpus functions
 Twenty exact query payloads compile to independently specified complete filters;
 twelve relation/matcher payloads preserve full native ASTs without running a
 relation query. The ungrouped date quantity is rejected as a negative control.
+
+## Runtime quoting
+
+Emit the fully admitted `runtime-quotes` app and compare the complete HQ and
+local Search entries:
+
+```bash
+mise exec -- npx tsx scripts/fixtures/hq/emit-quote-evidence.ts /tmp/nova-quote-evidence
+PYTHONDONTWRITEBYTECODE=1 /path/to/commcare-hq/.venv/bin/python \
+  scripts/fixtures/hq/search-emission-proof.py \
+  --hq-root /path/to/commcare-hq --exports /tmp/nova-quote-evidence --corpus quotes
+```
+
+Run `CsqlQuoteRuntimeTest` as described in the Core README, then consume its
+actual answers and complete query strings:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 /path/to/commcare-hq/.venv/bin/python \
+  scripts/fixtures/hq/quote-payload-proof.py --hq-root /path/to/commcare-hq \
+  --payloads /path/to/commcare-core/build/nova-quote-payloads.jsonl
+```
+
+Both Python commands accept the same optional `--python-path` dependency overlay
+as the other proofs. The exact corpus is required. Native HQ compiles 130 queries
+to complete expected filters and rejects 14 complete unsafe queries, including
+negation and OR. Query-like text remains one literal, absent inputs differ from
+explicitly empty nodes, and unused conditional values do not cause refusal.
+No network search or Elasticsearch result set is involved.

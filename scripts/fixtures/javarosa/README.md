@@ -167,3 +167,16 @@ session data changes a conditional nested argument. The methods write
 `build/nova-function-payloads.tsv` and `build/nova-function-arguments.tsv` for the
 HQ proof. The latter establishes parsed relation structure, not server relation
 results. No resource installation, Android renderer or remote request is claimed.
+
+## Runtime quote guards
+
+After the quoting producer and native HQ comparison, run the same Gradle command
+with `-PnovaProofResources=/tmp/nova-quote-evidence` and
+`--tests nova.compatibility.CsqlQuoteRuntimeTest`. One method drives 12 answer
+states on each export path through the actual `RemoteQuerySessionManager`,
+including clearing and an explicitly present empty answer. It checks prompt
+error ownership and complete refusal values even when prompt validation is
+bypassed by asking for raw query parameters. The resulting 144 queries are
+written to `build/nova-quote-payloads.jsonl` for the independent HQ compilation
+check. No XPath source replacement, Nova evaluator, Android widget or HTTP
+request is used as a substitute for native query values.

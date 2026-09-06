@@ -1,0 +1,13 @@
+{
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"scenarios": [
+		{
+			"scenario": "runtime-quotes",
+			"sourceSha256": "7a75e99968ebc24c0aee6064c664edfa24ad7aa50f8ef83196912308e92d84fb",
+			"suiteSha256": "299f62322df20da063aad12aa8dad47b3b180401bdd006c27acaa928cb43654d",
+			"nativeSuiteSha256": "71ea02584777d066444f826b06ae308b5359e35ab3a77040d1fe9ed9e4165da4",
+			"differences": []
+		}
+	],
+	"limits": "Native HQ Application import and detail/entry/menu contributors, remote request/workflow/instance post-processing. Complete entry and remote-request trees compared, retaining leaf text and child order; only explicitly recorded structural differences. Build version and URL origin are supplied; no resource install, full HQ build or network. Domain-only UCR, optimization, empty-list text, registry, endpoint and sync-on-form-entry flags disabled; advanced Search enabled for defaults."
+}

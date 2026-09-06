@@ -30,8 +30,7 @@
 //     `<data>` slots are produced; the result is a single wrapper
 //     string the wire layer drops into `<data key="_xpath_query">`.
 //
-// Lexical helpers (`quoteLiteral` / `quoteIdentifier` /
-// `formatNumeric`) flow out of `./stringQuoting` so any consumer that
+// Lexical helpers (`quoteLiteral` / `formatNumeric`) flow out of `./stringQuoting` so any consumer that
 // needs to embed a value in a hand-built CommCare wire string (the
 // expression emitters in `lib/commcare/expression`, future per-slot
 // builders) can reuse the same per-dialect escape strategy as the
@@ -70,4 +69,4 @@ export {
 } from "./instances";
 export { collectRuntimeCsqlStringInputNames } from "./runtimeCsqlQuoteSafety";
 export type { WireDialect } from "./stringQuoting";
-export { formatNumeric, quoteIdentifier, quoteLiteral } from "./stringQuoting";
+export { formatNumeric, quoteLiteral } from "./stringQuoting";
