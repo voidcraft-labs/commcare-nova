@@ -279,6 +279,22 @@ worker's owner set from an authorized `PersistableDoc` snapshot, which carries
 no `fieldParent` index and has no reason to build one to answer a question
 about places.
 
+## Browser read and write lifecycle
+
+`organizationClient.ts` owns the complete read snapshot, subscribed view state,
+optimistic revision, and serialized write queue. `useOrganization` only binds
+that client to React and the payload-free organization subscription. Each
+requested write captures its app's reconciler, waits for the Blueprint barrier,
+and retries once only for `not-committed`. A successful receipt advances the
+queue token synchronously and invalidates older reads before starting its
+refresh. A conflict holds the queue until one refresh settles.
+
+Closing the view invalidates pending view reads and stops notifications; it
+does not cancel saves the author already requested. Those writes retain their
+original app and save barrier, chain returned revisions, and perform a conflict
+read if the next queued request needs its token. A reactivated view reads again.
+Rows still come only from complete server reads, never an optimistic reducer.
+
 ## Boundaries
 
 - `service.ts` is server-only and owns SQL. It takes an authorized

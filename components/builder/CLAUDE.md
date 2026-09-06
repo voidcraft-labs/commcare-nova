@@ -394,7 +394,10 @@ a secondary cue, not the selected-state contract.
 `app-setup/OrganizationSection.tsx` presents one authoring concept over two
 stores: levels and place-information fields are flat Blueprint collections;
 places are an app-scoped, revisioned Postgres tree read through
-`useOrganization`. The store snapshot is the only source for place rows. Level
+`useOrganization`, which subscribes to the production organization client.
+That client owns the write queue and read lifetime, and keeps already-requested
+saves bound to their original app after navigation. The store snapshot is the
+only source for place rows. Level
 and property edits use the ordinary mutation gate; every place write flushes
 pending blueprint changes first and then carries the latest organization
 revision. Persona assignment offers only live places whose level holds workers,

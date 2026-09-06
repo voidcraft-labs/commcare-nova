@@ -42,6 +42,13 @@ tests is preferable to preserving the shape or count of the previous suite.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
 
+The organization client tests call the production state owner directly and
+control only typed Server Action replies and the Blueprint save barrier. They
+prove its queue, revision handoff, stale-read handling, and view lifetime. They
+do not claim those replies would pass server validation. The production-build
+organization journey exercises the React/action/database wiring; transaction
+admission and races belong in the Postgres suites.
+
 For native Node `fetch`, the controlled peer must cover the dispatch path that
 Node actually uses. `__tests__/helpers/httpPeer.ts` supplies an Undici Agent factory
 that resolves every connection key to a mock transport. Its regression test

@@ -1898,3 +1898,30 @@ three fixtures missing the new connection wiring; all 63 tests in those three
 pass after correction. The affected unit graph passes 167 files / 2,019 tests.
 The production-build organization journey passes without retries in 14.8 seconds
 and emits no worker-schema warnings. No existing production database was changed.
+
+## Organization queue evidence belongs to the production client
+
+The whole three-test organization hook suite rendered React while replacing
+all actions and the reconciler; it checked only failure-message fragments. It
+could not establish the write serialization that Places recovery relies on.
+The state now lives in `organizationClient.ts`, with a thin subscribed React
+adapter. Twenty programmatic cases drive that actual client through complete
+read outcomes, superseded successes and failures, all four queued writers,
+revision strings beyond JavaScript's safe integer range, all Blueprint barrier
+refusals, the single allowed retry, a conflict-held successor, transport errors,
+and the complete archive result projection.
+
+The client starts post-write refresh inside the queue and performs one conflict
+refresh. View cleanup invalidates reads and suppresses notifications while
+already-requested saves finish against their original app and captured
+reconciler. Tests separately exercise a conflict refresh needed by queued work
+after navigation, and effect cleanup/reactivation. Controlled action results
+prove the client protocol only, not row validity or database atomicity.
+
+The old three hook tests passed against the extracted adapter before removal.
+The final 20 state cases pass in 5 ms with no DOM environment; full typecheck
+and strict Biome pass. The real production-build organization journey passes
+without retries in 17.8 seconds, including persisted place edits, assignments,
+owner controls, and reloads, with no worker-schema warnings. The full Places
+draft recovery method is still being redesigned; its unrelated mock failures
+are not hidden or counted as passing.

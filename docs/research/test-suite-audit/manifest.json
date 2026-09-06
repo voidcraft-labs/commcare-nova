@@ -7080,7 +7080,10 @@
 			"file": "lib/organization/__tests__/useOrganization.test.tsx",
 			"lines": 92,
 			"ciMs": 730,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read the complete hook and suite. Replace all three simulated-DOM hook tests with the production organization client and 20 programmatic cases at its typed action boundary: complete read states, stale responses, serialized writers, exact int64 revision handoff, bounded Blueprint retries, conflict refresh, failures, archive projections, and subscribed lifetime versus already-requested writes. Real production-build organization journey passes separately; controlled action replies do not prove server admission or transactions.",
+			"baselineSha256": "489434d3f9622ee60fcba0eabda082db25dfcf29b1ec49bc1e0bff8f466c151f",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/preview/__tests__/caseTile.test.ts",
