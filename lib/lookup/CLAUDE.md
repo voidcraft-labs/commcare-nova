@@ -233,3 +233,8 @@ stale manifest or installs a partial table page.
 Keep pure schema/coercion/CSV/order tests separate from Postgres integration
 tests. Bundle Postgres-focused tests into one invocation so local and CI runs do
 not create unnecessary containers.
+
+Snapshot tests should hold a real writer between definition and row reads and
+assert that the complete result stays in one generation. A sequential read of
+matching revisions cannot prove snapshot isolation. Own the pending reader from
+start to finish, release database gates in `finally`, and join it before teardown.

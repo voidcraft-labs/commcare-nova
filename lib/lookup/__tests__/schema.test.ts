@@ -51,7 +51,6 @@ describe("lookup revisions", () => {
 			BigInt("1"),
 			"9223372036854775808",
 		]) {
-			expect(() => lookupRevisionSchema.safeParse(malformed)).not.toThrow();
 			expect(lookupRevisionSchema.safeParse(malformed).success).toBe(false);
 		}
 	});
@@ -62,6 +61,12 @@ describe("lookup revisions", () => {
 		expect(compareLookupRevisions(two, ten)).toBe(-1);
 		expect(compareLookupRevisions(ten, two)).toBe(1);
 		expect(maxLookupRevision(two, ten)).toBe(ten);
+		const precise = parseLookupRevision("9007199254740992");
+		const next = parseLookupRevision("9007199254740993");
+		expect(compareLookupRevisions(precise, next)).toBe(-1);
+		expect(compareLookupRevisions(next, precise)).toBe(1);
+		expect(compareLookupRevisions(next, next)).toBe(0);
+		expect(maxLookupRevision(next, precise)).toBe(next);
 	});
 });
 
@@ -218,11 +223,25 @@ describe("lookup input schemas", () => {
 			createLookupRowInputSchema.safeParse({
 				tableId: TABLE_ID,
 				expectedTableRevision: 17,
-				toIndex: 0.5,
+				toIndex: 0,
 				values: {},
 			}).success,
 		).toBe(false);
 	});
+
+	it.each([-1, 0.5, 5001])(
+		"rejects invalid row position %s with an otherwise valid revision",
+		(toIndex) => {
+			expect(
+				createLookupRowInputSchema.safeParse({
+					tableId: TABLE_ID,
+					expectedTableRevision: "17",
+					toIndex,
+					values: {},
+				}).success,
+			).toBe(false);
+		},
+	);
 
 	it("accepts only exact Postgres-derived byte measurements", () => {
 		expect(

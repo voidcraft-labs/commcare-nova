@@ -1,13 +1,15 @@
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
-import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { CommitReauthError, RunHolderLostError } from "@/lib/db/commitGuard";
 import {
 	applyAuthorizedLookupAuthoringBatch,
 	readAuthorizedLookupCatalog,
 } from "../agentService";
-import type { LookupAgentWriteScope } from "../types";
+import type {
+	LookupAgentWriteScope,
+	LookupAuthoringBatchInput,
+} from "../types";
 
 const h = setupAppStateTestDb("lookup_agent_service_");
 const APP_ID = "lookup-agent-app";
@@ -17,14 +19,7 @@ const RUN_ID = "lookup-agent-run";
 const NONCE = "11111111-1111-4111-8111-111111111111";
 
 async function seed(): Promise<LookupAgentWriteScope> {
-	await h.seedAppWithBlueprint(
-		makeCanonicalGenesisDoc("Lookup agent", APP_ID),
-		{
-			id: APP_ID,
-			owner: ACTOR_ID,
-			projectId: PROJECT_ID,
-		},
-	);
+	await h.seedApp({ id: APP_ID, owner: ACTOR_ID, project_id: PROJECT_ID });
 	await h
 		.db()
 		.updateTable("apps")
@@ -50,10 +45,38 @@ async function seed(): Promise<LookupAgentWriteScope> {
 	};
 }
 
+const createTable: LookupAuthoringBatchInput = {
+	createTables: [
+		{
+			key: "table",
+			name: "Table",
+			tag: "table",
+			columns: [
+				{ key: "value", wireName: "value", label: "Value", dataType: "text" },
+			],
+			rows: [],
+		},
+	],
+};
+
 describe("lookup agent service authority", () => {
-	it("holds the app authority proof through a catalog read", async () => {
+	it("checks the exact chat holder before catalog reads and writes", async () => {
 		const scope = await seed();
 		expect((await readAuthorizedLookupCatalog(scope)).definitions).toEqual([]);
+		const created = await applyAuthorizedLookupAuthoringBatch(
+			scope,
+			createTable,
+		);
+		expect(
+			(await readAuthorizedLookupCatalog(scope)).definitions.map(
+				(table) => table.id,
+			),
+		).toEqual([created.tables[0].tableId]);
+		const before = await h
+			.db()
+			.selectFrom("lookup_tables")
+			.selectAll()
+			.execute();
 		await h
 			.db()
 			.updateTable("apps")
@@ -65,6 +88,12 @@ describe("lookup agent service authority", () => {
 		await expect(readAuthorizedLookupCatalog(scope)).rejects.toBeInstanceOf(
 			RunHolderLostError,
 		);
+		await expect(
+			applyAuthorizedLookupAuthoringBatch(scope, createTable),
+		).rejects.toBeInstanceOf(RunHolderLostError);
+		expect(
+			await h.db().selectFrom("lookup_tables").selectAll().execute(),
+		).toEqual(before);
 	});
 
 	it("makes a chat loss of edit capability terminal before writing", async () => {
@@ -74,25 +103,11 @@ describe("lookup agent service authority", () => {
 			CommitReauthError,
 		);
 		await expect(
-			applyAuthorizedLookupAuthoringBatch(scope, {
-				createTables: [
-					{
-						key: "table",
-						name: "Table",
-						tag: "table",
-						columns: [
-							{
-								key: "value",
-								wireName: "value",
-								label: "Value",
-								dataType: "text",
-							},
-						],
-						rows: [],
-					},
-				],
-			}),
+			applyAuthorizedLookupAuthoringBatch(scope, createTable),
 		).rejects.toBeInstanceOf(CommitReauthError);
+		expect(
+			await h.db().selectFrom("lookup_tables").selectAll().execute(),
+		).toEqual([]);
 	});
 
 	it("fails closed for stale MCP Project and membership authority", async () => {
@@ -103,6 +118,9 @@ describe("lookup agent service authority", () => {
 			actorId: chatScope.actorId,
 			runId: chatScope.runId,
 		};
+		expect((await readAuthorizedLookupCatalog(mcpScope)).definitions).toEqual(
+			[],
+		);
 		await expect(
 			readAuthorizedLookupCatalog({
 				...mcpScope,

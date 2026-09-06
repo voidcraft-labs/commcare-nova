@@ -6312,7 +6312,10 @@
 			"file": "lib/lookup/__tests__/agentService.postgres.test.ts",
 			"lines": 122,
 			"ciMs": 3562,
-			"status": "pending"
+			"status": "revised",
+			"review": "Use canonical app helper without agent-fixture import. Prove an authorized write/read first, then exact holder loss rejects both read and write with stored tables unchanged; role denial also proves no table write, and MCP stale authority has an accepted control. Retitle sequential holder check honestly.",
+			"baselineSha256": "cc6888f9b2be55c45c7c0b7df18fc014988059b467d58006a59522a5944a7240",
+			"reviewedSha256": "2852ed4e0c2b224f178709b5df61ae89c4ea2f0a5352ee6a79211dac08b6da3e"
 		},
 		{
 			"file": "lib/lookup/__tests__/authoringBatch.postgres.test.ts",
@@ -6324,25 +6327,37 @@
 			"file": "lib/lookup/__tests__/coercion.test.ts",
 			"lines": 186,
 			"ciMs": 130,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain direct typed/CSV coercion, strict temporal, missing-cell, source-row, and bounded-detail tests. Numeric CSV tests now assert converted numeric values rather than success alone.",
+			"baselineSha256": "e5bda2e62fd38e08bfac4b7298b7dcf4fa983dc93d833c27f20b82cea4a73191",
+			"reviewedSha256": "6f7da0963da306c6944b2a4b289f10116137cdb980847895283c59e031f4ed14"
 		},
 		{
 			"file": "lib/lookup/__tests__/csv.test.ts",
 			"lines": 253,
 			"ciMs": 139,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain byte/quote/record/prototype/header/coercion boundary coverage. Pair column/row over-limit refusals with exact-limit acceptance and remove incidental error-message wording from the column-cap assertion.",
+			"baselineSha256": "0fa59281598eae8be1418cbc36e8107640a86b48063d2b2c2af92ad0957a380c",
+			"reviewedSha256": "83ec3fda5b5ad619f8bada5fac7a3ab79f2e26d4158787992a6acda10cf22a49"
 		},
 		{
 			"file": "lib/lookup/__tests__/fixtureSnapshot.postgres.test.ts",
 			"lines": 144,
 			"ciMs": 2349,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replace one-generation claim based on sequential reads with a real second connection: block the row read after definition snapshot, commit changed definition/rows/revision, require the complete old generation and a fresh new read. Mutation-verified READ COMMITTED fails by returning new row values with old definitions. Also assert definition order/columns and a nonzero Project clock on empty requests; remove redundant fixture assertion and type casts.",
+			"baselineSha256": "c7e1a9d1473f1bf810072147ada6a03d3dbc7067bde8c2ba7c45982eed337dfc",
+			"reviewedSha256": "8a9164ae785a69fd9c31b7001189ae22fd2b8d85b4d70a2982456bfc3689f042"
 		},
 		{
 			"file": "lib/lookup/__tests__/schema.test.ts",
 			"lines": 241,
 			"ciMs": 153,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain native parser and public branded-slot contracts; remove redundant double parse and isolate invalid revision versus invalid row-index cases. Prove exact comparison above JavaScript safe-integer precision, equality, and reverse max order.",
+			"baselineSha256": "f2d4d6ebab4510b9c54f288499b8ea15f00d979a36c91f383523c99c0422416a",
+			"reviewedSha256": "163644d4d237395282ddc020fb1f2fd60f65cafcabdd09858d7d21098bc557cd"
 		},
 		{
 			"file": "lib/lookup/__tests__/schemaGovernance.postgres.test.ts",

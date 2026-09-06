@@ -55,7 +55,10 @@ describe("coerceLookupCell", () => {
 			});
 		}
 		for (const value of ["-2147483648", "0", "2147483647"]) {
-			expect(coerceLookupCell("int", value, "csv").success).toBe(true);
+			expect(coerceLookupCell("int", value, "csv")).toEqual({
+				success: true,
+				value: Number(value),
+			});
 		}
 		for (const value of ["+1", "01", "-0", "1.0", " 1", "2147483648"]) {
 			expect(coerceLookupCell("int", value, "csv").success).toBe(false);
@@ -70,7 +73,10 @@ describe("coerceLookupCell", () => {
 			expect(coerceLookupCell("decimal", value).success).toBe(true);
 		}
 		for (const value of ["0", "-1.5", "1e+20", "1.0"]) {
-			expect(coerceLookupCell("decimal", value, "csv").success).toBe(true);
+			expect(coerceLookupCell("decimal", value, "csv")).toEqual({
+				success: true,
+				value: Number(value),
+			});
 		}
 		for (const value of ["+1", ".5", "1.", "01", "NaN", "1e309"]) {
 			expect(coerceLookupCell("decimal", value, "csv").success).toBe(false);
