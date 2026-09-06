@@ -4005,7 +4005,10 @@
 			"file": "lib/commcare/__tests__/session.test.ts",
 			"lines": 1022,
 			"ciMs": 827,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "8808dffb7424ca1777ed0607d579a423e8d903048f340842587d77eaa8bfab64",
+			"reviewedSha256": "0ddb58b91fe9ff4b17e955dca695c9fddb2328a59b51c4bb0567fd7bd07e0f5b",
+			"review": "Whole 1022-line method and 1570-line production projection reviewed. Removed partial invalid action fixtures, circular lowerXPath expectations, serializer entity spelling pins and duplicated native/export coverage. Retained compact direct projection contracts for each dependency source, shared browse/form deduplication, unanswered Search substitution, module/previous/query frames, all fallback destinations and explicit reset precedence. Query data is inspected through namespace-aware decoded XML. Complete repeat action numbering already belongs to accepted root/repeat/root export evidence. Removed the two production string adapters used only by this old test file. No native runtime claim from these private projection tests."
 		},
 		{
 			"file": "lib/commcare/__tests__/suiteOracle.fuzz.test.ts",
@@ -4251,7 +4254,10 @@
 			"file": "lib/commcare/suite/__tests__/displayConditions.test.ts",
 			"lines": 107,
 			"ciMs": 437,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "0bf1ee57b5297694a2460da44d876ed6f1fd8d18256f3a41219ce471ea9f028e",
+			"reviewedSha256": "ee94af8f422c3ffcfd5b03d0ceee074ba87ae9d2b49508bb1288b3a5db9f1910",
+			"review": "Whole method and source reviewed. Replaced redundant contains/negative-regex checks and a misleading absent-node runtime claim with paired suite/HQ expression projection contracts. Covers a nondefault selected datum, nested values, reserved attributes versus global session terms, all comparison operators and complete constant-folding outputs. Existing native navigation evidence owns runtime evaluation; these tests assert emitted expressions only."
 		},
 		{
 			"file": "lib/commcare/suite/case-list/__tests__/caseListBrowseEntry.test.ts",

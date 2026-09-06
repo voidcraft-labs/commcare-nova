@@ -1571,3 +1571,23 @@ negative control. This proves query compilation, not Elasticsearch execution.
 Validation: 10 focused compiler cases, six native execution methods, 11 native
 HQ forms and ten native CSQL payloads pass. Typecheck passes. No production
 behavior changed in this replacement.
+
+## Session tests now state their actual boundary
+
+The old 1,022-line session suite duplicated compiler, repeat, case and tile
+coverage while supplying partial actions and impossible authoring states. Its
+repeat-index test never emitted a later non-repeat action, so it could not
+observe the index it claimed to prove. The accepted root/repeat/root export
+case already checks that allocation and its actual XForm references.
+
+The replacement isolates internal projection contracts: each instance-bearing
+slot, combined form/browse dependencies, unanswered Search substitution,
+projected query data, fallback destinations and explicit root-reset precedence.
+It reads decoded XML values instead of serializer spelling. Two string-render
+production adapters with no caller except the deleted test code are removed.
+Navigation-condition tests now pair HQ and local expression projections and
+exercise a nondefault selected datum. They no longer call a string comparison
+a proof of absent-node runtime semantics; native navigation evidence owns the
+existing runtime checks.
+
+Validation: 42 focused session, condition, compiler and repeat cases pass.

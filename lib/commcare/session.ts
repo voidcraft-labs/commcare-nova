@@ -25,16 +25,10 @@
  * Hand-escaping is intentionally absent — double-encoding (`&` →
  * `&amp;` → `&amp;amp;`) is the failure mode it would introduce.
  *
- * `renderEntryXml` / `renderStackXml` exist alongside the Element
- * builders as one-line serialization adapters for callers that consume
- * the rendered string (the surrounding test surface; `compileCcz`
- * itself calls `buildEntryElement` directly and splices the Element
- * into the suite tree).
  */
 
 import type { Element } from "domhandler";
 import { el, text } from "@/lib/commcare/elementBuilders";
-import { serializeXml } from "@/lib/commcare/serializeXml";
 import type {
 	CaseTileGrouping,
 	FormType,
@@ -91,7 +85,7 @@ import { collectInstanceRefs } from "./xform/instanceRefs";
  *     create. No nodeset, no value, no instance dependency.
  *
  * Mutually exclusive on the wire: a datum is one shape or the other.
- * The renderer (`renderEntryXml`) branches on whether `function` is set.
+ * The renderer (`buildDatumElement`) branches on whether `function` is set.
  */
 export interface SessionDatum {
 	id: string;
@@ -1452,7 +1446,7 @@ export function buildStackElement(
  * `commandDisplay` is the command's display child. The compiler passes the
  * form's nav node — a bare `<text><locale/></text>` when the form has no
  * menu media, or a `<display>` wrapping the text + `<text form="image|audio">`
- * media locales when it does. When omitted (the string-render test surface),
+ * media locales when it does. When omitted,
  * the command falls back to a bare `<text><locale/></text>` synthesized
  * from `entry.localeId`.
  */
@@ -1523,14 +1517,6 @@ export function buildEntryElement(
 	return el("entry", {}, children);
 }
 
-// ── String Adapters ─────────────────────────────────────────────────────
-//
-// `renderEntryXml` / `renderStackXml` serialize the constructed Element
-// trees so callers that consume the rendered XML as a string (the test
-// surface) see the same bytes `compileCcz` splices into the assembled
-// suite tree. The compiler itself calls `buildEntryElement` /
-// `buildStackElement` directly.
-
 /** Python's plain string sort: by code unit, never locale-aware. */
 function sortInstancesById(
 	instances: readonly EntryInstance[],
@@ -1538,17 +1524,6 @@ function sortInstancesById(
 	return [...instances].sort((left, right) =>
 		left.id < right.id ? -1 : left.id > right.id ? 1 : 0,
 	);
-}
-
-/** Render an EntryDefinition to a suite.xml `<entry>` string. */
-export function renderEntryXml(entry: EntryDefinition): string {
-	return serializeXml(buildEntryElement(entry));
-}
-
-/** Render stack operations to a suite.xml `<stack>` string. */
-export function renderStackXml(operations: StackOperation[]): string {
-	const stackEl = buildStackElement(operations);
-	return stackEl === null ? "" : serializeXml(stackEl);
 }
 
 // ── HQ Workflow Mapping ────────────────────────────────────────────────
