@@ -2020,3 +2020,19 @@ No cache policy was changed to manufacture a retained-Builder proof. A native
 Back-navigation role journey also passes in 2.1 seconds; actual Builder BFCache restoration
 remains unproven for this artifact, distinct from the programmatic resumable-state
 proof. Ordinary CI continues to use headless shell.
+
+### Build XML consumption is bounded before buffering
+
+The released-build reader previously called `response.text()` before checking
+20,000,000 JavaScript characters. Native HTTP negative controls reproduced both
+defects: a 20,000,001-byte multibyte XML document was accepted, and oversized plain
+and gzip responses waited for the peer to end before refusing. The reader now
+counts decompressed body bytes while consuming chunks, preserves streaming UTF-8
+decoding, and cancels immediately above the byte limit. Its existing deadline
+still owns the complete read. Callers retain semantic XML validation.
+
+The exact-limit multibyte document survives unchanged; the extra byte refuses.
+Both oversized streaming peers observe connection closure before sending their
+terminal response, and an unfinished native XML body closes at the 30-second
+deadline. The unchanged reader fails three of these controls. These are actual
+HTTP socket proofs with a test-only hostname remap, without TLS or live HQ.

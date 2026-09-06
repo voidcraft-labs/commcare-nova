@@ -1190,11 +1190,31 @@ export async function readBuildXml(
 			await response.body?.cancel();
 			return { success: false, status: response.status };
 		}
-		const xml = await response.text();
-		// A HTML login page with status 200 is not a build resource.
-		if (!xml.trim() || xml.length > 20_000_000)
-			return { success: false, status: 502 };
-		return { xml };
+		if (!response.body) return { success: false, status: 502 };
+		const reader = response.body.getReader();
+		try {
+			const decoder = new TextDecoder();
+			const parts: string[] = [];
+			let bytes = 0;
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				bytes += value.byteLength;
+				// Fetch has already decompressed the HTTP body. Do not trust
+				// Content-Length or buffer the full resource before enforcing this.
+				if (bytes > 20_000_000) {
+					await reader.cancel();
+					return { success: false, status: 502 };
+				}
+				parts.push(decoder.decode(value, { stream: true }));
+			}
+			parts.push(decoder.decode());
+			const xml = parts.join("");
+			// The caller validates resource syntax and identity.
+			return xml.trim() ? { xml } : { success: false, status: 502 };
+		} finally {
+			reader.releaseLock();
+		}
 	} catch {
 		return { success: false, status: 503 };
 	} finally {

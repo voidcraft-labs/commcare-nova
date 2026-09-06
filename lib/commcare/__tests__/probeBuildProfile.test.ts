@@ -1,6 +1,8 @@
+import { setImmediate } from "node:timers/promises";
+import { gzipSync } from "node:zlib";
 import type { MockAgent } from "undici";
 import { afterEach, expect, it, vi } from "vitest";
-import { withHttpPeer } from "@/__tests__/helpers/httpPeer";
+import { withHttpPeer, withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { probeBuildProfile, readBuildXml } from "../client";
 
 const CREDS = {
@@ -120,4 +122,95 @@ it("bounds an unanswered resource request and releases its timer after abort", a
 		}
 		expect(peer.getCallHistory()?.calls()).toHaveLength(1);
 	});
+});
+
+const readSuite = () =>
+	readBuildXml(CREDS, "clinic", "released-build", "suite.xml");
+
+it.each([20_000_000, 20_000_001])(
+	"measures the XML limit in decoded HTTP body bytes: %i bytes",
+	async (bytes) => {
+		const xml = `<suite>${"é".repeat(9_999_992)}${bytes === 20_000_000 ? "x" : "xx"}</suite>`;
+		expect(Buffer.byteLength(xml)).toBe(bytes);
+		await withSocketHttpPeer(
+			"eu.commcarehq.org",
+			(_request, response) => response.end(xml),
+			async () => {
+				const result = await readSuite();
+				if (bytes === 20_000_000) expect(result).toEqual({ xml });
+				else
+					expect(
+						"xml" in result
+							? { unexpectedXmlBytes: Buffer.byteLength(result.xml) }
+							: result,
+					).toEqual({ success: false, status: 502 });
+			},
+		);
+	},
+);
+
+it.each(["identity", "gzip"])(
+	"cancels an oversized %s body before the peer finishes it",
+	async (encoding) => {
+		const xml = Buffer.from(`<suite>${"x".repeat(20_000_000)}</suite>`);
+		const body = encoding === "gzip" ? gzipSync(xml) : xml;
+		const closed = Promise.withResolvers<void>();
+		let peerEnded = false;
+		let finish: ReturnType<typeof setTimeout> | undefined;
+		await withSocketHttpPeer(
+			"eu.commcarehq.org",
+			(_request, response) => {
+				response.writeHead(200, { "content-encoding": encoding });
+				response.once("close", closed.resolve);
+				response.write(body);
+				// A broken reader is allowed to finish, so failure still owns teardown.
+				finish = setTimeout(() => {
+					peerEnded = true;
+					response.end();
+				}, 1_000);
+			},
+			async () => {
+				try {
+					expect(await readSuite()).toEqual({ success: false, status: 502 });
+					expect(peerEnded).toBe(false);
+					await closed.promise;
+				} finally {
+					clearTimeout(finish);
+				}
+			},
+		);
+	},
+);
+
+it("owns the deadline through an unfinished native XML body and closes its socket", async () => {
+	vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+	const reached = Promise.withResolvers<void>();
+	const closed = Promise.withResolvers<void>();
+	let pending: ReturnType<typeof readSuite> | undefined;
+	try {
+		await withSocketHttpPeer(
+			"eu.commcarehq.org",
+			(_request, response) => {
+				response.once("close", closed.resolve);
+				response.write("<suite>");
+				reached.resolve();
+			},
+			async () => {
+				let settled = false;
+				pending = readSuite().then((result) => {
+					settled = true;
+					return result;
+				});
+				await reached.promise;
+				await setImmediate();
+				await vi.advanceTimersByTimeAsync(29_999);
+				expect(settled).toBe(false);
+				await vi.advanceTimersByTimeAsync(1);
+				expect(await pending).toEqual({ success: false, status: 503 });
+				await closed.promise;
+			},
+		);
+	} finally {
+		await pending;
+	}
 });

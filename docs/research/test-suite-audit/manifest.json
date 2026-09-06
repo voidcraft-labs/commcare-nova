@@ -3973,8 +3973,8 @@
 			"ciMs": 122,
 			"status": "revised",
 			"baselineSha256": "5bc005ffc57371cc664b49ea9a1e40c142fac397208287cb24c096238d139b9d",
-			"review": "Replaced global fetch stubs and fake profile text with native HTTP transport cases: exact selected-build profile, malformed/empty/wrong-target content, status classification and non-followed redirects, actual network failure, invalid build IDs before requests, and a deterministic abort with timer ownership. Empty HTTP 200 and invalid-ID requests fail before production repair; readiness now reuses the bounded validated resource reader.",
-			"reviewedSha256": "05f5b995c8e033a05613800d9b97e366c9ca7779028871604106fe65ffe590d7"
+			"review": "Whole reader method retains native fetch with controlled exact-endpoint replies for resource identity, classification, redirect refusal, and invalid IDs. Actual loopback HTTP proves the 20,000,000-byte UTF-8 boundary, early cancellation of plain and gzip overflow before peer completion, and deadline ownership through unfinished body/socket closure. Three native negative controls fail before the streaming byte-limit correction. Resource semantics remain with the profile/suite consumers.",
+			"reviewedSha256": "388edc5db8ea22c4df91283ccf412007a024a78bbbe189d3fcdbba8147b23432"
 		},
 		{
 			"file": "lib/commcare/__tests__/projectSpaceCompatibility.test.ts",

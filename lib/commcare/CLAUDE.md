@@ -80,6 +80,11 @@ wrong-build bytes is unverified. Version and build-list readers validate the
 JSON envelope before reading fields, so JSON `null` remains an unavailable HQ
 answer rather than an internal exception.
 
+The XML reader counts decompressed HTTP body bytes as it streams, accepts at most
+20,000,000 bytes, and cancels an oversized body before buffering more. UTF-8
+decoding spans chunks; the 30-second deadline owns headers and body consumption.
+Resource consumers still own XML syntax and selected-build identity checks.
+
 JSON source, version/build, project-space and collection reads share
 `hq/readJson.ts`: native fetch, no redirects, no cache, an owned deadline through
 body consumption, and explicit HTTP/transport/JSON failures. Paginated reads

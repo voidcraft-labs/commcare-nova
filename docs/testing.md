@@ -436,6 +436,12 @@ streaming peers cover incomplete headers/bodies and prove cancellation. The
 compatibility success fixture never finishes its body, so an implementation
 that reads case data fails its available verdict at the owned virtual deadline.
 
+Build XML bounds use native HTTP peers as well: the exact byte limit preserves
+multibyte text, one extra byte refuses, and both plain and gzip bodies must be
+cancelled before the peer finishes its response. The limit applies after HTTP
+decompression. A separate partial-body case proves the deadline closes the
+socket; a complete in-memory response cannot establish that lifetime.
+
 XML checks must distinguish syntax from value preservation. `xmlBoundary.test.ts`
 shares a malformedness corpus with the native HQ/libxml proof, exercises the
 actual mutation gates, and checks exact decoded whitespace and Unicode. The
