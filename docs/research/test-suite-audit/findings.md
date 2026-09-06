@@ -1105,3 +1105,17 @@ helper now owns both channels and reports its retained failures after closing;
 three actual pool scenarios verify this. Disabling the report makes the negative
 control fail despite successful socket cleanup. The separate perTestAppDb polling
 quiescence helper and scan-side background reapers remain to be resolved.
+
+
+### Request ownership of scan-side cleanup
+
+All 16 native database scenarios failed before the fix: five admission entry
+points across stale apps/design sessions and three listing scopes across stale
+build/edit holders returned before reaching the held reaper lock. App/session
+admissions now await sequential cleanup after COMMIT; listings and standalone
+scans await it on their own path. The lock proof also observes the already
+committed new debit while the stale refund is blocked, preventing a fix that
+moves cleanup inside the claim transaction and deadlocks its actor gate.
+Listing pagination keeps the original scan timestamp. The old listing suite's
+post-response polling was removed; immediate persisted assertions now prove
+production ownership. Earlier lifecycle, identity and contention tests remain.

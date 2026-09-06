@@ -4909,8 +4909,8 @@
 			"lines": 276,
 			"ciMs": 5718,
 			"status": "revised",
-			"review": "Remove duplicate full-page cursor case, move empty-scope no-I/O check to unit boundary, exercise tied timestamps through pagination; await background reaper committed effects.",
-			"reviewedSha256": "9ae01d5f9aac71b85db53d2f85b1b94ef1ae826511336770ca2cdc7922620fc8",
+			"review": "Revisited actual listing and scan cleanup ownership: removed post-return polling that concealed detached production reapers. Immediate persisted assertions plus 16 native lock cases across app/session admission and all listing scopes prove awaited refunds, post-commit lock order, and original snapshot pagination. Retain real SQL filtering and tied-order pagination contracts.",
+			"reviewedSha256": "446c41785fb137a036e80d018d5d495190162df44db99acc4ca184ac4ac6d79c",
 			"baselineSha256": "1734fac8071b8d8904193021b841f49e80704ffcbeb81219dff7495a5dbd3065"
 		},
 		{

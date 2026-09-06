@@ -315,10 +315,10 @@ export async function deleteMediaAssetForChatRun(args: {
  * target — the cross-target "one build at a time per user" guard, across
  * apps AND design sessions (the scan body lives in
  * `actorGenerationGate.ts::scanActorGenerationTargets`; the claim
- * transactions run the same scan in-txn under the actor gate and fire the
+ * transactions run the same scan in-txn under the actor gate and await the
  * collected reaps after commit).
  *
- * Standalone callers get the fire-and-forget stale-reap side effect.
+ * Standalone callers also await their stale reaps before returning.
  */
 export async function hasActiveGeneration(
 	actorUserId: string,
@@ -328,19 +328,21 @@ export async function hasActiveGeneration(
 	const { live, reapable } = await scanActorGenerationTargets(db, actorUserId, {
 		appId: excludeAppId,
 	});
-	fireScanReaps(reapable);
+	await reapScannedTargets(reapable);
 	return live;
 }
 
-/** Fire the reapers an admission scan surfaced — post-commit, per target
+/** Await the reapers an admission scan surfaced — post-commit, per target
  * kind. The design-session reap body lives in `credits.ts` (this module
  * cannot import `designSessions.ts`, which imports the errors below). */
-function fireScanReaps(reapable: readonly ReapableGenerationTarget[]): void {
+async function reapScannedTargets(
+	reapable: readonly ReapableGenerationTarget[],
+): Promise<void> {
 	for (const target of reapable) {
 		if (target.kind === "app") {
-			void reapStaleGenerating(target.appId, target.identity);
+			await reapStaleGenerating(target.appId, target.identity);
 		} else {
-			void refundStaleDesignSessionRun(
+			await refundStaleDesignSessionRun(
 				target.designSessionId,
 				target.identity,
 			).catch((err) => {
@@ -1540,7 +1542,7 @@ export async function claimAndReserveRun(
 			}
 			return { mode, reservation: { period, reserved: cost }, holderNonce };
 		});
-		fireScanReaps(reapable);
+		await reapScannedTargets(reapable);
 		return claimed;
 	} catch (err) {
 		/* A conflict with a REAPABLE holder — an abandoned run whose lease
@@ -1622,7 +1624,7 @@ export async function reserveForNewBuild(
 		});
 		return { period, reserved: cost };
 	});
-	fireScanReaps(reapable);
+	await reapScannedTargets(reapable);
 	return reservation;
 }
 
@@ -2189,7 +2191,7 @@ export async function setAwaitingInput(
  * flip it to `error` in one transaction with the staleness RE-VALIDATED
  * inside it (`refundStaleGeneration`) — so a fresh build that re-claimed
  * between the scan and the reap reads live and the reap no-ops. Idempotent;
- * fire-and-forget at the scan call sites and AWAITED from the claim's
+ * awaited at the scan call sites and from the claim's
  * conflict nudge.
  */
 export async function reapStaleGenerating(
@@ -2479,18 +2481,20 @@ function cursorFor(
 	}
 }
 
-/** The summary projection + the scan-side reapers: a stale build reads as
- *  `error` immediately (the reap settles asynchronously), and a stranded edit
- *  hold fires the refund-only reaper without changing the row shown. */
-function projectAppSummary(row: AppSummaryRow, now: number): AppSummary {
+/** Project the scan snapshot after awaiting its best-effort reaps. Keep the
+ * original timestamps and order so cleanup does not move the page cursor. */
+async function projectAppSummary(
+	row: AppSummaryRow,
+	now: number,
+): Promise<AppSummary> {
 	const lease = runLeaseState(leaseView(row), now);
 	const isStale = lease.reapableStaleBuild;
 	const exactIdentity = toExactRunHolderIdentity(lease.holderIdentity);
 	if (isStale && exactIdentity?.mode === "build") {
-		void reapStaleGenerating(row.id, exactIdentity);
+		await reapStaleGenerating(row.id, exactIdentity);
 	}
 	if (lease.reapableStrandedEdit && exactIdentity?.mode === "edit") {
-		void reapStaleReservation(row.id, exactIdentity);
+		await reapStaleReservation(row.id, exactIdentity);
 	}
 	return {
 		id: row.id,
@@ -2590,7 +2594,8 @@ async function queryAppsByScope(
 	}
 	const rows = (await query.limit(limit).execute()) as AppSummaryRow[];
 	const now = Date.now();
-	const apps = rows.map((row) => projectAppSummary(row, now));
+	const apps: AppSummary[] = [];
+	for (const row of rows) apps.push(await projectAppSummary(row, now));
 	const last = rows[rows.length - 1];
 	const nextCursor =
 		rows.length === limit && last

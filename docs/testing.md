@@ -310,3 +310,10 @@ accidentally supplying an owner absent in production. Pool shutdown tests also
 exercise direct auth use, initialization in flight and concurrent close/reopen.
 Per-test database pools retain connection failures and fail their owning teardown
 after closure; `DROP DATABASE ... FORCE` cannot excuse a blanket error listener.
+
+
+Admission and listing cleanup is part of its caller's lifetime. The native
+`scanCleanup.postgres.test.ts` holds the stale authority row, proves the caller
+has not returned and any new admission has already committed, then verifies the
+refund immediately after release. Do not add test-side polling after the API
+returns to compensate for a detached production reaper.

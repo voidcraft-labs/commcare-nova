@@ -830,6 +830,16 @@ apps released through the historical **Use what’s built** path stay editable.
 A failed or interrupted current build remains frozen even after its live lease
 has gone away.
 
+**Scans own the cleanup they start.** Standalone admission scans and app listings
+await stale-holder reaps before returning. Successful app/session claims await
+collected reaps AFTER their claim transaction commits, so cleanup never tries to
+reacquire an actor gate the caller still holds. Reaps run sequentially to bound
+pool pressure and remain best effort with logged failures. Listing results and
+cursors retain the original query snapshot, including timestamps; cleanup does
+not re-sort a page. Tests hold the old authority row in actual PostgreSQL and
+prove the caller is pending while the new claim is already committed, then check
+the refund immediately after the call returns.
+
 **Reapers re-validate staleness IN-TXN.** `reapStaleGenerating` →
 `refundStaleGeneration` (stale build: refund + `generating → error` +
 `paused_timeout` classification for an abandoned pause) and
