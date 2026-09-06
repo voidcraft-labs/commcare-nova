@@ -4226,7 +4226,10 @@
 			"file": "lib/commcare/predicate/__tests__/csqlRepresentability.test.ts",
 			"lines": 508,
 			"ciMs": 659,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read the complete test and analyzer; replace context-free acceptance inventories and partial findings with full ordered diagnostic paths, row-scope/numeric-bound contracts, static reachability and six recursive normalization directions with immutability. Full admission plus actual native Core/HQ exported suites separately expose and fix strict-JavaScript equality selecting the wrong branch. Preserve pre-fix native refused queries as negative control; no fake evaluator or server-results claim.",
+			"baselineSha256": "2ac73ca60ee44510899d28807ea6508372f0f7d96824da8db8ca70a0194058e7",
+			"reviewedSha256": "809287b4b88f1712b9d6191720d2424af4dd0cd66af32f1ebc1293cbae04bb22"
 		},
 		{
 			"file": "lib/commcare/predicate/__tests__/csqlRuntimeQuoting.test.ts",

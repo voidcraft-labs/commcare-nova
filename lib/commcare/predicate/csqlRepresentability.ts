@@ -1148,8 +1148,21 @@ function staticallyKnownPrimitive(
 function staticPrimitiveEqual(
 	left: Literal["value"],
 	right: Literal["value"],
-): boolean {
-	return typeof left === typeof right && left === right;
+): boolean | undefined {
+	// These are emitted XPath literals, not JavaScript values: null becomes
+	// empty text and boolean literals become the strings 'true' and 'false'.
+	// Core's XPathEqExpr compares numeric operands with an absolute tolerance.
+	// Mixed numeric/text comparisons invoke Core's numeric/date conversion;
+	// leave those unknown instead of duplicating that runtime here.
+	const emittedLeft = typeof left === "number" ? left : String(left ?? "");
+	const emittedRight = typeof right === "number" ? right : String(right ?? "");
+	if (typeof emittedLeft === "number" && typeof emittedRight === "number") {
+		return Math.abs(emittedLeft - emittedRight) < 1e-12;
+	}
+	if (typeof emittedLeft === "string" && typeof emittedRight === "string") {
+		return emittedLeft === emittedRight;
+	}
+	return undefined;
 }
 
 /** Resolve only predicates whose result is independent of case/session data. */
@@ -1167,6 +1180,7 @@ function staticallyKnownPredicateBoolean(
 			const right = staticallyKnownPrimitive(predicate.right);
 			if (left === undefined || right === undefined) return undefined;
 			const equal = staticPrimitiveEqual(left.value, right.value);
+			if (equal === undefined) return undefined;
 			return predicate.kind === "eq" ? equal : !equal;
 		}
 		case "and": {
@@ -1225,10 +1239,12 @@ function staticallySelectedSwitchBranch(
 ): ValueExpression | undefined {
 	const discriminator = staticallyKnownPrimitive(expression.on);
 	if (discriminator === undefined) return undefined;
-	const selected = expression.cases.find((entry) =>
-		staticPrimitiveEqual(discriminator.value, entry.when.value),
-	);
-	return selected?.then ?? expression.fallback;
+	for (const entry of expression.cases) {
+		const equal = staticPrimitiveEqual(discriminator.value, entry.when.value);
+		if (equal === undefined) return undefined;
+		if (equal) return entry.then;
+	}
+	return expression.fallback;
 }
 
 /** Whether a value is guaranteed to evaluate to a real temporal scalar. */

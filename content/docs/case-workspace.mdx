@@ -357,6 +357,10 @@ has no result. A search rule can also read a Project data table and convert its
 text to a date or number for another calculation, such as adding a table’s
 number of days to a starting date. These rules travel with the exported app.
 
+Nova also checks fixed results in calculated search values. A result using both
+single and double quotation marks needs one kind removed so the search can run.
+A fixed value in a branch that can never run does not block the rule.
+
 To intentionally make one condition include everything or nothing, open that
 condition's matching menu and look under **Special conditions** for **Always
 match** or **Never match**. These whole-condition choices stay out of **Add

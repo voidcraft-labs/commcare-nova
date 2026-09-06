@@ -1764,3 +1764,35 @@ Native source/artifact evidence is recorded in `native-{hq,core,csql}-quotes.jso
 Validation: 70 focused checks across six files, including the 2,000-sample
 numeric property, and full typecheck pass. Native HQ regenerates the complete
 entry and remote-request trees with no differences.
+
+## Static search branches must use emitted runtime equality
+
+The representability analyzer used JavaScript strict equality to select fixed
+`if` and `switch` branches. Core receives null literals as empty text and compares
+numbers with an absolute tolerance below 1e-12. Four conditions in a schema-valid
+app were consequently judged to skip a fixed unquotable value even
+though Core selected it. A fully validated four-query app exported at `06f097e1`
+produced four `search-value-mixes-quote-marks()` refusal values through the actual
+query manager. The retained suite is the native negative control.
+
+Static equality now normalizes the emitted literal forms, uses Core's numeric
+tolerance, and leaves mixed numeric/text conversion unknown. A switch cannot skip
+an unknown earlier match in favor of a later known one. The full validator now
+returns the four authored-path quote findings; the safe counterpart passes all
+validation and produces four exact `first_name = "safe"` queries on both local
+and HQ-regenerated suites. Native HQ compares the complete entry and remote
+request with no differences. No server search or Android rendering is claimed.
+
+The entire representability test method is replaced. Removed context-free
+claims of whole-app acceptance, partial issue matches that could hide extra
+findings, a large predicate inventory labeled as universal coverage, and
+redundant runtime-value examples already covered by native corpora. The private
+contract now asserts complete ordered diagnostic paths, distinct row scopes,
+calendar/count bounds, reachable quote branches, conservative unknown equality,
+and all six recursive comparison reversals without mutating the authored AST.
+Full admission and native execution are established separately.
+
+Validation: the new admission regression fails against the previous production
+source, which returns no findings. All 116 related tests pass with the fix, as
+does full typecheck. Two native Core methods and the complete native HQ comparison
+pass; `native-{core,hq}-static-quotes.json` records sources and exact artifacts.

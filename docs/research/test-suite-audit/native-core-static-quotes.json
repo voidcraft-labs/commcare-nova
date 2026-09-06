@@ -1,0 +1,45 @@
+{
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"nativeSourceSha256": {
+		"src/main/java/org/commcare/xml/SuiteParser.java": "43576499c0190317d2b5db446a5d6253b6dfa5069d6116aaf8fc1af20d775de5",
+		"src/main/java/org/commcare/session/RemoteQuerySessionManager.java": "92b9ad6d3e7a23324569c16d0bc253542c233ff7bd90dc48a5878c32a893e46c",
+		"src/main/java/org/javarosa/xpath/expr/XPathEqExpr.java": "7317248bad4ef765c927b901d37d75065d6bca0f4725736886c1922549a15cf3",
+		"src/main/java/org/javarosa/xpath/expr/FunctionUtils.java": "ab05b196fead54f292cc8e4de210970e338664227e222bcdaff87fb7e175923f"
+	},
+	"testSourceSha256": "8cf61e164abe9a268d6e167862037e9b7939d37fb296846059f865dfaa239071",
+	"producerSourceSha256": "7139fdfec6d4327fb5531f7c274c85b6ee797b704921f8c07599180e0fe8c467",
+	"fixtureSourceSha256": "67d48ef68e8e61f6377d6b91207ab4047fa2fe84e9146970fde8314eae777cb7",
+	"tests": [
+		"formerlyAdmittedBranchesActuallyRefuseSearch",
+		"admittedCounterpartsSelectSafeValuesOnBothCarriers"
+	],
+	"failures": 0,
+	"errors": 0,
+	"skipped": 0,
+	"artifacts": {
+		"static-quotes.hq-suite.xml": "433a841cff3b53eaabbbf8ccdcb86d1bc379d0d5f9c73857eb555a96acc613bc",
+		"static-quotes.suite.xml": "6d45012be5d0a20c417c39f084f1dc14453498e4ab54d9710f5048df02e5d822"
+	},
+	"negativeControl": {
+		"novaCommit": "06f097e1",
+		"resource": "scripts/fixtures/javarosa/resources/before-static-quote-branches.suite.xml",
+		"sha256": "96f6943c28310b343baa1df23420366435e33b3dc5fb74ffd71cf37e40ca1b95",
+		"originalFullValidationFindings": [],
+		"actualQueries": [
+			"search-value-mixes-quote-marks()",
+			"search-value-mixes-quote-marks()",
+			"search-value-mixes-quote-marks()",
+			"search-value-mixes-quote-marks()"
+		]
+	},
+	"expectedSafeQueriesPerCarrier": [
+		"first_name = \"safe\"",
+		"first_name = \"safe\"",
+		"first_name = \"safe\"",
+		"first_name = \"safe\""
+	],
+	"limits": [
+		"Actual suite parser and query manager execute the retained pre-fix failure and both current export paths. No resource installation, Android rendering, network request or Elasticsearch execution.",
+		"The unsafe candidate now yields four full admission findings; the safe candidate passes the full validator. Native Core equality owns the runtime branch verdict."
+	]
+}

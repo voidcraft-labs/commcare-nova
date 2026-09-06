@@ -226,3 +226,9 @@ to complete expected filters and rejects 14 complete unsafe queries, including
 negation and OR. Query-like text remains one literal, absent inputs differ from
 explicitly empty nodes, and unused conditional values do not cause refusal.
 No network search or Elasticsearch result set is involved.
+
+For static branch reachability, produce the admitted counterpart with
+`mise exec -- npx tsx scripts/fixtures/hq/emit-static-quote-evidence.ts /tmp/nova-static-quote-after`
+and run `search-emission-proof.py` with `--exports /tmp/nova-static-quote-after
+--corpus static-quotes` and the same HQ root/dependency overlay. This requires
+exactly one app and compares its complete entry and remote-request trees.

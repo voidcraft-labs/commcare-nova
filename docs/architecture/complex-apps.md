@@ -1367,6 +1367,12 @@ reads that function name as a path after a comma. Native Core-to-HQ payload
 proofs cover the conversion, calendar result and nested argument structure;
 `lib/commcare/CLAUDE.md` owns the emission detail.
 
+Static search-value reachability follows emitted Core equality: null literals
+are empty text, boolean literals are text, and numeric equality uses Core's
+absolute tolerance. Unknown numeric/text conversions keep both branches
+reachable. This prevents admission from discarding the actual runtime branch
+when checking whether a fixed result can be quoted in the server query.
+
 #### Search first
 
 A module may open on its Search screen instead of a browse list

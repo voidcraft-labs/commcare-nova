@@ -447,3 +447,11 @@ refusals. The former tests that replaced XPath nodes with literal strings before
 calling Nova's evaluator are gone. Ordinary CI checks artifact assembly only.
 Lexical helper tests retain explicit per-dialect examples and a deterministic
 finite-double decimal round-trip property, without claiming native acceptance.
+
+Static quote reachability has a separate native counterexample. The retained
+pre-fix suite produces four refused queries under Core's real equality rules;
+the opposite branches in a currently admitted document produce four safe values
+on both export paths. The ordinary test checks the full admission findings and
+their authored paths. Private representability tests assert complete diagnostic
+sequences and recursive normalization, without presenting a context-free check
+as proof of document admission or native execution.
