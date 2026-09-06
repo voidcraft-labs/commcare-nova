@@ -228,16 +228,45 @@ export function canonicalTestBlueprint(
  * Wire the per-test Postgres database + migrations + the `getAppDb` injection
  * for an app-state suite. Registers its own `beforeEach`/`afterEach`; the
  * returned helpers are only valid inside a test body.
+ * `authSchema: "migrated"` clones the real Better Auth and Nova auth-app
+ * migrations too, with FK-valid user/Project/member fixtures. Use it for
+ * authorization and cross-store behavior. The default compact membership
+ * table is limited to app-state tests that do not exercise auth schema rules.
  */
-export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
+export function setupAppStateTestDb(
+	prefix = "app_state_",
+	options: { authSchema?: "migrated" } = {},
+): AppStateTestDb {
 	const handle = setupPerTestDatabase({
 		schema: "migrated",
 		databaseNamePrefix: prefix,
+		...(options.authSchema === "migrated"
+			? {
+					establishLocalMigrationAuthority: true as const,
+					prepareTemplate: async (db: Kysely<unknown>, pool: Pool) => {
+						const [
+							{ getMigrations },
+							{ authMigrateOptions },
+							{ runAuthAppMigrations },
+						] = await Promise.all([
+							import("better-auth/db/migration"),
+							import("@/lib/auth-migrate-options"),
+							import("@/lib/auth/migrate"),
+						]);
+						const { runMigrations } = await getMigrations(
+							authMigrateOptions(pool),
+						);
+						await runMigrations();
+						await runAuthAppMigrations(db);
+					},
+				}
+			: {}),
 	});
 	let injected: Kysely<AppDatabase> | null = null;
 
 	beforeEach(async () => {
-		await handle.pool.query(`
+		if (options.authSchema !== "migrated")
+			await handle.pool.query(`
 			CREATE TABLE auth_member (
 				id text PRIMARY KEY,
 				"userId" text NOT NULL,
@@ -257,9 +286,10 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		 * app/target scope resolvers) go through `getAuthDb`; point it at the
 		 * same per-test database, whose `auth_member` this harness creates. */
 		__setAuthDbForTests(injected as unknown as Kysely<AuthDatabase>);
-		await installAuthMemberSerialization(
-			injected as unknown as Kysely<unknown>,
-		);
+		if (options.authSchema !== "migrated")
+			await installAuthMemberSerialization(
+				injected as unknown as Kysely<unknown>,
+			);
 	});
 
 	afterEach(async () => {
@@ -400,6 +430,51 @@ export function setupAppStateTestDb(prefix = "app_state_"): AppStateTestDb {
 		projectId: string,
 		role: "viewer" | "editor" | "admin" | "owner" = "editor",
 	): Promise<void> {
+		if (options.authSchema === "migrated") {
+			const authDb = db() as unknown as Kysely<AuthDatabase>;
+			const now = new Date();
+			await sql`
+    INSERT INTO auth_user (id, name, email, "emailVerified", "createdAt", "updatedAt")
+    VALUES (${userId}, ${userId}, ${`${createHash("sha256").update(userId).digest("hex")}@fixtures.invalid`}, true, ${now}, ${now})
+    ON CONFLICT (id) DO NOTHING
+   `.execute(db());
+			await authDb
+				.insertInto("auth_organization")
+				.values({
+					id: projectId,
+					name: projectId,
+					slug: projectId,
+					createdAt: now,
+					metadata: null,
+					logo: null,
+				})
+				.onConflict((conflict) => conflict.column("id").doNothing())
+				.execute();
+			const member = await authDb
+				.selectFrom("auth_member")
+				.select("id")
+				.where("userId", "=", userId)
+				.where("organizationId", "=", projectId)
+				.executeTakeFirst();
+			if (member)
+				await authDb
+					.updateTable("auth_member")
+					.set({ role })
+					.where("id", "=", member.id)
+					.execute();
+			else
+				await authDb
+					.insertInto("auth_member")
+					.values({
+						id: crypto.randomUUID(),
+						userId,
+						organizationId: projectId,
+						role,
+						createdAt: now,
+					})
+					.execute();
+			return;
+		}
 		await sql`
 			INSERT INTO auth_member (id, "userId", "organizationId", role)
 			VALUES (${crypto.randomUUID()}, ${userId}, ${projectId}, ${role})

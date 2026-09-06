@@ -1,10 +1,9 @@
 /**
  * Per-request access checks for MCP tool adapters.
  *
- * Every adapter that takes an `app_id` runs {@link requireOwnedApp} (and
- * Project-targeted adapters {@link requireProjectAccess}) before
- * dispatching to the shared tool's execute. The check distinguishes "no
- * such row" from "not yours" internally — both collapse to the same
+ * Blueprint adapters load and authorize through `loadAppBlueprint`;
+ * Project-targeted adapters use {@link requireProjectAccess} before work.
+ * The check distinguishes "no such row" from "not yours" internally — both collapse to the same
  * `"not_found"` envelope on the wire (see the IDOR-hardening note in
  * `./errors.ts`) so a probing client cannot enumerate existing app or
  * Project ids; the internal distinction exists only so server-side logs
@@ -16,7 +15,6 @@ import type { AppCapability } from "@/lib/auth/projectRoles";
 import {
 	AppAccessError,
 	type ProjectAccess,
-	resolveAppScope,
 	resolveProjectAccess,
 } from "@/lib/db/appAccess";
 import { ProjectPermissionError } from "@/lib/projects/manage";
@@ -64,30 +62,9 @@ export class McpAccessError extends Error {
 }
 
 /**
- * Assert the caller has the `required` capability on `appId`'s Project before
- * running any blueprint-touching work — membership-based, replacing the old
- * owner-equality check. Resolves cleanly on success; throws `McpAccessError`
- * on failure, collapsing the resolver's three denial reasons onto the two-value
- * MCP taxonomy (both surface as `not_found` on the wire). Defaults to `"view"`;
- * mutating callers pass `"edit"` and destructive ones `"delete"`.
- */
-export async function requireOwnedApp(
-	userId: string,
-	appId: string,
-	required: AppCapability = "view",
-): Promise<void> {
-	try {
-		await resolveAppScope(appId, userId, required);
-	} catch (err) {
-		rethrowAsMcpAccess(err);
-	}
-}
-
-/**
  * Map a `lib/db/appAccess` `AppAccessError` onto the two-value MCP taxonomy and
- * throw it (re-throwing anything else unchanged). Shared by `requireOwnedApp`
- * and `loadAppBlueprint` so the collapse rule lives in exactly one place — both
- * `not_owner` and `not_found` then surface as `not_found` on the wire.
+ * throw it (re-throwing anything else unchanged). `loadAppBlueprint` uses this
+ * boundary so both `not_owner` and `not_found` surface as `not_found` on the wire.
  */
 export function rethrowAsMcpAccess(err: unknown): never {
 	if (err instanceof AppAccessError) {
@@ -101,7 +78,7 @@ export function rethrowAsMcpAccess(err: unknown): never {
 /**
  * Assert the caller holds the `required` capability on `projectId` and return
  * the resolved access (their role rides along for response text). The Project
- * twin of {@link requireOwnedApp}, with one deliberate asymmetry: a NON-member
+ * gate has one deliberate asymmetry with app access: a NON-member
  * still collapses to the not-found envelope (a probing key can't distinguish
  * existence), but a MEMBER whose role is short of `required` gets an explicit
  * permission message — a member legitimately knows the Project exists, so the

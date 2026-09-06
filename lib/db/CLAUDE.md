@@ -103,7 +103,11 @@ App lifecycle status is the exact closed set `generating | complete | error`
 and every row-to-view path parses it rather than casting arbitrary database
 text. Soft deletion is only the independent `deleted_at` /
 `recoverable_until` pair; there is no `"deleted"` status arm or compatibility
-projection.
+projection. Active authorization rejects a non-null `deleted_at` on both
+full blueprint reads (`resolveAppAccess`) and lightweight Project reads
+(`loadAppProjectId`), matching the locked scope resolver. Inspection and explicit
+restore continue to use the stored row; Project membership alone does not make
+a deleted app active.
 
 **`app_changes` is permanent history.** It is the durable edit log and realtime
 catch-up source; there is no TTL or prune. Its closed kind set is `autosave`,

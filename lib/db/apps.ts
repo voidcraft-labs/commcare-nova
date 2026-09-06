@@ -2444,7 +2444,8 @@ export type AppProjectLookup =
 	| { readonly kind: "not-found" };
 
 /**
- * Load just the owning Project id — the lightweight authorization read.
+ * Load the active app's Project id for lightweight authorization.
+ * A soft-deleted app is unavailable until explicitly restored.
  *
  * Missing-app state is explicit rather than overloaded onto a nullable Project:
  * every persisted app has exactly one Project.
@@ -2457,6 +2458,7 @@ export async function loadAppProjectId(
 		.selectFrom("apps")
 		.select("project_id")
 		.where("id", "=", appId)
+		.where("deleted_at", "is", null)
 		.executeTakeFirst();
 	return row === undefined
 		? { kind: "not-found" }

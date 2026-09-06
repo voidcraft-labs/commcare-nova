@@ -92,6 +92,13 @@ database. Both projects share the existing worker pool and file isolation.
 selects the database suite. CI runs both projects. A misplaced database fixture
 fails before connecting rather than falling back to local database credentials.
 
+Authorization tests that cross app and Project storage use
+`setupAppStateTestDb(prefix, { authSchema: "migrated" })`. It prepares the actual
+Better Auth and Nova auth-app migrations once, clones them per test, and seeds
+users, Projects and memberships that satisfy their constraints. Its auth
+migration imports are lazy, so suites using only app-state storage do not load
+the auth migration graph.
+
 Separate tests by their dependencies. A file-wide database hook makes even a
 pure formatting assertion pay for a database. Keep pure projections, mocked
 boundary contracts, and real database acceptance in sibling files. The

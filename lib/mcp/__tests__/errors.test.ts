@@ -1,305 +1,179 @@
-/**
- * toMcpErrorResult unit tests.
- *
- * Two error-source paths to cover:
- *   - `McpAccessError` — short-circuits the classifier. Both internal
- *     reasons (`"not_found"` and `"not_owner"`) collapse to the same
- *     wire content per the IDOR-hardening contract documented in
- *     `../errors.ts`: a probing client sees identical JSON payload
- *     regardless of which internal reason applies.
- *   - Anything else — routes through `classifyError`; a bare `Error`
- *     lands in the `"internal"` bucket with the canned user message.
- *
- * Plus the shared contract that every result must satisfy:
- *   - `isError: true` is always set.
- *   - `content[0].text` parses as JSON with `error_type` + `message`.
- *   - `ctx.appId`, when provided, appears in the JSON payload; absent
- *     when no context is given, so the payload doesn't carry a
- *     dangling key clients could mistake for a meaningful null.
- */
-
-import { describe, expect, it } from "vitest";
-import { MESSAGES } from "@/lib/agent/errorClassifier";
+/** Pure exception-to-wire projection. Real access checks belong in the
+ * Postgres suites; these vectors protect error taxonomy and information flow. */
+import { expect, it, vi } from "vitest";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
+	CommitReauthError,
 	MutationBatchIdCollisionError,
 } from "@/lib/db/commitGuard";
+import { DeploymentError } from "@/lib/deployment/errors";
+import { log } from "@/lib/logger";
 import {
 	ProjectManagementError,
 	ProjectPermissionError,
 } from "@/lib/projects/manage";
-import { toMcpErrorResult } from "../errors";
+import { McpInvalidInputError, toMcpErrorResult } from "../errors";
 import { McpAccessError } from "../ownership";
-import { McpScopeError, SCOPES } from "../scopes";
+import { McpScopeError } from "../scopes";
 
-/**
- * Parse the JSON payload from an error result's content. Every error
- * envelope packs its structured fields into `content[0].text` as JSON,
- * so this helper makes the assertion shape one line instead of three.
- */
-function parsePayload(result: { content: Array<{ text: string }> }): {
-	error_type: string;
-	message: string;
-	app_id?: string;
-} {
-	return JSON.parse(result.content[0]?.text ?? "{}");
+const context = { appId: "app", projectId: "project", userId: "private-actor" };
+function envelope(payload: Record<string, unknown>) {
+	return {
+		isError: true,
+		content: [{ type: "text", text: JSON.stringify(payload) }],
+	};
 }
-
-describe("toMcpErrorResult", () => {
-	it("serializes McpAccessError('not_found') with the not-found phrasing", () => {
-		const result = toMcpErrorResult(new McpAccessError("not_found"));
-		expect(result.isError).toBe(true);
-		const payload = parsePayload(result);
-		expect(payload.error_type).toBe("not_found");
-		/* Reason-specific text. Every access-error envelope uses this
-		 * same string — see the IDOR-collapse test below for the
-		 * not_owner case that also lands here on the wire. */
-		expect(payload.message).toBe("App not found.");
+function contextual(error_type: string, message: string) {
+	return envelope({
+		error_type,
+		message,
+		app_id: "app",
+		project_id: "project",
 	});
-
-	it("collapses McpAccessError('not_owner') to the same wire shape as not_found (IDOR hardening)", () => {
-		/* The wire MUST NOT differentiate a cross-tenant probe from a
-		 * genuine missing-id probe. An IDOR-aware client walking id
-		 * space learns nothing about which ids exist if both cases
-		 * produce the same payload. The internal
-		 * `McpAccessError.reason` stays on the class for the server-
-		 * side audit log; the wire flattens to `"not_found"`. */
-		const result = toMcpErrorResult(new McpAccessError("not_owner"));
-		const payload = parsePayload(result);
-		expect(payload.error_type).toBe("not_found");
-		expect(payload.message).toBe("App not found.");
-	});
-
-	it("produces byte-identical content for not_found and not_owner (IDOR regression lock)", () => {
-		/* Direct regression lock: if a future change reintroduces any
-		 * wire-visible signal distinguishing the two cases, stringify
-		 * equality catches it immediately regardless of which
-		 * specific field diverges. */
-		const asMissing = toMcpErrorResult(new McpAccessError("not_found"), {
-			appId: "a1",
-		});
-		const asCrossTenant = toMcpErrorResult(new McpAccessError("not_owner"), {
-			appId: "a1",
-		});
-		expect(JSON.stringify(asMissing)).toBe(JSON.stringify(asCrossTenant));
-	});
-
-	it("routes generic errors through classifyError into the internal bucket", () => {
-		const result = toMcpErrorResult(new Error("boom"));
-		const payload = parsePayload(result);
-		expect(payload.error_type).toBe("internal");
-		/* Text is the canned user-facing message, not the raw `"boom"` —
-		 * surfacing raw error text to MCP clients would leak internals. */
-		expect(payload.message).toBe(MESSAGES.internal);
-	});
-
-	it("serializes BlueprintCommitRejectedError as the standard validity envelope, never internal", () => {
-		/* The transactional commit's fresh-doc re-verdict rejecting a batch
-		 * is a validity outcome (same class as a tool body's optimistic gate
-		 * rejection), so the wire shape is `invalid_input` carrying the
-		 * verdict's own person-to-person findings — the caller fixes the
-		 * batch and retries, exactly like any other gate rejection. */
-		const findings =
-			"This change wasn't applied — it would introduce a new problem:\n- A finding.\nNothing was changed.";
-		const result = toMcpErrorResult(
-			new BlueprintCommitRejectedError(findings),
-			{
-				appId: "app-9",
-			},
+}
+it.each(["app", "project"] as const)(
+	"collapses both %s access reasons to one complete public envelope",
+	(resource) => {
+		const expected = contextual(
+			"not_found",
+			resource === "app" ? "App not found." : "Project not found.",
 		);
-		const payload = parsePayload(result);
-		expect(payload.error_type).toBe("invalid_input");
-		expect(payload.message).toBe(findings);
-		expect(payload.app_id).toBe("app-9");
-	});
-
-	it("serializes authoritative rename occupancy as invalid_input", () => {
-		const message =
-			'Saved case data now occupies "village" on "patient". Review the rename conflicts and try again.';
-		const payload = parsePayload(
-			toMcpErrorResult(new BlueprintCommitRejectedError(message), {
-				appId: "app-rename",
-			}),
-		);
-		expect(payload).toMatchObject({
-			error_type: "invalid_input",
-			message,
-			app_id: "app-rename",
-		});
-	});
-
-	it("serializes AppProjectChangedError as reloadable invalid_input with app context", () => {
-		const projectChanged = new AppProjectChangedError();
-		const result = toMcpErrorResult(projectChanged, {
-			appId: "app-9",
-			userId: "user-1",
-		});
-
-		expect(result.isError).toBe(true);
-		const payload = parsePayload(result);
-		expect(payload).toEqual({
-			error_type: "invalid_input",
-			message: projectChanged.message,
-			app_id: "app-9",
-		});
-	});
-
-	it("propagates ctx.appId into the payload when provided", () => {
-		const result = toMcpErrorResult(new Error("boom"), { appId: "app-123" });
-		const payload = parsePayload(result);
-		expect(payload.app_id).toBe("app-123");
-	});
-
-	it("omits app_id from the payload when no ctx is provided", () => {
-		const result = toMcpErrorResult(new Error("boom"));
-		const payload = parsePayload(result);
-		/* `in`-check rather than `toBeUndefined` so a future regression
-		 * that sets the key explicitly to `undefined` (which
-		 * JSON.stringify drops at serialize time but could still
-		 * confuse strict-equality callers) fails. */
-		expect("app_id" in payload).toBe(false);
-	});
-
-	it("omits app_id when ctx is present but appId is not set", () => {
-		const result = toMcpErrorResult(new Error("boom"), {});
-		const payload = parsePayload(result);
-		expect("app_id" in payload).toBe(false);
-	});
-
-	it("serializes McpScopeError into a scope_missing envelope with required_scope", () => {
-		/* Scope-gate failures short-circuit the classifier the same way
-		 * `McpAccessError` does: the failure shape is deterministic, and
-		 * the wire payload carries `required_scope` so a programmatic
-		 * client can show a precise re-authorization prompt without
-		 * parsing the message. */
-		const result = toMcpErrorResult(
-			new McpScopeError(SCOPES.hqWrite, "upload_app_to_hq", "oauth"),
-			{ appId: "a1" },
-		);
-		expect(result.isError).toBe(true);
-		const payload = JSON.parse(result.content[0]?.text ?? "{}") as {
-			error_type: string;
-			message: string;
-			required_scope: string;
-			app_id: string;
-		};
-		expect(payload.error_type).toBe("scope_missing");
-		/* Wire payload keeps the raw literal so programmatic consumers
-		 * branch on a stable token. The human-readable `message`
-		 * carries the friendly label ("HQ Write") since that's what
-		 * the user sees in their settings UI / consent screen. */
-		expect(payload.required_scope).toBe(SCOPES.hqWrite);
-		expect(payload.app_id).toBe("a1");
-		expect(payload.message).toContain("upload_app_to_hq");
-		expect(payload.message).toContain("HQ Write");
-	});
-
-	it("omits app_id from a scope_missing envelope when ctx has no appId", () => {
-		/* Tools without an app-id concept at the gate site (e.g.
-		 * `get_hq_connection`) don't pass `appId` through their catch.
-		 * The field must drop out of the payload entirely, not appear
-		 * as `null`. */
-		const result = toMcpErrorResult(
-			new McpScopeError(SCOPES.hqRead, "get_hq_connection", "api-key"),
-		);
-		const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<
-			string,
-			unknown
-		>;
-		expect(payload.error_type).toBe("scope_missing");
-		expect("app_id" in payload).toBe(false);
-	});
+		for (const reason of ["not_found", "not_owner"] as const) {
+			expect(
+				toMcpErrorResult(new McpAccessError(reason, resource), context),
+			).toEqual(expected);
+		}
+		expect(log.error).not.toHaveBeenCalled();
+	},
+);
+it("collapses a commit-time permission loss without exposing its private reason", () => {
+	expect(
+		toMcpErrorResult(
+			new CommitReauthError("private membership detail"),
+			context,
+		),
+	).toEqual(contextual("not_found", "App not found."));
+	expect(log.error).not.toHaveBeenCalled();
 });
-
-describe("toMcpErrorResult — Project branches", () => {
-	it("serializes the Project-flavored access error with the Project phrasing", () => {
-		const result = toMcpErrorResult(
-			new McpAccessError("not_found", "project"),
-			{ projectId: "proj-1" },
+it.each([
+	{
+		error: new McpInvalidInputError("Choose an app."),
+		type: "invalid_input",
+		message: "Choose an app.",
+	},
+	{
+		error: new ProjectManagementError("An invitation is already pending."),
+		type: "invalid_input",
+		message: "An invitation is already pending.",
+	},
+	{
+		error: new ProjectPermissionError("Your role cannot invite members."),
+		type: "permission_denied",
+		message: "Your role cannot invite members.",
+	},
+	{
+		error: new BlueprintCommitRejectedError(
+			"This change conflicts with the current app. Nothing changed.",
+		),
+		type: "invalid_input",
+		message: "This change conflicts with the current app. Nothing changed.",
+	},
+	{
+		error: new AppProjectChangedError(),
+		type: "invalid_input",
+		message:
+			"This app moved to a different Project while you were editing. Reload to get the latest state.",
+	},
+])(
+	"preserves the expected $error.name outcome without reporting an operational failure",
+	({ error, type, message }) => {
+		expect(toMcpErrorResult(error, context)).toEqual(contextual(type, message));
+		expect(log.error).not.toHaveBeenCalled();
+		expect(log.warn).toHaveBeenCalledOnce();
+	},
+);
+it.each([
+	{ code: "hq_not_connected" as const, type: "hq_not_configured" },
+	{ code: "domain_not_authorized" as const, type: "domain_not_authorized" },
+	{ code: "not_found" as const, type: "not_found" },
+	{ code: "invalid" as const, type: "invalid_input" },
+])(
+	"maps deployment $code to the external $type category without leaking its cause",
+	({ code, type }) => {
+		expect(
+			toMcpErrorResult(
+				new DeploymentError(code, "A safe next step.", {
+					cause: new Error("private HQ response"),
+				}),
+				context,
+			),
+		).toEqual(contextual(type, "A safe next step."));
+		expect(log.error).not.toHaveBeenCalled();
+		expect(log.warn).toHaveBeenCalledOnce();
+	},
+);
+it.each(["oauth", "api-key"] as const)(
+	"publishes a machine-readable missing scope for %s",
+	(authKind) => {
+		const error = new McpScopeError(
+			"nova.hq.read",
+			"get_hq_connection",
+			authKind,
 		);
-		expect(result.isError).toBe(true);
-		const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<
-			string,
-			unknown
-		>;
-		expect(payload.error_type).toBe("not_found");
-		expect(payload.message).toBe("Project not found.");
-		expect(payload.project_id).toBe("proj-1");
+		for (const ctx of [undefined, {}, context]) {
+			expect(toMcpErrorResult(error, ctx)).toEqual(
+				envelope({
+					error_type: "scope_missing",
+					message: error.message,
+					required_scope: "nova.hq.read",
+					...(ctx === context ? { app_id: "app", project_id: "project" } : {}),
+				}),
+			);
+		}
+	},
+);
+it("reports a save-id collision as a server fault without serializing internal error properties", () => {
+	const error = Object.assign(new MutationBatchIdCollisionError(), {
+		batchId: "private-id",
+		mutations: [{ private: true }],
 	});
-
-	it("produces byte-identical content for Project not_found and not_owner (IDOR regression lock)", () => {
-		/* The app-flavored lock above has a Project twin: a probing key
-		 * walking Project-id space must not learn which ids exist. */
-		const asMissing = toMcpErrorResult(
-			new McpAccessError("not_found", "project"),
-			{ projectId: "proj-1" },
-		);
-		const asNonMember = toMcpErrorResult(
-			new McpAccessError("not_owner", "project"),
-			{ projectId: "proj-1" },
-		);
-		expect(JSON.stringify(asMissing)).toBe(JSON.stringify(asNonMember));
-	});
-
-	it("passes a ProjectManagementError through verbatim as invalid_input", () => {
-		/* Policy rejections (personal Project, duplicate invite, the
-		 * pending cap) are understood-and-refused requests, so the
-		 * person-readable reason must survive to the wire untouched. */
-		const message =
-			"This is your personal Project, which can't be shared. Create a shared Project with create_project and invite people there.";
-		const result = toMcpErrorResult(new ProjectManagementError(message), {
-			projectId: "proj-personal",
-		});
-		expect(result.isError).toBe(true);
-		const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<
-			string,
-			unknown
-		>;
-		expect(payload.error_type).toBe("invalid_input");
-		expect(payload.message).toBe(message);
-		expect(payload.project_id).toBe("proj-personal");
-	});
-
-	it("serializes ProjectPermissionError as permission_denied, never the not-found collapse", () => {
-		/* A member whose role falls short legitimately knows the Project
-		 * exists — the honest envelope names what's missing rather than
-		 * pretending the Project isn't there. */
-		const message =
-			"Your viewer role in this Project can't invite members. Ask a Project admin or the owner.";
-		const result = toMcpErrorResult(new ProjectPermissionError(message), {
-			projectId: "proj-shared",
-		});
-		expect(result.isError).toBe(true);
-		const payload = JSON.parse(result.content[0]?.text ?? "{}") as Record<
-			string,
-			unknown
-		>;
-		expect(payload.error_type).toBe("permission_denied");
-		expect(payload.message).toBe(message);
-		expect(payload.project_id).toBe("proj-shared");
-	});
+	expect(toMcpErrorResult(error, context)).toEqual(
+		contextual(
+			"internal",
+			"This edit could not be saved: Nova reused a save id for different content. Nothing was written. This is a fault on our side, not something to correct in the request. Repeating it will not help.",
+		),
+	);
+	expect(log.error).toHaveBeenCalledOnce();
 });
-
-describe("mutation batch id collision", () => {
-	// A batch id is server-minted, so a collision is Nova's bug, not the
-	// caller's. Before this branch existed the collision fell through to a plain
-	// success envelope — the caller was told its edit had landed when nothing was
-	// written, which is the one outcome an API client cannot detect for itself.
-	it("is a typed internal error, never a silent success", () => {
-		const result = toMcpErrorResult(new MutationBatchIdCollisionError());
-		expect(result.isError).toBe(true);
-		const payload = JSON.parse(result.content[0].text) as {
-			error_type: string;
-			message: string;
-		};
-		expect(payload.error_type).toBe("internal");
-		// Not `invalid_input` ("fix your arguments") and not a reloadable
-		// conflict ("re-read and retry") — both send a client round a loop it
-		// cannot win.
-		expect(payload.error_type).not.toBe("invalid_input");
-		expect(payload.message).toContain("Nothing was written");
-		// No stored payload or batch id may reach the caller.
-		expect(payload.message).not.toMatch(/batch id [0-9a-f-]{8}/i);
-	});
+it("projects classified errors and arbitrary thrown values without raw text, stacks, actor ids or extra keys", () => {
+	const circular: { self?: unknown } = {};
+	circular.self = circular;
+	for (const error of [
+		new Error("private SQL text"),
+		"private string",
+		null,
+		{ private: true },
+		circular,
+	]) {
+		for (const ctx of [undefined, {}, context]) {
+			expect(toMcpErrorResult(error, ctx)).toEqual(
+				envelope({
+					error_type: "internal",
+					message: "Something went wrong during generation.",
+					...(ctx === context ? { app_id: "app", project_id: "project" } : {}),
+				}),
+			);
+		}
+	}
+	vi.mocked(log.error).mockClear();
+	expect(
+		toMcpErrorResult(
+			new DOMException("private connection", "AbortError"),
+			context,
+		),
+	).toEqual(
+		contextual("api_timeout", "The request timed out. Please try again."),
+	);
+	expect(log.error).toHaveBeenCalledOnce();
 });

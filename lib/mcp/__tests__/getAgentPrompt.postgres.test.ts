@@ -12,7 +12,7 @@ import { withMcpClient } from "./client";
 import { readPrompt, resultText } from "./promptClient";
 import { promptDoc } from "./promptFixtures";
 
-const h = setupAppStateTestDb("mcp_prompt_");
+const h = setupAppStateTestDb("mcp_prompt_", { authSchema: "migrated" });
 const PROJECT = "shared-project";
 const OWNER = "author";
 const VIEWER = "reader";

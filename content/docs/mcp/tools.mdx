@@ -189,7 +189,7 @@ destination later with `check_project_space_compatibility`.
 | Tool | What it does |
 |---|---|
 | `create_app` | Create a publish-ready survey starter and return its app ID, sequence-1 blueprint, and starter module/form/field UUIDs. Continue with those identities; every later change is checked as it lands. Pass `project_id` (from `list_projects`) to create the app in a shared Project; omit it and the app lands in your personal Project. |
-| `delete_app` | Soft-delete an app. Recoverable within the returned window. |
+| `delete_app` | Soft-delete an app. It becomes unavailable to active app tools and routes until restored, and remains recoverable within the returned window. |
 
 ## Projects and sharing
 

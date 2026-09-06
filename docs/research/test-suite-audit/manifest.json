@@ -5091,9 +5091,9 @@
 			"file": "lib/db/__tests__/restoreApp.postgres.test.ts",
 			"lines": 43,
 			"ciMs": 2256,
-			"status": "retained",
-			"review": "Retain pairwise marker removal, lifecycle/error preservation and missing-row rejection.",
-			"reviewedSha256": "021de3d71ff8d0687bd4272ef154bd20f317c5a03d8b82b82911bfdf059a9609",
+			"status": "removed",
+			"review": "Removed duplicate two-case suite after direct re-review. Complete restore behavior now lives with deletion in softDeleteApp.postgres.test.ts: both complete/error status survive, all other root fields and blueprint entities are preserved, denied restores do not alter markers, and active reads resume only after an authorized restore.",
+			"reviewedSha256": null,
 			"baselineSha256": "021de3d71ff8d0687bd4272ef154bd20f317c5a03d8b82b82911bfdf059a9609"
 		},
 		{
@@ -5208,9 +5208,9 @@
 			"file": "lib/db/__tests__/softDeleteApp.postgres.test.ts",
 			"lines": 54,
 			"ciMs": 2207,
-			"status": "retained",
-			"review": "Retain durable deletion marker, deadline interval, status preservation and missing-row rejection.",
-			"reviewedSha256": "ace8778e9889761615fa23bee3960fbfecb8286ce3e6f2524b623f67dd3380dc",
+			"status": "revised",
+			"review": "Revisited method and consolidated restore sibling into a real deletion/restore lifecycle under full Better Auth and auth-app migrations. Complete root-row equality, preserved nonempty blueprint rows, independent exact 30-day deadline, co-admin success, both denied writes with unchanged stored state and absent-row refusal. Actual active Project lookup disappears on deletion and reappears on restore. Removed approximate deadline and partial status-only assertions.",
+			"reviewedSha256": "3ec1ec1ffdeb7ef543d988988e04ab5bad13c108d6e7c1603224fae09d727321",
 			"baselineSha256": "ace8778e9889761615fa23bee3960fbfecb8286ce3e6f2524b623f67dd3380dc"
 		},
 		{
@@ -6498,7 +6498,10 @@
 			"file": "lib/mcp/__tests__/errors.test.ts",
 			"lines": 305,
 			"ciMs": 1600,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full serializer and shared classifier, access, deployment and commit error types. Rebuilt pure projection vectors around complete envelopes and information flow: all expected typed categories, all deployment code mappings, commit-time revocation, both resource collapses, credential-specific scope metadata, collision fault, arbitrary/circular throws and native abort classification. Assert expected rejections do not call operational error logging. These tests do not stand in for actual authorization, which now has real Postgres/SDK acceptance.",
+			"baselineSha256": "3dff53993a3158f10bc0356203260471633033ecfde7e16d44fac857310313e1",
+			"reviewedSha256": "0879b4472aea16b2ec959915e8360928fd4834208587d23b7ced45f8cbb07e23"
 		},
 		{
 			"file": "lib/mcp/__tests__/getAgentPrompt.test.ts",
@@ -6567,7 +6570,10 @@
 			"file": "lib/mcp/__tests__/ownership.test.ts",
 			"lines": 171,
 			"ciMs": 1355,
-			"status": "pending"
+			"status": "revised",
+			"review": "Removed mocked resolvers and unused production requireOwnedApp wrapper. Pure mapper cases cover exact internal app/Project reasons, member-specific permission text and unchanged propagation of unknown infrastructure throws. New ownership.postgres.test.ts calls actual loadAppBlueprint, requireProjectAccess and route scope reader against migrated auth tables: all capabilities, current roles, owner-provenance nonauthority, both tenant axes, membership removal and real deletion/restore. Both deleted-read paths failed before production filtering and pass afterward.",
+			"baselineSha256": "c74ded50990addd1df420800cb220f4a3a0e99ccc9b1952c5e61257e7ca4fbe1",
+			"reviewedSha256": "d775b48f090575ea17671fc7ddcd447221f17ff0999fed44cd4ac8579c0de370"
 		},
 		{
 			"file": "lib/mcp/__tests__/progress.test.ts",

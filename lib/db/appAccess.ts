@@ -106,7 +106,7 @@ export async function resolveAppAccess(
 	opts?: { app?: AppDoc },
 ): Promise<AppAccess> {
 	const app = opts?.app ?? (await loadApp(appId));
-	if (!app) throw new AppAccessError("not_found");
+	if (!app || app.deleted_at !== null) throw new AppAccessError("not_found");
 	const role = await projectRoleFor(userId, app.project_id);
 	assertCapability(role, required);
 	return { app, projectId: app.project_id, role, actorUserId: userId };

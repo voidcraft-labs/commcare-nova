@@ -519,3 +519,32 @@ Registration metadata and user-tool names are verified through `tools/list`.
 The focused validation passed 110 cases in ten files in 7.88 seconds, including
 the two existing caller suites and real Postgres. Type checking passed. This is
 a bounded slice of the continuing audit, not full-suite completion.
+
+
+### Persisted access checks exposed deleted-app reads
+
+The callback-mocked ownership suite was replaced with pure error translation
+and real Postgres reads through the actual MCP blueprint loader and Project
+gate. An unused `requireOwnedApp` wrapper existed only for its tests; it was
+removed. Authorization fixtures now optionally clone real Better Auth plus
+Nova auth-app migrations and seed their required users, Projects and members.
+The prompt authorization suite uses that migrated schema too.
+
+The new tests reproduced deleted-app access through both full blueprint reads
+and lightweight route scope reads: after a real soft delete, both still returned
+authorized data. `resolveAppAccess` now rejects the deletion marker and
+`loadAppProjectId` filters it, matching the existing transaction scope guard.
+Both paths allow reads again after an authorized restore. Ordinary Project
+access remains available while an individual app is deleted.
+
+Deletion and restore assertions now cover the complete root row, preserved
+blueprint entities, the exact 30-day deadline, co-admin authority, denied writes
+with unchanged storage, and absent-row refusals. Error projection checks cover
+all expected typed categories, deployment tags, commit-time revocation,
+credential-specific scope metadata, and safe handling of arbitrary throws.
+Known rejections do not become operational error reports.
+
+The consumer run passed 322 cases across 41 files in 12.02 seconds. After the
+final deletion-test consolidation, the focused run passed 35 cases across five
+files in 7.89 seconds. Type checking passed. These checks validate this slice;
+the full testing-method audit remains in progress.
