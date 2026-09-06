@@ -1,275 +1,100 @@
-/**
- * Delivery contract for the served agent prompt. Every mode ends with a
- * marker the plugin checks, and edit mode carries the complete app summary.
- */
+/** Pure byte/code-point transport boundaries and malformed continuation
+ * input. Real rendered, persisted app pagination lives in the SDK/PG tests. */
+import { expect, it } from "vitest";
+import { type AgentPromptPage, deliverAgentPrompt } from "../promptDelivery";
+import { readPrompt, resultText } from "./promptClient";
 
-import { createHash } from "node:crypto";
-import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
-
-import {
-	AGENT_PROMPT_RESULT_BUDGET_CHARS,
-	type AgentPromptPage,
-	deliverAgentPrompt,
-} from "../promptDelivery";
-import { PROMPT_END_MARKER, renderAgentPrompt } from "../prompts";
-import { MAX_RESULT_SIZE_CHARS } from "../resultSize";
-
-/**
- * A populated blueprint, so edit mode takes its real branch and inlines
- * a summary. Deliberately small: the point is to measure the fixed cost
- * of the edit prompt, not to guess at a realistic app's summary size.
- */
-function fixturePopulatedDoc(): BlueprintDoc {
-	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
-	return {
-		appId: "a-budget",
-		appName: "Vaccine Tracker",
-		connectType: null,
-		caseTypes: null,
-		modules: {
-			[modUuid]: {
-				uuid: modUuid,
-				id: "patients",
-				name: "Patients",
-				caseType: "patient",
-			},
-		},
-		forms: {
-			[formUuid]: {
-				uuid: formUuid,
-				id: "register",
-				name: "Register Patient",
-				type: "registration",
-			},
-		},
-		fields: {
-			[fieldUuid]: {
-				uuid: fieldUuid,
-				id: "patient_name",
-				kind: "text",
-				label: proseText("Patient Name"),
-				required: xp("true()"),
-			},
-		},
-		moduleOrder: [modUuid],
-		formOrder: { [modUuid]: [formUuid] },
-		fieldOrder: { [formUuid]: [fieldUuid] },
-		fieldParent: {},
-	};
+const marker = "NOVA-PROMPT-END";
+const oversized = `${"x".repeat(76_000)}${marker}`;
+function firstPage(prompt = oversized) {
+	return JSON.parse(resultText(deliverAgentPrompt(prompt))) as AgentPromptPage;
 }
-
-/**
- * A large app whose first and last module names prove the summary was not
- * replaced by a fallback. Built by repeating the fixture's module so it
- * remains representative when `summarizeBlueprint` changes.
- */
-function fixtureOversizedDoc(): BlueprintDoc {
-	const base = fixturePopulatedDoc();
-	const modules: BlueprintDoc["modules"] = {};
-	const formOrder: BlueprintDoc["formOrder"] = {};
-	const moduleOrder: BlueprintDoc["moduleOrder"] = [];
-	const baseModUuid = base.moduleOrder[0];
-	if (!baseModUuid) throw new Error("fixture lost its module");
-	const baseMod = base.modules[baseModUuid];
-	if (!baseMod) throw new Error("fixture lost its module record");
-
-	/* Large enough to exercise the former fallback boundary. */
-	for (let i = 0; i < 1_200; i++) {
-		const uuid = testUuid(
-			`44444444-4444-4444-4444-${String(i).padStart(12, "0")}`,
-		);
-		modules[uuid] = {
-			...baseMod,
-			uuid,
-			id: `patients_${i}`,
-			name: `Patients ${i} — a module name long enough to carry real weight`,
-		};
-		moduleOrder.push(uuid);
-		formOrder[uuid] = base.formOrder[baseModUuid] ?? [];
-	}
-	return { ...base, modules, moduleOrder, formOrder };
+function cursor(overrides: Record<string, unknown>) {
+	const first = firstPage();
+	expect(first.next_cursor).toEqual(expect.any(String));
+	const valid = JSON.parse(
+		Buffer.from(first.next_cursor as string, "base64url").toString("utf8"),
+	);
+	return Buffer.from(
+		JSON.stringify({ ...valid, ...overrides }),
+		"utf8",
+	).toString("base64url");
 }
-
-/**
- * The three shapes `get_agent_prompt` can return, named as the wire
- * `mode` values so a failure points straight at the affected caller.
- */
-const MODES: ReadonlyArray<{ mode: string; render: () => string }> = [
-	{ mode: "build", render: () => renderAgentPrompt(true) },
-	{ mode: "autonomous_build", render: () => renderAgentPrompt(false) },
+it("keeps exact 75,000-byte plain text intact and pages at the next byte", async () => {
+	const prompt = `${"x".repeat(75_000 - marker.length)}${marker}`;
+	expect(deliverAgentPrompt(prompt)).toEqual({
+		content: [{ type: "text", text: prompt }],
+	});
+	const paged = `x${prompt}`;
+	expect(firstPage(paged).complete).toBe(false);
+	expect(
+		await readPrompt(async (next) => deliverAgentPrompt(paged, next)),
+	).toBe(paged);
+});
+it.each([
+	{ name: "astral Unicode below the UTF-16 limit", text: "💉".repeat(20_000) },
 	{
-		mode: "edit",
-		render: () => renderAgentPrompt(true, fixturePopulatedDoc()),
+		name: "JSON escaping and control characters",
+		text: '\n\t\b"\\'.repeat(16_000),
 	},
-];
-
-function hasUnpairedSurrogate(value: string): boolean {
-	for (let index = 0; index < value.length; index++) {
-		const codeUnit = value.charCodeAt(index);
-		if (codeUnit >= 0xd800 && codeUnit <= 0xdbff) {
-			const next = value.charCodeAt(index + 1);
-			if (!(next >= 0xdc00 && next <= 0xdfff)) return true;
-			index += 1;
-		} else if (codeUnit >= 0xdc00 && codeUnit <= 0xdfff) {
-			return true;
-		}
-	}
-	return false;
-}
-
-describe("served prompt delivery contract", () => {
-	it.each(MODES)("$mode ends with the delivery marker", ({ render }) => {
-		const rendered = render();
+	{ name: "three or more pages", text: "guidance ".repeat(25_000) },
+])(
+	"reassembles $name with bounded envelopes, adjacent offsets and a verified digest",
+	async ({ text }) => {
+		const prompt = `${text}${marker}`;
+		expect(firstPage(prompt).complete).toBe(false);
 		expect(
-			rendered.endsWith(PROMPT_END_MARKER),
-			`The rendered prompt does not end with ${PROMPT_END_MARKER}. The plugin's bootstrap treats a missing marker as a truncated prompt and refuses to build, so appending anything after the marker — or dropping it — strands every caller of this mode.`,
-		).toBe(true);
-	});
-
-	it("edit mode keeps its complete blueprint summary across delivery pages", () => {
-		const rendered = renderAgentPrompt(true, fixturePopulatedDoc());
-		expect(rendered).toContain("## Current app state");
-		expect(rendered).toContain("Vaccine Tracker");
-		expect(rendered).not.toContain("too large to include here");
-		const chunks: string[] = [];
-		let cursor: string | undefined;
-		do {
-			const text = deliverAgentPrompt(rendered, cursor).content[0]?.text ?? "";
-			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
-				AGENT_PROMPT_RESULT_BUDGET_CHARS,
-			);
-			if (text === rendered) {
-				chunks.push(text);
-				break;
-			}
-			const page = JSON.parse(text) as AgentPromptPage;
-			expect(page.kind).toBe("nova-agent-prompt-page");
-			chunks.push(page.prompt_chunk);
-			cursor = page.next_cursor;
-		} while (cursor !== undefined);
-		expect(chunks.join("")).toBe(rendered);
-	});
-
-	it("delivers a short prompt inline without an envelope", () => {
-		const prompt = `Complete guidance\n${PROMPT_END_MARKER}`;
-		expect(deliverAgentPrompt(prompt).content[0]?.text).toBe(prompt);
-	});
-
-	it("pages before the host ceiling when the model-facing budget requires it", () => {
-		const rendered = `${"x".repeat(AGENT_PROMPT_RESULT_BUDGET_CHARS + 1_000)}${PROMPT_END_MARKER}`;
-		expect(rendered.length).toBeLessThan(MAX_RESULT_SIZE_CHARS);
-
-		const text = deliverAgentPrompt(rendered).content[0]?.text ?? "";
-		expect(text.length).toBeLessThanOrEqual(AGENT_PROMPT_RESULT_BUDGET_CHARS);
-		const page = JSON.parse(text) as AgentPromptPage;
-		expect(page.kind).toBe("nova-agent-prompt-page");
-		expect(page.offset_unit).toBe("unicode-code-points");
-		expect(page.complete).toBe(false);
-		expect(page.next_cursor).toEqual(expect.any(String));
-	});
-
-	it("pages and reassembles the complete large blueprint summary losslessly", () => {
-		const rendered = renderAgentPrompt(true, fixtureOversizedDoc());
-		expect(rendered.length).toBeGreaterThan(MAX_RESULT_SIZE_CHARS);
-
-		const chunks: string[] = [];
-		let cursor: string | undefined;
-		let expectedStart = 0;
-		let expectedDigest: string | undefined;
-		do {
-			const result = deliverAgentPrompt(rendered, cursor);
-			const text = result.content[0]?.text ?? "";
-			expect(text.length).toBeLessThanOrEqual(AGENT_PROMPT_RESULT_BUDGET_CHARS);
-			const page = JSON.parse(text) as AgentPromptPage;
-			expect(page.kind).toBe("nova-agent-prompt-page");
-			expect(page.offset_unit).toBe("unicode-code-points");
-			expect(page.chunk_start).toBe(expectedStart);
-			expect(page.chunk_end).toBe(
-				page.chunk_start + Array.from(page.prompt_chunk).length,
-			);
-			expect(page.prompt_length).toBe(Array.from(rendered).length);
-			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
-				AGENT_PROMPT_RESULT_BUDGET_CHARS,
-			);
-			expectedDigest ??= page.prompt_sha256;
-			expect(page.prompt_sha256).toBe(expectedDigest);
-			chunks.push(page.prompt_chunk);
-			cursor = page.next_cursor;
-			expectedStart = page.chunk_end;
-			if (page.complete) expect(cursor).toBeUndefined();
-			else expect(cursor).toEqual(expect.any(String));
-		} while (cursor !== undefined);
-
-		const assembled = chunks.join("");
-		expect(assembled).toBe(rendered);
-		expect(expectedDigest).toBe(
-			createHash("sha256").update(assembled, "utf8").digest("hex"),
-		);
-
-		expect(assembled).toContain(
-			"Patients 0 — a module name long enough to carry real weight",
-		);
-		expect(assembled).toContain(
-			"Patients 1199 — a module name long enough to carry real weight",
-		);
-		expect(assembled).not.toContain("too large to include here");
-		expect(assembled.endsWith(PROMPT_END_MARKER)).toBe(true);
-	});
-
-	it("uses code-point offsets and never splits astral characters", () => {
-		/* This prompt fits the JS UTF-16 budget but not the same conservative
-		 * UTF-8 budget. Paging must therefore happen, and every boundary lands
-		 * between complete U+1F489 scalar values rather than between surrogates. */
-		const rendered = `${"💉".repeat(
-			Math.floor(AGENT_PROMPT_RESULT_BUDGET_CHARS / 4) + 1_000,
-		)}${PROMPT_END_MARKER}`;
-		expect(rendered.length).toBeLessThan(AGENT_PROMPT_RESULT_BUDGET_CHARS);
-		expect(Buffer.byteLength(rendered, "utf8")).toBeGreaterThan(
-			AGENT_PROMPT_RESULT_BUDGET_CHARS,
-		);
-
-		const chunks: string[] = [];
-		let cursor: string | undefined;
-		let expectedStart = 0;
-		do {
-			const text = deliverAgentPrompt(rendered, cursor).content[0]?.text ?? "";
-			const page = JSON.parse(text) as AgentPromptPage;
-			expect(page.offset_unit).toBe("unicode-code-points");
-			expect(page.chunk_start).toBe(expectedStart);
-			expect(page.chunk_end - page.chunk_start).toBe(
-				Array.from(page.prompt_chunk).length,
-			);
-			expect(hasUnpairedSurrogate(page.prompt_chunk)).toBe(false);
-			expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
-				AGENT_PROMPT_RESULT_BUDGET_CHARS,
-			);
-			if (!page.complete) expect(page.prompt_chunk.endsWith("💉")).toBe(true);
-			chunks.push(page.prompt_chunk);
-			expectedStart = page.chunk_end;
-			cursor = page.next_cursor;
-		} while (cursor !== undefined);
-
-		expect(expectedStart).toBe(Array.from(rendered).length);
-		expect(chunks.join("")).toBe(rendered);
-	});
-
-	it("refuses to continue after the prompt snapshot changes", () => {
-		const rendered = renderAgentPrompt(true, fixtureOversizedDoc());
-		const firstText = deliverAgentPrompt(rendered).content[0]?.text ?? "";
-		const firstPage = JSON.parse(firstText) as AgentPromptPage;
-		expect(firstPage.next_cursor).toEqual(expect.any(String));
-
+			await readPrompt(async (next) => deliverAgentPrompt(prompt, next)),
+		).toBe(prompt);
+	},
+);
+it.each(["", "guidance", `${marker} appended after marker`])(
+	"refuses source text without a terminal delivery marker (%s)",
+	(prompt) => {
+		expect(() => deliverAgentPrompt(prompt)).toThrow("missing terminal marker");
+	},
+);
+it.each([
+	"",
+	"not-a-cursor",
+	Buffer.from("null").toString("base64url"),
+	Buffer.from("{}").toString("base64url"),
+])("refuses malformed continuation %s", (token) => {
+	expect(() => deliverAgentPrompt(oversized, token)).toThrow(
+		"cursor is invalid",
+	);
+});
+it.each([
+	{ v: 2 },
+	{ extra: true },
+	{ offset_code_points: -1 },
+	{ offset_code_points: 1.5 },
+	{ prompt_length_code_points: 0 },
+	{ prompt_sha256: "invalid" },
+])("refuses invalid cursor fields %j", (overrides) => {
+	expect(() => deliverAgentPrompt(oversized, cursor(overrides))).toThrow(
+		"cursor is invalid",
+	);
+});
+it.each([0, oversized.length, oversized.length + 1])(
+	"refuses non-continuation offset %i",
+	(offset_code_points) => {
 		expect(() =>
-			deliverAgentPrompt(
-				rendered.replace("Vaccine Tracker", "Changed Tracker"),
-				firstPage.next_cursor,
-			),
-		).toThrow("changed during get_agent_prompt pagination");
-	});
+			deliverAgentPrompt(oversized, cursor({ offset_code_points })),
+		).toThrow("invalid offset");
+	},
+);
+it("binds every continuation to both content and code-point length", () => {
+	const first = firstPage();
+	for (const changed of [`y${oversized.slice(1)}`, `y${oversized}`]) {
+		expect(() => deliverAgentPrompt(changed, first.next_cursor)).toThrow(
+			"changed during get_agent_prompt pagination",
+		);
+	}
+	expect(() =>
+		deliverAgentPrompt(
+			oversized,
+			cursor({ prompt_length_code_points: oversized.length + 1 }),
+		),
+	).toThrow("changed during get_agent_prompt pagination");
 });

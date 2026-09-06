@@ -1,9 +1,9 @@
 /**
  * `nova.get_agent_prompt` — self-fetch bootstrap tool.
  *
- * Scope: `nova.read` (enforced at the verify layer — the route handler
- * declares this tool's mount with `scopes: ["nova.read"]` so by the time
- * this body runs the JWT already proved the scope; no per-handler check).
+ * The route verifies the `nova.read` and `nova.write` floor for both
+ * credential types before tool dispatch. Edit reads additionally authorize
+ * view access to the app's Project on every page.
  *
  * The plugin ships one static subagent file (autonomous mode) and two
  * top-level skills (build, edit) whose bodies instruct their executor
@@ -118,7 +118,7 @@ export function registerGetAgentPrompt(
 					.string()
 					.optional()
 					.describe(
-						"Required when `mode === 'edit'`, the app id whose blueprint summary should be inlined into the returned text. The user must own this app. Ignored for `build` and `autonomous_build` (no app to read from).",
+						"Required when `mode === 'edit'`, the app id whose blueprint summary should be inlined into the returned text. The user must have view access to the app's Project. Ignored for `build` and `autonomous_build` (no app to read from).",
 					),
 				cursor: z
 					.string()

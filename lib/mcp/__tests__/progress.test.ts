@@ -1,77 +1,114 @@
-/**
- * createProgressEmitter unit tests.
- *
- * Three behaviors that together prove the emitter is spec-compliant:
- *   - No-op path: when the client didn't pass a `progressToken`, no
- *     notification is ever dispatched — adapters can call `notify()`
- *     unconditionally.
- *   - Happy path: successive calls emit `notifications/progress` with a
- *     monotonically increasing `progress` counter starting at 1. The
- *     counter is a required spec field; compliant clients reject
- *     params missing it (see SDK `ProgressSchema.progress` — `z.number()`).
- *   - Numeric token: `progressToken` is typed `string | number` per the
- *     SDK; a numeric token should not short-circuit the emitter.
- *
- * The emitter packs the stage tag + any structured `extra` into the
- * MCP-spec-only `message` string (format: `"[<stage>] <text>[ | k=v...]"`)
- * so consumers can branch on stage without needing any non-standard
- * sidecar fields on the notification params.
- */
-
-import { describe, expect, it, vi } from "vitest";
+import { expect, it } from "vitest";
+import { z } from "zod";
 import { createProgressEmitter } from "../progress";
+import { withMcpClient } from "./client";
 
-/**
- * Build the request-scoped notification sender the emitter dispatches
- * through — the shape of `ctx.mcpReq.notify`. Resolved so the emitter's
- * fire-and-forget `.catch(() => {})` has a promise to settle.
- */
-function mockNotify() {
-	return vi.fn().mockResolvedValue(undefined);
-}
+it("delivers ordered progress through the real request context and resets the counter for each call", async () => {
+	await withMcpClient(
+		(server) => {
+			server.registerTool(
+				"progress",
+				{ inputSchema: z.object({}) },
+				async (_, ctx) => {
+					const progress = createProgressEmitter(
+						ctx.mcpReq.notify,
+						ctx.mcpReq._meta?.progressToken,
+					);
+					progress.notify("app_created", "Created");
+					progress.notify("module_added", "Added", { app_id: "app", count: 2 });
+					return { content: [{ type: "text", text: "Complete" }] };
+				},
+			);
+		},
+		async (client) => {
+			for (let call = 0; call < 2; call++) {
+				const updates: unknown[] = [];
+				const result = await client.callTool(
+					{ name: "progress", arguments: {} },
+					{ onprogress: (update) => updates.push(update) },
+				);
+				expect(result.content).toEqual([{ type: "text", text: "Complete" }]);
+				expect(result.isError).not.toBe(true);
+				expect(updates).toEqual([
+					{ progress: 1, message: "[app_created] Created" },
+					{ progress: 2, message: "[module_added] Added | app_id=app count=2" },
+				]);
+			}
+		},
+	);
+});
 
-describe("createProgressEmitter", () => {
-	it("no-ops when progressToken is undefined", () => {
-		const notification = mockNotify();
-		const emitter = createProgressEmitter(notification, undefined);
-		emitter.notify("app_created", "ignored");
-		expect(notification).not.toHaveBeenCalled();
-	});
+it("preserves zero and string tokens on the notification wire and does not send without opt-in", async () => {
+	await withMcpClient(
+		(server) => {
+			server.registerTool(
+				"progress",
+				{ inputSchema: z.object({}) },
+				async (_, ctx) => {
+					createProgressEmitter(
+						ctx.mcpReq.notify,
+						ctx.mcpReq._meta?.progressToken,
+					).notify("upload_started", "Uploading");
+					return { content: [] };
+				},
+			);
+		},
+		async (client) => {
+			const updates: unknown[] = [];
+			client.setNotificationHandler(
+				"notifications/progress",
+				(notification) => {
+					updates.push(notification.params);
+				},
+			);
+			await client.callTool({ name: "progress", arguments: {} });
+			expect(updates).toEqual([]);
+			for (const progressToken of [0, "request"] as const) {
+				await client.callTool({
+					name: "progress",
+					arguments: {},
+					_meta: { progressToken },
+				});
+			}
+			expect(updates).toEqual([
+				{
+					progressToken: 0,
+					progress: 1,
+					message: "[upload_started] Uploading",
+				},
+				{
+					progressToken: "request",
+					progress: 1,
+					message: "[upload_started] Uploading",
+				},
+			]);
+		},
+	);
+});
 
-	it("emits with a monotonically increasing progress counter", () => {
-		const notification = mockNotify();
-		const emitter = createProgressEmitter(notification, "run-42");
-		emitter.notify("app_created", "created");
-		emitter.notify("schema_generated", "schema");
-		emitter.notify("scaffold_generated", "scaffold");
-		expect(notification).toHaveBeenCalledTimes(3);
-		const calls = notification.mock.calls.map((c) => c[0]);
-		expect(calls[0]).toEqual({
-			method: "notifications/progress",
-			params: {
-				progressToken: "run-42",
-				progress: 1,
-				message: "[app_created] created",
-			},
-		});
-		expect(calls[1]?.params.progress).toBe(2);
-		expect(calls[1]?.params.message).toBe("[schema_generated] schema");
-		expect(calls[2]?.params.progress).toBe(3);
-		expect(calls[2]?.params.message).toBe("[scaffold_generated] scaffold");
-	});
-
-	it("accepts a numeric progressToken and appends structured extras inline", () => {
-		const notification = mockNotify();
-		const emitter = createProgressEmitter(notification, 7);
-		emitter.notify("module_added", "mod", { app_id: "a1" });
-		expect(notification).toHaveBeenCalledTimes(1);
-		expect(notification.mock.calls[0]?.[0]).toEqual({
-			method: "notifications/progress",
-			params: {
-				progressToken: 7,
-				progress: 1,
-				message: "[module_added] mod | app_id=a1",
-			},
-		});
-	});
+it("contains notification failure after the real client disconnects", async () => {
+	const lateEmitters: ReturnType<typeof createProgressEmitter>[] = [];
+	await withMcpClient(
+		(server) => {
+			server.registerTool(
+				"progress",
+				{ inputSchema: z.object({}) },
+				async (_, ctx) => {
+					lateEmitters.push(createProgressEmitter(ctx.mcpReq.notify, "late"));
+					return { content: [] };
+				},
+			);
+		},
+		async (client) => {
+			await client.callTool({ name: "progress", arguments: {} });
+		},
+	);
+	expect(lateEmitters).toHaveLength(1);
+	lateEmitters[0].notify("upload_complete", "Complete");
+	// Let Node deliver rejected-promise notifications from the closed transport.
+	// No test-side catch masks a missing rejection handler in the emitter.
+	await new Promise<void>((resolve) => setImmediate(resolve));
+	expect(() =>
+		createProgressEmitter(undefined, 0).notify("upload_complete", "Complete"),
+	).not.toThrow();
 });

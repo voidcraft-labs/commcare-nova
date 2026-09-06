@@ -492,3 +492,30 @@ validation and attachment preparation. Invalid discriminator tests retain every
 other required field so an unrelated missing source cannot make them pass.
 Thirty-two cases across four files passed locally in 5.76 seconds, including
 Postgres setup. No logging behavior was changed by this slice.
+
+
+### MCP protocol and prompt delivery use actual clients and stored authorization
+
+MCP tests now have a real SDK client/server helper that closes both endpoints
+on setup, assertion, or transport failure. Progress tests observe notifications
+through real request contexts, including token zero and a disconnected client.
+Removing the production notification rejection handler in a temporary negative
+control caused Vitest to fail with an unhandled `NOT_CONNECTED` error. The
+handler was restored; no test-side catch masks that failure.
+
+Prompt tests no longer fabricate authorization or renderer results. Real SDK
+calls verify schema refusal and build bootstrap. Real Postgres cases verify
+Project viewer access, non-disclosing foreign/missing app refusals, unchanged
+storage after reads, full large-app reconstruction, stale-cursor refusal after
+a guarded app edit, and refusal after the viewer's membership is removed.
+Pure pagination cases cover independent byte limits, escaping, Unicode offsets,
+content digests, progress, malformed cursors and marker placement. Duplicate
+renderer fixtures and editorial substring checklists were removed.
+
+The two run-attribution callers now use their actual database `Date` values;
+production support for fabricated `toMillis()` test objects was removed. Scope
+checks cover every independent grant and both credential remediation paths.
+Registration metadata and user-tool names are verified through `tools/list`.
+The focused validation passed 110 cases in ten files in 7.88 seconds, including
+the two existing caller suites and real Postgres. Type checking passed. This is
+a bounded slice of the continuing audit, not full-suite completion.

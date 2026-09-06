@@ -70,7 +70,7 @@ import {
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
 import { LARGE_RESULT_META } from "../resultSize";
-import { deriveRunId, timestampToMillis } from "../runId";
+import { deriveRunId } from "../runId";
 import type { ToolContext } from "../types";
 
 /**
@@ -186,7 +186,7 @@ export function registerSharedTool(
 				 * observe this value. */
 				const runId = deriveRunId({
 					currentRunId: loaded.app.run_id,
-					lastActiveMs: timestampToMillis(loaded.app.updated_at),
+					lastActiveMs: loaded.app.updated_at.getTime(),
 					now: new Date(),
 				});
 

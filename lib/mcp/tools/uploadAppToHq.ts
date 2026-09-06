@@ -127,7 +127,7 @@ import {
 	type UploadErrorType,
 } from "../errors";
 import { loadAppBlueprint } from "../loadApp";
-import { deriveRunId, timestampToMillis } from "../runId";
+import { deriveRunId } from "../runId";
 import { assertScope, SCOPES } from "../scopes";
 import type { ToolContext } from "../types";
 import { describeDeployment } from "./deploymentProjection";
@@ -364,7 +364,7 @@ export function registerUploadAppToHq(
 				 * grouped under. */
 				const runId = deriveRunId({
 					currentRunId: app.run_id,
-					lastActiveMs: timestampToMillis(app.updated_at),
+					lastActiveMs: app.updated_at.getTime(),
 					now: new Date(),
 				});
 

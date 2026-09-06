@@ -6504,7 +6504,10 @@
 			"file": "lib/mcp/__tests__/getAgentPrompt.test.ts",
 			"lines": 501,
 			"ciMs": 2123,
-			"status": "pending"
+			"status": "revised",
+			"review": "Removed captured-handler, mocked loader, renderer spy, fabricated AppDoc and synthetic renderer exceptions. Real SDK tests cover both build modes, irrelevant app id, schema-invalid requests, conditional edit id and malformed cursor. New Postgres sibling uses valid normalized documents, real membership and guarded commit: viewer reads preserve rows/events, foreign and missing apps are indistinguishable, large prompt pages reconstruct exactly, edits reject stale continuations and revoked membership blocks the next page.",
+			"baselineSha256": "5c06c4c10db2bb34ef87fcbc631f7f853f757e606331a5522ffda0725dabbeae",
+			"reviewedSha256": "7af445aa8a30949e6d356fc175379b69f8890402db58297ef27e0e4ec8349b5e"
 		},
 		{
 			"file": "lib/mcp/__tests__/getApp.test.ts",
@@ -6570,37 +6573,55 @@
 			"file": "lib/mcp/__tests__/progress.test.ts",
 			"lines": 77,
 			"ciMs": 33,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced notification spies with real SDK client/server dispatch. Exact ordered notifications preserve zero/string tokens, omit notifications without opt-in, reset per call, and contain rejection after real disconnect. A temporary removal of the production rejection handler made Vitest fail with NOT_CONNECTED; restored production bytes and verified passing tests. Both endpoints close on success or failure.",
+			"baselineSha256": "c62498ce5643a72fe25310f4645c0e7f5c8e02482a72ea9e79c97e7c418bf511",
+			"reviewedSha256": "cb5ddc5426b6998a2aa8f8d2ee64f0d4a8a1e89b91c47458c5d823518303e577"
 		},
 		{
 			"file": "lib/mcp/__tests__/promptDeliveryBudget.test.ts",
 			"lines": 275,
 			"ciMs": 2243,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced duplicated malformed large-app fixtures and unbounded page loops with pure independently specified transport boundaries. Shared consumer asserts exact envelopes, 75000 UTF-8 and UTF-16 budgets, contiguous code-point offsets, Unicode integrity, cursor progress, terminal marker and SHA256. Cases cover exact/next byte, JSON escaping, astral content, multiple pages, otherwise-valid malformed cursor fields, offsets and changed equal-length snapshots. Actual app-summary pagination moved to SDK/Postgres proof.",
+			"baselineSha256": "dc2a9b3333bcccf339ad944a00b09c7cde9df0f86432ed81b989de7268ea529f",
+			"reviewedSha256": "2518b1a5ee959edeae7c5541e523172e2e8a3247115f1a96ec568b612f1f6dc4"
 		},
 		{
 			"file": "lib/mcp/__tests__/prompts.test.ts",
 			"lines": 167,
 			"ciMs": 838,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete renderer and original tests. Removed duplicated hand-built partial documents and incidental guidance substring checklist. Valid normalized shared fixture proves build/edit composition, interaction-specific section, addressable app summary before terminal marker and defensive in-memory empty input. These assertions establish rendered composition, not model obedience; real delivery and authorization are covered separately.",
+			"baselineSha256": "e5de72ea951e455ba6d15afc59dbf38fe7127b60eb7b6e0a241e3190fbb1b4a6",
+			"reviewedSha256": "98c09c2ca3772872541afa78f510bb8eed36ad2e33c16a0df6b01cc588920121"
 		},
 		{
 			"file": "lib/mcp/__tests__/resultSizeWire.test.ts",
 			"lines": 167,
 			"ciMs": 3230,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retained actual SDK tools/list as the evidence boundary; replaced manual teardown and database mocks with failure-safe real client/server helper. Independent 100000-character metadata contract covers bespoke/read/write registration and compile exclusion. Folded user-tool registration into the real wire list and retained actual schema inputs. Removed editorial description keyword pins; continuation behavior is now exercised through actual tool calls.",
+			"baselineSha256": "a30407d9e934677a41a9e5f4f8e7d1f6f6683ebf7bce096b8d1a471c592faf21",
+			"reviewedSha256": "57f58419a2fd9039a13004c12e4d5771ba4a357a747c828cfbacdc48488f8a7a"
 		},
 		{
 			"file": "lib/mcp/__tests__/runId.test.ts",
 			"lines": 117,
 			"ciMs": 49,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read derivation and its two actual AppDoc callers. Removed production support for fabricated toMillis test objects; both callers use real Date.getTime. Independent 30-minute boundaries, backwards clock adjustment, missing run/activity and unique UUID minting run without crypto mocks. Corrected the comment conflating a run group with a single event row.",
+			"baselineSha256": "1e225cc3cbdb92e19af3935429f672099f56b3fa8aa8d3672c425f7c02a5369d",
+			"reviewedSha256": "614850077579fa21d9ac6a5aecf34d919006db746285bac233948a52f42dfe0a"
 		},
 		{
 			"file": "lib/mcp/__tests__/scopes.test.ts",
 			"lines": 168,
 			"ciMs": 59,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read exact-grant guard and claim parser. Replaced repetitive catch blocks with otherwise-valid exact-grant admission/refusal across all six scope dimensions, near-match/case negatives and distinct OAuth/API-key remediation metadata. Canonical issued identifiers are independent literals; these pure tests do not claim route or data authorization proof.",
+			"baselineSha256": "2f22e7121860c9a69f8470e2ecd5341affed14e06e4b0e1d59001619a5f62440",
+			"reviewedSha256": "ab6fbcf1efb5151ea441330e858178fac0ca7e5af1870acc7d6c8b685d1ba4d3"
 		},
 		{
 			"file": "lib/mcp/__tests__/searchApps.test.ts",
@@ -6642,7 +6663,10 @@
 			"file": "lib/mcp/__tests__/userToolRegistration.test.ts",
 			"lines": 39,
 			"ciMs": 2566,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed callback-spy fake McpServer suite. Real tools/list now proves externally named user-authoring registration exactly once without bypassing SDK registration and schema projection.",
+			"baselineSha256": "47f5e8c472049224f46f0d732725bb050dbb379693d9feb027484a0d8044b108",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/media/__tests__/assetDeletion.test.ts",

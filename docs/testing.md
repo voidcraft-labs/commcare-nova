@@ -54,6 +54,13 @@ or streaming behavior matter; replacing the entire request helper hides those
 failures. Native-language suites belong in that language's test runner, with
 positive discovery and a bounded process lifetime when invoked from Vitest.
 
+MCP handler tests use a real SDK client and server over the linked transport
+(`lib/mcp/__tests__/client.ts`). A captured registration callback bypasses input
+validation, request context, notifications, and response projection. Put stored
+app authorization and continuation reauthorization in Postgres tests. Keep
+pagination byte limits, Unicode boundaries, and malformed cursors in pure tests;
+compare complete reconstructed results through the same consumer checks.
+
 For emitted policy languages, evaluate the actual output with an independent
 language implementation. `captureCondition.test.ts` uses CEL and checks its
 Google IAM-specific `extract` extension against Google's published examples.
