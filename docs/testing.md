@@ -220,3 +220,9 @@ tables in `lib/mcp/__tests__/projects.postgres.test.ts`. Invitation acceptance
 uses Better Auth with Nova's actual organization configuration. Native database
 triggers prove creation rollback and write-free repeated role assignments;
 concurrent membership DML proves authorization is read after acquiring the gate.
+
+MCP export tests use the real SDK, persisted apps, Project data and deployment
+records, and the actual export boundary and compilers. They open the returned
+ZIPs, decode workbook cells, and inspect XML and media bytes. A mocked compiler
+returning an arbitrary buffer cannot prove a usable download. Replace only the
+external object store; keep metadata selection and Project authorization real.

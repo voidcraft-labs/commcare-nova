@@ -744,3 +744,30 @@ The complete MCP/deployment consumer run and affected reader checks passed 542
 tests across 44 files in 20.76 seconds. Type checking and formatting passed.
 Consumers run here retain their pending review status until their own testing
 method has been evaluated.
+
+### Downloaded artifacts: inspect what the client receives
+
+The old MCP compile suite replaced authorization, persistence, validation,
+lookup preparation, media resolution, expansion and compilation. It could pass
+with a buffer containing `ccz`, unrelated fake JSON, and invalid source apps.
+The replacement sends actual SDK requests as a shared Project viewer against
+migrated Postgres, makes a real guarded edit, and runs both export compilers.
+It opens every returned archive and checks the committed version, form input,
+HQ-source versus device metadata, media references and exact PNG bytes,
+lookup workbook cells and embedded fixture rows, Unicode and escaped text,
+and exclusion of unreferenced tables. Both lookup-only and combined bundles
+are exercised. Expected wire values are authored independently of emitters.
+
+Current duplicate lookup values block both downloads before media reads.
+Missing and foreign media have identical refusals; pending media is actionable.
+A failed storage read and a native failed lookup-snapshot SQL query return no
+artifact, preserve stored state, and allow the next request to succeed. The
+empty lookup target set still exercises the mandatory snapshot read.
+Actual deployment records prove selected-server attachment writes, absence and
+ambiguity advisories, and automatic reuse of one known destination. Search
+requirements precede both artifacts without any destination HTTP request.
+
+All nine replacement scenarios passed. The complete MCP/export/lookup and
+multimedia consumer selection passed 337 tests across 37 files in 20.18
+seconds; type checking passed. No export runtime change was needed. The tool's
+description now correctly states Project view access and lookup companions.

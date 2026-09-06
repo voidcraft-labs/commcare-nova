@@ -6481,7 +6481,10 @@
 			"file": "lib/mcp/__tests__/compileApp.test.ts",
 			"lines": 776,
 			"ciMs": 1772,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "5262d9b1ba54606818a62b4f7d3e929d898f4fe3aa290033136115034010dfd4",
+			"reviewedSha256": null,
+			"review": "Replaced fake SDK capture and mocked app/permission/validator/lookup/media/expander/compiler results with compileApp.postgres.test.ts. Real SDK requests from a shared viewer use persisted documents, actual guarded commits, lookup service snapshots, media metadata, deployment records and both actual compilers. Decode and inspect HQ form sources, device metadata, ZIP integrity and member names, exact media bytes, workbook cells and embedded fixture values. Prove no data writes, no target HTTP probe, leading compatibility/advisory blocks, selected-server attachment writes, missing/foreign/pending assets, current duplicate lookup value refusal, and safe storage/native SQL read failures with retry."
 		},
 		{
 			"file": "lib/mcp/__tests__/context.test.ts",
