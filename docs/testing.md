@@ -76,6 +76,15 @@ results and serialized submission XML. This exposed editor-shadow parsing,
 hidden URL overwrites, capture preloads and missing parent IDs that structural
 checks had accepted. No remote submission or attachment upload runs.
 
+The case-operation proof also reads native `CaseInstanceTreeElement` data and
+applies finalized submissions through Core's `CaseXmlParser` to indexed
+in-memory storage. It checks stored records, repeat correlation, snapshot reads,
+conditional dependencies, link rejection and scalar/identity bounds. A disabled
+link guard makes the negative control fail by accepting a missing target.
+Evaluating an emitted XPath with Nova's own evaluator does not establish device
+parity. Native in-memory application is also not a transaction rollback test;
+Postgres atomicity and HQ server processing require their own evidence.
+
 Case-write admission tests start with a fully accepted document and prove that
 a refusal reaches no persistence host. The shared tool body is tested once;
 invoking it twice behind different stubs does not establish SA/MCP transport

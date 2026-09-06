@@ -6,6 +6,10 @@ import {
 	caseCaptureScenarios,
 } from "../../../lib/commcare/__tests__/caseCaptureFixture";
 import {
+	caseOperationFixture,
+	operationScenarios,
+} from "../../../lib/commcare/__tests__/caseOperationFixture";
+import {
 	extensionCaseFixture,
 	extensionScenarios,
 } from "../../../lib/commcare/__tests__/extensionCaseFixture";
@@ -23,7 +27,7 @@ if (!output)
 		"Usage: tsx scripts/fixtures/hq/emit-case-evidence.ts OUTPUT_DIRECTORY",
 	);
 mkdirSync(output, { recursive: true });
-for (const [scenario, doc] of [
+for (const [scenario, doc, moduleIndex = 0] of [
 	...[...caseCaptureScenarios, "multiple" as const].map(
 		(scenario) =>
 			[`capture-${scenario}`, caseCaptureFixture(scenario)] as const,
@@ -33,6 +37,14 @@ for (const [scenario, doc] of [
 	),
 	...(["survey", "followup"] as const).map(
 		(type) => [`worker-${type}`, usercaseWriteFixture(type)] as const,
+	),
+	...operationScenarios.map(
+		(scenario) =>
+			[
+				`operation-${scenario}`,
+				caseOperationFixture(scenario),
+				scenario === "nested" ? 1 : 0,
+			] as const,
 	),
 ]) {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
@@ -50,6 +62,7 @@ for (const [scenario, doc] of [
 			: undefined,
 	);
 	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+
 	writeFileSync(resolve(output, `${scenario}.json`), JSON.stringify(hq));
 	writeFileSync(
 		resolve(output, `${scenario}.suite.xml`),
@@ -57,6 +70,6 @@ for (const [scenario, doc] of [
 	);
 	writeFileSync(
 		resolve(output, `${scenario}.xml`),
-		zip.readAsText("modules-0/forms-0.xml"),
+		zip.readAsText(`modules-${moduleIndex}/forms-0.xml`),
 	);
 }

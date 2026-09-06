@@ -1,4 +1,4 @@
-# JavaRosa XPath compatibility proof
+# Native CommCare Core proofs
 
 This fixture runs Nova's production `normalize-space()` lowering through the
 real CommCare Core evaluator and through XForm parsing and initialization. The
@@ -49,3 +49,29 @@ This does not upload attachment bytes, submit to HQ or apply a server case
 transaction. Gradle XML reports live under `build/reports/tests/` in the Core
 checkout. The ordinary Nova tests check the same accepted fixtures and compiled
 artifacts without requiring a developer's native checkout.
+
+## Case-operation execution
+
+The same producer also emits 12 accepted operation documents. Run
+`nova.compatibility.CaseOperationRuntimeTest` with the command above, or add a
+second `--tests` selector to run it with the capture proof. Its 24 cases open
+both the CCZ and HQ-regenerated forms. It supplies session data and seeded native
+`Case` records through Core's indexed in-memory storage, uses the native
+`CaseInstanceTreeElement` for XPath reads, finalizes the form with
+`postProcessInstance`, and sends the serialized form to
+`XmlFormRecordProcessor` and `CaseXmlParser`.
+
+Assertions inspect the stored cases: generated and authored IDs, conditional
+create/retype dependencies, original snapshot reads, final writes and closure,
+link creation/removal, scalar normalization and bounds, nested-menu child
+selection, and repeat-local relation conditions. A two-row query deliberately
+reuses an authored key and confirms the accepted same-type merge. Invalid keys,
+names, owners, external IDs and dynamic link targets must raise native
+`InvalidStructureException`. The accepted counterpart executes in the same
+harness. A negative control replacing the dynamic-link guard with the selected
+case ID fails because a missing target becomes an accepted unlink.
+
+This proof does not establish rollback: Core's in-memory test storage applies
+records as the parser visits them. It also does not run Android or HQ's server
+case processor. `docs/research/test-suite-audit/native-core-operations.json`
+records the passing methods, native sources and exact exported form hashes.

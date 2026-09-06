@@ -3618,7 +3618,10 @@
 			"file": "lib/commcare/__tests__/caseOps.test.ts",
 			"lines": 1063,
 			"ciMs": 1462,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read complete suite and operation emitter contracts. Removed invalid followup/undeclared-property fixtures, forced private selection options, duplicated ordinary batch/capture cases, and own-evaluator device-parity claims. Replaced by caseOperationEmission: 12 strict admitted source/CCZ programs plus precise repeated-key admission refusal. Native HQ regeneration and 24 Core cases exercise real case-instance XPath, form finalization, native transaction parsing and resulting indexed records; dynamic-link guard negative control fails by accepting missing target. Covers sequencing/snapshot reads, conditional dependencies, repeat candidate context, generated/keyed identities, scalar bounds and nested child datum. In-memory application does not claim rollback or HQ server processing.",
+			"baselineSha256": "7ca3423e2b9de5bd5cd9b8fc133409dd3364942a3da3309fa6c9212f3b498bc4",
+			"reviewedSha256": "61c2f99250d1377d7d85d147099a0ce2d74b93379d98b7536e3bb9d1e66148fa"
 		},
 		{
 			"file": "lib/commcare/__tests__/casePropertyWire.test.ts",

@@ -830,9 +830,9 @@ seed `@case_id` via `<setvalue event="xforms-ready">`, while creates under a
 repeat use a bind calculate over the per-instance path. Generated UUIDs take the
 setvalue path; authored deterministic keys stay live calculate binds.
 
-An owner expression's result lands verbatim and unvalidated in the case block —
-the only server-side check is length ≤ 255. Typed owner addressing is entirely
-Nova's guarantee.
+The wire carries owner IDs as text; it does not establish that an ID names a
+person or group. Nova owns typed owner addressing and normalizes scalar text
+before emission.
 
 Operations are authored on the form's own URL — `/{formUuid}/operations`, with
 `/{operationUuid}` selecting one — reached from the form settings panel. The

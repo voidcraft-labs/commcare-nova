@@ -1427,3 +1427,43 @@ Core run passes all ten cases, and native HQ checks all 13 exported scenarios.
 Both 900-document wire corpora and the other compiler consumers passed in the
 broader run; its obsolete repeat/batch assertions were replaced and rerun.
 Full typecheck, strict Biome checks and all recorded review hashes pass.
+
+## Case-operation evidence reaches native case records
+
+The old 1,063-line emitter suite used followup forms without case lists, wrote
+undeclared properties on created cases, forced private selection options and
+called Nova's own XPath evaluator to claim device parity. Its repeated keyed
+create followed by updates is inadmissible: duplicate keys could interleave
+Core's iteration order with HQ's per-case create ordering. The replacement
+starts with an accepted generated-ID program before asserting that exact
+admission refusal. Repeated keyed creates remain supported when no later
+operation introduces the conflicting order.
+
+The suite is replaced by scoped export checks for 12 strictly accepted documents.
+Selection is authored through a real nested menu; the suite and form agree on
+the child datum. Generated operations, create/update/index/close structure,
+metadata paths, conditional dependencies, repeat-local identity and relation
+bindings are checked in actual HQ source and CCZ artifacts. Duplicate ordinary
+batch/capture tests move to their existing export suites; helper-produced XML is
+no longer described as an exported app.
+
+Native HQ imports and regenerates the same forms. Core opens both sets, uses its
+native case instance over seeded `Case` records, finalizes and serializes the
+forms, and applies them through `XmlFormRecordProcessor` and `CaseXmlParser`.
+The 24 native cases check resulting records, including original snapshot reads
+after an earlier submitted update, ordinary writes running last, inherited
+create/retype conditions, candidate-relative relation filters with repeat-local
+answers, distinct generated IDs and deliberate repeated authored-key merges.
+Names, owners, external IDs and keys include nonbreaking whitespace, composed
+and decomposed Unicode, and exact UTF-16 limits. Missing, wrong-type and self
+links refuse in the native parser. A negative control disables the dynamic-link
+guard; its missing-target test fails because the form becomes an accepted
+unlink. No production behavior changed in this replacement.
+
+Native in-memory application is not a rollback proof and does not execute HQ's
+server case processor. The accompanying record captures the native source SHA,
+all passing methods and form fingerprints. The ten capture cases also pass on
+the regenerated corpus. No remote request or paid model call runs.
+
+Validation: 21 focused tests in three files, all 34 native operation/capture
+cases, full typecheck, strict Biome and recorded review hashes pass.

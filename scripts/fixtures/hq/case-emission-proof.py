@@ -170,6 +170,24 @@ for scenario in ["registration", "followup", "repeat", "query", "multiple"]:
         assert tree.xpath('//x:model/x:setvalue[contains(@ref,"/details/")]', namespaces=namespaces) == [], name
         assert tree.xpath('//@*[namespace-uri()="http://commcarehq.org/xforms/vellum"]') == [], name
     capture_results.append({"scenario": scenario, "inputSha256": hashlib.sha256(raw).hexdigest(), "nativeFormSha256": hashlib.sha256(native_xml).hexdigest(), "localFormSha256": hashlib.sha256((args.exports / f"{name}.xml").read_bytes()).hexdigest()})
+operation_results = []
+for scenario in ["sequence", "conditional", "retype", "expression-retype", "repeat", "query", "key-query", "key", "link", "scalar", "relation", "nested"]:
+    name = f"operation-{scenario}"
+    raw = (args.exports / f"{name}.json").read_bytes()
+    with patch("corehq.apps.app_manager.models.applications.get_default_build_spec", return_value=BuildSpec(version="2.53.0", build_number=1)):
+        app = Application.from_source(json.loads(raw), "nova-case-evidence")
+    form = app.get_module(1 if scenario == "nested" else 0).get_form(0)
+    with patch("corehq.apps.app_manager.models.applications.domain_has_usercase_access", return_value=False), patch("corehq.apps.app_manager.xform.DONT_INDEX_SAME_CASETYPE.enabled", return_value=False), patch("corehq.apps.app_manager.xform.SAVE_ONLY_EDITED_FORM_FIELDS.enabled", return_value=False):
+        xform = XForm(form.source, domain="nova-case-evidence")
+        xform.add_case_and_meta(form)
+        xform.strip_vellum_ns_attributes()
+        native_xml = etree.tostring(xform.xml)
+    (args.exports / f"{name}.hq.xml").write_bytes(native_xml)
+    for xml in [native_xml, (args.exports / f"{name}.xml").read_bytes()]:
+        tree = etree.fromstring(xml)
+        assert len(tree.xpath('//x:model/x:instance[not(@src)]//*[local-name()="__nova_operations"]', namespaces=namespaces)) == 1, name
+        assert tree.xpath('//@*[namespace-uri()="http://commcarehq.org/xforms/vellum"]') == [], name
+    operation_results.append({"scenario": scenario, "inputSha256": hashlib.sha256(raw).hexdigest(), "nativeFormSha256": hashlib.sha256(native_xml).hexdigest(), "localFormSha256": hashlib.sha256((args.exports / f"{name}.xml").read_bytes()).hexdigest()})
 native_files = [
     "corehq/apps/app_manager/xform.py",
     "corehq/apps/app_manager/suite_xml/xml_models.py",
@@ -186,4 +204,5 @@ print(json.dumps({
     "evidence": results,
     "workerEvidence": worker_results,
     "captureEvidence": capture_results,
+    "operationEvidence": operation_results,
 }, indent=2))

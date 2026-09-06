@@ -1,0 +1,138 @@
+{
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"nativeSourceSha256": {
+		"src/main/java/org/javarosa/xform/parse/XFormParser.java": "1619ada1b3f7ea6c528b5250aff37ab2008cd26253ad772f47ef03a1d74423b8",
+		"src/main/java/org/javarosa/core/model/FormDef.java": "dbc9b8ca910ba30fd28ac3c996015db16cf04a4053bae731252ade1fe4b3f9a0",
+		"src/main/java/org/javarosa/model/xform/XFormSerializingVisitor.java": "3b39ab90293114d2e5e2afcdc22e964ae0a90c3b51c7cade317930547bb98f4c",
+		"src/main/java/org/commcare/core/process/XmlFormRecordProcessor.java": "5faa077f52fc22577b0724e7ef3702d1a581f36cc98b478bf2a43cc91c2cd732",
+		"src/main/java/org/commcare/xml/CaseXmlParser.java": "dd0ff34866b1af3ad6bb1f37cb56c286e6f52bae9d3c64967da0d1f775dfa255",
+		"src/main/java/org/commcare/cases/instance/CaseInstanceTreeElement.java": "a1af7b1bbd8138eaa0b96b9f3a6da293b575edb7b3153b20184197bcefb36d4b",
+		"src/main/java/org/commcare/cases/model/Case.java": "231ed09358fa7ee61356200ff6e7cf97b130bd085fde8e3c47e12827555c29ae"
+	},
+	"testSourceSha256": "bc8c2586ebed9cd89de1ad5b72518d04f42384f438c3ba531c562c39a407e532",
+	"tests": [
+		"expressionRetypeUsesSnapshot[HQ=false]",
+		"conditionalDependencyAndWrite[HQ=false]",
+		"dynamicLinkTargetRefusals[HQ=false]",
+		"nestedMenuSelectsChildDatum[HQ=false]",
+		"queryGeneratedIds[HQ=false]",
+		"sessionRetype[HQ=false]",
+		"repeatedGeneratedIds[HQ=false]",
+		"scalarNormalizationAndBounds[HQ=false]",
+		"sequence[HQ=false]",
+		"repeatedAuthoredKeysDeliberatelyMerge[HQ=false]",
+		"exactAuthoredKeysAndBounds[HQ=false]",
+		"relationUsesCandidatePropertiesAndSelectedParent[HQ=false]",
+		"expressionRetypeUsesSnapshot[HQ=true]",
+		"conditionalDependencyAndWrite[HQ=true]",
+		"dynamicLinkTargetRefusals[HQ=true]",
+		"nestedMenuSelectsChildDatum[HQ=true]",
+		"queryGeneratedIds[HQ=true]",
+		"sessionRetype[HQ=true]",
+		"repeatedGeneratedIds[HQ=true]",
+		"scalarNormalizationAndBounds[HQ=true]",
+		"sequence[HQ=true]",
+		"repeatedAuthoredKeysDeliberatelyMerge[HQ=true]",
+		"exactAuthoredKeysAndBounds[HQ=true]",
+		"relationUsesCandidatePropertiesAndSelectedParent[HQ=true]"
+	],
+	"failures": 0,
+	"errors": 0,
+	"skipped": 0,
+	"forms": [
+		{
+			"scenario": "sequence",
+			"inputSha256": "c3df159593b85f73c4d1a3160e336401ec02416e26099c9c9d46760f8299f4ad",
+			"nativeFormSha256": "bc63a84f9cdb73ee25afcea94eeea6cf6f8e9e9248dd297f091ca36d8360192e",
+			"localFormSha256": "4d8006336daa132f313a7daff6776d8f14995494867df97fc10fef9efb1b6461"
+		},
+		{
+			"scenario": "conditional",
+			"inputSha256": "5a93b23969e48b1e3cd5c4eed2c57a8e21a8e9c6ba05634e31c79ea67bd50c3a",
+			"nativeFormSha256": "ad594f73ceadace16ded02952169a29de8039cc88d29519d9ad3ad53d151326b",
+			"localFormSha256": "efa2817b9f60f0fe1c4ae29108c58838c2b668bb929d98bd82e22562d1426988"
+		},
+		{
+			"scenario": "retype",
+			"inputSha256": "f37a26f32bed1929382626ae28c32041a9d33778335ad70d1dc82301db5436d7",
+			"nativeFormSha256": "79d2f8e16d7f797c061f39defcc73feefe9aa24c9b3eb7e033e040268fa9d1b0",
+			"localFormSha256": "2f4f3fdc37245a47b531519ed1028440f32f1007b57dc9614afa548f0d75d494"
+		},
+		{
+			"scenario": "expression-retype",
+			"inputSha256": "b2cabd91a620f499b94a135fa19b8fe86259890f907496bfb49317403367e9d3",
+			"nativeFormSha256": "27b3662ebc382e47f11629da17041b730d9e641effc51a558d4e26326b75c4ae",
+			"localFormSha256": "b0ca3d4666ca3fd6385b8852c28558e36f581a3f5c36466c6fb2f78bbb06fb44"
+		},
+		{
+			"scenario": "repeat",
+			"inputSha256": "5f71c437bdeb69d02ca669cc19fcba53020589ad38836cf693b49339c912ee24",
+			"nativeFormSha256": "93c970c8b3816734cc78fc1e2ca19adbe329d743af7f52e23680ecaaa5cdd9f5",
+			"localFormSha256": "823441faa880f5720c3c6f4cad84ec956501e9feb0851a36d130ddd0f816e042"
+		},
+		{
+			"scenario": "query",
+			"inputSha256": "379fb5e0f7927e4a1fe401063b2592306e40e0e6f447d6b21336ea3e3af8c314",
+			"nativeFormSha256": "0d62de4e6e9267b54334cadcac495aeb172ea7aa95f9ee37cfd61114a2e55766",
+			"localFormSha256": "1e657242598a5353871e86dced9a78cc140ef239e5cfc1cfbe5453fc0b46bfbf"
+		},
+		{
+			"scenario": "key-query",
+			"inputSha256": "030de22f004f401820a2277a3c9f014221b0a48438554683d67f5dcbb74e266d",
+			"nativeFormSha256": "cc2c4249fc6a40c6fac1615d74e54d60157a96e4b2279b7a989a961333f83eab",
+			"localFormSha256": "be696c33e01590d4d0a2bc73063b5cb1c79eced35b2a19ca5dda6c4954ebe4f1"
+		},
+		{
+			"scenario": "key",
+			"inputSha256": "8ea8508aa428bc84f287611b70a807f163719c6a06413ab97ba9dcdec2ec87b7",
+			"nativeFormSha256": "7b45ade7e029715fdccd93ce5eaf72ec15f9dac6608326f2322a7bebca6694dd",
+			"localFormSha256": "834ca89ba06602314ae3b5a9146c3b99f409ef2b726ce80a18e0a46ad956f66d"
+		},
+		{
+			"scenario": "link",
+			"inputSha256": "70ab9d1b4dec287e3a43fd9c8c27247691b3dbcdf3a95ca053f31ef7d49c45b8",
+			"nativeFormSha256": "45c2b167e3c3e9b138e08585aef769024549493ef7f684873a4a481224135a52",
+			"localFormSha256": "b796409d1767f0adcec343582da7b7badb5aa7b287e0bd44b00757bfc79ee833"
+		},
+		{
+			"scenario": "scalar",
+			"inputSha256": "316aefbfd28521e0f2aaff647c3783b03c95f812388f46882804c7662f663a56",
+			"nativeFormSha256": "e21633114d7fcb5fe5f81ceecd5be3ba78329b6dd3a4aca5a7e26202fe9074af",
+			"localFormSha256": "ec3ea1b5ba1378067517e92f2eeba7c01a92d06c8b41bf40f324bfd997e99fe3"
+		},
+		{
+			"scenario": "relation",
+			"inputSha256": "f2bfaf4addb62baf4130cdfe74ee2e6db6d036a348c9ce058a3db5e77925263e",
+			"nativeFormSha256": "d94c2cde00000f4c42680ea0e449df246dd5d606dac3943ebb58fc96b8e2b7e4",
+			"localFormSha256": "d56e699cdc51ad1a6416c92d875294df4f70e9814e91fc500cd6f0a75dbc3109"
+		},
+		{
+			"scenario": "nested",
+			"inputSha256": "6ff6a95400238fac7929df1a0c752a6f0f626ed30c0429179edde54eacf91792",
+			"nativeFormSha256": "a6bde324ab60156cad9ae40ce01959c6fe9a7b37c538abe5d92ea94321ce972c",
+			"localFormSha256": "88680d9527a98538f60ff4244073c42e9deffe0c85c3a8b772e2020cf00269da"
+		}
+	],
+	"checks": [
+		"Native form parse, initialization, finalization and submission serialization",
+		"Native casedb XPath over seeded Core Case records",
+		"Native case parser applies create/update/link/unlink/close to indexed in-memory storage",
+		"Original case snapshot survives earlier submitted updates; ordinary writes run last",
+		"Conditional creates and retypes guard later consumers",
+		"Candidate-relative relation reads preserve current repeat answers and selected parent",
+		"Generated repeat IDs stay distinct; repeated exact authored keys merge deliberately",
+		"Authored keys preserve Unicode and whitespace with UTF-16 bounds",
+		"Scalar trim, nonbreaking whitespace, Unicode bounds and blank external ID clear",
+		"Missing, wrong-type and self link targets refuse in native transaction parser",
+		"Nested menu binds the child case datum and preserves parent record"
+	],
+	"negativeControl": {
+		"change": "Set the local dynamic-link guard case ID to the selected case unconditionally",
+		"result": "The missing-target assertion failed because native processing accepted the form instead of rejecting it"
+	},
+	"limits": [
+		"In-memory indexed storage does not establish transaction rollback",
+		"No HQ server submission or server case processing",
+		"No Android application execution or remote I/O"
+	]
+}
