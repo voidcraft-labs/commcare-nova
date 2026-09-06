@@ -380,3 +380,21 @@ The XPath scan suite retains actual carrier analysis and now checks the complete
 fixture profile inventory and aggregate counts, including separate runtime-owner
 findings. Connect expressions use the current typed representation. Its scope is
 the scanner; exhaustive domain slot traversal remains a separate contract.
+
+
+### Parent-edge repairs and persisted lookup inspection
+
+Parent repair tests keep real receipt provenance and the large native parameter
+boundary. Fixtures now name their actual parent type. Added cases prove scope
+and type refusals, preserved case rows/timestamps and rejection of receipt-proven
+but missing, deep or mismatched edges.
+
+The lookup audit's pure report tests were insufficient to establish database
+inspection. The existing CLI scan is extracted into `scanPersistedLookupReferences`
+without changing its transaction or read paths. New Postgres journeys run exact
+JSONB assembly and the production extractor against independently seeded nonempty
+reference rows, including trashed apps. They distinguish missing columns from
+shared parent tables, report extra tables, continue after malformed persisted
+entities and fail on an actual missing edge table. Whole-state comparisons show
+that successful and mismatched scans leave their inputs unchanged. The report
+suite remains pure and adds an overlapping nonempty set comparison.

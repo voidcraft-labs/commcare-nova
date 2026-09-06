@@ -124,23 +124,33 @@ describe("lookup reference edge scan comparison", () => {
 		);
 	});
 
-	it("surfaces a stale source-Project edge returned by the app-wide reader", () => {
-		const staleSourceTargets = normalizeLookupReferenceTargetSet({
-			tableIds: [TABLE_A],
+	it("compares overlapping nonempty column sets in both directions", () => {
+		const structural: LookupReferenceTargetSet = {
+			tableIds: [TABLE_C, TABLE_A],
+			columnTargets: [
+				{ tableId: TABLE_A, columnId: COLUMN_B },
+				{ tableId: TABLE_C, columnId: COLUMN_A },
+				{ tableId: TABLE_A, columnId: COLUMN_A },
+			],
+		};
+		const stored: LookupReferenceTargetSet = {
+			tableIds: [TABLE_C, TABLE_B, TABLE_A],
+			columnTargets: [
+				{ tableId: TABLE_A, columnId: COLUMN_A },
+				{ tableId: TABLE_B, columnId: COLUMN_B },
+				{ tableId: TABLE_C, columnId: COLUMN_A },
+			],
+		};
+		expect(compareLookupReferenceTargetSets(structural, stored)).toEqual({
+			structuralOnly: {
+				tableIds: [],
+				columnTargets: [{ tableId: TABLE_A, columnId: COLUMN_B }],
+			},
+			storedOnly: {
+				tableIds: [TABLE_B],
+				columnTargets: [{ tableId: TABLE_B, columnId: COLUMN_B }],
+			},
 		});
-		const report = buildLookupReferenceScanReport([
-			compared(
-				"app-moved",
-				EMPTY_LOOKUP_REFERENCE_TARGETS,
-				staleSourceTargets,
-				{ projectId: "project-destination" },
-			),
-		]);
-		const rendered = renderLookupReferenceScanReport(report);
-
-		expect(report.mismatches[0]?.storedOnly.tableIds).toEqual([TABLE_A]);
-		expect(rendered).toContain("app-moved (project-destination; live;");
-		expect(rendered).toContain(`stored-only: 1 table(s), 0 column(s)`);
 	});
 
 	it("orders multiple apps and every target identity deterministically", () => {

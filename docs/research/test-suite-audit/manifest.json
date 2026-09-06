@@ -7632,7 +7632,10 @@
 			"file": "scripts/__tests__/caseParentRelationshipRepair.postgres.test.ts",
 			"lines": 400,
 			"ciMs": 1111,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read all classifier/CAS source and both CLI transaction/lock/snapshot consumers. Retain real receipts, operation touches, current/historical provenance, snapshot placement and the native 70,000-candidate parameter-boundary case. Correct fixture parent target types. Add otherwise-valid wrong app/Project/child-type/parent-type CAS refusals, complete case-row/timestamp preservation, and receipt-proven missing/deep/mismatched topology refusals. Five tests pass.",
+			"baselineSha256": "405db02db95e7ba7adf67f4df6dcc40667836052af6ac48444371326af70d6cc",
+			"reviewedSha256": "8f136ba8f3dd2bb7b1f6a81fc1e05b8068225b29e023938d068879be8dc68224"
 		},
 		{
 			"file": "scripts/__tests__/caseSearchRelatedCalculationScan.test.ts",
@@ -7656,7 +7659,10 @@
 			"file": "scripts/__tests__/lookupReferenceEdgeScan.test.ts",
 			"lines": 251,
 			"ciMs": 590,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full comparator/report and actual fleet scanner plus stored-edge reader and current select-source extractor. Retain useful pure normalized-set/report/error tests, replace a fabricated stale-Project story with overlapping nonempty set comparison. Extract the existing CLI database scan unchanged into a production callable module and add persistedLookupReferenceScan.postgres.test.ts: actual JSONB assembly/extraction, nonempty exact edges, trash inclusion, missing columns plus extra tables, unchanged stored state, independent malformed app continuation, and real missing-table read failure. Ten report/database tests pass.",
+			"baselineSha256": "90c7f2b2a097f4a0babb667e6b42bb849ffe93e616e3fb042ef650d51abaef3a",
+			"reviewedSha256": "d50e73eaf788d2dd5560fd2bb9eb26a88d18d3ae29c0c35813025cdfc2402331"
 		},
 		{
 			"file": "scripts/__tests__/selectOptionValueRepair.test.ts",
