@@ -60,6 +60,8 @@ passes the absolute gate and full export readiness, and its complete
 immutable result is recorded atomically as the sequence-`1` genesis baseline
 beside the app root, entities, exact lookup/media edges, runtime case-schema
 rows, and an intentionally empty attributed `fold-baseline` app change. The
+runtime catalog includes the built-in worker case even when the app declares
+no case types. The
 construction batch is not replay history. `explicit-blank` (the builder's
 "blank app" action and MCP `create_app`) is born as the canonical starter: a
 real nonblank name (`Untitled` when none was supplied), one survey module,

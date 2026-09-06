@@ -60,6 +60,7 @@ import {
 	vi,
 } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import * as caseStoreConnection from "@/lib/case-store/postgres/connection";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { createReconciler, type MutationFrame } from "@/lib/collab/reconciler";
 import {
@@ -196,6 +197,7 @@ const dbHandle = setupPerTestDatabase({
 });
 
 let appDb: Kysely<AppDatabase>;
+let restoreCaseDatabase: (() => void) | undefined;
 let harness: PerTestAppDb;
 
 /** A minimal session shape the route reads (`session.user.id`). */
@@ -605,6 +607,14 @@ beforeEach(async () => {
 	harness = createPerTestAppDb(dbHandle.uri);
 	appDb = harness.appDb;
 	__setAppDbForTests(appDb);
+	const caseDatabase = vi
+		.spyOn(caseStoreConnection, "getCaseStoreDatabase")
+		.mockResolvedValue(
+			appDb as unknown as Awaited<
+				ReturnType<typeof caseStoreConnection.getCaseStoreDatabase>
+			>,
+		);
+	restoreCaseDatabase = () => caseDatabase.mockRestore();
 	__setListenerConfigForTests(dbHandle.uri);
 
 	requireSessionMock.mockReset();
@@ -650,6 +660,8 @@ afterEach(async () => {
 	await closeStreamListener();
 	__setListenerConfigForTests(null);
 	__setAppDbForTests(null);
+	restoreCaseDatabase?.();
+	restoreCaseDatabase = undefined;
 	await harness.destroy();
 });
 

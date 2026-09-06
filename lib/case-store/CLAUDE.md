@@ -713,11 +713,11 @@ set. Missing or invalid indexes degrade query performance but
 never correctness — the term compiler's emitted SQL falls back
 to a sequential scan over the case-type partition.
 
-The chat-completion boundary calls `applySchemaChange` once per
-case type via the sibling helper at
-`lib/db/materializeCaseStoreSchemas.ts` to close the gap the SA's
-inline chat-side commits leave open (the freshly-generated case
-types have no `case_type_schemas` row until that helper lands).
+Genesis admits every storable case type, including the built-in worker case,
+in the app's transaction. The chat-completion boundary calls
+`applySchemaChange` once per type through `lib/db/materializeCaseStoreSchemas.ts`
+to converge subsequent schema changes and drain pending index work. Ordinary
+worker-changing commits synchronize their schemas before writing worker rows.
 Its failure contract splits on fault class (`lib/db/schemaSyncRetry.ts`
 `isTransientDbError`): each per-type sync retries a TRANSIENT blip,
 then **swallows** a still-transient terminal (`warn`; the

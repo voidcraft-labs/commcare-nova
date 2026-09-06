@@ -31,9 +31,10 @@ import {
 	type Transaction,
 } from "kysely";
 import type { Pool } from "pg";
-import { afterEach, beforeEach } from "vitest";
+import { afterEach, beforeEach, vi } from "vitest";
 import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
 import { up as installAuthMemberSerialization } from "@/lib/auth/migrations/20260722070000_auth_member_serialization";
+import * as caseStoreConnection from "@/lib/case-store/postgres/connection";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { decomposeBlueprint } from "@/lib/db/blueprintRows";
 import {
@@ -263,6 +264,7 @@ export function setupAppStateTestDb(
 			: {}),
 	});
 	let injected: Kysely<AppDatabase> | null = null;
+	let restoreCaseDatabase: (() => void) | undefined;
 
 	beforeEach(async () => {
 		if (options.authSchema !== "migrated")
@@ -282,6 +284,13 @@ export function setupAppStateTestDb(
 		});
 		__setAppDbForTests(injected);
 		__setAppPoolForTests(handle.pool);
+		// App state and runtime cases share one production database. Preserve
+		// the real case-store factories and authorization callbacks, redirecting
+		// only their connection to this same isolated database.
+		const caseDatabase = vi
+			.spyOn(caseStoreConnection, "getCaseStoreDatabase")
+			.mockResolvedValue(handle.db);
+		restoreCaseDatabase = () => caseDatabase.mockRestore();
 		/* The non-transactional membership reads (`projectRoleFor`, behind the
 		 * app/target scope resolvers) go through `getAuthDb`; point it at the
 		 * same per-test database, whose `auth_member` this harness creates. */
@@ -296,6 +305,8 @@ export function setupAppStateTestDb(
 		__setAppDbForTests(null);
 		__setAppPoolForTests(null);
 		__setAuthDbForTests(null);
+		restoreCaseDatabase?.();
+		restoreCaseDatabase = undefined;
 		// The wrapper Kysely rides the per-test pool `setupPerTestDatabase`
 		// destroys in its own afterEach; destroying it here would double-close.
 		injected = null;

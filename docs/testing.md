@@ -158,10 +158,18 @@ database. Both projects share the existing worker pool and file isolation.
 selects the database suite. CI runs both projects. A misplaced database fixture
 fails before connecting rather than falling back to local database credentials.
 
+Worker-record lifecycle tests begin with canonical app creation and real
+guarded persona/catalog edits. Installing the expected schema directly in a
+fixture hides omissions at genesis and writes that run before schema changes.
+Assert persisted rows, schema sequences and physical row versions; inject a
+Postgres failure at schema admission to verify app birth rolls back.
+
 Authorization tests that cross app and Project storage use
 `setupAppStateTestDb(prefix, { authSchema: "migrated" })`. It prepares the actual
 Better Auth and Nova auth-app migrations once, clones them per test, and seeds
-users, Projects and memberships that satisfy their constraints. Its auth
+users, Projects and memberships that satisfy their constraints. App-state
+fixtures redirect the case-store connection to the same isolated database, so
+production store factories and their authorization callbacks remain active. Its auth
 migration imports are lazy, so suites using only app-state storage do not load
 the auth migration graph.
 

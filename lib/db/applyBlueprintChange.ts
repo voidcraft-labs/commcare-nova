@@ -283,25 +283,24 @@ export async function applyBlueprintChange(
 	 * derived, idempotent convergence and must not outlive the slice deadline.
 	 * Point-of-use schema healing drains the durable lag. */
 	if (args.deadlineAt !== undefined) return result;
-	// Ahead of EVERY schema early-return, and deliberately so. A commit that
-	// only touches workers changes no case type's property surface, so
-	// `entries` is empty on exactly the commits this sweep exists for — a
-	// persona renamed, added, or removed. Below either return it would run on
-	// none of them.
-	await sweepCommittedUsercaseRows(args, result, priorDoc);
-	if (entries.length === 0) return result;
 	if (preparedRetirement !== undefined) {
 		await completeRetirementIndexes(args.appId, result, preparedRetirement);
 	}
 	const syncEntries = entries.filter((entry) => entry.kind === "sync");
+	let reports: AttributedReport[] = [];
+	if (syncEntries.length > 0) {
+		store ??= await withSchemaContext();
+		reports = await sweepCommittedSchemas(
+			store,
+			args.appId,
+			result,
+			syncEntries,
+		);
+	}
+	// The row must see the schema that declares its new worker properties.
+	// Worker-only edits still need this sweep even with no schema changes.
+	await sweepCommittedUsercaseRows(args, result, priorDoc);
 	if (syncEntries.length === 0) return result;
-	store ??= await withSchemaContext();
-	const reports = await sweepCommittedSchemas(
-		store,
-		args.appId,
-		result,
-		syncEntries,
-	);
 	return {
 		...result,
 		migration: migrationOutcome(reports),

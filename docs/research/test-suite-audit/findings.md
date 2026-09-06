@@ -1853,3 +1853,48 @@ faults: its log repeatedly reports usercase row synchronization attempted with
 no materialized `commcare-user` schema. That newly observed ordering/materialization
 issue remains under investigation. The broader Places suite still needs its
 whole-method review; this batch does not claim all organization tests are green.
+
+## Worker schemas were missing at birth and late during worker edits
+
+The production organization browser journey passed its interaction assertions
+but emitted repeated `usercase row sync failed` warnings. Tracing its canonical
+blank-app birth found that genesis returned early when no authored case types
+existed. Even case-bearing genesis iterated only authored types, omitting the
+built-in worker schema that `buildCaseTypeMap` supplies. Separately,
+`applyBlueprintChange` synchronized worker rows before its schema sweep, so a
+batch that added worker information and a persona value attempted the value
+against an absent or outdated schema.
+
+The prior database tests installed their own schema and cast a partial,
+invalid-identity fixture to `PersistableDoc`. That setup bypassed both defects.
+The whole method now creates a canonical app, commits real persona/catalog
+mutations with migrated auth constraints, and observes stored rows through the
+production factories and authorization callbacks. Its six tests cover schema
+sequence, same-batch values, rename/close, runtime-value preservation on
+ensure-only reads, physical `xmin` idempotence, worker restore scope, exact
+storage refusal without partial changes, and complete genesis rollback when a
+Postgres trigger refuses worker-schema admission. These are stored lifecycle
+claims, not HQ or form-submission execution claims.
+
+All six tests failed at `0f5d6776`. Installing the built-in schema at genesis
+made three pass while the same-batch row writes still failed. Moving schema
+synchronization ahead of the worker sweep resolved that independent failure.
+Genesis now iterates the complete storable map, including the built-in type on
+survey-only apps. Worker-only commits still run their row sweep. The pure
+worker-selection suite is also wholly replaced with typed collection snapshots,
+complete write inputs, real default/override distinctions, catalog changes and
+separate replacement identities; it makes no query-count claim.
+
+App-state test setup now routes case-store connections to the same isolated
+Postgres handle. The three independent streaming fixtures do the same, and the
+privilege test routes each genesis to its actual migration/runtime role.
+Production factories and authorization remain active. The design-genesis test
+checks both authored and built-in schema rows at sequence one; its remaining
+whole-method review is still pending.
+
+Validation: six lifecycle and five projection tests pass, as does full
+typecheck. The broad affected database run passed 99 suites and exposed only
+three fixtures missing the new connection wiring; all 63 tests in those three
+pass after correction. The affected unit graph passes 167 files / 2,019 tests.
+The production-build organization journey passes without retries in 14.8 seconds
+and emits no worker-schema warnings. No existing production database was changed.

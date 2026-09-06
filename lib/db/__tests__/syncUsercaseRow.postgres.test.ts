@@ -1,403 +1,255 @@
-// `syncUsercaseRow` against real Postgres.
-//
-// The pure halves are pinned in `lib/domain/__tests__/usercase.test.ts`. What
-// only a database can show is the part that matters most: that a re-sync
-// MERGES rather than replaces, so a value a form wrote through
-// `usercase_update` is still there after the next persona edit. Two layers
-// have to agree for that — the diff picks the changed keys, and
-// `CaseStore.update` JSONB-merges the patch — and a unit test of either alone
-// would pass while the pair was broken.
-
-import { type Kysely, sql } from "kysely";
-import { beforeEach, describe, expect, it } from "vitest";
-import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
-import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
-import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import type { Database } from "@/lib/case-store/sql/database";
+/** Worker rows through real genesis, guarded edits, schema admission and storage.
+ * The connection is redirected to isolated Postgres; production factories and
+ * their authorization callbacks remain intact. No fixture installs the schema. */
+import { beforeEach, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import {
-	type PersistableDoc,
-	USERCASE_CASE_TYPE,
-	usercaseCaseType,
-} from "@/lib/domain";
+	buildCaseTypeMap,
+	CasePropertiesValidationError,
+	withProjectContext,
+} from "@/lib/case-store";
+import { createExplicitBlankApp } from "@/lib/db/appGenesis";
+import type { Mutation } from "@/lib/doc/types";
+import { USERCASE_CASE_TYPE } from "@/lib/domain";
 import { syncUsercaseRow } from "../syncUsercaseRow";
+import { applyBlueprintChangeProposal } from "./admittedWriterTestHelpers";
+import { setupAppStateTestDb } from "./appStateTestDb";
 
-const APP_ID = "app-usercase-sync";
-const PROJECT_ID = "project-1";
-const PERSONA_ID = "3f2b1c8e-5d4a-4b7c-9e1f-0a2b3c4d5e6f";
-
-const dbHandle = setupPerTestDatabase({
-	schema: "migrated",
-	databaseNamePrefix: "usercase_sync_test_",
+const h = setupAppStateTestDb("usercase_lifecycle_", {
+	authSchema: "migrated",
 });
-
-beforeEach(async () => {
-	// `cases` carries a `(project_id, app_id)` tenancy foreign key, so a row
-	// cannot exist without its app. Seeding it is what makes this a real
-	// tenancy test rather than one against a table with the fence removed.
-	await sql`
-		INSERT INTO apps (id, owner, project_id, app_name, app_name_lower)
-		VALUES (
-			${APP_ID},
-			${"member-1"},
-			${PROJECT_ID},
-			${"Usercase sync fixture"},
-			${"usercase sync fixture"}
-		)
-	`.execute(dbHandle.db);
-});
-
+const ACTOR = "usercase-author";
+const PROJECT = "usercase-project";
+const PERSONA = testUuid("usercase-persona");
+const CADRE = testUuid("usercase-cadre");
 const WORKER = {
-	id: PERSONA_ID,
-	username: "amara",
-	personName: "Amara Diallo",
+	id: PERSONA,
+	username: "Amara",
+	personName: "Amara",
 	email: "",
 	locationIds: [],
 };
-
-function doc(
-	properties: ReadonlyArray<{ uuid: string; slug: string; label: string }>,
-): PersistableDoc {
-	return {
-		appId: APP_ID,
-		appName: "Usercase Sync",
-		connectType: null,
-		caseTypes: [],
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		userProperties: Object.fromEntries(
-			properties.map((property) => [property.uuid, property]),
-		),
-	} as unknown as PersistableDoc;
+beforeEach(async () => {
+	await h.seedProjectMember(ACTOR, PROJECT, "owner");
+});
+async function create() {
+	return createExplicitBlankApp(ACTOR, PROJECT, crypto.randomUUID());
 }
-
-/** A store bound to the worker, which is what stamps `owner_id` on insert. */
-function workerStore(ownerId: string = PERSONA_ID) {
-	return new PostgresCaseStore({
-		projectId: PROJECT_ID,
-		actorUserId: "member-1",
-		ownerId,
-		db: dbHandle.db as unknown as Kysely<Database>,
-		sampleGenerator: new HeuristicCaseGenerator(),
+async function commit(appId: string, mutations: Mutation[]) {
+	return applyBlueprintChangeProposal({
+		appId,
+		userId: ACTOR,
+		expectedProjectId: PROJECT,
+		batchId: crypto.randomUUID(),
+		kind: "autosave",
+		guard: { mutations },
 	});
 }
+async function row(appId: string, worker = PERSONA) {
+	const result = await h
+		.pool()
+		.query(
+			"SELECT case_id, owner_id, project_id, case_type, case_name, status, external_id, properties, xmin::text AS version FROM cases WHERE app_id = $1 AND case_id = $2",
+			[appId, worker],
+		);
+	expect(result.rows).toHaveLength(1);
+	return result.rows[0];
+}
+async function authoredWorker() {
+	const birth = await create();
+	const result = await commit(birth.appId, [
+		{
+			kind: "addUserProperty",
+			property: { uuid: CADRE, slug: "cadre", label: "Cadre" },
+		},
+		{
+			kind: "addPersona",
+			persona: { uuid: PERSONA, name: "Amara", values: { [CADRE]: "nurse" } },
+		},
+	]);
+	return { appId: birth.appId, doc: result.committedDoc };
+}
 
-async function seedSchema(d: PersistableDoc): Promise<void> {
-	await workerStore().applySchemaChange({
-		appId: APP_ID,
+it("births the built-in worker schema even with no authored case types, then creates, renames and closes a persona row", async () => {
+	const birth = await create();
+	expect(birth.blueprint.caseTypes ?? []).toEqual([]);
+	const schemas = await h
+		.pool()
+		.query(
+			"SELECT case_type, synced_seq::text FROM case_type_schemas WHERE app_id = $1 ORDER BY case_type",
+			[birth.appId],
+		);
+	expect(schemas.rows).toEqual([
+		{ case_type: "commcare-user", synced_seq: "1" },
+	]);
+	await commit(birth.appId, [
+		{ kind: "addPersona", persona: { uuid: PERSONA, name: "Amara" } },
+	]);
+	const first = await row(birth.appId);
+	expect({ ...first, properties: undefined, version: undefined }).toEqual({
+		case_id: PERSONA,
+		owner_id: PERSONA,
+		project_id: PROJECT,
+		case_type: "commcare-user",
+		case_name: "Amara",
+		status: "open",
+		external_id: null,
+		properties: undefined,
+		version: undefined,
+	});
+	expect(first.properties.hq_user_id).toBe(PERSONA);
+	expect(first.properties.username).toBe("Amara");
+	expect(Object.hasOwn(first.properties, "case_name")).toBe(false);
+	expect(Object.hasOwn(first.properties, "external_id")).toBe(false);
+	await commit(birth.appId, [
+		{ kind: "updatePersona", uuid: PERSONA, patch: { name: "Amara Sow" } },
+	]);
+	const renamed = await row(birth.appId);
+	expect(renamed.case_name).toBe("Amara Sow");
+	expect(renamed.properties.username).toBe("Amara Sow");
+	await commit(birth.appId, [{ kind: "removePersona", uuid: PERSONA }]);
+	const closed = await row(birth.appId);
+	expect(closed.status).toBe("closed");
+	expect(closed.properties).toEqual(renamed.properties);
+});
+
+it("materializes a newly declared worker property before the same commit writes its persona value", async () => {
+	const { appId } = await authoredWorker();
+	expect((await row(appId)).properties.cadre).toBe("nurse");
+	const nextProperty = testUuid("usercase-license");
+	await commit(appId, [
+		{
+			kind: "addUserProperty",
+			property: { uuid: nextProperty, slug: "license", label: "License" },
+		},
+		{
+			kind: "updatePersona",
+			uuid: PERSONA,
+			patch: {},
+			valuePatch: { userPropertyUuid: nextProperty, value: "L-123" },
+		},
+	]);
+	const changed = await row(appId);
+	expect(changed.properties.cadre).toBe("nurse");
+	expect(changed.properties.license).toBe("L-123");
+	await commit(appId, [
+		{
+			kind: "updatePersona",
+			uuid: PERSONA,
+			patch: {},
+			valuePatch: { userPropertyUuid: CADRE, value: null },
+		},
+	]);
+	const cleared = await row(appId);
+	expect(cleared.properties).toEqual({ ...changed.properties, cadre: "" });
+});
+
+it("leaves runtime-written values and the physical row version unchanged on ensure-only resolution, then reports a full sync's stored result", async () => {
+	const { appId, doc } = await authoredWorker();
+	const store = await withProjectContext(PROJECT, ACTOR, PERSONA);
+	await store.update({
+		appId,
+		caseId: PERSONA,
+		patch: { properties: { cadre: "runtime-written" } },
+	});
+	const before = await row(appId);
+	const args = { appId, worker: WORKER, authored: {}, doc, projectSpace: null };
+	const ensured = await syncUsercaseRow(store, { ...args, ensureOnly: true });
+	expect(ensured).toEqual({
+		created: false,
+		changed: 0,
+		stored: before.properties,
+	});
+	expect(await row(appId)).toEqual(before);
+	const synced = await syncUsercaseRow(store, args);
+	expect(synced).toEqual({
+		created: false,
+		changed: 1,
+		stored: { ...before.properties, cadre: "" },
+	});
+	const after = await row(appId);
+	expect(after.properties).toEqual(synced.stored);
+	expect(after.version).not.toBe(before.version);
+	expect(await syncUsercaseRow(store, args)).toEqual({ ...synced, changed: 0 });
+	expect(await row(appId)).toEqual(after);
+});
+
+it("ensure-only creates a missing worker with its login fallback and exposes it only in that worker's restore scope", async () => {
+	const { appId, blueprint: doc } = await create();
+	const store = await withProjectContext(PROJECT, ACTOR, PERSONA);
+	const outcome = await syncUsercaseRow(store, {
+		appId,
+		worker: { ...WORKER, personName: "  " },
+		authored: {},
+		doc,
+		projectSpace: "my-domain",
+		ensureOnly: true,
+	});
+	expect(outcome.created).toBe(true);
+	const saved = await row(appId);
+	expect(saved.case_name).toBe("Amara");
+	expect(saved.properties).toEqual(outcome.stored);
+	const query = {
+		appId,
 		caseType: USERCASE_CASE_TYPE,
-		caseTypeSchemas: new Map([[USERCASE_CASE_TYPE, usercaseCaseType(d)]]),
-	});
-}
+		caseTypeSchemas: buildCaseTypeMap(doc),
+	};
+	expect(
+		(
+			await store.query({ ...query, restoreScope: { ownerIds: [PERSONA] } })
+		).map((item) => item.case_id),
+	).toEqual([PERSONA]);
+	expect(
+		await store.query({
+			...query,
+			restoreScope: { ownerIds: ["another-worker"] },
+		}),
+	).toEqual([]);
+});
 
-async function storedRow(): Promise<{
-	case_id: string;
-	owner_id: string | null;
-	case_name: string;
-	status: string | null;
-	external_id: string | null;
-	properties: Record<string, unknown>;
-}> {
-	const rows = await dbHandle.pool.query(
-		"SELECT case_id, owner_id, case_name, status, external_id, properties FROM cases WHERE app_id = $1 AND case_type = $2",
-		[APP_ID, USERCASE_CASE_TYPE],
-	);
-	expect(rows.rows).toHaveLength(1);
-	return rows.rows[0];
-}
+it("refuses undeclared runtime properties without changing any stored field or row version", async () => {
+	const { appId } = await authoredWorker();
+	const store = await withProjectContext(PROJECT, ACTOR, PERSONA);
+	const before = await row(appId);
+	const error = await store
+		.update({
+			appId,
+			caseId: PERSONA,
+			patch: { case_name: "Must not land", properties: { visits_done: "12" } },
+		})
+		.catch((error: unknown) => error);
+	expect(error).toBeInstanceOf(CasePropertiesValidationError);
+	if (!(error instanceof CasePropertiesValidationError))
+		throw new Error("Expected stored-property refusal");
+	expect(error.appId).toBe(appId);
+	expect(error.caseType).toBe("commcare-user");
+	expect(error.failures).toEqual([
+		{
+			path: "",
+			message: "must NOT have additional property 'visits_done'",
+			additionalProperty: "visits_done",
+		},
+	]);
+	expect(await row(appId)).toEqual(before);
+});
 
-describe("syncUsercaseRow", () => {
-	const CADRE = { uuid: "u-1", slug: "cadre", label: "Cadre" };
-
-	it("creates the worker's case, owned by and identified as the worker", async () => {
-		const d = doc([CADRE]);
-		await seedSchema(d);
-
-		const outcome = await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		expect(outcome.created).toBe(true);
-		const row = await storedRow();
-		// The id IS the worker's id — that is what makes a second sync collide
-		// rather than create a second usercase.
-		expect(row.case_id).toBe(PERSONA_ID);
-		expect(row.owner_id).toBe(PERSONA_ID);
-		expect(row.case_name).toBe("Amara Diallo");
-		expect(row.status).toBe("open");
-		expect(row.properties.cadre).toBe("nurse");
-		expect(row.properties.hq_user_id).toBe(PERSONA_ID);
-		// `case_name` is a column, never a duplicate JSONB key.
-		expect(Object.hasOwn(row.properties, "case_name")).toBe(false);
-		expect(row.external_id).toBeNull();
-		expect(Object.hasOwn(row.properties, "external_id")).toBe(false);
-	});
-
-	it("is idempotent — a second sync writes nothing and makes no second row", async () => {
-		const d = doc([CADRE]);
-		await seedSchema(d);
-		const args = {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-		};
-
-		await syncUsercaseRow(workerStore(), args);
-		const before = await storedRow();
-		const versionBefore = (
-			await dbHandle.pool.query(
-				"SELECT xmin::text AS version FROM cases WHERE case_id = $1",
-				[PERSONA_ID],
-			)
-		).rows[0];
-		const second = await syncUsercaseRow(workerStore(), args);
-
-		expect(second.created).toBe(false);
-		expect(second.changed).toBe(0);
-		expect(second.stored).toMatchObject({
-			cadre: "nurse",
-			hq_user_id: PERSONA_ID,
-			username: "amara",
-		});
-		expect(await storedRow()).toEqual(before);
-		expect(
-			(
-				await dbHandle.pool.query(
-					"SELECT xmin::text AS version FROM cases WHERE case_id = $1",
-					[PERSONA_ID],
-				)
-			).rows[0],
-		).toEqual(versionBefore);
-	});
-
-	it("reports the value a sync just wrote, not the one it replaced", async () => {
-		const d = doc([CADRE]);
-		await seedSchema(d);
-		await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		const updated = await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "driver" },
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		expect(updated.stored.cadre).toBe("driver");
-		// And still everything the update did not name.
-		expect(updated.stored.hq_user_id).toBe(PERSONA_ID);
-	});
-
-	it("refuses a property the case type does not declare, at the storage layer", async () => {
-		// A finding, not a limitation to work around. `usercaseChangedFields`
-		// never REMOVES a key, so a value outside the desired record survives
-		// the diff — but it cannot survive the schema, because
-		// `CaseStore.update` re-validates the MERGED document and the usercase
-		// case type is derived from the worker-property catalog with
-		// `additionalProperties: false`.
-		//
-		// So an undeclared usercase write destination is not merely
-		// discouraged, it is unstorable. PR 4's `caseWrite` admission has to
-		// REFUSE one with something an author can act on, rather than letting
-		// it reach a form and fail at submission with a schema error naming a
-		// JSON Schema keyword.
-		const d = doc([CADRE]);
-		await seedSchema(d);
-		await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		await expect(
-			workerStore().update({
-				appId: APP_ID,
-				caseId: PERSONA_ID,
-				patch: { properties: { visits_done: "12" } },
-			}),
-		).rejects.toThrow(/visits_done/);
-	});
-
-	it("clears a declared property when its persona value is removed", async () => {
-		// The never-clobber contract as Nova can actually reach it. `cadre` is
-		// declared but the persona carries no value, so the desired record has
-		// it blank — and a blank is a real value HQ writes on purpose, so the
-		// sync DOES overwrite. This pins that behaviour rather than wishing it
-		// away: it is `_get_user_case_fields` building from
-		// `UserData.to_dict()`, which seeds every declared field blank before
-		// layering anything on top, and a device sees exactly this.
-		const d = doc([CADRE]);
-		await seedSchema(d);
-		await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-		});
-		expect((await storedRow()).properties.cadre).toBe("nurse");
-
-		// The persona's value is cleared. The next sync writes the blank.
-		const outcome = await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: {},
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		expect(outcome.changed).toBe(1);
-		const row = await storedRow();
-		expect(row.properties.cadre).toBe("");
-		// Everything the sync did not name is untouched — the merge, not a
-		// replacement.
-		expect(row.properties.hq_user_id).toBe(PERSONA_ID);
-		expect(row.properties.username).toBe("amara");
-	});
-
-	it("ensureOnly leaves a form-written value alone, and still reports it", async () => {
-		// Preview's reason for calling this is EXISTENCE, not step: it resolves
-		// an identity on every render, and a full sync there would erase what a
-		// form had just written onto the record — `cadre` is declared and the
-		// persona has no value for it, so the diff above would blank it seconds
-		// after the worker answered. Keeping a worker in step is the commit
-		// path's job, which runs when the document actually says something new.
-		const d = doc([CADRE]);
-		await seedSchema(d);
-		await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		await workerStore().update({
-			appId: APP_ID,
-			caseId: PERSONA_ID,
-			patch: { properties: { cadre: "form-written" } },
-		});
-
-		const outcome = await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: {},
-			doc: d,
-			projectSpace: "my-domain",
-			ensureOnly: true,
-		});
-
-		expect(outcome.created).toBe(false);
-		expect(outcome.changed).toBe(0);
-		// What it REPORTS is the row, because the row is what a device reads.
-		expect(outcome.stored.cadre).toBe("form-written");
-		expect((await storedRow()).properties.cadre).toBe("form-written");
-	});
-
-	it("ensureOnly still creates the row when the worker has none", async () => {
-		const d = doc([CADRE]);
-		await seedSchema(d);
-		const outcome = await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-			ensureOnly: true,
-		});
-
-		expect(outcome.created).toBe(true);
-		expect((await storedRow()).properties.cadre).toBe("nurse");
-	});
-
-	it("puts the row inside its own worker's restore", async () => {
-		// The wire emits `<assert test="count(instance('casedb')/casedb/case[
-		// @case_type='commcare-user'][hq_user_id=…]) = 1">`, and a device
-		// evaluates that against what its restore delivered. A usercase outside
-		// its own worker's restore would fail that assertion and block entry
-		// into the form entirely, so this is the row's whole reason for being
-		// owned by the worker rather than by the author.
-		const d = doc([CADRE]);
-		await seedSchema(d);
-		await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: { "u-1": "nurse" },
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		const held = await workerStore().query({
-			appId: APP_ID,
-			caseType: USERCASE_CASE_TYPE,
-			caseTypeSchemas: new Map([[USERCASE_CASE_TYPE, usercaseCaseType(d)]]),
-			restoreScope: { ownerIds: [PERSONA_ID] },
-		});
-		expect(held.map((row) => row.case_id)).toEqual([PERSONA_ID]);
-
-		// And outside anyone else's. Another worker restoring must not receive
-		// it — `count(…) = 1` is an equality, so a second usercase in scope
-		// fails the assertion exactly as zero does.
-		const someoneElse = await workerStore().query({
-			appId: APP_ID,
-			caseType: USERCASE_CASE_TYPE,
-			caseTypeSchemas: new Map([[USERCASE_CASE_TYPE, usercaseCaseType(d)]]),
-			restoreScope: { ownerIds: ["a-different-worker"] },
-		});
-		expect(someoneElse).toEqual([]);
-	});
-
-	it("renames the case when the worker's display name changes", async () => {
-		const d = doc([]);
-		await seedSchema(d);
-		await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: WORKER,
-			authored: {},
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: { ...WORKER, personName: "Amara Sow" },
-			authored: {},
-			doc: d,
-			projectSpace: "my-domain",
-		});
-
-		expect((await storedRow()).case_name).toBe("Amara Sow");
-	});
-
-	it("names the case for the login when the worker has no display name", async () => {
-		// `cases.case_name` is NOT NULL, so this is a failed INSERT rather than
-		// an ugly row if the fallback is missing.
-		const d = doc([]);
-		await seedSchema(d);
-		await syncUsercaseRow(workerStore(), {
-			appId: APP_ID,
-			worker: { ...WORKER, personName: "  " },
-			authored: {},
-			doc: d,
-			projectSpace: "my-domain",
-		});
-		expect((await storedRow()).case_name).toBe("amara");
-	});
+it("rolls back the entire blank-app birth when worker-schema admission fails", async () => {
+	await h
+		.pool()
+		.query(`CREATE FUNCTION refuse_worker_schema() RETURNS trigger LANGUAGE plpgsql AS $$
+		BEGIN IF NEW.case_type = 'commcare-user' THEN RAISE EXCEPTION 'worker schema admission refused'; END IF; RETURN NEW; END $$;
+		CREATE TRIGGER refuse_worker_schema BEFORE INSERT ON case_type_schemas FOR EACH ROW EXECUTE FUNCTION refuse_worker_schema()`);
+	await expect(create()).rejects.toThrow("worker schema admission refused");
+	for (const table of [
+		"apps",
+		"blueprint_entities",
+		"app_changes",
+		"app_change_fold_baselines",
+		"case_type_schemas",
+	]) {
+		const result = await h
+			.pool()
+			.query(`SELECT count(*)::int AS count FROM ${table}`);
+		expect(result.rows).toEqual([{ count: 0 }]);
+	}
 });

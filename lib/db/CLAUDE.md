@@ -233,7 +233,8 @@ holder + reservation columns when a transfer rides the birth), locks/reads
 lookup definitions, evaluates the absolute verdict, checks full export
 readiness, applies organization cross-store integrity, admits media references,
 replaces exact edges, admits runtime
-case schemas (`applySchemaChangePhaseA` at synced seq 1; concurrent index
+case schemas (every type in `buildCaseTypeMap`, including the built-in worker
+case for survey-only apps; `applySchemaChangePhaseA` at synced seq 1; concurrent index
 work drains post-commit off `index_pending_seq`), and inserts entity rows,
 the sequence-one `fold-baseline` change, and immutable baseline atomically.
 `createExplicitBlankApp` (the builder action + MCP `create_app`) births the
@@ -262,6 +263,9 @@ Nova-language `BlueprintCommitRejectedError`; operational SQL errors are not
 misreported as user fixes. `applyBlueprintChange` treats caller-supplied
 whole-doc projections as advisory and derives schema work from the guarded
 deterministic mutations.
+Its post-commit schema sweep precedes worker-row synchronization, so a batch
+that adds worker information and persona values stores them against the updated
+schema. Worker-only edits still synchronize even when no schema changed.
 
 **Every app belongs to exactly one Project.** `apps.project_id` is `NOT NULL`
 and has the validated

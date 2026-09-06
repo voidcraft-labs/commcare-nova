@@ -5187,8 +5187,8 @@
 			"lines": 1090,
 			"ciMs": 11790,
 			"status": "revised",
-			"review": "Retain real migration/runtime/cleanup role and DDL privilege checks; remove duplicate emitted-SQL assertion in favor of observed ownership; stop swallowing connection cleanup failures.",
-			"reviewedSha256": "1a108f98b51d6d4705349ceb3acad56cbe8958427679e085dc8cb9ffd05cf366",
+			"review": "Retain real migration/runtime/cleanup role and DDL privilege checks; remove duplicate emitted-SQL assertion in favor of observed ownership; stop swallowing connection cleanup failures. Canonical genesis now exercises built-in worker schema admission under both the actual migration and runtime database roles; redirect only the case-store connection and restore it after each birth.",
+			"reviewedSha256": "d53b6116f0c1c71ab0b31de47285f9a33167a1e7c45508ea00f16bda545332f6",
 			"baselineSha256": "8aa6968cec21c97975e50f78365ad191212af889240c0ecbed2ad1200160a62d"
 		},
 		{
@@ -5393,9 +5393,9 @@
 			"file": "lib/db/__tests__/syncUsercaseRow.postgres.test.ts",
 			"lines": 423,
 			"ciMs": 6640,
-			"status": "revised",
-			"review": "Consolidate exact duplicate resync checks; assert xmin does not change; write a real form-edited value before proving ensure-only preserves it.",
-			"reviewedSha256": "5f23cd9e2d52c0fa793fa055293906b6e082eddc8c63ae28207ba405c0a895b7",
+			"status": "rewritten",
+			"review": "Replace the entire manually materialized, cast-fixture method with canonical blank-app birth and real guarded persona/catalog commits in migrated authenticated Postgres. Prove built-in schema admission, same-batch schema/write order, rename/close, ensure-only preservation, xmin idempotence, owned restore, exact storage refusal with unchanged row, and full genesis rollback on a real schema trigger failure. Production store factories and authorization callbacks remain active; only the connection is redirected.",
+			"reviewedSha256": "9592ed154e6a0d7359cc387542e0ef5b6cc503b8630a125a1ebb5128fe9b3709",
 			"baselineSha256": "d9d754f76b0c1a32408a1ed67c41e90d8aeef04a17a268f70c2f18900e442763"
 		},
 		{
@@ -5438,9 +5438,9 @@
 			"file": "lib/db/__tests__/workersNeedingUsercaseSync.test.ts",
 			"lines": 168,
 			"ciMs": 558,
-			"status": "retained",
-			"review": "Retain pure changed-worker selection across authored/default/catalog/name changes and removal; no database work.",
-			"reviewedSha256": "829146adec180e3dcdd15c4f8e805665ff705020acf58b2a6d85ddf9aa37c98b",
+			"status": "rewritten",
+			"review": "Replace the entire cast-to-Blueprint and ID-only method with typed UserCollections and complete worker/authored write inputs. Cover no-op clones and metadata, ordered location changes, inherited defaults versus blank/nonblank overrides, catalog changes, and distinct add/update/remove identities without mutation. These establish projection eligibility, not database query counts.",
+			"reviewedSha256": "3ac8b242ddf01da6ddf871f84b2d745de334b17a31161ae0a2b061c347eeef9c",
 			"baselineSha256": "829146adec180e3dcdd15c4f8e805665ff705020acf58b2a6d85ddf9aa37c98b"
 		},
 		{

@@ -309,7 +309,8 @@ export function genesisBatchId(appId: string): string {
 
 /**
  * Transactional runtime case-schema admission: one `applySchemaChangePhaseA`
- * per case type the candidate declares, at `synced_seq = 1`. Phase A UPSERTs
+ * per storable case type, including the built-in worker case on survey-only
+ * apps, at `synced_seq = 1`. Phase A UPSERTs
  * the `case_type_schemas` row and records durable pending index work
  * (`index_pending_seq`); the concurrent index DDL itself never runs inside
  * this transaction — the caller drains it post-commit
@@ -323,16 +324,14 @@ async function admitGenesisRuntimeSchemas(
 	tx: Transaction<AppDatabase>,
 	candidate: PreparedGenesisCandidate,
 ): Promise<void> {
-	const caseTypes = candidate.persistable.caseTypes;
-	if (caseTypes === null || caseTypes.length === 0) return;
 	const store = await withSchemaContext();
 	const caseTypeSchemas = buildCaseTypeMap(candidate.persistable);
-	for (const caseType of caseTypes) {
+	for (const caseType of caseTypeSchemas.keys()) {
 		await store.applySchemaChangePhaseA(
 			tx as unknown as Parameters<typeof store.applySchemaChangePhaseA>[0],
 			{
 				appId: candidate.appId,
-				caseType: caseType.name,
+				caseType,
 				caseTypeSchemas,
 				syncedSeq: 1,
 			},

@@ -7,10 +7,11 @@ import {
 	type Transaction,
 } from "kysely";
 import { Client, Pool } from "pg";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
 import { runCaseStoreMigrations } from "@/lib/case-store/migrate";
+import * as caseStoreConnection from "@/lib/case-store/postgres/connection";
 import {
 	AUDIT_DB_ROLE_CONNECTION_LIMIT,
 	CAPTURE_CLEANUP_DB_ROLE_CONNECTION_LIMIT,
@@ -525,12 +526,19 @@ describe("database privilege convergence", () => {
 				)
 			`.execute(migration.db);
 			__setAppDbForTests(migration.db as Kysely<AppDatabase>);
+			const migrationCaseDatabase = vi
+				.spyOn(caseStoreConnection, "getCaseStoreDatabase")
+				.mockResolvedValue(
+					migration.db as Awaited<
+						ReturnType<typeof caseStoreConnection.getCaseStoreDatabase>
+					>,
+				);
 			const probeApp = await createExplicitBlankApp(
 				probeUserId,
 				probeProjectId,
 				crypto.randomUUID(),
 				{ status: "complete", name: "Runtime probe" },
-			);
+			).finally(() => migrationCaseDatabase.mockRestore());
 			__setAppDbForTests(null);
 
 			/* The SPLIT media projection under the probe: a conversation
@@ -620,12 +628,19 @@ describe("database privilege convergence", () => {
 
 			runtime = await createRoleDatabase(config.runtimeRole);
 			__setAppDbForTests(runtime.db as Kysely<AppDatabase>);
+			const runtimeCaseDatabase = vi
+				.spyOn(caseStoreConnection, "getCaseStoreDatabase")
+				.mockResolvedValue(
+					runtime.db as Awaited<
+						ReturnType<typeof caseStoreConnection.getCaseStoreDatabase>
+					>,
+				);
 			const genesis = await createExplicitBlankApp(
 				probeUserId,
 				probeProjectId,
 				crypto.randomUUID(),
 				{ status: "complete", name: "Runtime genesis" },
-			);
+			).finally(() => runtimeCaseDatabase.mockRestore());
 			__setAppDbForTests(null);
 			const genesisProof = await sql<{
 				baselines: string;
