@@ -6624,7 +6624,10 @@
 			"file": "lib/media/__tests__/moveMedia.test.ts",
 			"lines": 1007,
 			"ciMs": 3308,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replace real retry backoff with owned fake-time rejection assertions. Correct all-kinds and lock-client scope claims; verify actor/Project metadata and distinct output mappings. Own both contending operations with immediate settled observers and finally release/join; delay winner metadata until release and assert copy metadata precedes waiting publication. Replace non-existent second-load deletion stubs with actual locked reread matrix for deleted/foreign/pending/changed content identities. Preserve original failure identity and cause through retries, and retain repair/dedup/extract cleanup scenarios.",
+			"baselineSha256": "51a1a5911bf2c744d2b1f8055ccf952373468e587d9b246f03594666e45e03fc",
+			"reviewedSha256": "7ade3fdbd08bfdf1fe036bd03263d029d4ae63af9ed06571337d01e39a9ade01"
 		},
 		{
 			"file": "lib/media/__tests__/uploadOutcome.test.ts",
