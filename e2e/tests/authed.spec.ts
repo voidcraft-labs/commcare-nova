@@ -665,6 +665,62 @@ test.describe("authenticated builder", () => {
 		await expect(coastRegion).toContainText("coast-region");
 		await expect(places.getByLabel("Latitude")).toHaveValue("-4.0435");
 
+		// Hold a real committed response while the author continues typing.
+		// Next queues the stream-triggered read behind this action response.
+		let receiptIsHeld = false;
+		const fulfilledReceipt = Promise.withResolvers<void>();
+		const releaseReceipt = Promise.withResolvers<void>();
+		const actionUrl = `**/build/${appId}/setup/organization`;
+		await page.route(actionUrl, async (route) => {
+			const request = route.request();
+			if (
+				request.method() !== "POST" ||
+				request.headers()["next-action"] === undefined ||
+				!request.postData()?.includes("Coast Region saved")
+			) {
+				await route.continue();
+				return;
+			}
+			const response = await route.fetch();
+			receiptIsHeld = true;
+			await releaseReceipt.promise;
+			await route.fulfill({ response });
+			fulfilledReceipt.resolve();
+		});
+		try {
+			await places
+				.getByLabel("Name", { exact: true })
+				.fill("Coast Region saved");
+			await places.getByLabel("ID in another system").focus();
+			await expect.poll(() => receiptIsHeld).toBe(true);
+			await expect(coastRegion).toBeVisible();
+			await places
+				.getByLabel("Name", { exact: true })
+				.fill("Coast Region draft");
+			releaseReceipt.resolve();
+			await fulfilledReceipt.promise;
+			await expect(
+				places.getByRole("button", { name: /Coast Region saved/ }),
+			).toBeVisible();
+			await expect(
+				places.getByText(
+					"This place changed while you were editing. Your draft is still here.",
+				),
+			).toHaveCount(0);
+			await expect(places.getByLabel("Name", { exact: true })).toHaveValue(
+				"Coast Region draft",
+			);
+		} finally {
+			releaseReceipt.resolve();
+			if (receiptIsHeld) await fulfilledReceipt.promise;
+			await page.unroute(actionUrl);
+		}
+		await places.getByLabel("Name", { exact: true }).fill("Coast Region");
+		await places.getByLabel("ID in another system").focus();
+		await expect(
+			places.getByRole("button", { name: /Coast Region coast-region/ }),
+		).toBeVisible();
+
 		await places.getByRole("button", { name: "Add place" }).click();
 		await places.getByLabel("Name").last().fill("Kilifi District");
 		await places.getByLabel("Level").last().click();

@@ -450,7 +450,10 @@
 			"file": "components/builder/app-setup/__tests__/PlacesSubsection.test.tsx",
 			"lines": 647,
 			"ciMs": 5256,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read the complete 647-line suite, 2530-line component, actual organization queue, and browser organization journey. Remove all simulated-DOM tests, including an impossible reversed write-completion order. Production placeDraft now owns scalar, custom-value, placement, response-chain and peer recovery state; 21 programmatic cases use the real organization client queue with controlled typed action replies. Browser holds a real committed response while newer text is typed and exercises real peer recovery. Paging uses the production same-projection selector; archive text fragments no longer pretend to prove server impact.",
+			"baselineSha256": "c406f763eda95d265d49e2587bb824fd5a1c03065e9190b6ac1ea2f6f7e82b07",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/app-setup/__tests__/ValueField.test.tsx",
@@ -468,13 +471,19 @@
 			"file": "components/builder/app-setup/__tests__/organizationUi.test.ts",
 			"lines": 293,
 			"ciMs": 705,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read the complete test and helper library. Remove trivial boolean/rebase wrappers and their tests after moving actual state into placeDraft. Replace partial level casts and invalid survey-owner fixture with complete typed levels and a followup case fixture. Exercise collision search and schema acceptance, bounded pagination, catalog/value projection and immutability, required-value completeness, and complete branched/chained reverse-owner plans with duplicate references. This planner projection does not claim export or transaction admission.",
+			"baselineSha256": "0b265e88ce89b923410c900a8073e9f20788c379234f4f55ad39afcc39617dcf",
+			"reviewedSha256": "4623145bb73ddecfa28c6b99d5ef1c3b636a802122d3c76f1bcad9dde01dd438"
 		},
 		{
 			"file": "components/builder/app-setup/__tests__/placeTree.test.ts",
 			"lines": 49,
 			"ciMs": 674,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read the complete projection and tests. Retain exact hierarchy/deep iterative traversal with full ordered identity evidence, add disconnected/cyclic imported diagnostic rows and input immutability, and exercise actual placeTreePage selection during peer reorder and page removal. No simulated mount or browser focus claim is made by this pure projection suite.",
+			"baselineSha256": "2b0907e0fe1caa79babdaf09ad8f6b68b82e5cfe54ce945305ed613999f49b31",
+			"reviewedSha256": "5a1732e292c38f04dd3479a3feee4f5f88d7456aa5005c378b8f266867fea301"
 		},
 		{
 			"file": "components/builder/app-setup/__tests__/publishingSectionModel.test.ts",

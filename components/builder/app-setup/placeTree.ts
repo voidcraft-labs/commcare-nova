@@ -61,3 +61,24 @@ export function buildPlaceTree(
 }
 
 export const PLACE_PAGE_SIZE = 100;
+
+/** Follow the open row during the same projection that chooses rendered rows.
+ * Deferring this choice until an effect would briefly remove its draft owner. */
+export function placeTreePage(
+	rows: readonly PlaceTreeRow[],
+	openId: string | undefined,
+	requestedPage: number,
+): { readonly page: number; readonly pageCount: number } {
+	const pageCount = Math.max(1, Math.ceil(rows.length / PLACE_PAGE_SIZE));
+	const openIndex =
+		openId === undefined
+			? -1
+			: rows.findIndex(({ location }) => location.id === openId);
+	return {
+		pageCount,
+		page:
+			openIndex >= 0
+				? Math.floor(openIndex / PLACE_PAGE_SIZE)
+				: Math.min(Math.max(0, requestedPage), pageCount - 1),
+	};
+}

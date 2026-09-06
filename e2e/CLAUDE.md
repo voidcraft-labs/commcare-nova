@@ -80,7 +80,8 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **The organization journey also gets one app per attempt.** It authors levels
   through blueprint mutations and places through the app-scoped organization
   store; assigns a persona; authors fixed and reverse case owners; exercises
-  archive, conflict recovery, viewer access, focus, and responsive layout; and
+  archive, conflict recovery, viewer access, focus, and responsive layout;
+  holds a real committed action response while newer text is typed; and
   keeps the whole run free of browser errors. `ORGANIZATION_FIXTURE_COUNT`,
   `seed.organizationAppIds[testInfo.retry]`, and the matching
   `seed.organizationCaseChangeRoutes[testInfo.retry]` keep a retry away from a

@@ -410,7 +410,14 @@ creating a place collects the same level-applicable values, and required values
 keep its Add action disabled. Each custom-value save sends one `valuePatch`
 entry, then rebases the complete local value bag from the authoritative returned
 row, so keeping a draft cannot overwrite a peer's edit to an unrelated
-property. Property controls author the required and accepted-values contracts
+property. The actual `placeDraft` state owner keeps scalar clocks, the accepted-row
+chain, custom-value drafts, and explicit peer recovery outside React. Its
+requests pass through the real serialized organization client. Changing back
+to the original level can still leave a different value bag; that remains
+protected and offers Apply place information. `placeTreePage` follows the open
+identity in the same projection that chooses rendered rows, so a peer reorder
+does not briefly remove the draft owner.
+Property controls author the required and accepted-values contracts
 and preflight every existing place so a catalog change cannot create a
 cross-store state the server would refuse.
 

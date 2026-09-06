@@ -42,6 +42,15 @@ tests is preferable to preserving the shape or count of the previous suite.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
 
+Place draft tests use `createPlaceDraft` with the real organization client
+queue. Deferred action receipts preserve feasible write order; they never make
+a second write finish before the first queued write. Browser acceptance holds
+an actual committed response and continues typing, then verifies the new draft
+survives. Next's Server Action queue also serializes organization reads behind
+a pending action, so an invented read-before-receipt sequence is not evidence
+for that browser flow. Page projection tests inspect the selected identities;
+they do not claim to mount React rows.
+
 The organization client tests call the production state owner directly and
 control only typed Server Action replies and the Blueprint save barrier. They
 prove its queue, revision handoff, stale-read handling, and view lifetime. They

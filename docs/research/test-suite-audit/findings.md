@@ -1925,3 +1925,41 @@ without retries in 17.8 seconds, including persisted place edits, assignments,
 owner controls, and reloads, with no worker-schema warnings. The full Places
 draft recovery method is still being redesigned; its unrelated mock failures
 are not hidden or counted as passing.
+
+## Place drafts use actual state and feasible write order
+
+Removed the whole 647-line simulated-DOM Places suite. One test resolved a
+second retype before an earlier custom-value write, although the production
+organization writer serializes those requests. The component's repeated
+scalar clocks, draft refs, response-chain handling, and peer recovery now live
+in the actual `placeDraft` owner. Twenty-one state cases use that owner with
+the real organization client queue; only typed Server Action replies are
+controlled. The React component lost nearly 900 lines of duplicated state and
+handlers. These tests prove editing and client request semantics, not server
+admission of the controlled rows.
+
+Coverage observes complete scalar/custom-value/placement drafts, exact patches,
+queued reverts, server normalization, peer recovery, late old receipts,
+per-field rebasing, scoped values, and explicit recovery of unavailable drafts.
+Returning to an original level with a changed value bag keeps an apply action
+and draft protection. The neighboring helper suite now tests real catalog,
+identity, completeness, and branched reverse-owner projections; six redundant
+state wrappers are gone. Tree tests inspect exact identities, deep traversal,
+diagnostic disconnected/cyclic rows, and same-projection page selection rather
+than claiming a pure slice calculation mounts anything.
+
+A browser experiment holding an actual committed action response ruled out a
+suspected stream-read-before-receipt sequence in this flow: Next's action queue
+holds the read behind the pending action. That experiment's route cleanup was
+also corrected to await fulfillment before removing the handler. The retained
+browser scenario continues typing during the held response and verifies the
+newer draft survives its receipt and refresh. It passes against both the prior
+component and the extracted owner. The original 12 simulated tests also passed
+against the extraction after a temporary mock repair, before their removal.
+
+The affected unit graph passes eight files / 129 tests; the production-build
+organization journey passes without retries in 15.6 seconds, including actual
+peer edits, archive, ownership, persistence, focus and layout. Its server log
+nevertheless records a reconciler reload GET failing as a document reload
+starts. That report was missed by the browser event guard and remains an
+explicit next investigation, not an error-free browser result.

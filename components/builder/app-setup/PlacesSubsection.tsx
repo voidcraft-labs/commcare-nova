@@ -24,6 +24,7 @@ import {
 	useMemo,
 	useRef,
 	useState,
+	useSyncExternalStore,
 } from "react";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
@@ -59,53 +60,24 @@ import { useInlineConfirmFocus } from "@/lib/ui/hooks/useInlineConfirmFocus";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import {
 	flattenRequiredReverseHopDescendants,
-	localValueSaveDisposition,
-	locationValuePatch,
-	placementSaveDraftDisposition,
 	propertiesForLevel,
 	type RequiredReverseHopDescendant,
-	rebaseLocationValueDraft,
-	rebaseUntouchedLocationDraft,
 	requiredReverseHopDescendants,
 	requiredValuesPresent,
-	scalarDraftStillMatchesSave,
 	valuesForLevel,
 } from "./organizationUi";
-import { buildPlaceTree, PLACE_PAGE_SIZE, type PlaceTree } from "./placeTree";
+import { createPlaceDraft } from "./placeDraft";
+import {
+	buildPlaceTree,
+	PLACE_PAGE_SIZE,
+	type PlaceTree,
+	placeTreePage,
+} from "./placeTree";
 import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 
 type Organization = ReturnType<typeof useOrganization>;
 const FIRST_POSITION = "__first__";
 const END_POSITION = "__end__";
-
-interface LocalLocationSave {
-	readonly before: StoredLocation;
-	readonly saved: StoredLocation;
-}
-
-interface ScalarSaveClock {
-	generation: number;
-	pending: number;
-}
-
-function beginScalarSave(clock: ScalarSaveClock): number {
-	clock.generation += 1;
-	clock.pending += 1;
-	return clock.generation;
-}
-
-function finishScalarSave(
-	clock: ScalarSaveClock,
-	generation: number,
-	currentDraft: string,
-	submittedDraft: string,
-): boolean {
-	clock.pending = Math.max(0, clock.pending - 1);
-	return (
-		generation === clock.generation &&
-		scalarDraftStillMatchesSave(currentDraft, submittedDraft)
-	);
-}
 
 export function PlacesSubsection({
 	organization,
@@ -131,18 +103,8 @@ export function PlacesSubsection({
 		() => buildPlaceTree(organization.locations),
 		[organization.locations],
 	);
-	const pageCount = Math.max(1, Math.ceil(tree.rows.length / PLACE_PAGE_SIZE));
 	const rowFocus = useRemovedRowFocus(tree.rows.length);
-	const openIndex =
-		openId === undefined
-			? -1
-			: tree.rows.findIndex(({ location }) => location.id === openId);
-	// A peer reorder may move the open row to another page. Derive that page in
-	// the same render so React never unmounts a dirty or in-flight editor first.
-	const shownPage =
-		openIndex >= 0
-			? Math.floor(openIndex / PLACE_PAGE_SIZE)
-			: Math.min(page, pageCount - 1);
+	const { page: shownPage, pageCount } = placeTreePage(tree.rows, openId, page);
 	const pageStart = shownPage * PLACE_PAGE_SIZE;
 	const pageRows = tree.rows.slice(pageStart, pageStart + PLACE_PAGE_SIZE);
 
@@ -377,37 +339,6 @@ function descendantIds(
 	return descendants;
 }
 
-function sameStoredLocation(
-	left: StoredLocation,
-	right: StoredLocation,
-): boolean {
-	return (
-		left.id === right.id &&
-		left.levelUuid === right.levelUuid &&
-		left.parentId === right.parentId &&
-		left.siteCode === right.siteCode &&
-		left.name === right.name &&
-		left.externalId === right.externalId &&
-		left.latitude === right.latitude &&
-		left.longitude === right.longitude &&
-		String(left.archivedAt) === String(right.archivedAt) &&
-		left.orderKey === right.orderKey &&
-		sameStringRecord(left.values, right.values)
-	);
-}
-
-function sameStringRecord(
-	left: Readonly<Record<string, string>>,
-	right: Readonly<Record<string, string>>,
-): boolean {
-	const leftKeys = Object.keys(left);
-	const rightKeys = Object.keys(right);
-	return (
-		leftKeys.length === rightKeys.length &&
-		leftKeys.every((key) => left[key] === right[key])
-	);
-}
-
 function PlaceRow({
 	location,
 	depth,
@@ -447,89 +378,63 @@ function PlaceRow({
 	const longitudeId = useId();
 	const levelId = useId();
 	const positionId = useId();
-	const [draftName, setDraftName] = useState(location.name);
-	const [draftExternalId, setDraftExternalId] = useState(
-		location.externalId ?? "",
+	const writerRef = useRef(organization);
+	writerRef.current = organization;
+	const [editor] = useState(() =>
+		createPlaceDraft(location, properties, () => writerRef.current),
 	);
-	const [draftValues, setDraftValues] = useState<Record<string, string>>(
-		valuesForLevel(properties, location.levelUuid, location.values),
+	const state = useSyncExternalStore(
+		editor.subscribe,
+		editor.getSnapshot,
+		editor.getSnapshot,
 	);
-	const [draftLatitude, setDraftLatitude] = useState(location.latitude ?? "");
-	const [draftLongitude, setDraftLongitude] = useState(
-		location.longitude ?? "",
+	const {
+		source,
+		dirtyLevel,
+		dirtyPlacement,
+		valuesNeedApply,
+		peerChanged,
+		protected: draftProtected,
+		hiddenDirtyPropertyUuids,
+		message,
+	} = state;
+	const {
+		name: draftName,
+		externalId: draftExternalId,
+		latitude: draftLatitude,
+		longitude: draftLongitude,
+		levelUuid: draftLevelUuid,
+		parentId: draftParentId,
+		values: draftValues,
+	} = state.draft;
+	useEffect(
+		() => editor.receive(location, properties),
+		[editor, location, properties],
 	);
-	const [draftLevelUuid, setDraftLevelUuid] = useState<string>(
-		location.levelUuid,
+	useEffect(() => {
+		onConflictChange(location.id, peerChanged);
+	}, [location.id, onConflictChange, peerChanged]);
+	useEffect(
+		() => () => onConflictChange(location.id, false),
+		[location.id, onConflictChange],
 	);
-	const [draftParentId, setDraftParentId] = useState<string | null>(
-		location.parentId,
+	useEffect(() => {
+		onDraftProtectionChange(location.id, draftProtected);
+	}, [location.id, onDraftProtectionChange, draftProtected]);
+	useEffect(
+		() => () => onDraftProtectionChange(location.id, false),
+		[location.id, onDraftProtectionChange],
 	);
-	const [message, setMessage] = useState<string | undefined>(undefined);
-	const [dirtyName, setDirtyName] = useState(false);
-	const [dirtyExternalId, setDirtyExternalId] = useState(false);
-	const [dirtyValues, setDirtyValues] = useState(false);
-	const [dirtyLatitude, setDirtyLatitude] = useState(false);
-	const [dirtyLongitude, setDirtyLongitude] = useState(false);
-	const [dirtyLevel, setDirtyLevel] = useState(false);
-	const [valuesNeedApply, setValuesNeedApply] = useState(false);
-	const [peerChanged, setPeerChanged] = useState(false);
-	const [pendingWrites, setPendingWrites] = useState(0);
-	// Scalar inputs remain editable while their blur save is in flight. These
-	// refs distinguish the submitted value from newer text typed before that
-	// response returns, just as dirtyValueDraftsRef does for custom fields.
-	const draftNameRef = useRef(location.name);
-	const draftExternalIdRef = useRef(location.externalId ?? "");
-	const draftLatitudeRef = useRef(location.latitude ?? "");
-	const draftLongitudeRef = useRef(location.longitude ?? "");
-	const draftLevelUuidRef = useRef(location.levelUuid);
-	const draftParentIdRef = useRef<string | null>(location.parentId);
-	const draftValuesRef = useRef<Record<string, string>>(
-		valuesForLevel(properties, location.levelUuid, location.values),
-	);
-	const nameSaveClockRef = useRef<ScalarSaveClock>({
-		generation: 0,
-		pending: 0,
-	});
-	const externalIdSaveClockRef = useRef<ScalarSaveClock>({
-		generation: 0,
-		pending: 0,
-	});
-	const latitudeSaveClockRef = useRef<ScalarSaveClock>({
-		generation: 0,
-		pending: 0,
-	});
-	const longitudeSaveClockRef = useRef<ScalarSaveClock>({
-		generation: 0,
-		pending: 0,
-	});
-	const levelSaveClockRef = useRef<ScalarSaveClock>({
-		generation: 0,
-		pending: 0,
-	});
-	const recoveryEpochRef = useRef(0);
-	const peerEpochRef = useRef(0);
-	const peerSnapshotRef = useRef<StoredLocation | undefined>(undefined);
-	const sourceRef = useRef(location);
-	// Server Actions return the authoritative row before the post-write refresh
-	// lands. Keep those accepted rows as a chain so an old render is not mistaken
-	// for a peer edit, while a genuinely different row still raises a conflict.
-	const localSavesRef = useRef<LocalLocationSave[]>([]);
-	// Updated synchronously by each field so a response for field A cannot erase
-	// field B text authored while A's Server Action was in flight.
-	const dirtyValueDraftsRef = useRef<Record<string, string>>({});
+	const setMessage = editor.setMessage;
+	const adoptLatest = editor.adoptLatest;
+	const keepDraft = editor.keepDraft;
+	const discardHiddenValueDrafts = editor.discardHiddenValues;
+	const saveValue = editor.saveValue;
 	const archived = location.archivedAt !== null;
 	const applicableProperties = useMemo(
 		() => propertiesForLevel(properties, draftLevelUuid),
 		[properties, draftLevelUuid],
 	);
-	const applicablePropertyUuids: ReadonlySet<string> = useMemo(
-		() =>
-			new Set<string>(applicableProperties.map((property) => property.uuid)),
-		[applicableProperties],
-	);
-	const hiddenDirtyPropertyUuids = Object.keys(
-		dirtyValueDraftsRef.current,
-	).filter((uuid) => !applicablePropertyUuids.has(uuid));
 	const levelRecord = useMemo(
 		() =>
 			Object.fromEntries(
@@ -624,8 +529,6 @@ function PlaceRow({
 			tree.locations,
 		],
 	);
-	const dirtyPlacement =
-		dirtyLevel || draftParentId !== sourceRef.current.parentId;
 	const draftPlacementIssue = useMemo(() => {
 		if (!open || !dirtyPlacement) return undefined;
 		return locationTopologyChangeIssue(doc, tree.locations, location.id, {
@@ -645,8 +548,8 @@ function PlaceRow({
 		const cache = new Map<string, string | undefined>();
 		return (candidate: StoredLocation) => {
 			if (
-				candidate.id === sourceRef.current.parentId &&
-				draftLevelUuid === sourceRef.current.levelUuid
+				candidate.id === source.parentId &&
+				draftLevelUuid === source.levelUuid
 			) {
 				return undefined;
 			}
@@ -660,388 +563,14 @@ function PlaceRow({
 			cache.set(candidate.id, issue);
 			return issue;
 		};
-	}, [doc, draftLevelUuid, location.id, tree.locations]);
-	const draftProtected =
-		dirtyName ||
-		dirtyExternalId ||
-		dirtyValues ||
-		dirtyLatitude ||
-		dirtyLongitude ||
-		dirtyPlacement ||
-		valuesNeedApply ||
-		pendingWrites > 0 ||
-		peerChanged;
-	useEffect(() => {
-		onDraftProtectionChange(location.id, draftProtected);
-	}, [draftProtected, location.id, onDraftProtectionChange]);
-	useEffect(
-		() => () => onDraftProtectionChange(location.id, false),
-		[location.id, onDraftProtectionChange],
-	);
-	useEffect(() => {
-		if (
-			dirtyName ||
-			dirtyExternalId ||
-			dirtyValues ||
-			dirtyLatitude ||
-			dirtyLongitude ||
-			dirtyPlacement ||
-			valuesNeedApply ||
-			pendingWrites > 0 ||
-			peerChanged
-		) {
-			if (sameStoredLocation(sourceRef.current, location)) return;
-			const acceptedIndex = localSavesRef.current.findIndex(({ saved }) =>
-				sameStoredLocation(saved, location),
-			);
-			if (acceptedIndex >= 0) {
-				localSavesRef.current.splice(0, acceptedIndex + 1);
-				sourceRef.current = localSavesRef.current.at(-1)?.saved ?? location;
-				setPeerChanged(false);
-				peerSnapshotRef.current = undefined;
-				onConflictChange(location.id, false);
-				return;
-			}
-			if (
-				localSavesRef.current.some(({ before }) =>
-					sameStoredLocation(before, location),
-				)
-			) {
-				return;
-			}
-			if (
-				peerSnapshotRef.current === undefined ||
-				!sameStoredLocation(peerSnapshotRef.current, location)
-			) {
-				peerEpochRef.current += 1;
-				peerSnapshotRef.current = location;
-			}
-			setPeerChanged(true);
-			onConflictChange(location.id, true);
-			return;
-		}
-		const acceptedIndex = localSavesRef.current.findIndex(({ saved }) =>
-			sameStoredLocation(saved, location),
-		);
-		if (acceptedIndex >= 0) {
-			localSavesRef.current.splice(0, acceptedIndex + 1);
-		}
-		const pendingLocal = localSavesRef.current.at(-1);
-		if (
-			pendingLocal !== undefined &&
-			localSavesRef.current.some(({ before }) =>
-				sameStoredLocation(before, location),
-			)
-		) {
-			sourceRef.current = pendingLocal.saved;
-			setPeerChanged(false);
-			onConflictChange(location.id, false);
-			return;
-		}
-		// A changed prop that is neither the pre-save row nor one of our accepted
-		// rows is newer authoritative state (for example a peer edit after our
-		// write). Do not pin the UI to the local response forever.
-		if (pendingLocal !== undefined) localSavesRef.current = [];
-		setDraftName(location.name);
-		setDraftExternalId(location.externalId ?? "");
-		setDraftLatitude(location.latitude ?? "");
-		setDraftLongitude(location.longitude ?? "");
-		draftNameRef.current = location.name;
-		draftExternalIdRef.current = location.externalId ?? "";
-		draftLatitudeRef.current = location.latitude ?? "";
-		draftLongitudeRef.current = location.longitude ?? "";
-		draftLevelUuidRef.current = location.levelUuid;
-		draftParentIdRef.current = location.parentId;
-		setDraftLevelUuid(location.levelUuid);
-		setDraftParentId(location.parentId);
-		const nextValues = valuesForLevel(
-			properties,
-			location.levelUuid,
-			location.values,
-		);
-		setDraftValues(nextValues);
-		draftValuesRef.current = nextValues;
-		dirtyValueDraftsRef.current = {};
-		sourceRef.current = location;
-		localSavesRef.current = [];
-		setPeerChanged(false);
-		peerSnapshotRef.current = undefined;
-		onConflictChange(location.id, false);
 	}, [
-		location,
-		properties,
-		dirtyName,
-		dirtyExternalId,
-		dirtyValues,
-		dirtyLatitude,
-		dirtyLongitude,
-		dirtyPlacement,
-		valuesNeedApply,
-		pendingWrites,
-		peerChanged,
-		onConflictChange,
+		doc,
+		draftLevelUuid,
+		location.id,
+		tree.locations,
+		source.parentId,
+		source.levelUuid,
 	]);
-	useEffect(
-		() => () => {
-			onConflictChange(location.id, false);
-		},
-		[location.id, onConflictChange],
-	);
-
-	const invalidateInFlightSaves = () => {
-		recoveryEpochRef.current += 1;
-		nameSaveClockRef.current.generation += 1;
-		externalIdSaveClockRef.current.generation += 1;
-		latitudeSaveClockRef.current.generation += 1;
-		longitudeSaveClockRef.current.generation += 1;
-		levelSaveClockRef.current.generation += 1;
-	};
-
-	const withPendingWrite = async <T,>(
-		request: () => Promise<T>,
-	): Promise<T> => {
-		setPendingWrites((current) => current + 1);
-		try {
-			return await request();
-		} finally {
-			setPendingWrites((current) => Math.max(0, current - 1));
-		}
-	};
-
-	const adoptLatest = () => {
-		invalidateInFlightSaves();
-		setDraftName(location.name);
-		setDraftExternalId(location.externalId ?? "");
-		setDraftLatitude(location.latitude ?? "");
-		setDraftLongitude(location.longitude ?? "");
-		draftNameRef.current = location.name;
-		draftExternalIdRef.current = location.externalId ?? "";
-		draftLatitudeRef.current = location.latitude ?? "";
-		draftLongitudeRef.current = location.longitude ?? "";
-		draftLevelUuidRef.current = location.levelUuid;
-		draftParentIdRef.current = location.parentId;
-		setDraftLevelUuid(location.levelUuid);
-		setDraftParentId(location.parentId);
-		const nextValues = valuesForLevel(
-			properties,
-			location.levelUuid,
-			location.values,
-		);
-		setDraftValues(nextValues);
-		draftValuesRef.current = nextValues;
-		setDirtyName(false);
-		setDirtyExternalId(false);
-		setDirtyValues(false);
-		setDirtyLatitude(false);
-		setDirtyLongitude(false);
-		setDirtyLevel(false);
-		setValuesNeedApply(false);
-		setPeerChanged(false);
-		peerSnapshotRef.current = undefined;
-		onConflictChange(location.id, false);
-		setMessage(undefined);
-		sourceRef.current = location;
-		localSavesRef.current = [];
-		dirtyValueDraftsRef.current = {};
-	};
-
-	const keepDraft = () => {
-		invalidateInFlightSaves();
-		const previous = sourceRef.current;
-		const rebased = rebaseUntouchedLocationDraft({
-			authoritative: {
-				name: location.name,
-				externalId: location.externalId ?? "",
-				latitude: location.latitude ?? "",
-				longitude: location.longitude ?? "",
-				levelUuid: location.levelUuid,
-				parentId: location.parentId,
-			},
-			draft: {
-				name: draftNameRef.current,
-				externalId: draftExternalIdRef.current,
-				latitude: draftLatitudeRef.current,
-				longitude: draftLongitudeRef.current,
-				levelUuid: draftLevelUuidRef.current,
-				parentId: draftParentIdRef.current,
-			},
-			dirty: {
-				name: draftNameRef.current !== previous.name,
-				externalId: draftExternalIdRef.current !== (previous.externalId ?? ""),
-				latitude: draftLatitudeRef.current !== (previous.latitude ?? ""),
-				longitude: draftLongitudeRef.current !== (previous.longitude ?? ""),
-				levelUuid: draftLevelUuidRef.current !== previous.levelUuid,
-				parentId: draftParentIdRef.current !== previous.parentId,
-			},
-		});
-		const localValueDrafts = Object.fromEntries(
-			Object.entries(dirtyValueDraftsRef.current).filter(
-				([uuid, value]) => value !== (previous.values[uuid] ?? ""),
-			),
-		);
-		const authoritativeValues = valuesForLevel(
-			properties,
-			rebased.levelUuid,
-			location.values,
-		);
-		const rebasedValues = valuesForLevel(
-			properties,
-			rebased.levelUuid,
-			rebaseLocationValueDraft(location.values, localValueDrafts),
-		);
-		const remainingValueDrafts = Object.fromEntries(
-			Object.entries(
-				valuesForLevel(properties, rebased.levelUuid, localValueDrafts),
-			).filter(([uuid, value]) => value !== (authoritativeValues[uuid] ?? "")),
-		);
-
-		setDraftName(rebased.name);
-		setDraftExternalId(rebased.externalId);
-		setDraftLatitude(rebased.latitude);
-		setDraftLongitude(rebased.longitude);
-		setDraftLevelUuid(rebased.levelUuid);
-		setDraftParentId(rebased.parentId);
-		setDraftValues(rebasedValues);
-		draftNameRef.current = rebased.name;
-		draftExternalIdRef.current = rebased.externalId;
-		draftLatitudeRef.current = rebased.latitude;
-		draftLongitudeRef.current = rebased.longitude;
-		draftLevelUuidRef.current = rebased.levelUuid;
-		draftParentIdRef.current = rebased.parentId;
-		draftValuesRef.current = rebasedValues;
-		dirtyValueDraftsRef.current = remainingValueDrafts;
-		setDirtyName(rebased.name !== location.name);
-		setDirtyExternalId(rebased.externalId !== (location.externalId ?? ""));
-		setDirtyLatitude(rebased.latitude !== (location.latitude ?? ""));
-		setDirtyLongitude(rebased.longitude !== (location.longitude ?? ""));
-		setDirtyLevel(rebased.levelUuid !== location.levelUuid);
-		setDirtyValues(!sameStringRecord(rebasedValues, authoritativeValues));
-		setValuesNeedApply(Object.keys(remainingValueDrafts).length > 0);
-		sourceRef.current = location;
-		localSavesRef.current = [];
-		setPeerChanged(false);
-		peerSnapshotRef.current = undefined;
-		onConflictChange(location.id, false);
-		setMessage(undefined);
-	};
-
-	const rebaseAfterLocalSave = (
-		saved: StoredLocation | undefined,
-		before: StoredLocation,
-		recoveryEpoch: number,
-		peerEpoch: number,
-	): boolean => {
-		if (
-			recoveryEpoch !== recoveryEpochRef.current ||
-			peerEpoch !== peerEpochRef.current
-		) {
-			return false;
-		}
-		if (saved !== undefined) {
-			localSavesRef.current.push({ before, saved });
-			sourceRef.current = saved;
-		}
-		setPeerChanged(false);
-		peerSnapshotRef.current = undefined;
-		onConflictChange(location.id, false);
-		return true;
-	};
-
-	const saveValue = async (propertyUuid: string, value: string) => {
-		dirtyValueDraftsRef.current[propertyUuid] = value;
-		setDraftValues((current) => {
-			const nextValues = valuesForLevel(properties, draftLevelUuid, {
-				...current,
-				[propertyUuid]: value,
-			});
-			draftValuesRef.current = nextValues;
-			return nextValues;
-		});
-		setDirtyValues(true);
-		if (dirtyPlacement) {
-			setValuesNeedApply(true);
-			return;
-		}
-		if (peerChanged) {
-			setMessage(
-				"This place changed while you were editing. Use the latest saved values before saving your draft.",
-			);
-			return;
-		}
-		const before = sourceRef.current;
-		const recoveryEpoch = recoveryEpochRef.current;
-		const peerEpoch = peerEpochRef.current;
-		const submittedLevelUuid = draftLevelUuidRef.current;
-		const result = await withPendingWrite(() =>
-			organization.update(location.id, {
-				valuePatch: { [propertyUuid]: locationValuePatch(value) },
-			}),
-		);
-		if (
-			recoveryEpoch !== recoveryEpochRef.current ||
-			peerEpoch !== peerEpochRef.current
-		)
-			return;
-		if (!result.ok) {
-			setMessage(result.message);
-		} else {
-			// Record an accepted value row even when the author staged a retype while
-			// it was in flight. The later refresh can then be recognized as this local
-			// write instead of being fenced as a peer edit. A completed retype has
-			// already advanced the base and still makes this older response obsolete.
-			const disposition = localValueSaveDisposition({
-				currentBaseLevelUuid: sourceRef.current.levelUuid,
-				beforeLevelUuid: before.levelUuid,
-				currentDraftLevelUuid: draftLevelUuidRef.current,
-				submittedLevelUuid,
-			});
-			if (disposition === "obsolete") return;
-			if (
-				!rebaseAfterLocalSave(result.location, before, recoveryEpoch, peerEpoch)
-			)
-				return;
-			if (disposition === "record-only") return;
-			if (dirtyValueDraftsRef.current[propertyUuid] === value) {
-				delete dirtyValueDraftsRef.current[propertyUuid];
-			}
-			if (result.location !== undefined) {
-				const nextValues = valuesForLevel(
-					properties,
-					draftLevelUuidRef.current,
-					rebaseLocationValueDraft(
-						result.location.values,
-						dirtyValueDraftsRef.current,
-					),
-				);
-				setDraftValues(nextValues);
-				draftValuesRef.current = nextValues;
-			}
-			setDirtyValues(Object.keys(dirtyValueDraftsRef.current).length > 0);
-			setValuesNeedApply(Object.keys(dirtyValueDraftsRef.current).length > 0);
-			setMessage(undefined);
-		}
-	};
-
-	const discardHiddenValueDrafts = () => {
-		const remainingDrafts = Object.fromEntries(
-			Object.entries(dirtyValueDraftsRef.current).filter(([uuid]) =>
-				applicablePropertyUuids.has(uuid),
-			),
-		);
-		const nextValues = valuesForLevel(
-			properties,
-			draftLevelUuidRef.current,
-			rebaseLocationValueDraft(sourceRef.current.values, remainingDrafts),
-		);
-		dirtyValueDraftsRef.current = remainingDrafts;
-		draftValuesRef.current = nextValues;
-		setDraftValues(nextValues);
-		setDirtyValues(Object.keys(remainingDrafts).length > 0);
-		setValuesNeedApply(
-			dirtyPlacement && Object.keys(remainingDrafts).length > 0,
-		);
-		setMessage(undefined);
-	};
 
 	return (
 		<EntryRow
@@ -1106,58 +635,8 @@ function PlaceRow({
 						data-1p-ignore
 						aria-describedby={nameDescriptionId}
 						disabled={!canEdit || archived}
-						onChange={(e) => {
-							draftNameRef.current = e.target.value;
-							setDraftName(e.target.value);
-							setDirtyName(true);
-						}}
-						onBlur={async (event) => {
-							const submitted = event.currentTarget.value;
-							const clock = nameSaveClockRef.current;
-							if (submitted === sourceRef.current.name && clock.pending === 0) {
-								setDirtyName(false);
-								return;
-							}
-							if (peerChanged) {
-								setMessage(
-									"This place changed while you were editing. Use the latest saved values before saving your draft.",
-								);
-								return;
-							}
-							const generation = beginScalarSave(clock);
-							const before = sourceRef.current;
-							const recoveryEpoch = recoveryEpochRef.current;
-							const peerEpoch = peerEpochRef.current;
-							const result = await withPendingWrite(() =>
-								organization.update(location.id, { name: submitted }),
-							);
-							const current = finishScalarSave(
-								clock,
-								generation,
-								draftNameRef.current,
-								submitted,
-							);
-							const latest =
-								recoveryEpoch === recoveryEpochRef.current &&
-								peerEpoch === peerEpochRef.current &&
-								generation === clock.generation;
-							if (!result.ok) {
-								if (latest) setMessage(result.message);
-							} else {
-								const accepted = rebaseAfterLocalSave(
-									result.location,
-									before,
-									recoveryEpoch,
-									peerEpoch,
-								);
-								if (accepted && current && result.location !== undefined) {
-									setDraftName(result.location.name);
-									draftNameRef.current = result.location.name;
-									setDirtyName(false);
-								}
-								if (accepted && latest) setMessage(undefined);
-							}
-						}}
+						onChange={(event) => editor.editScalar("name", event.target.value)}
+						onBlur={() => void editor.saveScalar("name")}
 					/>
 					<FieldDescription id={nameDescriptionId}>
 						Code{" "}
@@ -1181,64 +660,10 @@ function PlaceRow({
 						autoComplete="off"
 						data-1p-ignore
 						disabled={!canEdit || archived}
-						onChange={(event) => {
-							draftExternalIdRef.current = event.target.value;
-							setDraftExternalId(event.target.value);
-							setDirtyExternalId(true);
-						}}
-						onBlur={async (e) => {
-							const next = e.target.value;
-							const clock = externalIdSaveClockRef.current;
-							if (
-								next === (sourceRef.current.externalId ?? "") &&
-								clock.pending === 0
-							) {
-								setDirtyExternalId(false);
-								return;
-							}
-							if (peerChanged) {
-								setMessage(
-									"This place changed while you were editing. Use the latest saved values before saving your draft.",
-								);
-								return;
-							}
-							const generation = beginScalarSave(clock);
-							const before = sourceRef.current;
-							const recoveryEpoch = recoveryEpochRef.current;
-							const peerEpoch = peerEpochRef.current;
-							const result = await withPendingWrite(() =>
-								organization.update(location.id, {
-									externalId: next === "" ? null : next,
-								}),
-							);
-							const current = finishScalarSave(
-								clock,
-								generation,
-								draftExternalIdRef.current,
-								next,
-							);
-							const latest =
-								recoveryEpoch === recoveryEpochRef.current &&
-								peerEpoch === peerEpochRef.current &&
-								generation === clock.generation;
-							if (!result.ok) {
-								if (latest) setMessage(result.message);
-							} else {
-								const accepted = rebaseAfterLocalSave(
-									result.location,
-									before,
-									recoveryEpoch,
-									peerEpoch,
-								);
-								if (accepted && current && result.location !== undefined) {
-									const authoritative = result.location.externalId ?? "";
-									setDraftExternalId(authoritative);
-									draftExternalIdRef.current = authoritative;
-									setDirtyExternalId(false);
-								}
-								if (accepted && latest) setMessage(undefined);
-							}
-						}}
+						onChange={(event) =>
+							editor.editScalar("externalId", event.target.value)
+						}
+						onBlur={() => void editor.saveScalar("externalId")}
 					/>
 				</div>
 
@@ -1256,29 +681,7 @@ function PlaceRow({
 							if (typeof value !== "string") return;
 							const defaultParentId = retypeDefaults.get(value);
 							if (defaultParentId === undefined) return;
-							draftLevelUuidRef.current = value;
-							draftParentIdRef.current = defaultParentId;
-							setDraftLevelUuid(value);
-							setDraftParentId(defaultParentId);
-							const nextValues = valuesForLevel(properties, value, draftValues);
-							draftValuesRef.current = nextValues;
-							dirtyValueDraftsRef.current = valuesForLevel(
-								properties,
-								value,
-								dirtyValueDraftsRef.current,
-							);
-							setDraftValues(nextValues);
-							setDirtyLevel(value !== sourceRef.current.levelUuid);
-							setDirtyValues(
-								!sameStringRecord(
-									nextValues,
-									valuesForLevel(
-										properties,
-										sourceRef.current.levelUuid,
-										sourceRef.current.values,
-									),
-								),
-							);
+							editor.stageLevel(value, defaultParentId);
 						}}
 					>
 						<SelectTrigger id={levelId} wrapValue className="w-full">
@@ -1326,7 +729,7 @@ function PlaceRow({
 									(liveSession !== undefined &&
 										(liveSession.accessPhase !== "authorized" ||
 											!liveSession.canEdit)) ||
-									sourceRef.current.archivedAt !== null
+									source.archivedAt !== null
 								) {
 									setMessage(
 										"This place is read-only now. Reload the latest organization before applying this draft.",
@@ -1337,87 +740,7 @@ function PlaceRow({
 									setMessage(draftPlacementIssue);
 									return;
 								}
-								const submittedLevelUuid = draftLevelUuid;
-								const submittedParentId = draftParentId;
-								const submittedValues = valuesForLevel(
-									properties,
-									draftLevelUuid,
-									draftValues,
-								);
-								const clock = levelSaveClockRef.current;
-								const generation = beginScalarSave(clock);
-								const before = sourceRef.current;
-								const recoveryEpoch = recoveryEpochRef.current;
-								const peerEpoch = peerEpochRef.current;
-								const result = await withPendingWrite(() =>
-									organization.update(location.id, {
-										levelUuid: submittedLevelUuid,
-										values: submittedValues,
-										parentId: submittedParentId,
-									}),
-								);
-								clock.pending = Math.max(0, clock.pending - 1);
-								const latest =
-									recoveryEpoch === recoveryEpochRef.current &&
-									peerEpoch === peerEpochRef.current &&
-									generation === clock.generation;
-								const draftDisposition = placementSaveDraftDisposition({
-									responseIsLatest: latest,
-									levelMatches:
-										draftLevelUuidRef.current === submittedLevelUuid,
-									parentMatches: draftParentIdRef.current === submittedParentId,
-									valuesMatch: sameStringRecord(
-										draftValuesRef.current,
-										submittedValues,
-									),
-									dirtyValueCount: Object.keys(dirtyValueDraftsRef.current)
-										.length,
-								});
-								if (!result.ok) {
-									if (latest) setMessage(result.message);
-								} else if (
-									rebaseAfterLocalSave(
-										result.location,
-										before,
-										recoveryEpoch,
-										peerEpoch,
-									) &&
-									result.location !== undefined
-								) {
-									if (draftDisposition.current) {
-										const savedValues = valuesForLevel(
-											properties,
-											result.location.levelUuid,
-											result.location.values,
-										);
-										setDraftLevelUuid(result.location.levelUuid);
-										setDraftParentId(result.location.parentId);
-										setDraftValues(savedValues);
-										draftLevelUuidRef.current = result.location.levelUuid;
-										draftParentIdRef.current = result.location.parentId;
-										draftValuesRef.current = savedValues;
-										dirtyValueDraftsRef.current = {};
-										setDirtyLevel(false);
-										setDirtyValues(false);
-										setValuesNeedApply(false);
-									} else {
-										setDirtyLevel(
-											draftLevelUuidRef.current !== result.location.levelUuid,
-										);
-										setDirtyValues(
-											!sameStringRecord(
-												draftValuesRef.current,
-												valuesForLevel(
-													properties,
-													draftLevelUuidRef.current,
-													result.location.values,
-												),
-											),
-										);
-										setValuesNeedApply(draftDisposition.valuesNeedApply);
-									}
-									if (latest) setMessage(undefined);
-								}
+								await editor.applyPlacement();
 							}}
 						>
 							{dirtyLevel
@@ -1450,64 +773,10 @@ function PlaceRow({
 							autoComplete="off"
 							data-1p-ignore
 							disabled={!canEdit || archived}
-							onChange={(event) => {
-								draftLatitudeRef.current = event.target.value;
-								setDraftLatitude(event.target.value);
-								setDirtyLatitude(true);
-							}}
-							onBlur={async (event) => {
-								const submitted = event.currentTarget.value;
-								const clock = latitudeSaveClockRef.current;
-								if (
-									submitted === (sourceRef.current.latitude ?? "") &&
-									clock.pending === 0
-								) {
-									setDirtyLatitude(false);
-									return;
-								}
-								if (peerChanged) {
-									setMessage(
-										"This place changed while you were editing. Use the latest saved values before saving your draft.",
-									);
-									return;
-								}
-								const generation = beginScalarSave(clock);
-								const before = sourceRef.current;
-								const recoveryEpoch = recoveryEpochRef.current;
-								const peerEpoch = peerEpochRef.current;
-								const result = await withPendingWrite(() =>
-									organization.update(location.id, {
-										latitude: submitted === "" ? null : submitted,
-									}),
-								);
-								const current = finishScalarSave(
-									clock,
-									generation,
-									draftLatitudeRef.current,
-									submitted,
-								);
-								const latest =
-									recoveryEpoch === recoveryEpochRef.current &&
-									peerEpoch === peerEpochRef.current &&
-									generation === clock.generation;
-								if (!result.ok) {
-									if (latest) setMessage(result.message);
-								} else {
-									const accepted = rebaseAfterLocalSave(
-										result.location,
-										before,
-										recoveryEpoch,
-										peerEpoch,
-									);
-									if (accepted && current && result.location !== undefined) {
-										const authoritative = result.location.latitude ?? "";
-										setDraftLatitude(authoritative);
-										draftLatitudeRef.current = authoritative;
-										setDirtyLatitude(false);
-									}
-									if (accepted && latest) setMessage(undefined);
-								}
-							}}
+							onChange={(event) =>
+								editor.editScalar("latitude", event.target.value)
+							}
+							onBlur={() => void editor.saveScalar("latitude")}
 						/>
 					</div>
 					<div className="flex flex-col gap-1.5">
@@ -1524,64 +793,10 @@ function PlaceRow({
 							autoComplete="off"
 							data-1p-ignore
 							disabled={!canEdit || archived}
-							onChange={(event) => {
-								draftLongitudeRef.current = event.target.value;
-								setDraftLongitude(event.target.value);
-								setDirtyLongitude(true);
-							}}
-							onBlur={async (event) => {
-								const submitted = event.currentTarget.value;
-								const clock = longitudeSaveClockRef.current;
-								if (
-									submitted === (sourceRef.current.longitude ?? "") &&
-									clock.pending === 0
-								) {
-									setDirtyLongitude(false);
-									return;
-								}
-								if (peerChanged) {
-									setMessage(
-										"This place changed while you were editing. Use the latest saved values before saving your draft.",
-									);
-									return;
-								}
-								const generation = beginScalarSave(clock);
-								const before = sourceRef.current;
-								const recoveryEpoch = recoveryEpochRef.current;
-								const peerEpoch = peerEpochRef.current;
-								const result = await withPendingWrite(() =>
-									organization.update(location.id, {
-										longitude: submitted === "" ? null : submitted,
-									}),
-								);
-								const current = finishScalarSave(
-									clock,
-									generation,
-									draftLongitudeRef.current,
-									submitted,
-								);
-								const latest =
-									recoveryEpoch === recoveryEpochRef.current &&
-									peerEpoch === peerEpochRef.current &&
-									generation === clock.generation;
-								if (!result.ok) {
-									if (latest) setMessage(result.message);
-								} else {
-									const accepted = rebaseAfterLocalSave(
-										result.location,
-										before,
-										recoveryEpoch,
-										peerEpoch,
-									);
-									if (accepted && current && result.location !== undefined) {
-										const authoritative = result.location.longitude ?? "";
-										setDraftLongitude(authoritative);
-										draftLongitudeRef.current = authoritative;
-										setDirtyLongitude(false);
-									}
-									if (accepted && latest) setMessage(undefined);
-								}
-							}}
+							onChange={(event) =>
+								editor.editScalar("longitude", event.target.value)
+							}
+							onBlur={() => void editor.saveScalar("longitude")}
 						/>
 					</div>
 				</div>
@@ -1596,10 +811,7 @@ function PlaceRow({
 							locations={parentOptions}
 							value={draftParentId ?? ""}
 							disabled={!canEdit || archived || peerChanged}
-							onValueChange={(value) => {
-								draftParentIdRef.current = value;
-								setDraftParentId(value);
-							}}
+							onValueChange={editor.stageParent}
 							ariaLabel="Sits in"
 							placeholder="Choose a place"
 							issueFor={parentIssueFor}
@@ -1637,32 +849,7 @@ function PlaceRow({
 										: value === END_POSITION
 											? undefined
 											: value;
-								const before = sourceRef.current;
-								const recoveryEpoch = recoveryEpochRef.current;
-								const peerEpoch = peerEpochRef.current;
-								const result = await withPendingWrite(() =>
-									organization.move(location.id, {
-										parentId: location.parentId,
-										...(afterSiblingId === undefined ? {} : { afterSiblingId }),
-									}),
-								);
-								if (
-									recoveryEpoch !== recoveryEpochRef.current ||
-									peerEpoch !== peerEpochRef.current
-								)
-									return;
-								if (!result.ok) setMessage(result.message);
-								else {
-									if (
-										rebaseAfterLocalSave(
-											result.location,
-											before,
-											recoveryEpoch,
-											peerEpoch,
-										)
-									)
-										setMessage(undefined);
-								}
+								await editor.move(afterSiblingId);
 							}}
 							id={positionId}
 							ariaLabel="Position"
@@ -1727,18 +914,7 @@ function PlaceRow({
 								property={property}
 								value={draftValues[property.uuid] ?? ""}
 								disabled={!canEdit || archived}
-								onDraft={(value) => {
-									dirtyValueDraftsRef.current[property.uuid] = value;
-									setDraftValues((current) => {
-										const nextValues = {
-											...current,
-											[property.uuid]: value,
-										};
-										draftValuesRef.current = nextValues;
-										return nextValues;
-									});
-									setDirtyValues(true);
-								}}
+								onDraft={(value) => editor.editValue(property.uuid, value)}
 								onCommit={(value) => void saveValue(property.uuid, value)}
 							/>
 						))}
