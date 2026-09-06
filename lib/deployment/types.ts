@@ -23,7 +23,7 @@ export type { CommCareServer } from "@/lib/commcare/servers";
 /**
  * Every state a deployment can be in.
  *
- * The five progress states are ordered and each one means something a
+ * The six progress states are ordered and each one means something a
  * person can check on CommCare HQ. `incomplete` is the refusal: it is
  * reachable from any progress state, and while a deployment sits there
  * Nova withholds both `released` and `runnable` rather than reporting a
@@ -60,7 +60,7 @@ export type DeploymentProgressState =
 /**
  * One independently retryable unit of work.
  *
- * Nova drives the first two and only observes the last three. That split
+ * Nova drives the first three and only observes the last three. That split
  * is forced by CommCare HQ, not chosen: `import_app_api` accepts an API
  * key (`app_import_api.py::import_app_api` passes
  * `login_decorator=api_auth()`), while making a build

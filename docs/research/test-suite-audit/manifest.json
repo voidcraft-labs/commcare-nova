@@ -5312,7 +5312,10 @@
 			"file": "lib/deployment/__tests__/attachmentTarget.test.ts",
 			"lines": 161,
 			"ciMs": 104,
-			"status": "pending"
+			"status": "revised",
+			"review": "Reviewed the pure selected-origin projection and its real export consumers. Typed record summaries and complete ambiguous results replace permissive casts/early returns; exact server+domain deduplication, refusal phase, origin and null projection are retained.",
+			"baselineSha256": "4523ef4e2ea9626ab863d29d558fddb6a01f45da49a76af57dbec0f2f7da2789",
+			"reviewedSha256": "fc04cfbd5f46badb837a0d4f47530ce704c53901115e596caa0530676bae589a"
 		},
 		{
 			"file": "lib/deployment/__tests__/entryPointLinks.test.ts",
@@ -5327,7 +5330,10 @@
 			"file": "lib/deployment/__tests__/entryPointManifest.test.ts",
 			"lines": 117,
 			"ciMs": 1750,
-			"status": "pending"
+			"status": "retained",
+			"review": "Read test and publishedEntryPoints compiler/projection/signature pipeline. Real expandDoc+compileCcz of single/multiple search modules with lowered no-matches registration proves required selection survives and real entryPointArguments consumes it. No mocked compiler or service; persisted manifest/dependency behavior is independently covered in actual SDK/PG publish.",
+			"baselineSha256": "ddc7d7ee1a3928950c97fb5913339e600066713522598887eccbff2bb21de4ba",
+			"reviewedSha256": "ddc7d7ee1a3928950c97fb5913339e600066713522598887eccbff2bb21de4ba"
 		},
 		{
 			"file": "lib/deployment/__tests__/leftBehindResources.test.ts",
@@ -5351,7 +5357,10 @@
 			"file": "lib/deployment/__tests__/lookupResourcePlan.test.ts",
 			"lines": 309,
 			"ciMs": 51,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced verbose and partly nondiscriminating examples with full ownership plans, typed IDs, exact conflicts/adoptions and immutable inputs. Actual MCP/PG adopted-then-missing recreation exposed and fixed false adoption provenance on a new HQ object.",
+			"baselineSha256": "d20fa0214e997ca742b9ca0f0897c12e20370247f8b103911bec51e8ec36aac1",
+			"reviewedSha256": "9bf992497cc0aed0686f608a1a0f4be2a6e745ecb817807063659570d72a0552"
 		},
 		{
 			"file": "lib/deployment/__tests__/observe.test.ts",
@@ -5393,7 +5402,10 @@
 			"file": "lib/deployment/__tests__/runtimeTarget.test.ts",
 			"lines": 57,
 			"ciMs": 35,
-			"status": "pending"
+			"status": "revised",
+			"review": "Pure runtime/attachment destination projection remains the right boundary. Added multiple spaces on the selected server and explicit portable no-deployment choice; distinct origins and unresolved domains cannot silently diverge.",
+			"baselineSha256": "ae98fb6136dcdfdcbe4cca8bd5b1f3f71bf7129dec261b60a00fad0d62c5af8a",
+			"reviewedSha256": "7c81bb16e84a99394d6137205f7c0ba82e6727a62450b1738442cb4652246e81"
 		},
 		{
 			"file": "lib/deployment/__tests__/setupArtifact.test.ts",
@@ -5405,7 +5417,10 @@
 			"file": "lib/deployment/__tests__/stateMachine.test.ts",
 			"lines": 415,
 			"ciMs": 177,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced overlapping partial examples with complete lifecycle histories and independent phase expectations, exact immutable folds, ordered progress, retry, strict/display distinctions, attempt no-write identity and cleared stale observation evidence. Actual SDK/PG deployment suites own I/O and durability.",
+			"baselineSha256": "d879a55ac227b5adfe7c6e20dd2ef5c8dafd5eb499db5e0946ba8bfb87869e3f",
+			"reviewedSha256": "1eb11cf64a96e2c3695460678316e5630bb63c138b8675169a73b796391fe5fe"
 		},
 		{
 			"file": "lib/deployment/__tests__/store.postgres.test.ts",

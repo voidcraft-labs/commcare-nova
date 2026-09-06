@@ -1063,3 +1063,23 @@ headers, accepted bodies, and refusal bodies across all six write operations;
 returning a body-reading promise without awaiting it would release the deadline
 early and is detected by the refusal-body cases. The native harness drains and
 closes its own request even when a negative control fails.
+
+### Deployment transitions and replacement ownership
+
+Replaced the overlapping lifecycle examples with complete historical records,
+independently authored phase expectations, ordered transitions, retry restoration,
+strict-versus-visible progress, attempt no-write identity, backward observations,
+and input immutability. Target projection tests keep full server/domain identity
+and same-server ambiguity; removed permissive casts and failure-hiding returns.
+The entry-point selection regression remains at the real compiler boundary.
+
+The lookup planner's former missing-table test exercised only a Nova-created
+predecessor. A new actual SDK + Postgres sequence first adopts a table, observes
+its complete absence, and publishes a replacement. It reproduced invented
+adoption provenance on the new remote ID. HQ's `upload/run_upload.py::Mutation`
+and `workbook.py::iter_tables` confirm absence creates a new object. The planner
+now records that object as Nova-created, with no adoption actor/time, preserving
+the previous adopted object in superseded history. Its pure suite uses complete
+ownership scenarios and exact whole-plan results; the old other-kind example was
+removed because its empty inventory and identical expected creation would pass
+even if the kind filter were broken.

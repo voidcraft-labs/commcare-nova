@@ -1552,3 +1552,58 @@ it("keeps an actually runnable deployment intact when a later publish has a miss
 		expect(requests(peer)).toHaveLength(4);
 	});
 });
+
+it("records a recreated missing table as Nova-created while preserving the previous adoption evidence", async () => {
+	const table = await seedLookup();
+	await withHttpPeer(async (peer) => {
+		tables(peer, [remoteTable]);
+		request(peer, WORKBOOK, "POST").reply(200, {
+			code: 200,
+			message: "Uploaded",
+		});
+		tables(peer, [remoteTable]);
+		imported(peer);
+		await asUser(async (client) => {
+			body(await call(client, { adopt_resources: [table.id] }));
+			const adopted = (await state())?.active.find(
+				(row) => row.kind === "lookup-table",
+			);
+			expect(adopted).toMatchObject({
+				remoteId: "hq-table",
+				ownership: "adopted",
+				adoptedBy: ACTOR,
+			});
+			// A complete inventory establishes absence. The upload creates a new
+			// object under the old tag; nobody adopted that newly created object.
+			tables(peer);
+			request(peer, WORKBOOK, "POST").reply(200, {
+				code: 200,
+				message: "Uploaded",
+			});
+			tables(peer, [{ ...remoteTable, id: "replacement-table" }]);
+			source(peer);
+			request(peer, IMPORT, "POST").reply(200, {
+				success: true,
+				app_id: "working-app",
+				version: 2,
+			});
+			body(await call(client));
+			const final = await state();
+			expect(
+				final?.active.find((row) => row.kind === "lookup-table"),
+			).toMatchObject({
+				novaResourceId: table.id,
+				remoteId: "replacement-table",
+				ownership: "nova-created",
+				adoptedBy: null,
+				adoptedAt: null,
+			});
+			expect(final?.superseded).toEqual([
+				expect.objectContaining({
+					...adopted,
+					supersededAt: expect.any(String),
+				}),
+			]);
+		});
+	});
+});

@@ -39,9 +39,9 @@ export type AttachmentDeploymentTarget =
 /**
  * A distinctness key over both halves.
  *
- * `:` separates them because a CommCare project space name cannot contain
- * one and the server ids are a closed enum, so no pair can spell another
- * pair's key.
+ * `:` separates a closed server ID (which contains no colon) from the
+ * project space. Legacy space names may contain colons; no pair can
+ * spell another pair's key because the server prefix is unambiguous.
  */
 function targetKey(target: AttachmentTargetKey): string {
 	return `${target.server}:${target.domain}`;

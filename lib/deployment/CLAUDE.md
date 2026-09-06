@@ -333,6 +333,8 @@ name is the only way anybody will find it. `resources.ts::leftBehindResources`
 therefore tests the NAME, not the supersession: a table deleted on CommCare HQ
 and recreated by the next push supersedes its mapping and leaves nothing behind,
 and reporting it would send somebody to tidy up a table that does not exist.
+The recreated table is `nova-created`, even if its predecessor was adopted;
+the old adoption remains on the superseded object, not the newly created one.
 
 The three kinds reach it differently. A tag is mutable, so a RENAME is the
 common route for a table. A site code is create-once in Nova, so a place never

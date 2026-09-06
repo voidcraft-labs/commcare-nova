@@ -102,9 +102,9 @@ export function planLookupResourcePush(
 		const remote = remoteByTag.get(table.tag);
 
 		/* Nova already owns the table under this exact name, and the table
-		 * on the project space IS the one it owns. Gone from CommCare HQ
-		 * counts too: the push is the same act, the upload creates what is
-		 * missing, and the claim is the one already recorded.
+		 * on the project space IS the one it owns. An absent table is a NEW
+		 * creation, including when the previous object was adopted. Its old
+		 * adoption remains in superseded history, never on the new object.
 		 *
 		 * The id comparison is not belt-and-braces. A table Nova pushed can
 		 * be deleted on CommCare HQ and a DIFFERENT one made under the same
@@ -115,7 +115,8 @@ export function planLookupResourcePush(
 		if (
 			mapping !== undefined &&
 			mapping.pushedIdentity === table.tag &&
-			(remote === undefined || remote.id === mapping.remoteId)
+			remote !== undefined &&
+			remote.id === mapping.remoteId
 		) {
 			pushes.push({
 				tableId: table.tableId,
@@ -134,8 +135,8 @@ export function planLookupResourcePush(
 		 * deployment contract forbids. */
 		if (remote === undefined) {
 			/* Always `nova-created`, even when the superseded mapping was
-			 * `adopted`. Reaching here with a mapping means the tag was
-			 * RENAMED, so this push makes a table on CommCare HQ that did not
+			 * `adopted`. The tag was renamed or its table disappeared, so this
+			 * push makes a table on CommCare HQ that did not
 			 * exist a moment ago: Nova made it, and inheriting the old claim
 			 * would file a table nobody has ever seen as one somebody chose
 			 * to take over. The old table keeps its own adopted row, which is
