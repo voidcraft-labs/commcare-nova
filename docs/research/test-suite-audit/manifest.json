@@ -7665,25 +7665,37 @@
 			"file": "scripts/infra/__tests__/deploymentInfrastructure.test.ts",
 			"lines": 12,
 			"ciMs": 262,
-			"status": "pending"
+			"status": "revised",
+			"review": "Native unittest launcher now checks process outcome and positive discovery with a bounded child lifetime. Python suites retain real policy/HTTP serialization and CLI argument handling, use independent Job/media facts, and include a real local HTTP server for disconnect/truncated-response behavior.",
+			"baselineSha256": "a58c6201c98dd391930d6000ebcdfa0870dedf5cd05475abf2a062456c37eb49",
+			"reviewedSha256": "f5386472ad07724e02f84bf3422c794090b0d1c5c1e72a5e10ba3bfae9f442f8"
 		},
 		{
 			"file": "scripts/infra/__tests__/deploymentPolicy.test.ts",
 			"lines": 416,
 			"ciMs": 6396,
-			"status": "pending"
+			"status": "revised",
+			"review": "Removed source-string and source-index tests. Parsed YAML/Dockerfile declarations now prove dependency and secret/artifact boundaries; actual CI/Cloud Build step shells and image helpers execute against external command fixtures. Job entrypoints run as real child processes with only service boundaries substituted, proving failure stops, lease admission, bounded batches, exact generation deletes, and teardown outcomes. Actual Dockerfile esbuild flags produce operator bundles outside the checkout; the required Docker CI build owns filtered-context evidence.",
+			"baselineSha256": "4bbc544f85ca995372960d63212c4728b246c434db31a197ecd48e577fb202ef",
+			"reviewedSha256": "56d45d44f41848309c6fd56014c3d52683377562186d120647fd473071d6adb1"
 		},
 		{
 			"file": "scripts/infra/__tests__/migrationEntrypointImportability.test.ts",
 			"lines": 31,
 			"ciMs": 5326,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retained real npm db:migrate import and argument-refusal boundary; removed redundant negative source-module strings and bounded the child process itself, since a synchronous child cannot be stopped by Vitest timeout alone. Service-phase behavior is separately exercised by the actual bundled job entrypoints.",
+			"baselineSha256": "d212b9adca03b10b00c51b0dd9df4249f183fb488dbcb8cecaab9be01daaadfc",
+			"reviewedSha256": "4b637726380089459c21aa3209a613d447697816f0f788d594024cdcd223462e"
 		},
 		{
 			"file": "scripts/infra/tests/test_deployment.py",
 			"lines": 322,
 			"ciMs": null,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read all original cases and complete owning deployment/cache/infrastructure implementations. Replaced internal policy/request mocks with actual JSON HTTP requests, independent Job/media fixtures, and native CLI tests of plan/apply/admission. Removed production-embedded self-tests in favor of independent service/Job/traffic tests. Local HTTP disconnects and truncated bodies exposed missing retry classification; fixed shared transport and error-response closure. Remaining cache cases use the gcloud process boundary and actual local cache files.",
+			"baselineSha256": "638d99168731a5c67d1cc9607d10edfd4e705b9bae844467dc5de2a05fcb121e",
+			"reviewedSha256": "8965d30d287da2b70b68401f489a5a0678e105823e9a90bf9c4ad681ed817463"
 		},
 		{
 			"file": "scripts/lib/__tests__/blueprint-stats.test.ts",

@@ -2,7 +2,6 @@
 import argparse
 from contextlib import redirect_stdout
 import copy
-import importlib.util
 import io
 import json
 from pathlib import Path
@@ -12,36 +11,11 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-ROOT = Path(__file__).resolve().parents[3]
-
-
-def load(name, file):
-    spec = importlib.util.spec_from_file_location(name, ROOT / file)
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
+from deployment_fixtures import ROOT, IMAGE, load, http_responses, requests
 
 cache = load("nova_build_cache", "scripts/rollout/build-cache.py")
 infra = load("nova_deployment_infra", "scripts/infra/manage-deployment.py")
-deploy = load("nova_deploy", "scripts/rollout/deploy-cloud-run.py")
-gate = load("nova_migration_gate", "scripts/rollout/migration-gate.py")
 image_metadata = load("nova_image_metadata", "scripts/rollout/image-metadata.py")
-IMAGE = "us-central1-docker.pkg.dev/commcare-nova/repo/app@sha256:" + "a" * 64
-JOB = "projects/commcare-nova/locations/us-central1/jobs/commcare-nova-migrate"
-
-
-def job_fixture():
-    c = deploy.JOB_TEMPLATE_CONTRACTS["commcare-nova-migrate"]
-    return {"name": JOB, "generation": "3", "observedGeneration": "3", "reconciling": False,
-        "terminalCondition": {"state": "CONDITION_SUCCEEDED"}, "etag": "generation-3",
-        "template": {"taskCount": 1, "parallelism": 1, "template": {
-            "containers": [{"image": IMAGE, "command": ["node"], "args": ["migrate.cjs"],
-                "env": [{"name": k, "value": v} for k, v in c.environment],
-                "resources": {"limits": {"cpu": c.cpu, "memory": c.memory}}}],
-            "serviceAccount": c.service_account, "maxRetries": 0, "timeout": "3000s",
-            "vpcAccess": {"egress": "PRIVATE_RANGES_ONLY", "networkInterfaces": [{"network": "default", "subnetwork": "default"}]}}}}
 
 
 class BuildCacheTests(unittest.TestCase):
@@ -110,12 +84,49 @@ class BuildCacheTests(unittest.TestCase):
             cloud.assert_not_called()
 
 
+def media_fixture():
+    return {
+        "lifecycle": {"rule": [
+            {"action": {"type": "Delete"}, "condition": {"age": 1, "matchesPrefix": ["pending/"]}},
+            {"action": {"type": "Delete"}, "condition": {"age": 7, "matchesPrefix": ["captures-staged/"]}},
+        ]},
+        "softDeletePolicy": {"retentionDurationSeconds": "0"},
+        "versioning": {"enabled": False}, "defaultEventBasedHold": False,
+        "cors": [{"origin": ["https://commcare.app"], "method": ["PUT", "OPTIONS"],
+                  "responseHeader": ["Content-Type", "x-goog-content-length-range", "x-goog-if-generation-match"],
+                  "maxAgeSeconds": 3600}],
+    }
+
+
+def scheduler_fixture():
+    return {
+        "state": "ENABLED", "schedule": "*/5 * * * *", "timeZone": "Etc/UTC",
+        "httpTarget": {
+            "uri": "https://run.googleapis.com/v2/projects/commcare-nova/locations/us-central1/jobs/commcare-nova-capture-cleanup:run",
+            "httpMethod": "POST", "body": "e30=",
+            "headers": {"Content-Type": "application/json"},
+            "oauthToken": {
+                "serviceAccountEmail": "nova-capture-scheduler@commcare-nova.iam.gserviceaccount.com",
+                "scope": "https://www.googleapis.com/auth/cloud-platform",
+            },
+        },
+    }
+
+
 class InfrastructureTests(unittest.TestCase):
-    def test_media_policy_handles_api_defaults_but_detects_each_retention_failure(self):
-        current = copy.deepcopy(infra.MEDIA_POLICY)
+    def cli(self, *args):
+        with patch.object(sys, "argv", ["manage-deployment.py", *args]):
+            infra.main()
+
+    def test_media_policy_handles_api_defaults_but_detects_retention_and_cors_drift(self):
+        current = media_fixture()
         current["metageneration"] = "7"
         self.assertEqual(infra.media_findings(current), [])
-        current["softDeletePolicy"]["retentionDurationSeconds"] = 0
+        del current["softDeletePolicy"]
+        del current["versioning"]
+        del current["defaultEventBasedHold"]
+        current["cors"][0]["method"].reverse()
+        current["cors"][0]["responseHeader"].reverse()
         self.assertEqual(infra.media_findings(current), [])
         for mutation in (
             {"lifecycle": {"rule": []}}, {"cors": []},
@@ -123,186 +134,76 @@ class InfrastructureTests(unittest.TestCase):
             {"versioning": {"enabled": True}}, {"defaultEventBasedHold": True},
             {"retentionPolicy": {"retentionPeriod": "100"}},
         ):
-            self.assertTrue(infra.media_findings({**current, **mutation}))
+            with self.subTest(mutation=mutation):
+                self.assertTrue(infra.media_findings({**current, **mutation}))
 
-    def test_media_plan_never_writes_and_apply_uses_generation_fence(self):
-        current = {**infra.MEDIA_POLICY, "cors": [], "metageneration": "7"}
-        with patch.object(infra, "api", return_value=current) as api, redirect_stdout(io.StringIO()):
-            infra.media(False)
-            self.assertEqual([call.args[0] for call in api.call_args_list], ["GET"])
-        with patch.object(infra, "api", side_effect=[current, {}, infra.MEDIA_POLICY]) as api, redirect_stdout(io.StringIO()):
-            infra.media(True)
-            self.assertEqual(api.call_args_list[1].args[0], "PATCH")
-            self.assertIn("ifMetagenerationMatch=7", api.call_args_list[1].args[1])
-        with patch.object(infra, "api", return_value={**current, "retentionPolicy": {}}) as api:
+    def test_media_cli_defaults_to_reads_and_apply_serializes_a_generation_fenced_patch(self):
+        current = {**media_fixture(), "cors": [], "metageneration": "7"}
+        for apply in (False, True):
+            with self.subTest(apply=apply), patch.object(infra, "_token", "synthetic"), patch(
+                "urllib.request.urlopen", side_effect=http_responses(
+                    current, *([{}, media_fixture()] if apply else []),
+                ),
+            ) as http, redirect_stdout(io.StringIO()):
+                self.cli("media", *(["--apply"] if apply else []))
+                sent = requests(http)
+                self.assertEqual([request.get_method() for request in sent], ["GET", "PATCH", "GET"] if apply else ["GET"])
+                if apply:
+                    self.assertEqual(sent[1].full_url, "https://storage.googleapis.com/storage/v1/b/nova-multimedia-prod?ifMetagenerationMatch=7")
+                    self.assertEqual(json.loads(sent[1].data), media_fixture())
+
+    def test_media_refuses_operator_retention_or_missing_generation_without_any_write(self):
+        for mutation in ({"retentionPolicy": {}}, {"metageneration": None}, {"metageneration": "1.5"}):
+            current = {**media_fixture(), "cors": [], "metageneration": "7", **mutation}
+            with self.subTest(mutation=mutation), patch.object(infra, "_token", "synthetic"), patch(
+                "urllib.request.urlopen", side_effect=http_responses(current),
+            ) as http, redirect_stdout(io.StringIO()):
+                with self.assertRaises(ValueError):
+                    self.cli("media", "--apply")
+                self.assertEqual([request.get_method() for request in requests(http)], ["GET"])
+
+    def test_check_reads_real_scheduler_response_and_never_repairs_drift(self):
+        paused = {**scheduler_fixture(), "state": "PAUSED"}
+        with patch.object(infra, "_token", "synthetic"), patch(
+            "urllib.request.urlopen", side_effect=http_responses(media_fixture()),
+        ) as http, patch("subprocess.run", return_value=subprocess.CompletedProcess(
+            ["gcloud"], 0, stdout=json.dumps(paused),
+        )) as process, redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(ValueError, "scheduler drift"):
+                self.cli("check")
+        self.assertEqual([request.get_method() for request in requests(http)], ["GET"])
+        self.assertEqual([call.args[0][1:4] for call in process.call_args_list], [["scheduler", "jobs", "describe"]])
+
+    def test_scheduler_plan_is_read_only_and_explicit_apply_updates_then_resumes_and_verifies(self):
+        for apply in (False, True):
+            snapshots = iter([{**scheduler_fixture(), "state": "PAUSED"}, scheduler_fixture()])
+
+            def gcloud(command, **_kwargs):
+                output = json.dumps(next(snapshots)) if command[1:4] == ["scheduler", "jobs", "describe"] else ""
+                return subprocess.CompletedProcess(command, 0, stdout=output)
+
+            with self.subTest(apply=apply), patch("subprocess.run", side_effect=gcloud) as process, redirect_stdout(io.StringIO()):
+                self.cli("scheduler", *(["--apply"] if apply else []))
+                commands = [call.args[0] for call in process.call_args_list]
+                self.assertEqual([command[1:4] for command in commands], [
+                    ["scheduler", "jobs", "describe"],
+                    *([["run", "jobs", "add-iam-policy-binding"], ["scheduler", "jobs", "update"],
+                       ["scheduler", "jobs", "resume"], ["scheduler", "jobs", "describe"]] if apply else []),
+                ])
+                if apply:
+                    self.assertIn("--message-body={}", commands[2])
+                    self.assertIn("--schedule=*/5 * * * *", commands[2])
+                    self.assertIn("--oauth-service-account-email=nova-capture-scheduler@commcare-nova.iam.gserviceaccount.com", commands[2])
+
+    def test_job_cli_rejects_mutable_images_and_defaults_to_a_nonexecuting_plan(self):
+        with patch("subprocess.run") as process, redirect_stdout(io.StringIO()) as output:
             with self.assertRaises(ValueError):
-                infra.media(True)
-            self.assertEqual(api.call_count, 1)
-
-    def test_scheduler_drift_check_never_mutates(self):
-        with patch.object(infra, "scheduler_facts", return_value={"state": "PAUSED"}), patch.object(infra, "command") as command:
-            with self.assertRaises(ValueError):
-                infra.scheduler(False, check=True)
-            command.assert_not_called()
-
-    def test_job_provisioning_rejects_mutable_images_and_defaults_to_dry_run(self):
-        with self.assertRaises(ValueError):
-            infra.job_arguments("commcare-nova-migrate", "repo:latest")
-        arguments = infra.job_arguments("commcare-nova-legacy-preplan-repair", IMAGE)
-        self.assertIn("--args=legacy-preplan-repair.cjs", arguments)
-        self.assertNotIn("--execute", " ".join(arguments))
-        with patch.object(infra, "command") as command, redirect_stdout(io.StringIO()):
-            infra.run_or_plan(arguments, False)
-            command.assert_not_called()
-
-
-class JobExecutionTests(unittest.TestCase):
-    def test_completed_execution_can_omit_vpc_after_fenced_job_validation(self):
-        job = job_fixture()
-        task = copy.deepcopy(job["template"]["template"])
-        del task["vpcAccess"]
-        execution = {"name": JOB + "/executions/run-1", "template": task,
-            "taskCount": 1, "parallelism": 1, "succeededCount": 1,
-            "completionTime": "2026-09-05T07:51:20Z"}
-        operation = {"name": "projects/commcare-nova/locations/us-central1/operations/run-1"}
-        with patch.object(deploy, "_access_token", return_value="synthetic"), patch.object(
-            deploy, "_run_api_request", side_effect=[job, operation,
-                {"done": True, "response": execution}, execution]) as api:
-            result = deploy._execute_job_exact(project="commcare-nova", region="us-central1",
-                job="commcare-nova-migrate", expected_image=IMAGE, execution_args=[], wait_seconds=1)
-            self.assertEqual(result, execution)
-            self.assertEqual(api.call_args_list[1].args[3], {"etag": "generation-3"})
-        task["vpcAccess"] = {"egress": "ALL_TRAFFIC"}
-        with self.assertRaises(deploy.DeploymentPolicyError):
-            deploy._assert_exact_execution_succeeded(execution, JOB, IMAGE, ["migrate.cjs"])
-        del job["template"]["template"]["vpcAccess"]
-        with self.assertRaises(deploy.DeploymentPolicyError):
-            deploy._exact_ready_job_etag(job, JOB, IMAGE)
-
-    def test_configuration_drift_refuses_before_execution(self):
-        for variant in ("image", "identity", "environment", "network", "generation", "retries"):
-            job = job_fixture()
-            task = job["template"]["template"]
-            if variant == "image":
-                task["containers"][0]["image"] = IMAGE.replace("a" * 64, "b" * 64)
-            elif variant == "identity":
-                task["serviceAccount"] = "wrong@example.com"
-            elif variant == "environment":
-                task["containers"][0]["env"][0]["value"] = "wrong-database"
-            elif variant == "network":
-                task["vpcAccess"]["egress"] = "ALL_TRAFFIC"
-            elif variant == "generation":
-                job["generation"] = "4"
-            else:
-                task["maxRetries"] = 1
-            with self.subTest(variant=variant), patch.object(deploy, "_access_token", return_value="synthetic"), patch.object(deploy, "_run_api_request", return_value=job) as api:
-                with self.assertRaises(deploy.DeploymentPolicyError):
-                    deploy._execute_job_exact(project="commcare-nova", region="us-central1", job="commcare-nova-migrate", expected_image=IMAGE, execution_args=[], wait_seconds=1)
-                self.assertEqual([call.args[1] for call in api.call_args_list], ["GET"])
-
-    def test_execution_post_is_not_retried_after_transport_failure(self):
-        with patch.object(deploy, "_access_token", return_value="synthetic"), patch.object(deploy, "_run_api_request", side_effect=[job_fixture(), OSError("connection lost")]) as api:
-            with self.assertRaises(OSError):
-                deploy._execute_job_exact(project="commcare-nova", region="us-central1", job="commcare-nova-migrate", expected_image=IMAGE, execution_args=[], wait_seconds=1)
-            self.assertEqual([call.args[1] for call in api.call_args_list], ["GET", "POST"])
-            self.assertEqual(api.call_args_list[1].args[3], {"etag": "generation-3"})
-
-    def test_retired_migration_overrides_are_not_accepted(self):
-        for flag in ("--terminate-runtime-sessions-only", "--finalize-better-auth-17"):
-            with self.assertRaises(deploy.DeploymentPolicyError):
-                deploy._effective_execution_args(JOB, ["migrate.cjs", flag])
-
-
-class MigrationAdmissionTests(unittest.TestCase):
-    def fixtures(self):
-        job = job_fixture()
-        job["latestCreatedExecution"] = {"name": "run-1", "completionTime": "2026-09-05T08:00:00Z", "completionStatus": "EXECUTION_SUCCEEDED"}
-        task = copy.deepcopy(job["template"]["template"])
-        del task["vpcAccess"]
-        execution = {"name": JOB + "/executions/run-1", "template": task,
-            "taskCount": 1, "parallelism": 1, "succeededCount": 1,
-            "completionTime": "2026-09-05T08:00:00Z"}
-        return job, execution
-
-    def admit(self, image=IMAGE):
-        return gate.admit_migration(project="commcare-nova", region="us-central1",
-            job="commcare-nova-migrate", image=image, wait_seconds=1)
-
-    def test_identical_successful_artifact_uses_only_read_only_evidence(self):
-        job, execution = self.fixtures()
-        with patch.object(gate.policy, "_access_token", return_value="synthetic"), patch.object(gate.policy, "_run_api_request", side_effect=[job, execution, job]) as api, patch.object(gate.policy, "_execute_job_exact") as execute:
-            result = self.admit()
-        self.assertEqual(result["mode"], "reused")
-        self.assertEqual([c.args[1] for c in api.call_args_list], ["GET", "GET", "GET"])
-        execute.assert_not_called()
-
-    def test_job_or_latest_execution_change_refuses_cached_success(self):
-        for change in ("etag", "latest"):
-            job, execution = self.fixtures()
-            after = copy.deepcopy(job)
-            if change == "etag": after["etag"] = "generation-4"
-            else: after["latestCreatedExecution"]["name"] = "run-2"
-            with self.subTest(change=change), patch.object(gate.policy, "_access_token", return_value="synthetic"), patch.object(gate.policy, "_run_api_request", side_effect=[job, execution, after]), patch.object(gate.policy, "_execute_job_exact") as execute:
-                with self.assertRaises(gate.policy.TerminalDeploymentPolicyError): self.admit()
-                execute.assert_not_called()
-
-    def test_changed_artifact_updates_only_image_with_etag_before_execution(self):
-        job, execution = self.fixtures()
-        job["labels"] = {"team": "nova"}
-        job["annotations"] = {"example.com/owner": "deployment"}
-        job["binaryAuthorization"] = {"useDefault": True}
-        job["startExecutionToken"] = "never-replay-this"
-        image = IMAGE.replace("a" * 64, "b" * 64)
-        updated = copy.deepcopy(job)
-        updated["template"]["template"]["containers"][0]["image"] = image
-        updated["etag"] = "generation-4"
-        with patch.object(gate.policy, "_access_token", return_value="synthetic"), patch.object(gate.policy, "_run_api_request", side_effect=[job, {}, updated]) as api, patch.object(gate.policy, "_execute_job_exact", return_value=execution) as execute:
-            result = self.admit(image)
-        self.assertEqual(result["mode"], "executed")
-        self.assertEqual([c.args[1] for c in api.call_args_list], ["GET", "PATCH", "GET"])
-        update = api.call_args_list[1]
-        self.assertEqual(update.args[2], JOB)
-        self.assertEqual(update.args[3]["etag"], "generation-3")
-        self.assertEqual(update.args[3]["template"], updated["template"])
-        self.assertNotIn("latestCreatedExecution", update.args[3])
-        self.assertNotIn("generation", update.args[3])
-        self.assertNotIn("startExecutionToken", update.args[3])
-        for field in ("labels", "annotations", "binaryAuthorization"):
-            self.assertEqual(update.args[3][field], job[field])
-        self.assertEqual(execute.call_args.kwargs["expected_image"], image)
-
-    def test_failed_execution_requires_a_new_actual_execution(self):
-        job, execution = self.fixtures()
-        execution["succeededCount"] = 0
-        execution["failedCount"] = 1
-        with patch.object(gate.policy, "_access_token", return_value="synthetic"), patch.object(gate.policy, "_run_api_request", side_effect=[job, execution]), patch.object(gate.policy, "_execute_job_exact", return_value={"name": JOB + "/executions/run-2"}) as execute:
-            self.assertEqual(self.admit()["mode"], "executed")
-        execute.assert_called_once()
-
-    def test_missing_execution_never_counts_as_success(self):
-        import urllib.error
-        job, _ = self.fixtures()
-        error = gate.policy.TerminalDeploymentPolicyError("missing")
-        error.__cause__ = urllib.error.HTTPError("https://run.googleapis.com", 404, "Not Found", {}, None)
-        with patch.object(gate.policy, "_access_token", return_value="synthetic"), patch.object(gate.policy, "_run_api_request", side_effect=[job, error]), patch.object(gate.policy, "_execute_job_exact", return_value={"name": JOB + "/executions/run-2"}) as execute:
-            self.assertEqual(self.admit()["mode"], "executed")
-        execute.assert_called_once()
-
-    def test_active_different_artifact_is_not_overwritten(self):
-        job, execution = self.fixtures()
-        del job["latestCreatedExecution"]["completionTime"]
-        del execution["completionTime"]
-        with patch.object(gate.policy, "_access_token", return_value="synthetic"), patch.object(gate.policy, "_run_api_request", side_effect=[job, execution]) as api, patch.object(gate.policy, "_execute_job_exact") as execute:
-            with self.assertRaises(gate.policy.DeploymentPolicyError):
-                self.admit(IMAGE.replace("a" * 64, "b" * 64))
-        self.assertEqual([c.args[1] for c in api.call_args_list], ["GET", "GET"])
-        execute.assert_not_called()
-
-    def test_immutable_execution_contract_error_fails_without_polling(self):
-        _, execution = self.fixtures()
-        execution["template"]["serviceAccount"] = "different@example.com"
-        with self.assertRaises(gate.policy.TerminalDeploymentPolicyError):
-            gate.policy._assert_exact_execution_succeeded(execution, JOB, IMAGE, ["migrate.cjs"])
+                self.cli("job", "--job", "commcare-nova-migrate", "--image", "repo:latest")
+            self.cli("job", "--job", "commcare-nova-legacy-preplan-repair", "--image", IMAGE)
+            process.assert_not_called()
+        self.assertIn("PLAN gcloud run jobs deploy", output.getvalue())
+        self.assertIn("--args=legacy-preplan-repair.cjs", output.getvalue())
+        self.assertNotIn("--execute", output.getvalue())
 
 
 class ImageMetadataTests(unittest.TestCase):

@@ -133,3 +133,27 @@ and one timer while subscribed. Direct tests cover 23/25-hour days, forward and
 backward clock changes, same-day stability, and subscription cleanup/resumption.
 The React adapter retains focus/visible resync. The old fake calendar screen and
 fake matchMedia suite were removed; responsive layout remains a browser claim.
+
+## Deployment evidence crosses real process and HTTP boundaries
+
+Source substring and source-index assertions were replaced with parsed release
+configuration, execution of the actual Cloud Build/CI step shells, and real
+bundled job entrypoints. The former cleanup order check could pass if the schema
+probe was absent because indexOf returned -1; the replacement proves a failed
+probe prevents all maintenance under the acquired lease. Operator bundles use
+the Dockerfile's actual esbuild arguments. Docker context filtering remains the
+responsibility of the required production-image CI build.
+
+The Python request tests previously replaced the complete HTTP adapter.
+Independent Job facts and real request serialization now cover etag fencing,
+single POST/PATCH attempts, active migration joining, failed/pruned execution
+recovery, authority drift, and final image/traffic verification. Infrastructure
+plan/apply tests retain CLI parsing and the actual API/subprocess adapters.
+Production-embedded policy self-tests were removed.
+
+A local HTTP server reproduced another production defect: abrupt disconnects
+and incomplete response bodies escaped the bounded read-retry classification.
+The shared Cloud Run transport now classifies those failures consistently while
+keeping uncertain writes terminal after one attempt. HTTP error responses are
+closed, and an incomplete diagnostic body preserves the original HTTP status
+rather than changing an authorization refusal into a retry.

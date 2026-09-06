@@ -35,6 +35,10 @@ tests is preferable to preserving the shape or count of the previous suite.
   Postgres. Mocking the query builder cannot prove these contracts.
 - User interactions, focus, layout, browser APIs, and hydration: use Playwright
   against the production build. Test component logic through its production state model.
+- Build and deployment configuration: parse its format and inspect the execution
+  graph or artifact declarations. Execute authored scripts with controlled
+  external executables to prove arguments, failure stops, and cleanup; source
+  substring checks cannot establish those behaviors.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
 
@@ -43,6 +47,12 @@ sequences unless that exact value or order is the external contract. A test that
 restates its fixture, snapshots an implementation, or mocks away the behavior
 should be removed or rewritten. Do not duplicate a full workflow for each minor
 input variation when a focused test can prove the varying rule.
+
+A transport test must retain the real request and response adapter. Test
+disconnects and partial responses at a local HTTP server when exception classes
+or streaming behavior matter; replacing the entire request helper hides those
+failures. Native-language suites belong in that language's test runner, with
+positive discovery and a bounded process lifetime when invoked from Vitest.
 
 A rejection test must begin with an otherwise admissible input. Prove the valid
 case succeeds before introducing the fault, or pair it with an accepted case

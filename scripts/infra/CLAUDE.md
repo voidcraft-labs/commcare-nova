@@ -143,3 +143,23 @@ The Cloud Build trigger switch is safe only after its service account has all
 listed grants. A custom trigger identity overrides any `serviceAccount` field
 inside `cloudbuild.yaml`; the checked-in provisioning script is the source of
 truth for that identity.
+
+## Testing deployment contracts
+
+Run the native Python policy/transport tests with
+`python3 -B -m unittest discover -s scripts/infra/tests -v`; the Vitest
+infrastructure launcher includes them in ordinary CI. Keep test fixtures out of
+the production deployment entrypoint. Job and media fixtures state independent
+API facts instead of copying the constants being checked.
+
+Deployment tests parse YAML and Dockerfile structure and execute the authored
+shell steps with controlled external executables. Job entrypoint tests execute
+the actual bundled scripts, replacing only their database/storage service
+boundaries; real database suites own those services' semantics. Only the
+required production-image CI build proves Docker context filtering.
+
+HTTP tests retain request serialization and response interpretation. A local
+HTTP server exercises abrupt disconnects and truncated bodies. Bounded read
+polling may retry these transport failures; writes remain terminal after one
+attempt. Authentication status remains terminal even if its error body is
+incomplete, and error responses are explicitly closed.
