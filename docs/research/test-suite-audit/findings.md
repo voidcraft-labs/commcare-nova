@@ -199,3 +199,23 @@ Language-registry source substring checks and a recursive test-file scan are
 replaced by esbuild's actual chunk graph. The full catalog must be present in
 the dynamic search output, absent from synchronous registry/load output, and
 the main domain barrel must keep the registry out of its static dependencies.
+
+## Document extraction owns observation and request separately
+
+The old hook had one viewer-no-request test. Its once-per-mount flag also
+survived an asset-id change: the replacement document never started reading,
+and the prior document's late result reached the replacement callback. A
+before/after hook reproduction confirmed this, then the hook imitation test
+was removed. Production now uses a direct state model with per-asset identity,
+request generations, cancellation, bounded polling, and terminal notification.
+A polling observer that exhausts its budget becomes retryable instead of
+remaining in Reading forever. Build-owned reads retain their original signal
+and progress after chip removal; local observers abort their own reads.
+
+Native stream tests exposed another gap: releasing the extraction reader did
+not cancel the still-open body after a terminal frame or parse error, and an
+HTTP refusal left its body unread. Both paths now cancel the body. Tests also
+split UTF-8 frames byte by byte and reject incomplete streams. The real file
+manager proves retry, Reading-to-Ready, completed title reconciliation, the
+information popover, and reopen without a second request, with controlled API
+responses and no model spend. The old badge CSS/callback test is removed.

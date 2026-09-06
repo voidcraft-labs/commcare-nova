@@ -1038,7 +1038,10 @@
 			"file": "components/builder/media/__tests__/ExtractionStatusBadge.test.tsx",
 			"lines": 37,
 			"ciMs": 1016,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full badge, hook, info popover and actual library integration. Removed whole fake callback/CSS class suite. Real production file-manager browser journey checks Retry, Reading, Ready, updated title, actual 44px target dimensions, information popover, and reopen with no second extraction. API responses controlled before opening files; no model spend.",
+			"baselineSha256": "45e3d71714b1031708060ebb4f508ed830d5318b870ddda10f2b22b6f52f786e",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/media/__tests__/MediaPickerDialog.test.tsx",
@@ -1068,7 +1071,10 @@
 			"file": "components/builder/media/__tests__/useDocumentExtraction.test.tsx",
 			"lines": 32,
 			"ciMs": 627,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full hook, both production callers and media transport. Removed lone fake-DOM viewer test after replacing hook polling with directly tested per-asset production state model. Before/after hook probe reproduced id-change stale result. Native Node tests retain actual fetch parser and prove local vs build-owned abort/progress, terminal metadata, retry coalescing, restart fencing, and polling cap; real browser proves library retry/reopen.",
+			"baselineSha256": "8825c9ba9e37583d39a77fd2924e57aa6bc7ff2edeb84d9e099706442cd76124",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/media/__tests__/useMedia.test.tsx",

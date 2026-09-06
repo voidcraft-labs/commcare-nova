@@ -135,7 +135,8 @@ export default defineConfig({
 		},
 		{
 			name: "authed",
-			testMatch: /(?:authed|deep-links|localization|error-guard)\.spec\.ts/,
+			testMatch:
+				/(?:authed|deep-links|localization|error-guard|media-extraction)\.spec\.ts/,
 			use: {
 				...devices["Desktop Chrome"],
 				storageState: "e2e/.auth/state.json",

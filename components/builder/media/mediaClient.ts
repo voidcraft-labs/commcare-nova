@@ -372,11 +372,14 @@ export async function triggerAssetExtraction(
 			method: "POST",
 			signal: opts.signal,
 		});
-		if (!res.ok || !res.body) return failed;
+		if (!res.ok || !res.body) {
+			await res.body?.cancel().catch(() => undefined);
+			return failed;
+		}
 
 		// Parse the NDJSON line stream. `progress` → pulse; `done` → the final
-		// ExtractMeta. The reader is released in `finally` so an abort mid-read
-		// leaves no live stream handle (the async-leak gate).
+		// ExtractMeta. Cancel before releasing the reader: a terminal frame or
+		// malformed response may arrive while the server still holds its body open.
 		const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
 		let buffer = "";
 		try {
@@ -405,6 +408,7 @@ export async function triggerAssetExtraction(
 			}
 			return failed; // stream ended without a `done` line
 		} finally {
+			await reader.cancel().catch(() => undefined);
 			reader.releaseLock();
 		}
 	} catch {

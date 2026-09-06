@@ -718,6 +718,17 @@ minutes.
 
 The App Settings panel carries a conditional **data-sources row** (`appSettings/AppDataSourcesSection.tsx`): when the app reads case properties no form in it writes (`lib/doc/unwrittenProperties.ts`, via `useUnwrittenPropertyCards`), the row states the count and opens `UnwrittenPropertiesDialog` — an informational list (property, case type, where it's read), deliberately neutral chrome with no semantic color and no action, because a no-writer read is a normal state (viewer apps, staged sample data), not a defect. At zero the row renders nothing.
 
+`media/documentExtraction.ts` owns one asset's extraction observation: terminal
+stored states remain idle until explicit retry, in-flight jobs poll every four
+seconds for at most 75 polls, and exhaustion becomes a retryable local failure.
+`useDocumentExtraction` subscribes to that model and replaces it when asset or
+permission identity changes. Stopping a local observer aborts its request;
+build-owned reads may finish after chip removal, while cancelled observations
+cannot publish metadata. Project-scope reset stops polling synchronously.
+Extraction transport cancels unfinished response bodies before releasing its
+reader. State and stream tests run in Node; the file-manager retry/status/info
+journey runs through the production browser UI with controlled API responses.
+
 The media picker (`media/MediaPickerDialog.tsx`) grows an **Icon Library** tab — a searchable grid of the curated built-in icons — gated by its explicit `iconLibrary` prop. `SingleAssetSlot` is a discriminated contract: an uploaded-only slot omits `iconLibrary`, a module/case-list icon slot passes `"module"`, and a form icon slot passes `"form"`. The component never infers identity semantics from `slotKey`. App logos, field/option message media, image-map cells, and audio slots therefore cannot accept built-ins even if their display key happens to resemble an icon slot. The account-menu file manager passes `"all"` (browse-only — clicking previews, since there's no carrier). The picker returns a discriminated uploaded row or closed built-in ref; a built-in never impersonates a library row. Picking stores the exact catalog-closed `nova-icon:<slug>` ref (resolved to shared bytes at emit); `mediaClient.ts::mediaSrc` routes it to `/nova-icons/<slug>.png`, so a built-in chip renders without an `/api/media` round-trip. The module-settings popover also hosts the Case Type section (`ModuleCaseTypeSection`), which sets/clears the type through the gated `updateModule`. A bare `caseListOnly` module with no children has no separate module screen, so that same panel alone adds its ordinary **Module name** input; form-bearing modules keep the one inline name editor on their real module screen. Setting a type seeds a `Name` column (and makes a formless module a `caseListOnly` viewer), and `updateModule` declares a brand-new type in the catalog so the column resolves; clearing drops the case-list/search config AND the `caseListOnly` flag (a typeless viewer is invalid). A change the gate refuses (e.g. clearing the type out from under case forms) surfaces inline.
 
 ## Inspector rail (right-rail properties panel)
