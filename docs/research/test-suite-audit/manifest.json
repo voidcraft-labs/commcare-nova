@@ -7128,7 +7128,10 @@
 			"file": "lib/publish/__tests__/exportAdvisories.test.ts",
 			"lines": 149,
 			"ciMs": 601,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain actionable singular/plural and none/ambiguous/known target messages. Correct suite claims to advisory selection/codec. Replace no-capture fixture claiming unsaved capture with a real image whose case write is removed. Run header roundtrip through actual Headers with Unicode, newline and percent data so missing encoding cannot pass a plain ASCII codec roundtrip.",
+			"baselineSha256": "e0e0662a5e1281b1de185bc9a0626d4754e26e6042252e276d2d66196b3022b8",
+			"reviewedSha256": "54a141c5e3d30361bfb9657ef60089d0154a67c9f8ece858157d8ea1f289b67e"
 		},
 		{
 			"file": "lib/references/__tests__/LabelContent.test.tsx",
@@ -7272,13 +7275,19 @@
 			"file": "lib/runtimeCapabilities/__tests__/runtimeCapabilities.test.ts",
 			"lines": 148,
 			"ciMs": 414,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain exact-key validation, immutable image declarations and real renderer CLI success/refusal. Verify canonicalization with reordered independent authored values and actual SHA-256 bytes, plus independent accepted timing boundaries. Replace brittle source-text Node/server-only import searches with an actual browser bundle and execution in a VM without Node globals.",
+			"baselineSha256": "d1f1c5fea31a69f72da8ac2466ce3b614657b7024e26d927e966d0fce9d53246",
+			"reviewedSha256": "1df6feb11a6ce826bbe2bdc31a936e56bb0fa469d8f19cdc96bf55dd25c76337"
 		},
 		{
 			"file": "lib/runtimeCapabilities/__tests__/startupHealth.test.ts",
 			"lines": 168,
 			"ciMs": 411,
-			"status": "pending"
+			"status": "revised",
+			"review": "Inject a valid baked-image reader and assert it is untouched for declaration/build-ID refusals, preventing unrelated real-file failure from masking the intended gate. Own fake time throughout, require successful DB completion to clear its timer, and prove exact deadline just before/at expiration with finally completion/join. Narrow opaque errors without casts and independently reject empty/wrong/duplicate database rows.",
+			"baselineSha256": "04843e7d8941103bea87288d9513223dd48c2ead0df35f4e44fdc660084b6a8e",
+			"reviewedSha256": "ce7d2e4f7dff8e4cab083e5425ba7a51c6ca3774dcb9691781a508ee86922141"
 		},
 		{
 			"file": "lib/session/__tests__/assetMeta.test.ts",

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { RUNTIME_CAPABILITIES } from "@/lib/runtimeCapabilities";
 import {
 	RUNTIME_BUILD_ID_ENV_KEY,
@@ -34,8 +34,12 @@ async function expectOpaqueFailure(operation: Promise<void>): Promise<void> {
 		name: "StartupHealthCheckError",
 		message: "Startup health check failed",
 	});
-	expect((error as Error & { cause?: unknown }).cause).toBeUndefined();
+	if (!(error instanceof StartupHealthCheckError)) throw error;
+	expect(error.cause).toBeUndefined();
 }
+
+beforeEach(() => vi.useFakeTimers());
+afterEach(() => vi.useRealTimers());
 
 describe("candidate startup health", () => {
 	it("accepts the exact baked declaration and checks the database once", async () => {
@@ -46,6 +50,7 @@ describe("candidate startup health", () => {
 			readBakedBuildId: async () => BUILD_ID,
 		});
 		expect(checkDatabase).toHaveBeenCalledTimes(1);
+		expect(vi.getTimerCount()).toBe(0);
 	});
 
 	it.each(Object.values(RUNTIME_CAPABILITY_ENV_KEYS))(
@@ -54,9 +59,15 @@ describe("candidate startup health", () => {
 			const environment = productionEnvironment();
 			environment[key] = `${environment[key]}-drift`;
 			const checkDatabase = vi.fn(async () => {});
+			const readBakedBuildId = vi.fn(async () => BUILD_ID);
 			await expectOpaqueFailure(
-				assertRuntimeStartupHealth({ environment, checkDatabase }),
+				assertRuntimeStartupHealth({
+					environment,
+					checkDatabase,
+					readBakedBuildId,
+				}),
 			);
+			expect(readBakedBuildId).not.toHaveBeenCalled();
 			expect(checkDatabase).not.toHaveBeenCalled();
 		},
 	);
@@ -68,9 +79,15 @@ describe("candidate startup health", () => {
 				productionEnvironment();
 			environment[RUNTIME_BUILD_ID_ENV_KEY] = buildId;
 			const checkDatabase = vi.fn(async () => {});
+			const readBakedBuildId = vi.fn(async () => BUILD_ID);
 			await expectOpaqueFailure(
-				assertRuntimeStartupHealth({ environment, checkDatabase }),
+				assertRuntimeStartupHealth({
+					environment,
+					checkDatabase,
+					readBakedBuildId,
+				}),
 			);
+			expect(readBakedBuildId).not.toHaveBeenCalled();
 			expect(checkDatabase).not.toHaveBeenCalled();
 		},
 	);
@@ -127,27 +144,33 @@ describe("candidate startup health", () => {
 		);
 	});
 
-	it("fails closed at the configured database deadline and clears its timer", async () => {
-		vi.useFakeTimers();
-		let resolveDatabase: (() => void) | undefined;
-		try {
-			const databaseResult = new Promise<void>((resolve) => {
-				resolveDatabase = resolve;
-			});
-			const health = assertRuntimeStartupHealth({
+	it("fails at the configured database deadline and observes a late database completion", async () => {
+		let resolveDatabase!: () => void;
+		const databaseResult = new Promise<void>((resolve) => {
+			resolveDatabase = resolve;
+		});
+		let settled = false;
+		const failure = expectOpaqueFailure(
+			assertRuntimeStartupHealth({
 				environment: productionEnvironment(),
 				checkDatabase: () => databaseResult,
 				databaseDeadlineMs: 25,
 				readBakedBuildId: async () => BUILD_ID,
-			});
-			const failure = expectOpaqueFailure(health);
-			await vi.advanceTimersByTimeAsync(25);
+			}),
+		).then(() => {
+			settled = true;
+		});
+		try {
+			await vi.advanceTimersByTimeAsync(24);
+			expect(settled).toBe(false);
+			expect(vi.getTimerCount()).toBe(1);
+			await vi.advanceTimersByTimeAsync(1);
 			await failure;
 			expect(vi.getTimerCount()).toBe(0);
 		} finally {
-			resolveDatabase?.();
-			await Promise.resolve();
-			vi.useRealTimers();
+			resolveDatabase();
+			await databaseResult;
+			await failure;
 		}
 	});
 
@@ -160,9 +183,13 @@ describe("candidate startup health", () => {
 		});
 	});
 
-	it("rejects an unexpected connectivity-query result", async () => {
+	it.each([
+		{ rows: [] },
+		{ rows: [{ ok: 0 }] },
+		{ rows: [{ ok: 1 }, { ok: 1 }] },
+	])("rejects unexpected connectivity rows $rows", async ({ rows }) => {
 		await expect(
-			checkStartupDatabaseConnectivity(async () => ({ rows: [] })),
+			checkStartupDatabaseConnectivity(async () => ({ rows })),
 		).rejects.toThrow("database connectivity check returned an invalid result");
 	});
 });
