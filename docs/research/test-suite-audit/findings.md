@@ -1222,3 +1222,30 @@ because those contracts apply there.
 Validation: 300 tests across ten compiler, expander, capture, oracle, and fuzz
 files pass; full TypeScript check passes. The full old oracle suites remain to
 be reviewed as testing methods; running them here does not count as that audit.
+
+
+### Structural path admission and focused reference tests
+
+Removed the mixed `commcare.test.ts` suite. Its shell-factory checks mostly
+asserted input echoes and isolated discriminator fields already exercised by
+actual expansion and delivery. Identifier admission and reference projection
+now have focused suites: exact retained names, denied syntax, reserved versus
+ordinary spellings, literals versus parsed references, deduplication and
+Search exclusion, full parent selectors with an explicit starting case,
+attribute case IDs, and native regex matching for all metacharacters.
+
+The previous answer-path regex admitted doubled/trailing slashes and segments
+starting with digits. The replacement regression failed before repair;
+`validateXFormPath` now delegates to the existing `FormPath` parser and narrows
+its accepted values to non-root elements, preserving the previous refusal of
+attributes and root-only paths. Removed the unused parallel regex. Corrected
+the false claim that hyphens are invalid XML names: Nova deliberately supports
+a narrower element-name vocabulary.
+
+Rebuilt the full FormPath suite around independent expected segments and a
+branching construction: original paths remain unchanged, attributes terminate
+construction, parent paths can be extended, query-bound iteration projects the
+real item step, and equality is symmetric across name/kind/length differences.
+The prior parse/print-only cases could let both directions share the same bug.
+Validation: 101 tests across seven path, projection, case, and capture suites
+pass; full TypeScript check passes.

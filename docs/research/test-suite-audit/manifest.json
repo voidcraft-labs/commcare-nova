@@ -3639,7 +3639,10 @@
 			"file": "lib/commcare/__tests__/commcare.test.ts",
 			"lines": 286,
 			"ciMs": 623,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full mixed suite, identifier/xml/hashtag/shell implementations, and owning path model. Removed input-echo factory tests and moved meaningful identifier/reference contracts to identifierValidation.test.ts and hashtagProjection.test.ts. New path refusal failed under old permissive regex; admission now uses FormPath. Full reference strings and literal token boundaries replace partial substring counts. Corrected false XML-hyphen claim.",
+			"baselineSha256": "bb81dd8d8fa1b01fd419f56703961988069eed6c66905e5593359330ee157084",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/commcare/__tests__/compiler.test.ts",
@@ -3756,7 +3759,10 @@
 			"file": "lib/commcare/__tests__/formPath.test.ts",
 			"lines": 262,
 			"ciMs": 483,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole suite and FormPath implementation. Rebuilt around independent parsed segments, immutable branching construction, exact XPath/editor projections, attribute terminality, parent reuse, strict refusal boundaries, and symmetric identity differences; removed duplicate round-trip-only and self-comparison cases.",
+			"baselineSha256": "54b2d8c5cf965ff2ea00badf56d36ee6f8dfa8dbd7d977013f27275b5c43caaa",
+			"reviewedSha256": "1c90daf58d5b939621a4e9522cd26367294b98c01eb37e1d1d2ab44994ecc1c8"
 		},
 		{
 			"file": "lib/commcare/__tests__/formSections.test.ts",

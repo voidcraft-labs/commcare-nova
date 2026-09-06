@@ -496,7 +496,7 @@ Adding a second cross-case-type field to a single-subcase-in-repeat form FLIPS t
 
 ### Typed FormPath
 
-`xform/formPath.ts::FormPath` is the typed value every wire emitter constructs paths through. Element + attribute steps only; attribute steps are terminal; element-step names pass `XML_ELEMENT_NAME_REGEX` at construction. The serializer `toXPath()` is the sole place `/data/...` literals appear in the package. Use it for PATH REFERENCES (bind `nodeset`, control `ref`, `<setvalue ref>`, splice walk steps); XPath EXPRESSION bodies (`calculate` / `relevant` / `constraint`) stay parsed via the Lezer grammar.
+`xform/formPath.ts::FormPath` is the typed value every wire emitter constructs paths through. Element + attribute steps only; attribute steps are terminal; element-step names pass `XML_ELEMENT_NAME_REGEX` at construction. The serializer `toXPath()` is the sole place `/data/...` literals appear in the package. Use it for PATH REFERENCES (bind `nodeset`, control `ref`, `<setvalue ref>`, splice walk steps); XPath EXPRESSION bodies (`calculate` / `relevant` / `constraint`) stay parsed via the Lezer grammar. The legacy answer-path admission (`validateXFormPath`) delegates to this same parser and additionally requires a non-root element; there is no separate permissive path regex. The element-name vocabulary is Nova's ASCII subset, not the full XML Name grammar.
 
 ### Form `<meta>` block — build-time injection
 
