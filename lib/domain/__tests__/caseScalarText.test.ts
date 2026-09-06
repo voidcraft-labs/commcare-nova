@@ -19,8 +19,8 @@ describe("case scalar text", () => {
 	});
 
 	it("does not broaden Java String.trim to punctuation or Unicode whitespace", () => {
-		expect(normalizeCaseScalarTextValue("!\u00a0Alice\u00a0!")).toBe(
-			"!\u00a0Alice\u00a0!",
+		expect(normalizeCaseScalarTextValue("\u00a0\u2003Alice\u2003\u00a0")).toBe(
+			"\u00a0\u2003Alice\u2003\u00a0",
 		);
 	});
 

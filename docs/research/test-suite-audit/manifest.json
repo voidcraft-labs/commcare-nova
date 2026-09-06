@@ -6119,7 +6119,10 @@
 			"file": "lib/domain/__tests__/caseOperationIdentity.test.ts",
 			"lines": 72,
 			"ciMs": 106,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "c304024044969f5b58911851ce1d0f5c5afa2c2544c6c56c79491adb70cbce88",
+			"reviewedSha256": "500f992699073e733fa8e5f848973738cd5499242339f9bc59f1b542cd8f4b4c",
+			"review": "Retained versioned JSON tuple and literal UUIDv5 vector, independently verified with Python uuid.uuid5. Replaced partial success checks and conditional assertions with exact preserved composed/decomposed/whitespace key outputs and 205/206 UTF-16 boundary cases including astral keys; final ID is independently 255 units. Scope-axis separation remains a pure protocol invariant. Device XPath behavior belongs to native operation evidence rather than these pure derivation tests."
 		},
 		{
 			"file": "lib/domain/__tests__/caseOperationSchema.test.ts",
@@ -6143,7 +6146,10 @@
 			"file": "lib/domain/__tests__/caseScalarText.test.ts",
 			"lines": 55,
 			"ciMs": 566,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "efb933d4f2920d4232468c0950c53ff6d4460fdfa40f74666452298bc0236d0c",
+			"reviewedSha256": "cae7b3ffc633dc2987eb81022964578a75090aa5ae9756363451f506f16ada07",
+			"review": "Retained pure value-boundary tests: all Java trim code units, preserved interior, blank-name versus blank-external-ID policy and 255 UTF-16-unit cap. Corrected Unicode whitespace test: punctuation outside NBSP had masked JavaScript trim overreach; NBSP and em-space now sit at actual boundaries. No UI/DB mock needed for this deterministic value contract."
 		},
 		{
 			"file": "lib/domain/__tests__/caseTypes.test.ts",
