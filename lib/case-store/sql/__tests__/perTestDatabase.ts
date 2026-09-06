@@ -15,7 +15,7 @@
 // production-migrated schema when explicitly requested by behavior tests.
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
-import { Client, Pool, type PoolClient } from "pg";
+import { Client, Pool, type PoolClient, type PoolConfig } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, inject } from "vitest";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 
@@ -274,12 +274,18 @@ export function postgresTestUrl(): string {
  * `max: 1` — a single test thread issues sequential reads; a
  * larger pool would be wasted overhead.
  */
-export function buildIsolatedDb(uri: string): {
-	db: Kysely<unknown>;
+export function buildIsolatedDb<Database = unknown>(
+	uri: string,
+	poolOptions: Pick<
+		PoolConfig,
+		"max" | "connectionTimeoutMillis" | "query_timeout"
+	> = {},
+): {
+	db: Kysely<Database>;
 	pool: Pool;
 	destroy(): Promise<void>;
 } {
-	const pool = new Pool({ connectionString: uri, max: 1 });
+	const pool = new Pool({ connectionString: uri, max: 1, ...poolOptions });
 	const failures: Error[] = [];
 	const failed = new WeakSet<PoolClient>();
 	const observe = (error: Error, client: PoolClient) => {
@@ -293,7 +299,7 @@ export function buildIsolatedDb(uri: string): {
 	pool.on("connect", (client) =>
 		client.on("error", (error) => observe(error, client)),
 	);
-	const db = new Kysely<unknown>({
+	const db = new Kysely<Database>({
 		dialect: new PostgresDialect({ pool: pool as unknown as PostgresPool }),
 	});
 	return {

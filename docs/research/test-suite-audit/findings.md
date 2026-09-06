@@ -1103,8 +1103,8 @@ never-opened shutdown example is replaced by these real lifecycle scenarios.
 The per-test database helper's blanket idle error listener hid failures. The
 helper now owns both channels and reports its retained failures after closing;
 three actual pool scenarios verify this. Disabling the report makes the negative
-control fail despite successful socket cleanup. The separate perTestAppDb polling
-quiescence helper and scan-side background reapers remain to be resolved.
+control fail despite successful socket cleanup. The subsequent scan and stream ownership work below removes the separate
+perTestAppDb polling workaround and awaits scan-side reapers.
 
 
 ### Request ownership of scan-side cleanup
@@ -1119,3 +1119,31 @@ moves cleanup inside the claim transaction and deadlocks its actor gate.
 Listing pagination keeps the original scan timestamp. The old listing suite's
 post-response polling was removed; immediate persisted assertions now prove
 production ownership. Earlier lifecycle, identity and contention tests remain.
+
+
+### Stream reads finish before cancellation or EOF
+
+The previous relays cleared timers/subscriptions but returned cancellation and
+closed response bodies while database reads still ran. Fourteen actual-route
+cases fail against those routes: seven SQL lanes (app mutation, presence, lookup,
+deployment, app authorization, chat replay, chat authorization), each under
+consumer cancellation and request abort. They use migrated auth/app state and
+real LISTEN/NOTIFY, with only the trusted session boundary supplied by the test.
+Actual table locks hold each read; a separate database round trip confirms the
+end promise is still pending, then cancellation/EOF completes after release with
+no active database work.
+
+The shared pump now exposes drain and awaited close. Both routes use it for all
+reads, including formerly independent roster and cadence loops. Cadences cannot
+overlap; the chat dead-run fallback awaits the final coalesced replay, avoiding
+its former early return when a pump was already active. Internal teardown stops
+new work synchronously and awaits existing reads before closing; a read can
+initiate teardown without awaiting itself. Programmatic deferred operations
+cover successful/rejected close, repeated close, coalesced drains and reuse;
+the actual default retry scheduler is also tested under a controlled clock.
+
+The entire pool-idle polling workaround was removed from perTestAppDb. Its pool
+now delegates to the same generic error-owning database fixture as ordinary
+isolated databases. The existing app relay, chat replay, transport, chat POST
+cancellation/build and native pool suites pass without that workaround (107
+cases). No pool timeout or test timeout was raised.

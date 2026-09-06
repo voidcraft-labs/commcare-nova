@@ -317,3 +317,11 @@ Admission and listing cleanup is part of its caller's lifetime. The native
 has not returned and any new admission has already committed, then verifies the
 refund immediately after release. Do not add test-side polling after the API
 returns to compensate for a detached production reaper.
+
+
+`streamReadOwnership.postgres.test.ts` opens the actual app and chat relay routes
+with real membership, migrated Postgres and LISTEN/NOTIFY. It blocks each read
+lane or authorization cadence in SQL, then proves both consumer cancellation
+and abort-to-EOF wait for the read. The app-state contention helper uses the
+same owned pool teardown as the ordinary isolated database fixture; it has no
+pool-idle polling loop. Finish or cancel each response before closing its fixture.

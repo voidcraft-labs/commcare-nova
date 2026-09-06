@@ -29,8 +29,11 @@ export interface CoalescedStreamPumpOptions {
 export interface CoalescedStreamPump {
 	/** Request catch-up. Safe to call repeatedly or after `close()`. */
 	poke(): void;
-	/** Permanently stop this pump and clear any pending retry. Idempotent. */
-	close(): void;
+	/** Await reads already requested, including coalesced follow-up work. */
+	drain(): Promise<void>;
+	/** Stop synchronously, cancel retries, and await the active read. Idempotent.
+	 * A run may call close, but must not await its own completion. */
+	close(): Promise<void>;
 }
 
 const DEFAULT_INITIAL_RETRY_DELAY_MS = 250;
@@ -73,6 +76,7 @@ export function createCoalescedStreamPump(
 	const scheduleRetry = options.scheduler ?? defaultScheduleRetry;
 	let closed = false;
 	let inFlight = false;
+	let completion = Promise.resolve();
 	let pending = false;
 	let cancelRetry: (() => void) | null = null;
 	let nextRetryDelayMs = retryMinMs;
@@ -102,7 +106,7 @@ export function createCoalescedStreamPump(
 		}, delayMs);
 	}
 
-	async function executeRun(): Promise<void> {
+	async function executeRun(done: () => void): Promise<void> {
 		let succeeded = false;
 		try {
 			await options.run();
@@ -114,6 +118,7 @@ export function createCoalescedStreamPump(
 			}
 		} finally {
 			inFlight = false;
+			done();
 			if (!closed) {
 				if (succeeded) nextRetryDelayMs = retryMinMs;
 
@@ -131,7 +136,13 @@ export function createCoalescedStreamPump(
 	function startRun(): void {
 		if (closed || inFlight) return;
 		inFlight = true;
-		void executeRun();
+		const next = Promise.withResolvers<void>();
+		completion = next.promise;
+		void executeRun(next.resolve);
+	}
+
+	async function drain(): Promise<void> {
+		while (inFlight) await completion;
 	}
 
 	return {
@@ -146,11 +157,12 @@ export function createCoalescedStreamPump(
 			clearRetry();
 			startRun();
 		},
+		drain,
 		close() {
-			if (closed) return;
 			closed = true;
 			pending = false;
 			clearRetry();
+			return drain();
 		},
 	};
 }

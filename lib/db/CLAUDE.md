@@ -188,6 +188,15 @@ channels. Replacement waits for bounded closure of the old client before a new
 one is constructed, preserving the exact connection budget in
 `lib/case-store/postgres/connection.ts`.
 
+Both relays own their reads through response completion. All app lanes, chat
+replay, and authorization cadences use the coalesced pump; `close()` prevents
+new work immediately and returns the active read's drain. Teardown clears
+subscriptions/timers and awaits every pump before EOF; consumer `cancel()`
+returns that same drain. A pump may initiate teardown but never awaits its own
+close. Cadence ticks coalesce instead of starting overlapping authorization
+queries. The chat dead-run fallback explicitly drains its requested final replay
+before synthesizing a finish.
+
 **Lookup data uses snapshot invalidation, not mutation replay.**
 `lookup_project_state.revision` is the commit-ordered Project clock;
 definition and row revisions on each lookup table form its optimistic token.

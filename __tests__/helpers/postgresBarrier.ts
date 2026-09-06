@@ -7,6 +7,8 @@ export async function whileBlocked<T>(
 	hold: (pg: PgClient) => Promise<unknown>,
 	start: () => Promise<T>,
 	check: (settled: boolean, controller: PgClient) => Promise<void>,
+	/** Release an operation-specific gate even if observing the SQL lock fails. */
+	releasePending?: () => void,
 ): Promise<T> {
 	const pg = new PgClient({ connectionString: h.uri() });
 	let pending:
@@ -58,6 +60,7 @@ export async function whileBlocked<T>(
 		return outcome.value;
 	} finally {
 		await pg.query("ROLLBACK").catch(() => {});
+		releasePending?.();
 		if (pending !== undefined) await pending;
 		await pg.end();
 	}

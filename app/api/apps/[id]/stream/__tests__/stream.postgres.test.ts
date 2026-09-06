@@ -645,10 +645,8 @@ afterEach(async () => {
 	__setNextListenerCloseBarrierForTests(null);
 	// Close the dedicated LISTEN client BEFORE the per-test DROP DATABASE, a
 	// leaked LISTEN connection would be force-terminated by the drop and its
-	// reconnect timer would spin against a vanished database. `harness.destroy()`
-	// quiesces the pool before ending it: the ordinary straggling pump/roster
-	// read would otherwise race `Pool.end()` and orphan a mid-connect client,
-	// which `end()` then waits on forever: see `perTestAppDb.ts`.
+	// reconnect timer would spin against a vanished database. Each response's
+	// cancellation or EOF already awaited its reads before fixture teardown.
 	await closeStreamListener();
 	__setListenerConfigForTests(null);
 	__setAppDbForTests(null);

@@ -4791,9 +4791,9 @@
 			"file": "lib/db/__tests__/coalescedStreamPump.test.ts",
 			"lines": 220,
 			"ciMs": 56,
-			"status": "retained",
-			"review": "Retain manual retry scheduler and deferred single-flight/coalescing, backoff/reset, close/late-completion behavior; no real timer waits.",
-			"reviewedSha256": "07e125b8b27cab962673c80d4b69533f528da573a3c6b1502637d8f6de822a2c",
+			"status": "revised",
+			"review": "Revisited whole production pump and test body. Add awaited close for successful and rejected active reads, concurrent close, coalesced drain/reuse, and real default scheduler cancellation under a controlled clock. Native actual-route SQL locks separately prove consumers await every lane before cancellation/EOF; remove pooled test quiescence workaround.",
+			"reviewedSha256": "e654a18163b7c0bd0e1efb5ae398556ecaf24cf29813c285351c1c0803990e1b",
 			"baselineSha256": "07e125b8b27cab962673c80d4b69533f528da573a3c6b1502637d8f6de822a2c"
 		},
 		{
