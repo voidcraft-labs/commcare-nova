@@ -1,270 +1,94 @@
-/**
- * Tests for `recoverLocation` — the pure "degrade to closest valid
- * ancestor" helper used by both the RSC page handler and the
- * client-side `LocationRecoveryEffect`.
- *
- * These cases explicitly exercise the identity-preservation contract
- * (`recover(loc, doc) === loc` when every reference resolves) alongside
- * the inside-out degradation policy:
- *
- *   form → module (stale formUuid)
- *   form → home   (stale moduleUuid)
- *   form → form w/o sel (stale selectedUuid)
- *
- * The doc fixture is a hand-built `LocationDoc` literal (cast through
- * `as never` for slots we don't care about) — we're testing branching
- * logic, not entity content, so hand-building the fixture keeps the
- * test focused and the assertions obvious.
- */
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { isValidLocation, recoverLocation } from "../location";
+import type { Location } from "../types";
 
-import { type LocationDoc, recoverLocation } from "@/lib/routing/location";
-import type { Location } from "@/lib/routing/types";
-
-/*
- * Well-known uuids used throughout the file. `asUuid` brands them so
- * they pass into `Location` shapes without casts. `MISSING_*` uuids are
- * deliberately absent from the doc fixtures below.
- */
-const MOD_A = testUuid("mod-a");
-const MOD_B = testUuid("mod-b");
-const FORM_A = testUuid("form-a"); // lives in MOD_A's formOrder
-const FORM_B = testUuid("form-b"); // lives in MOD_B's formOrder
-const Q_1 = testUuid("q-1");
-const MISSING_MOD = testUuid("missing-mod");
-const MISSING_FORM = testUuid("missing-form");
-const MISSING_Q = testUuid("missing-q");
-
-/**
- * Minimal fixture with two modules, two forms (one per module), and one
- * field. The entity values themselves are irrelevant to recovery —
- * only the presence of a key in `modules`, `forms`, or `fields`
- * matters — so we cast ad-hoc objects through `as never`.
- */
-const doc: LocationDoc = {
-	modules: {
-		/* Both modules carry a case type so the case-list workspace URLs
-		 *  (`cases` / `search-config` / `detail-config`) recover as identity —
-		 *  the case-type-less degrade is exercised in its own describe below. */
-		[MOD_A]: { uuid: MOD_A, name: "A", caseType: "type_a" } as never,
-		[MOD_B]: { uuid: MOD_B, name: "B", caseType: "type_b" } as never,
-	},
-	forms: {
-		[FORM_A]: { uuid: FORM_A, name: "FA" } as never,
-		[FORM_B]: { uuid: FORM_B, name: "FB" } as never,
-	},
-	fields: {
-		[Q_1]: { uuid: Q_1, id: "one" } as never,
-	},
-};
-
-describe("recoverLocation — home", () => {
-	it("returns home as-is (identity preserved)", () => {
-		const loc: Location = { kind: "home" };
-		const result = recoverLocation(loc, doc);
-		expect(result).toBe(loc);
+const mod = testUuid("module");
+const form = testUuid("form");
+const field = testUuid("field");
+function fixture() {
+	return buildDoc({
+		modules: [
+			{
+				uuid: mod,
+				name: "Patients",
+				caseType: "patient",
+				forms: [
+					{
+						uuid: form,
+						name: "Visit",
+						type: "followup",
+						fields: [f({ uuid: field, kind: "text", id: "name" })],
+					},
+				],
+			},
+		],
 	});
-});
+}
 
-describe("recoverLocation — module", () => {
-	it("valid module uuid → identity", () => {
-		const loc: Location = { kind: "module", moduleUuid: MOD_A };
-		expect(recoverLocation(loc, doc)).toBe(loc);
-	});
-
-	it("missing module uuid → home", () => {
-		const loc: Location = { kind: "module", moduleUuid: MISSING_MOD };
-		expect(recoverLocation(loc, doc)).toEqual({ kind: "home" });
-	});
-});
-
-describe("recoverLocation — cases", () => {
-	it("valid module uuid (no caseId) → identity", () => {
-		const loc: Location = { kind: "cases", moduleUuid: MOD_A };
-		expect(recoverLocation(loc, doc)).toBe(loc);
-	});
-
-	it("valid module uuid + caseId → identity (caseId not validated)", () => {
-		/* caseId is user-supplied free text — the recover policy explicitly
-		 * does not touch it. The identity return proves the happy path
-		 * short-circuits with a single pointer compare. */
-		const loc: Location = {
-			kind: "cases",
-			moduleUuid: MOD_A,
-			caseId: "any-arbitrary-string",
+describe("location recovery boundaries", () => {
+	it("loses only the unavailable ancestor, preserving an existing form after field deletion", () => {
+		const doc = fixture();
+		const location: Location = {
+			kind: "form",
+			moduleUuid: mod,
+			formUuid: form,
+			selectedUuid: field,
 		};
-		expect(recoverLocation(loc, doc)).toBe(loc);
+		delete doc.fields[field];
+		expect(isValidLocation(location, doc)).toBe(false);
+		expect(recoverLocation(location, doc)).toEqual({
+			kind: "form",
+			moduleUuid: mod,
+			formUuid: form,
+		});
+		delete doc.forms[form];
+		expect(recoverLocation(location, doc)).toEqual({
+			kind: "module",
+			moduleUuid: mod,
+		});
+		delete doc.modules[mod];
+		expect(recoverLocation(location, doc)).toEqual({ kind: "home" });
 	});
-
-	it("missing module uuid → home", () => {
-		const loc: Location = {
-			kind: "cases",
-			moduleUuid: MISSING_MOD,
-			caseId: "abc",
-		};
-		expect(recoverLocation(loc, doc)).toEqual({ kind: "home" });
-	});
-});
-
-describe("recoverLocation — case-list workspace without a case type", () => {
-	/* A module that lost its case type (cleared from the workspace gear, which
-	 * also drops the caseListOnly viewer flag) can't render the case-list
-	 * workspace — the three workspace URLs degrade to the module screen rather
-	 * than stranding the user on a blank canvas. */
-	const noCaseTypeDoc: LocationDoc = {
-		modules: { [MOD_A]: { uuid: MOD_A, name: "A" } as never },
-		forms: {},
-		fields: {},
-	};
 
 	it.each(["cases", "search-config", "detail-config", "data-review"] as const)(
-		"%s on a case-type-less module → module",
+		"%s requires a case type even while the module remains",
 		(kind) => {
-			const loc = { kind, moduleUuid: MOD_A } as Location;
-			expect(recoverLocation(loc, noCaseTypeDoc)).toEqual({
+			const doc = fixture();
+			const location: Location = { kind, moduleUuid: mod };
+			delete doc.modules[mod].caseType;
+			expect(recoverLocation(location, doc)).toEqual({
 				kind: "module",
-				moduleUuid: MOD_A,
+				moduleUuid: mod,
 			});
+			delete doc.modules[mod];
+			expect(isValidLocation(location, doc)).toBe(false);
+			expect(recoverLocation(location, doc)).toEqual({ kind: "home" });
 		},
 	);
-});
 
-describe("recoverLocation — data-review", () => {
-	it("valid module uuid → identity", () => {
-		const loc: Location = { kind: "data-review", moduleUuid: MOD_A };
-		expect(recoverLocation(loc, doc)).toBe(loc);
-	});
-
-	it("missing module uuid → home", () => {
-		const loc: Location = { kind: "data-review", moduleUuid: MISSING_MOD };
-		expect(recoverLocation(loc, doc)).toEqual({ kind: "home" });
-	});
-});
-
-describe("recoverLocation — form", () => {
-	it("valid everything (no selection) → identity", () => {
-		const loc: Location = {
-			kind: "form",
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
+	it("display conditions survive loss of case type and recover through their own owner", () => {
+		const doc = fixture();
+		delete doc.modules[mod].caseType;
+		const moduleCondition: Location = {
+			kind: "module-condition",
+			moduleUuid: mod,
 		};
-		expect(recoverLocation(loc, doc)).toBe(loc);
-	});
-
-	it("valid everything with valid selection → identity", () => {
-		const loc: Location = {
-			kind: "form",
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
-			selectedUuid: Q_1,
+		const formCondition: Location = {
+			kind: "form-condition",
+			moduleUuid: mod,
+			formUuid: form,
 		};
-		expect(recoverLocation(loc, doc)).toBe(loc);
-	});
-
-	it("valid form + stale selectedUuid → form without selection", () => {
-		const loc: Location = {
-			kind: "form",
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
-			selectedUuid: MISSING_Q,
-		};
-		expect(recoverLocation(loc, doc)).toEqual({
-			kind: "form",
-			moduleUuid: MOD_A,
-			formUuid: FORM_A,
-		});
-	});
-
-	it("missing formUuid (module still valid) → module ancestor", () => {
-		const loc: Location = {
-			kind: "form",
-			moduleUuid: MOD_A,
-			formUuid: MISSING_FORM,
-			selectedUuid: Q_1,
-		};
-		expect(recoverLocation(loc, doc)).toEqual({
+		expect(recoverLocation(moduleCondition, doc)).toBe(moduleCondition);
+		expect(recoverLocation(formCondition, doc)).toBe(formCondition);
+		delete doc.forms[form];
+		expect(isValidLocation(formCondition, doc)).toBe(false);
+		expect(recoverLocation(formCondition, doc)).toEqual({
 			kind: "module",
-			moduleUuid: MOD_A,
+			moduleUuid: mod,
 		});
-	});
-
-	it("missing moduleUuid → home (shortest-ancestor policy)", () => {
-		/* When the module itself is gone, nothing below it is recoverable —
-		 * we don't try to dig the form's original module out of some other
-		 * index. The user's safe destination is app home. */
-		const loc: Location = {
-			kind: "form",
-			moduleUuid: MISSING_MOD,
-			formUuid: FORM_A,
-			selectedUuid: Q_1,
-		};
-		expect(recoverLocation(loc, doc)).toEqual({ kind: "home" });
-	});
-
-	/*
-	 * Cross-module form reference — FORM_B exists in `doc.forms` but
-	 * belongs to MOD_B, while the location claims moduleUuid=MOD_A.
-	 * `recoverLocation` only checks that `doc.forms[formUuid]` is defined
-	 * (it has no moduleUuid→formUuid index available) — so this case
-	 * passes through as identity. Documenting here for posterity.
-	 */
-	it("form exists in doc.forms but in a different module → still identity", () => {
-		const loc: Location = {
-			kind: "form",
-			moduleUuid: MOD_A,
-			formUuid: FORM_B,
-		};
-		expect(recoverLocation(loc, doc)).toBe(loc);
-	});
-});
-
-/*
- * Defense-in-depth: the recover function must never return a new object
- * reference when no change is needed, because `LocationRecoveryEffect`
- * uses `recovered === loc` as its "skip router.replace" short-circuit.
- * A spurious new object on the happy path would cause a redirect loop.
- */
-describe("recoverLocation — identity guarantee", () => {
-	it("returns the same reference across every no-op kind", () => {
-		const cases: Location[] = [
-			{ kind: "home" },
-			{ kind: "module", moduleUuid: MOD_A },
-			{ kind: "cases", moduleUuid: MOD_A },
-			{ kind: "cases", moduleUuid: MOD_A, caseId: "x" },
-			{ kind: "search-config", moduleUuid: MOD_A },
-			{ kind: "detail-config", moduleUuid: MOD_A },
-			{ kind: "form", moduleUuid: MOD_A, formUuid: FORM_A },
-			{
-				kind: "form",
-				moduleUuid: MOD_A,
-				formUuid: FORM_A,
-				selectedUuid: Q_1,
-			},
-		];
-		for (const loc of cases) {
-			expect(recoverLocation(loc, doc)).toBe(loc);
-		}
-	});
-});
-
-/*
- * A tiny sanity check that the fixture `as never` casts don't let
- * untyped properties sneak in — the doc only needs `modules`/`forms`/
- * `fields` record keys to exist. Richer fixtures should be built with
- * the `buildDoc` / `f` DSL in `lib/__tests__/docHelpers.ts`.
- */
-describe("recoverLocation — fixture shape sanity", () => {
-	it("doc only exposes keyed presence checks", () => {
-		const keyCount =
-			Object.keys(doc.modules).length +
-			Object.keys(doc.forms).length +
-			Object.keys(doc.fields).length;
-		expect(keyCount).toBe(5);
-		// Ensure the canonical shape surface is exactly what the recover
-		// algorithm reads from.
-		const keys = Object.keys(doc) as (keyof LocationDoc)[];
-		expect(keys).toEqual(["modules", "forms", "fields"]);
+		delete doc.modules[mod];
+		expect(recoverLocation(moduleCondition, doc)).toEqual({ kind: "home" });
 	});
 });

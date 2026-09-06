@@ -92,6 +92,8 @@ Use the `components/shadcn` wrappers (`dropdown-menu`, `select`, `popover`, `too
 
 ## Animation + DOM listeners
 
+Menu and popover entrances and exits fade without scaling. A nested popup may open before its parent finishes entering; changing the anchor's measured size during that transition feeds the child's width update back into ResizeObserver. Keep those dimensions stable, with the shared `MENU_POPUP_CLS` and `POPOVER_POPUP_CLS` owning the transition.
+
 Animate with `motion/react` (never `framer-motion`). Time-bounded animations clear their state via `onAnimationEnd` filtered on `e.animationName`, not a timer. Click-outside / Escape / observer listeners clean up through React 19 ref-callback cleanup, not `useEffect`.
 
 ## RSC + auth

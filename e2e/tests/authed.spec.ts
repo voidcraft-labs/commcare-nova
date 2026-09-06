@@ -2656,10 +2656,52 @@ test.describe("authenticated builder", () => {
 			const response = await responsePromise;
 			expect(response.ok()).toBe(true);
 		};
-		await page.goto(fixture.identityProjectionRoute);
+		await page.goto(`${fixture.identityProjectionRoute}?lang=eng`);
 		await expect(
 			page.getByRole("button", { name: "Form settings", exact: true }),
 		).toBeVisible({ timeout: 20_000 });
+
+		await test.step("selection replaces history and Back restores the same field and language", async () => {
+			const historyLength = await page.evaluate(() => window.history.length);
+			const idInput = page.locator('[data-field-id="id"] input:visible');
+			for (const [uuid, id] of [
+				[identity.firstNameUuid, "first_name"],
+				[identity.noteUuid, "note"],
+			]) {
+				await page
+					.locator(`main [data-field-uuid="${uuid}"]`)
+					.getByRole("button", { name: "Select field", exact: true })
+					.press("Enter");
+				await expect(idInput).toHaveValue(id);
+				await expect(page).toHaveURL(
+					`${new URL(page.url()).origin}/build/${fixture.appId}/${uuid}?lang=eng`,
+				);
+			}
+			expect(await page.evaluate(() => window.history.length)).toBe(
+				historyLength,
+			);
+			const selectedUrl = page.url();
+			const breadcrumbMenu = page.getByRole("button", {
+				name: "Show breadcrumb path",
+			});
+			await expect(breadcrumbMenu).toBeVisible();
+			await breadcrumbMenu.click();
+			await expect(
+				page.getByRole("button", { name: "Home", exact: true }),
+			).toBeVisible();
+			await page.getByRole("button", { name: "Home", exact: true }).click();
+			await expect(page).toHaveURL(
+				`${new URL(page.url()).origin}/build/${fixture.appId}?lang=eng`,
+			);
+			await expect(idInput).toHaveCount(0);
+			await page.goBack();
+			await expect(page).toHaveURL(selectedUrl);
+			await expect(idInput).toHaveValue("note");
+			await page.goForward();
+			await expect(idInput).toHaveCount(0);
+			await page.goBack();
+			await expect(idInput).toHaveValue("note");
+		});
 
 		await test.step("Always becomes a complete conditional reference without an empty saved identity", async () => {
 			await page
@@ -2789,6 +2831,38 @@ test.describe("authenticated builder", () => {
 				await page.getByRole("menuitem", { name: "Always" }).click();
 			});
 			await expect(page.getByPlaceholder("Search fields")).toHaveCount(0);
+		});
+
+		await test.step("deleting a field selects its neighbor and Undo and Redo restore persisted state", async () => {
+			await page
+				.getByRole("button", { name: "Form settings", exact: true })
+				.click();
+			const firstNameRow = page.locator(
+				`main [data-field-uuid="${identity.firstNameUuid}"]`,
+			);
+			const idInput = page.locator('[data-field-id="id"] input:visible');
+			await firstNameRow
+				.getByRole("button", { name: "Select field", exact: true })
+				.press("Enter");
+			await expect(idInput).toHaveValue("given_name");
+			await waitForSavedMutation('"kind":"removeField"', () =>
+				page.getByRole("button", { name: "Delete field", exact: true }).click(),
+			);
+			await expect(firstNameRow).toHaveCount(0);
+			await expect(idInput).toHaveValue("note");
+			const neighborUrl = page.url();
+			for (const action of ["Undo", "Redo", "Undo"] as const) {
+				await waitForSavedMutation(
+					action === "Undo" ? '"kind":"addField"' : '"kind":"removeField"',
+					() => page.getByRole("button", { name: action, exact: true }).click(),
+				);
+				await expect(firstNameRow).toHaveCount(action === "Undo" ? 1 : 0);
+				await expect(idInput).toHaveValue("note");
+				await expect(page).toHaveURL(neighborUrl);
+			}
+			await page.reload();
+			await expect(firstNameRow).toHaveCount(1);
+			await expect(idInput).toHaveValue("note");
 		});
 	});
 

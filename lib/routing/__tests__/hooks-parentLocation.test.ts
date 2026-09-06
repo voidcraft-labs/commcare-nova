@@ -1,26 +1,7 @@
-/**
- * Tests for `parentLocation` — the pure helper backing `useNavigate().up()`.
- *
- * Previously covered indirectly by a single `up`-on-form case in
- * `hooks-useNavigate.test.tsx`. That only exercised one branch of the
- * switch; this file walks every `kind` + sub-shape to lock down the
- * walk policy.
- *
- * Policy (reproduced from the `parentLocation` source):
- *   home                    → undefined (root has no parent)
- *   module                  → home
- *   cases (no caseId)       → module
- *   cases (with caseId)     → cases (drops the id, stays on list)
- *   form (no selection)     → module
- *   form (with selection)   → form (drops the selection, stays on form)
- *   form-links (no link)    → form
- *   form-links (with link)  → form-links (drops the link, stays on the list)
- */
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
-import { parentLocation } from "@/lib/routing/hooks";
+import { parentLocation } from "@/lib/routing/navigation";
 
 const MOD = testUuid("mod-1");
 const FORM = testUuid("form-1");
@@ -89,5 +70,36 @@ describe("parentLocation", () => {
 				linkUuid: LINK,
 			}),
 		).toEqual({ kind: "form-links", moduleUuid: MOD, formUuid: FORM });
+	});
+});
+
+it.each([
+	"search-config",
+	"detail-config",
+	"data-review",
+	"module-condition",
+] as const)("%s walks to its module", (kind) => {
+	expect(parentLocation({ kind, moduleUuid: MOD })).toEqual({
+		kind: "module",
+		moduleUuid: MOD,
+	});
+});
+it("walks from a selected case change through its list, form and module", () => {
+	const list = {
+		kind: "form-operations",
+		moduleUuid: MOD,
+		formUuid: FORM,
+	} as const;
+	expect(parentLocation({ ...list, operationUuid: Q })).toEqual(list);
+	expect(parentLocation(list)).toEqual({
+		kind: "form",
+		moduleUuid: MOD,
+		formUuid: FORM,
+	});
+	expect(
+		parentLocation({ kind: "form-condition", moduleUuid: MOD, formUuid: FORM }),
+	).toEqual({ kind: "form", moduleUuid: MOD, formUuid: FORM });
+	expect(parentLocation({ kind: "app-setup", section: "publishing" })).toEqual({
+		kind: "home",
 	});
 });

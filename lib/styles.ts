@@ -102,9 +102,10 @@ export const MENU_POSITIONER_CLS =
 export const MENU_SUBMENU_POSITIONER_CLS =
 	"nova-floating outline-none rounded-xl bg-nova-overlay outline-nova-glass-border outline-1 shadow-overlay-float";
 
-/** Popup animation — scale + fade entrance/exit via Base UI data attributes. */
+/** Fade without changing descendant anchor geometry. Scaling a parent while a
+ * nested menu tracks --anchor-width feeds size changes back into its observer. */
 export const MENU_POPUP_CLS =
-	"overflow-hidden rounded-xl p-1 origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-95 data-[ending-style]:opacity-0 data-[starting-style]:scale-95 data-[starting-style]:opacity-0";
+	"overflow-hidden rounded-xl p-1 transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
 
 /* ── Base UI Popover shared styles ────────────────────────────────────────
  * Same glass/elevated surface split as menus (see constraint above). */
@@ -117,9 +118,9 @@ export const POPOVER_POSITIONER_GLASS_CLS =
 export const POPOVER_POSITIONER_ELEVATED_CLS =
 	"nova-floating outline-none rounded-xl bg-nova-overlay outline-nova-glass-border outline-1 shadow-overlay-float";
 
-/** Popup animation — scale + fade, same motion language as menus. */
+/** Fade with stable nested-control geometry, as in menus. */
 export const POPOVER_POPUP_CLS =
-	"rounded-xl origin-[var(--transform-origin)] transition-[transform,scale,opacity] data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0";
+	"rounded-xl transition-opacity data-[ending-style]:opacity-0 data-[starting-style]:opacity-0";
 
 /* ── Disclosure row ───────────────────────────────────────────────────────
  * The full-bleed "More settings" trigger that opens a collapsible section.

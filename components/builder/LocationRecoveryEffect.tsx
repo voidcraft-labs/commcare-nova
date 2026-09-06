@@ -27,16 +27,9 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef } from "react";
 import { useDocEntityMaps } from "@/lib/doc/hooks/useDocEntityMaps";
 import { useLocation } from "@/lib/routing/hooks";
-import {
-	buildUrl,
-	isRetiredAuthoringPath,
-	recoverLocation,
-	serializePath,
-} from "@/lib/routing/location";
-import {
-	formerParentRecovery,
-	type PreviousLocationTopology,
-} from "@/lib/routing/topologyRecovery";
+import { buildUrl } from "@/lib/routing/location";
+import { advanceLocationRecovery } from "@/lib/routing/locationRecovery";
+import type { PreviousLocationTopology } from "@/lib/routing/topologyRecovery";
 import {
 	pushBuilderHistory,
 	useBuilderPathSegments,
@@ -58,37 +51,18 @@ export function LocationRecoveryEffect() {
 	const { modules, forms, fields } = useDocEntityMaps();
 
 	useEffect(() => {
-		/* Direct cutover: retired authoring tokens are not aliases and must not be
-		 * rewritten into the new vocabulary. Their parsed location is home, but
-		 * the old bookmark remains visibly unresolved instead of pretending it
-		 * was a current route. */
-		if (isRetiredAuthoringPath(segments)) return;
-
-		/* Strategy 1: check if the parsed location has stale references that
-		 * recoverLocation can strip. */
-		const recovered = recoverLocation(loc, { modules, forms, fields });
-		const formerParent = formerParentRecovery(
-			segments,
+		const recovery = advanceLocationRecovery(
 			previousTopology.current,
-			modules,
+			segments,
+			loc,
+			{ modules, forms, fields },
 		);
-		const target = formerParent ?? (recovered === loc ? loc : recovered);
-		previousTopology.current = { location: target, modules };
-
-		/* Strategy 2: check if the URL path matches the canonical path for
-		 * the (possibly recovered) location. With path-based parsing, the
-		 * parser degrades unresolvable UUIDs at parse time, so the parsed
-		 * location may be "home" while the URL still shows old segments. */
-		const canonicalSegments = serializePath(target);
-		const urlMatchesLocation =
-			segments.length === canonicalSegments.length &&
-			segments.every((s, i) => s === canonicalSegments[i]);
-
-		if (target === loc && urlMatchesLocation) return;
+		previousTopology.current = recovery.topology;
+		if (recovery.replacement === undefined) return;
 
 		const parts = pathname.split("/").filter(Boolean);
 		const basePath = `/${parts.slice(0, 2).join("/")}`;
-		const url = buildUrl(basePath, target);
+		const url = buildUrl(basePath, recovery.replacement);
 		pushBuilderHistory(url, true);
 	}, [loc, modules, forms, fields, pathname, segments]);
 

@@ -30,7 +30,10 @@ describe("formerParentRecovery", () => {
 	});
 
 	it("recovers to Results when the surviving parent is a bare case list", () => {
-		const parent = module(PARENT, "Care", { caseListOnly: true });
+		const parent = module(PARENT, "Care", {
+			caseListOnly: true,
+			caseType: "client",
+		});
 		const child = module(CHILD, "Visits", { parentModuleUuid: PARENT });
 		expect(
 			formerParentRecovery(
@@ -45,7 +48,10 @@ describe("formerParentRecovery", () => {
 	});
 
 	it("recovers to the menu when a case-list-only parent still has a child", () => {
-		const parent = module(PARENT, "Care", { caseListOnly: true });
+		const parent = module(PARENT, "Care", {
+			caseListOnly: true,
+			caseType: "client",
+		});
 		const deleted = module(CHILD, "Visits", { parentModuleUuid: PARENT });
 		const survivingChildUuid = testUuid("surviving-child");
 		const survivingChild = module(survivingChildUuid, "Referrals", {

@@ -40,15 +40,8 @@ import type { BlueprintDocStore } from "@/lib/doc/provider";
 import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import type { Field, Form, Module } from "@/lib/domain";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
-import { buildUrl, parsePathToLocation } from "@/lib/routing/location";
-import {
-	APP_SETUP_LABEL,
-	APP_SETUP_SECTION_LABELS,
-	type AppSetupSection,
-	DEFAULT_APP_SETUP_SECTION,
-	type Location,
-	PROJECT_DATA_LABEL,
-} from "@/lib/routing/types";
+import { parsePathToLocation } from "@/lib/routing/location";
+import type { Location } from "@/lib/routing/types";
 import {
 	getBuilderPathSegmentsSnapshot,
 	pushBuilderHistory,
@@ -56,6 +49,30 @@ import {
 	useIsBuilderFieldPathSelected,
 } from "@/lib/routing/useClientPath";
 import { useClearFocusHint } from "@/lib/session/hooks";
+
+import { type BreadcrumbItem, buildBreadcrumbs } from "./breadcrumbs";
+import {
+	createBuilderLocationSource,
+	hasSelectedField,
+	locationKind,
+	selectedFieldUuid,
+	selectedFormLinkUuid,
+	selectedFormOperationUuid,
+	selectedFormUuid,
+	selectedModuleUuid,
+	selectedProjectDataTableId,
+} from "./builderLocation";
+import {
+	createNavigateActions,
+	createSelectAction,
+	type NavigateActions,
+	type NavigationPort,
+	type SelectAction,
+} from "./navigation";
+
+export type { BreadcrumbItem } from "./breadcrumbs";
+export type { NavigateActions, SelectAction } from "./navigation";
+export { parentLocation } from "./navigation";
 
 /**
  * Reactive parse of the current URL path into a `Location`. Path and document
@@ -67,69 +84,12 @@ import { useClearFocusHint } from "@/lib/session/hooks";
  */
 const HOME_LOCATION: Location = { kind: "home" };
 
-interface CachedBuilderLocation {
-	readonly pathKey: string;
-	readonly moduleOrder: BlueprintDoc["moduleOrder"];
-	readonly formOrder: BlueprintDoc["formOrder"];
-	readonly fieldOrder: BlueprintDoc["fieldOrder"];
-	readonly location: Location;
-}
-
-/** One parsed location per Builder store/path/topology snapshot. Route
- * projections are intentionally numerous; without this shared cache every
- * subscriber independently scans `fieldOrder` to resolve the same selected
- * field on one navigation. */
-const builderLocationCache = new WeakMap<
-	BlueprintDocStore,
-	CachedBuilderLocation
->();
-
-function builderLocationSnapshot(docApi: BlueprintDocStore): Location {
-	const segments = getBuilderPathSegmentsSnapshot();
-	const pathKey = segments.join("/");
-	const doc = docApi.getState();
-	const cached = builderLocationCache.get(docApi);
-	if (
-		cached !== undefined &&
-		cached.pathKey === pathKey &&
-		cached.moduleOrder === doc.moduleOrder &&
-		cached.formOrder === doc.formOrder &&
-		cached.fieldOrder === doc.fieldOrder
-	) {
-		return cached.location;
-	}
-	const location = parsePathToLocation(segments, doc);
-	builderLocationCache.set(docApi, {
-		pathKey,
-		moduleOrder: doc.moduleOrder,
-		formOrder: doc.formOrder,
-		fieldOrder: doc.fieldOrder,
-		location,
-	});
-	return location;
-}
-
-/** Location semantics depend on entity topology, not on field labels, values,
- * case writes, or any other scalar document content. All structural mutations
- * replace at least one of these three immutable collections. */
-function subscribeBuilderLocation(
-	docApi: BlueprintDocStore,
-	onStoreChange: () => void,
-): () => void {
-	const unsubscribePath = subscribeBuilderPathChange(onStoreChange);
-	const unsubscribeDoc = docApi.subscribe(
-		(doc) => [doc.moduleOrder, doc.formOrder, doc.fieldOrder] as const,
-		onStoreChange,
-		{
-			equalityFn: (left, right) =>
-				left[0] === right[0] && left[1] === right[1] && left[2] === right[2],
-		},
-	);
-	return () => {
-		unsubscribePath();
-		unsubscribeDoc();
-	};
-}
+const builderLocationSource = createBuilderLocationSource({
+	getSegments: getBuilderPathSegmentsSnapshot,
+	subscribe: subscribeBuilderPathChange,
+});
+const builderLocationSnapshot = builderLocationSource.getSnapshot;
+const subscribeBuilderLocation = builderLocationSource.subscribe;
 
 export function useLocation(): Location {
 	const docApi = useBlueprintDocApi();
@@ -187,76 +147,6 @@ export function useSelectedFormContext(): {
 	);
 }
 
-/**
- * Stable action bag returned by `useNavigate`.
- *
- * Every method is a standalone closure — safe to destructure
- * (`const { openForm } = useNavigate()`) without losing `this` context.
- */
-export interface NavigateActions {
-	push: (next: Location, opts?: { replace?: boolean }) => void;
-	replace: (next: Location) => void;
-	goHome: () => void;
-	openModule: (moduleUuid: Uuid) => void;
-	openCaseList: (moduleUuid: Uuid) => void;
-	openCaseDetail: (moduleUuid: Uuid, caseId: string) => void;
-	/**
-	 * Open the case-search authoring workspace for `moduleUuid`. Routes
-	 * to `/build/{appId}/{moduleUuid}/search`. Sibling to
-	 * `openCaseList` — same per-module shape, different config slot.
-	 */
-	openSearchConfig: (moduleUuid: Uuid) => void;
-	/**
-	 * Open the case-details authoring workspace for `moduleUuid`. Routes
-	 * to `/build/{appId}/{moduleUuid}/details` — the third tab of
-	 * the case-list workspace alongside `openCaseList` / `openSearchConfig`.
-	 */
-	openDetailConfig: (moduleUuid: Uuid) => void;
-	/**
-	 * Open the data review screen for `moduleUuid`. Routes
-	 * to `/build/{appId}/{moduleUuid}/data-review` — reached from the
-	 * Case data popover, the conversion toast, and shared deep links.
-	 */
-	openDataReview: (moduleUuid: Uuid) => void;
-	openModuleCondition: (moduleUuid: Uuid) => void;
-	openFormCondition: (moduleUuid: Uuid, formUuid: Uuid) => void;
-	/**
-	 * Open the App setup workspace. Routes to
-	 * `/build/{appId}/setup/{section}`, defaulting to its first section.
-	 * App administration, not app content — it names no module.
-	 */
-	openAppSetup: (section?: AppSetupSection, entryPointUuid?: Uuid) => void;
-	/**
-	 * Open the Project data workspace. Routes to
-	 * `/build/{appId}/project-data`, or straight to one table when given its
-	 * id. Project-shared data, not app content — it names no module.
-	 */
-	openProjectData: (tableId?: LookupTableId) => void;
-	openFormOperations: (
-		moduleUuid: Uuid,
-		formUuid: Uuid,
-		operationUuid?: Uuid,
-	) => void;
-	/**
-	 * Open a form's after-submit links. Routes to
-	 * `/build/{appId}/{formUuid}/links`, or straight to one link's detail
-	 * when given its uuid.
-	 */
-	openFormLinks: (moduleUuid: Uuid, formUuid: Uuid, linkUuid?: Uuid) => void;
-	openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) => void;
-	back: () => void;
-	up: () => void;
-}
-
-/**
- * Selection callback returned by `useSelect`.
- * Passing `undefined` clears the current selection.
- */
-export type SelectAction = (
-	uuid: Uuid | undefined,
-	from?: Extract<Location, { kind: "form" }>,
-) => void;
-
 type LocationProjection = boolean | string | null | undefined;
 
 /** Subscribe to the current route and document topology, but expose only a
@@ -285,47 +175,6 @@ function useLocationProjection<T extends LocationProjection>(
 		getProjectedSnapshot,
 		getServerSnapshot,
 	);
-}
-
-function selectedModuleUuid(location: Location): Uuid | undefined {
-	return "moduleUuid" in location ? location.moduleUuid : undefined;
-}
-
-function selectedFormUuid(location: Location): Uuid | undefined {
-	return location.kind === "form" ||
-		location.kind === "form-condition" ||
-		location.kind === "form-operations" ||
-		location.kind === "form-links"
-		? location.formUuid
-		: undefined;
-}
-
-function selectedFieldUuid(location: Location): Uuid | undefined {
-	return location.kind === "form" ? location.selectedUuid : undefined;
-}
-
-function locationKind(location: Location): Location["kind"] {
-	return location.kind;
-}
-
-function selectedProjectDataTableId(
-	location: Location,
-): LookupTableId | undefined {
-	return location.kind === "project-data" ? location.tableId : undefined;
-}
-
-function hasSelectedField(location: Location): boolean {
-	return location.kind === "form" && location.selectedUuid !== undefined;
-}
-
-function selectedFormOperationUuid(location: Location): Uuid | undefined {
-	return location.kind === "form-operations"
-		? location.operationUuid
-		: undefined;
-}
-
-function selectedFormLinkUuid(location: Location): Uuid | undefined {
-	return location.kind === "form-links" ? location.linkUuid : undefined;
 }
 
 /** The route kind without subscribing consumers to selection-only path
@@ -427,12 +276,6 @@ export function useIsFieldSelected(uuid: Uuid): boolean {
 }
 
 /** A single entry in the breadcrumb trail rendered by BuilderSubheader. */
-export interface BreadcrumbItem {
-	key: string;
-	label: string;
-	location: Location;
-}
-
 /**
  * Derived breadcrumb trail from the current location + doc names.
  * Everything is read through shallow-stable selectors, so unrelated
@@ -477,400 +320,57 @@ export function useBreadcrumbs(): BreadcrumbItem[] {
 	const moduleIsBareCaseList = useIsBareCaseListModule(moduleUuid);
 	const parentModuleIsBareCaseList = useIsBareCaseListModule(parentModuleUuid);
 
-	return useMemo<BreadcrumbItem[]>(() => {
-		const items: BreadcrumbItem[] = [
-			{ key: "home", label: "Home", location: { kind: "home" } },
-		];
-		if (parentModuleUuid) {
-			items.push({
-				key: `m:${parentModuleUuid}`,
-				label: parentModuleName ?? "Menu",
-				location: parentModuleIsBareCaseList
-					? { kind: "cases", moduleUuid: parentModuleUuid }
-					: { kind: "module", moduleUuid: parentModuleUuid },
-			});
-		}
-		if (moduleUuid) {
-			items.push({
-				key: `m:${moduleUuid}`,
-				label: moduleName ?? "Module",
-				location: moduleIsBareCaseList
-					? { kind: "cases", moduleUuid }
-					: { kind: "module", moduleUuid },
-			});
-		}
-		// The trailing crumb names the workspace tab, word-for-word
-		// ("Search" / "Results" / "Details") — the module crumb
-		// already carries the case-type context, so a "client search"-
-		// style prefix would just restate it in a different casing.
-		if (loc.kind === "cases") {
-			/* The module crumb already points at Results for a bare case
-			 * list, so this intermediate crumb would just repeat it. */
-			if (!moduleIsBareCaseList) {
-				items.push({
-					key: `cases:${moduleUuid}`,
-					label: "Results",
-					location: { kind: "cases", moduleUuid: loc.moduleUuid },
-				});
-			}
-			if (loc.caseId) {
-				items.push({
-					key: `case:${loc.caseId}`,
-					label: loc.caseId,
-					location: {
-						kind: "cases",
-						moduleUuid: loc.moduleUuid,
-						caseId: loc.caseId,
-					},
-				});
-			}
-		}
-		if (loc.kind === "search-config") {
-			items.push({
-				key: `search-config:${moduleUuid}`,
-				label: "Search",
-				location: { kind: "search-config", moduleUuid: loc.moduleUuid },
-			});
-		}
-		if (loc.kind === "detail-config") {
-			items.push({
-				key: `detail-config:${moduleUuid}`,
-				label: "Details",
-				location: { kind: "detail-config", moduleUuid: loc.moduleUuid },
-			});
-		}
-		if (loc.kind === "data-review") {
-			items.push({
-				key: `data-review:${moduleUuid}`,
-				label: "Data to review",
-				location: { kind: "data-review", moduleUuid: loc.moduleUuid },
-			});
-		}
-		/* App setup roots directly off Home — it has no module ancestor, so its
-		 * trail is Home → App setup → the section: the same
-		 * workspace-then-screen shape a module's tabs produce. */
-		if (loc.kind === "app-setup") {
-			items.push({
-				key: "app-setup",
-				label: APP_SETUP_LABEL,
-				location: { kind: "app-setup", section: DEFAULT_APP_SETUP_SECTION },
-			});
-			items.push({
-				key: `app-setup:${loc.section}`,
-				label: APP_SETUP_SECTION_LABELS[loc.section],
-				location: { kind: "app-setup", section: loc.section },
-			});
-		}
-		/* Project data roots off Home the same way, but its trail STOPS at the
-		 * workspace even on a table URL. A table's name is Project state this
-		 * hook has no reader for, so the crumb that could carry it would have to
-		 * resolve it from a second source and could drift. The open table titles
-		 * the workspace body instead, and this crumb stays the way back to the
-		 * table list. */
-		if (loc.kind === "project-data") {
-			items.push({
-				key: "project-data",
-				label: PROJECT_DATA_LABEL,
-				location: { kind: "project-data" },
-			});
-		}
-		if (
-			(loc.kind === "form" ||
-				loc.kind === "form-condition" ||
-				loc.kind === "form-operations" ||
-				loc.kind === "form-links") &&
-			formUuid &&
-			moduleUuid
-		) {
-			items.push({
-				key: `f:${formUuid}`,
-				label: formName ?? "Form",
-				location: { kind: "form", moduleUuid, formUuid },
-			});
-		}
-		// The two display-condition screens share one crumb word so the
-		// trail reads the same wherever the author opened it from.
-		if (loc.kind === "module-condition" && moduleUuid) {
-			items.push({
-				key: `module-condition:${moduleUuid}`,
-				label: "When it appears",
-				location: { kind: "module-condition", moduleUuid },
-			});
-		}
-		if (loc.kind === "form-condition" && moduleUuid && formUuid) {
-			items.push({
-				key: `form-condition:${formUuid}`,
-				label: "When it appears",
-				location: { kind: "form-condition", moduleUuid, formUuid },
-			});
-		}
-		// The selected operation gets no crumb of its own: it is a selection
-		// inside this screen, the way a selected field is inside a form.
-		if (loc.kind === "form-operations" && moduleUuid && formUuid) {
-			items.push({
-				key: `form-operations:${formUuid}`,
-				label: "Case changes",
-				location: { kind: "form-operations", moduleUuid, formUuid },
-			});
-		}
-		// The selected link gets no crumb either, for the same reason.
-		if (loc.kind === "form-links" && moduleUuid && formUuid) {
-			items.push({
-				key: `form-links:${formUuid}`,
-				label: "After submit",
-				location: { kind: "form-links", moduleUuid, formUuid },
-			});
-		}
-		return items;
-	}, [
-		loc,
-		moduleUuid,
-		formUuid,
-		moduleName,
-		parentModuleUuid,
-		parentModuleName,
-		formName,
-		moduleIsBareCaseList,
-		parentModuleIsBareCaseList,
-	]);
+	return useMemo(
+		() =>
+			buildBreadcrumbs(loc, {
+				moduleUuid,
+				formUuid,
+				moduleName,
+				parentModuleUuid,
+				parentModuleName,
+				formName,
+				moduleIsBareCaseList,
+				parentModuleIsBareCaseList,
+			}),
+		[
+			loc,
+			moduleUuid,
+			formUuid,
+			moduleName,
+			parentModuleUuid,
+			parentModuleName,
+			formName,
+			moduleIsBareCaseList,
+			parentModuleIsBareCaseList,
+		],
+	);
 }
 
-/**
- * Location + navigation actions. Selection edits use `replaceState`
- * (no history entry); screen changes use `pushState`.
- *
- * The returned object is stable across URL changes — a ref captures the
- * current location for `up()` without adding it to the `useMemo` deps.
- * Every method is a standalone arrow, safe to destructure without losing
- * `this` context.
- */
+/** The action objects stay stable; their port reads URL and doc at event time. */
+function navigationPort(docApi: BlueprintDocStore): NavigationPort {
+	return {
+		getPathname: () => window.location.pathname,
+		getSegments: getBuilderPathSegmentsSnapshot,
+		getDoc: docApi.getState,
+		write: pushBuilderHistory,
+		back: () => window.history.back(),
+	};
+}
+
 export function useNavigate(): NavigateActions {
 	const docApi = useBlueprintDocApi();
-
-	return useMemo(() => {
-		/** Read the `/build/{appId}` prefix at call time.
-		 * `window.location.pathname` is external mutable state we don't own
-		 * — the new-build flow rewrites the prefix via `history.replaceState`
-		 * once the server mints the appId. Caching the prefix in a ref would
-		 * leave us building URLs against a stale `/build/new/...` value
-		 * after that rewrite lands. */
-		const getBasePath = (): string => {
-			const parts = window.location.pathname.split("/").filter(Boolean);
-			return `/${parts.slice(0, 2).join("/")}`;
-		};
-
-		/** Push a new location (history entry). Use for screen changes. */
-		const push = (next: Location, opts?: { replace?: boolean }): void => {
-			const url = buildUrl(getBasePath(), next);
-			pushBuilderHistory(url, opts?.replace);
-		};
-
-		/** Replace the current location (no history entry). */
-		const replace = (next: Location): void => {
-			const url = buildUrl(getBasePath(), next);
-			pushBuilderHistory(url, true);
-		};
-
-		return {
-			push,
-			replace,
-			goHome: () => push({ kind: "home" }),
-			openModule: (moduleUuid: Uuid) => push({ kind: "module", moduleUuid }),
-			openCaseList: (moduleUuid: Uuid) => push({ kind: "cases", moduleUuid }),
-			openCaseDetail: (moduleUuid: Uuid, caseId: string) =>
-				push({ kind: "cases", moduleUuid, caseId }),
-			openSearchConfig: (moduleUuid: Uuid) =>
-				push({ kind: "search-config", moduleUuid }),
-			openDetailConfig: (moduleUuid: Uuid) =>
-				push({ kind: "detail-config", moduleUuid }),
-			openDataReview: (moduleUuid: Uuid) =>
-				push({ kind: "data-review", moduleUuid }),
-			openModuleCondition: (moduleUuid: Uuid) =>
-				push({ kind: "module-condition", moduleUuid }),
-			openFormCondition: (moduleUuid: Uuid, formUuid: Uuid) =>
-				push({ kind: "form-condition", moduleUuid, formUuid }),
-			openAppSetup: (
-				section: AppSetupSection = DEFAULT_APP_SETUP_SECTION,
-				entryPointUuid?: Uuid,
-			) =>
-				push({
-					kind: "app-setup",
-					section,
-					...(section === "deep-links" && entryPointUuid
-						? { entryPointUuid }
-						: {}),
-				}),
-			openProjectData: (tableId?: LookupTableId) =>
-				push({ kind: "project-data", tableId }),
-			openFormOperations: (
-				moduleUuid: Uuid,
-				formUuid: Uuid,
-				operationUuid?: Uuid,
-			) =>
-				push({
-					kind: "form-operations",
-					moduleUuid,
-					formUuid,
-					...(operationUuid !== undefined && { operationUuid }),
-				}),
-			openFormLinks: (moduleUuid: Uuid, formUuid: Uuid, linkUuid?: Uuid) =>
-				push({
-					kind: "form-links",
-					moduleUuid,
-					formUuid,
-					...(linkUuid !== undefined && { linkUuid }),
-				}),
-			openForm: (moduleUuid: Uuid, formUuid: Uuid, selectedUuid?: Uuid) =>
-				push({ kind: "form", moduleUuid, formUuid, selectedUuid }),
-			back: () => window.history.back(),
-			up: () => {
-				const current = parsePathToLocation(
-					getBuilderPathSegmentsSnapshot(),
-					docApi.getState(),
-				);
-				const parent = parentLocation(current);
-				if (parent) push(parent);
-			},
-		};
-		// Intentional stable object; all state is read at call time.
-	}, [docApi]);
+	return useMemo(() => createNavigateActions(navigationPort(docApi)), [docApi]);
 }
 
-/**
- * Pure parent-derivation for the `up` navigation.
- *
- * Exported for unit testing — the function has no hook semantics
- * (no React imports, no store access) and can be called standalone.
- * Consumers should prefer `useNavigate().up()` for actual navigation;
- * this export exists to cover every branch of the parent walk without
- * a full `renderHook` harness.
- */
-export function parentLocation(loc: Location): Location | undefined {
-	switch (loc.kind) {
-		case "home":
-			return undefined;
-		case "app-setup":
-			return { kind: "home" };
-		/* An open table's parent is the table list; the list's parent is Home. */
-		case "project-data":
-			return loc.tableId !== undefined
-				? { kind: "project-data" }
-				: { kind: "home" };
-		case "module":
-			return { kind: "home" };
-		case "cases":
-			return loc.caseId
-				? { kind: "cases", moduleUuid: loc.moduleUuid }
-				: { kind: "module", moduleUuid: loc.moduleUuid };
-		case "search-config":
-		case "detail-config":
-		case "data-review":
-		case "module-condition":
-			return { kind: "module", moduleUuid: loc.moduleUuid };
-		case "form-condition":
-			return {
-				kind: "form",
-				moduleUuid: loc.moduleUuid,
-				formUuid: loc.formUuid,
-			};
-		case "form-operations":
-			// A selected operation's parent is the list; the list's is the form.
-			return loc.operationUuid !== undefined
-				? {
-						kind: "form-operations",
-						moduleUuid: loc.moduleUuid,
-						formUuid: loc.formUuid,
-					}
-				: {
-						kind: "form",
-						moduleUuid: loc.moduleUuid,
-						formUuid: loc.formUuid,
-					};
-		case "form-links":
-			// A selected link's parent is the list; the list's is the form.
-			return loc.linkUuid !== undefined
-				? {
-						kind: "form-links",
-						moduleUuid: loc.moduleUuid,
-						formUuid: loc.formUuid,
-					}
-				: {
-						kind: "form",
-						moduleUuid: loc.moduleUuid,
-						formUuid: loc.formUuid,
-					};
-		case "form":
-			return loc.selectedUuid
-				? {
-						kind: "form",
-						moduleUuid: loc.moduleUuid,
-						formUuid: loc.formUuid,
-					}
-				: { kind: "module", moduleUuid: loc.moduleUuid };
-	}
-}
-
-/**
- * Selection-only operation. Updates the field UUID segment on the
- * current form URL without otherwise changing the screen. No-ops when
- * not on a form location (selection only exists inside a form).
- *
- * `uuid === undefined` clears the current selection.
- *
- * **Edit guard integration.** Inline editors with unsaved invalid
- * content (e.g. the XPath editor in `XPathField`) install a guard via
- * `useRegisterEditGuard()` from `EditGuardContext`. Before changing
- * the URL, `useSelect` consults the guard via `useConsultEditGuard()`
- * — if the guard returns `false`, the selection change is blocked.
- */
 export function useSelect(): SelectAction {
+	const docApi = useBlueprintDocApi();
 	const consultGuard = useConsultEditGuard();
 	const clearFocusHint = useClearFocusHint();
-	const docApi = useBlueprintDocApi();
-
-	return useMemo<SelectAction>(() => {
-		const getBasePath = (): string => {
-			const parts = window.location.pathname.split("/").filter(Boolean);
-			return `/${parts.slice(0, 2).join("/")}`;
-		};
-
-		return (
-			uuid: Uuid | undefined,
-			from?: Extract<Location, { kind: "form" }>,
-		): void => {
-			/* Honor any guard registered by an inline editor with unsaved
-			 * invalid content. The two-strike pattern (warn, then allow on
-			 * repeat) is owned by the guard predicate — this call site is
-			 * just a gate. */
-			if (!consultGuard()) return;
-			/* Drop any pending undo/redo focus hint. It was scoped to the
-			 * field selected when undo ran; a selection change (including
-			 * deselect) makes it stale. Without this, an uncleared "id" hint
-			 * would auto-focus + select the NEXT field's id-rename box on
-			 * mount, so a keystroke would rename an unrelated field. */
-			clearFocusHint();
-			/* A successful field removal invalidates its selected URL segment
-			 * before the adjacent-selection write runs. The removing action passes
-			 * its freshly-read form location so this final route write does not
-			 * have to rediscover the deleted field's parent. Ordinary callers read
-			 * the live path here. */
-			const current =
-				from ??
-				parsePathToLocation(
-					getBuilderPathSegmentsSnapshot(),
-					docApi.getState(),
-				);
-			if (current.kind !== "form") return;
-			const next: Location = {
-				kind: "form",
-				moduleUuid: current.moduleUuid,
-				formUuid: current.formUuid,
-				selectedUuid: uuid,
-			};
-			const url = buildUrl(getBasePath(), next);
-			pushBuilderHistory(url, true);
-		};
-	}, [consultGuard, clearFocusHint, docApi]);
+	return useMemo(
+		() =>
+			createSelectAction(navigationPort(docApi), consultGuard, clearFocusHint),
+		[docApi, consultGuard, clearFocusHint],
+	);
 }
 
 /**

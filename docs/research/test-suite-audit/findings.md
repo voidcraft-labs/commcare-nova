@@ -428,3 +428,49 @@ change. Undecidable identities refuse before writes, and a subsequent run is
 unchanged. These are historical storage-repair tests, not a paid translator run
 or a claim about old production data. The stale documentation saying this repair
 runs on every deployment was corrected to its explicit maintenance CLI.
+
+
+### Routing state and real browser history
+
+Routing decisions now run as production state functions: navigation reads the
+current path/document at action time, location snapshots share one store cache,
+recovery advances prior topology with its decision, and breadcrumbs consume
+already-localized names. The history policy owns query retention and stale
+Project-generation case links. Undo/redo tests execute real store history,
+write admission, commit verdicts, peer edits, and persistence queues. The old
+mounted-hook tests replaced URL readers and browser history, so they did not
+establish native browser behavior; those files were removed.
+
+The replacement cases exposed three routing defects:
+
+- A legacy form/field URL accepted a field owned by another form. It now leaves
+  the named form open without that foreign selection.
+- A Preview selection containing one unnamed case said `1 cases`. It says
+  `1 case`.
+- Deleting a container selected its first descendant, which the same deletion
+  had removed. Selection now uses the old visual order and surviving fields.
+
+The production browser journey verifies selection does not grow history,
+Back/Forward restores field and language, and delete/Undo/Redo retains the
+neighbor selection and persists through reload. It also runs the existing
+conditional reference, input refusal/retry, rename, move, and Preview workflow.
+The full routing suite has 120 cases across 14 files with no DOM environment;
+its measured local run was 1.75 seconds. This is one suite's result, not a timing
+claim about the full audit.
+
+### Nested floating surfaces keep stable anchor geometry
+
+The real browser guard captured native ResizeObserver errors while a dropdown
+opened inside the entering Form settings popover. Native observer captures
+showed the child's width stepping from 284 to 290 pixels while the parent's
+scale changed its anchor's measured rectangle. A controlled CSS intervention
+on the actual parent removed the errors; the initial intervention on shared
+wrapper markers missed this raw Base UI caller and was inconclusive.
+
+Shared menu and popover motion now fades at the final size. This removes the
+feedback between an animated anchor width and its observing child without
+turning off observation, delaying input, adding retries, or filtering errors.
+The design contract records stable geometry for immediately usable nested
+controls. A fresh production build passed the uninstrumented browser journey
+and strict error guard. Temporary observer/input instrumentation and CSS
+interventions were removed.

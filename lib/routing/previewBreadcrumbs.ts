@@ -7,16 +7,9 @@
  * the picked case appends after it; a form URL names the form and, when the
  * session's case target binds THIS form, the bound case.
  *
- * This logic used to live inline in `BreadcrumbStrip`. It now lives here as a
- * pure, exhaustively unit-tested function (the sibling of `parentLocation`)
- * for one reason: the breadcrumb and the preview engine each derive from the
- * SAME ephemeral session state
- * (`previewCaseTarget`), and they had drifted — `PreviewShell` gated the
- * loaded case on `formUuid === loc.formUuid` while the breadcrumb did not, so
- * a register form opened after a follow-up form named a case it never loaded.
- * `previewCaseTargetBindsLocation` is the one predicate both now share, so the
- * displayed case and the loaded case cannot disagree, and the whole class of
- * "the trail shows a screen the app isn't on" bugs is validated out by test.
+ * This derivation shares the case-binding predicate with PreviewShell. Its
+ * state tests cover naming and destinations; browser journeys check the
+ * rendered trail and running screen together.
  */
 
 import type { Uuid } from "@/lib/doc/types";
@@ -27,7 +20,7 @@ import type {
 	PreviewCaseTarget,
 	PreviewSelectedCase,
 } from "@/lib/session/types";
-import type { BreadcrumbItem } from "./hooks";
+import type { BreadcrumbItem } from "./breadcrumbs";
 
 /** The slice of a form the trail needs: uuid (identity), name (label), and
  *  type (case-loading vs register — decides the case crumb and reselect). */
@@ -171,7 +164,9 @@ export function previewBreadcrumbTrail(
 			: undefined;
 		if (boundCases !== undefined && boundCases.length > 0) {
 			const only = boundCases.length === 1 ? boundCases[0] : undefined;
-			const label = only?.caseName ?? `${boundCases.length} cases`;
+			const label = only
+				? (only.caseName ?? "1 case")
+				: `${boundCases.length} cases`;
 			items.push({
 				key: `cases:${boundCases.map((choice) => choice.caseId).join(",")}`,
 				label,

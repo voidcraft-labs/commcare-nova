@@ -7218,121 +7218,181 @@
 			"file": "lib/routing/__tests__/LocationRecoveryEffect.test.tsx",
 			"lines": 288,
 			"ciMs": 1728,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full effect and tests. Removed mocked mounted-hook history assertions. The production advanceLocationRecovery function now owns recovery plus prior topology; six node cases use actual parser and store removals for child, parent, intentional navigation, malformed paths and retired routes. Native Back/Forward and visible selection are verified in the production browser journey.",
+			"baselineSha256": "854635a62f1383eb1b46cfef213fedf006ff519cc613a01f1c23a0accc73f017",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/builderActions-useDeleteSelectedField.test.tsx",
 			"lines": 274,
 			"ciMs": 1686,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full hook and tests. Replaced fake History/React fixture with actual post-deletion selection over real reducer snapshots. New group case reproduced selecting a deleted descendant; next/previous selection now skips every removed row. Native browser verifies accepted deletion, neighbor selection, undo/redo persistence and reload. Write refusal remains on the shared gated mutation path.",
+			"baselineSha256": "15738c215cb800ec4d71dac29167d130b6b169670f58b04e91fbe5480c41c622",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/builderActions-useUndoRedo.test.tsx",
 			"lines": 314,
 			"ciMs": 1486,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read full hook and tests. Removed fake elements, scroll/flash spies and mocked pathname. Production runHistoryStep now exercises real undo and redo batches, persistence queue, viewer/loading/error refusal, retained history, peer-created identifier conflict, and lookup definitions. Browser verifies actual toolbar actions and current selection through deletion and reload.",
+			"baselineSha256": "10a7115864857965edccce5e6e67756498a5e888dc6743a9f0ecf8ffb50fc435",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/entryPoints.test.ts",
 			"lines": 59,
 			"ciMs": 595,
-			"status": "pending"
+			"status": "revised",
+			"review": "Rebuilt typed owner fixtures and tested every supported entry destination. Rename retains entry identity; removing its owner recovers to overview. Invalid section and UUID cases remain. Removed partial fake blueprint scaffolding.",
+			"baselineSha256": "f194d4c1e598e67215c72588d9f678a6eb26983db8f981e1242a85adfd943cae",
+			"reviewedSha256": "a64c3a6fc975e8869a2c23847862ef25cfbef0fe74dfc27e2dfa5048856cb2e2"
 		},
 		{
 			"file": "lib/routing/__tests__/hooks-parentLocation.test.ts",
 			"lines": 93,
 			"ciMs": 1195,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read pure parent logic and all callers. Import the actual navigation decision directly. Retain selected-field and case chains; add all configuration parents, selected operation and link ownership, conditions, app setup and deep-link detail without mounting React.",
+			"baselineSha256": "449f014600f18a2ee048b35d074af86922cb92c875199c7782be08e0d8042f14",
+			"reviewedSha256": "ee5db98eaf3c026b162c9cf2bfa91b8eab4e10af106256aeab2dbeb39e9d5bfb"
 		},
 		{
 			"file": "lib/routing/__tests__/hooks-selection-projection.test.tsx",
 			"lines": 150,
 			"ciMs": 1557,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed mocked pathname hook rendering. Production builderLocation source tests use real document store mutations, shared stable snapshots, primitive selector outputs, per-store isolation and native store/path unsubscription. Browser verifies selected visible inspector changes with the URL.",
+			"baselineSha256": "c5e196cf61401fe650eee3b5f782bff4245ba73e80cd94b9cc7602fff3535069",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/hooks-useBreadcrumbs.test.tsx",
 			"lines": 285,
 			"ciMs": 1442,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced mocked localized entity hooks with production buildBreadcrumbs accepting the already-localized names that the live hooks supply. Ten pure cases assert complete trails across nested modules, bare Results, case selection and selected configuration detail. Browser opens actual collapsed breadcrumb and navigates Home.",
+			"baselineSha256": "5b14afd19a9be04923ed81fd9fbe8f62ad9c85caec471635c53862710b77dfcf",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/hooks-useExternalNavigate.test.tsx",
 			"lines": 65,
 			"ciMs": 1638,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed a passthrough test that only asserted mocked Next router methods were called. It established no navigation contract. Internal navigation now has actual programmatic action tests and production browser history acceptance; external Next navigation remains the existing adapter.",
+			"baselineSha256": "1d693a2cbcd39d9e0fe12e3beb9fa6eaa3cee315123c8efd3268260f3f08feca",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/hooks-useLocation.test.tsx",
 			"lines": 149,
 			"ciMs": 1659,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed mounted-hook and mocked segment tests. Actual builderLocation cache/parser tests run against native store subscriptions and removals/undo, with independent expected location objects. The production browser proves URL-to-visible-inspector binding.",
+			"baselineSha256": "01b7fc8e9feb9b865f4a2616638a3a5dd336838b3e1e858b2e2d81a92e6786c3",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/hooks-useNavigate.test.tsx",
 			"lines": 273,
 			"ciMs": 1471,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed simulated history and Next router hook mocks. Production createNavigateActions and createSelectAction use current document and path through an effect port. Node cases verify current app ownership, exact paths, opaque ids, selected parents, entry-only navigation and guard-before-focus clearing. Real browser proves replace-only selection and Back/Forward.",
+			"baselineSha256": "efbd152b1852c2097bd03ed026fd3725172e9aaa948b812835b5fb2ddf99a86a",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/location-caseOperations.test.ts",
 			"lines": 171,
 			"ciMs": 511,
-			"status": "pending"
+			"status": "removed",
+			"review": "Consolidated repetitive parser/serializer cases into location.test.ts with a complete normalized owner and independently specified path/location vectors, selected operation removal degradation and strict location schema checks.",
+			"baselineSha256": "2b1288637f66b2ae6f5d4617c0f496972ba5f2e516298e9f18442700e0e67f01",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/location-displayCondition.test.ts",
 			"lines": 115,
 			"ciMs": 572,
-			"status": "pending"
+			"status": "removed",
+			"review": "Consolidated duplicated condition route tests into independent path/location vectors. Case-type-dependent recovery and module-condition independence run against real progressive document mutations in location-recoverLocation.test.ts.",
+			"baselineSha256": "8520265e04caaabbc3cf1bea5006bc9eb28652588e2575da9807b57754725dd1",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/location-formLinks.test.ts",
 			"lines": 179,
 			"ciMs": 578,
-			"status": "pending"
+			"status": "removed",
+			"review": "Consolidated duplicated link parser/serializer cases into location.test.ts with typed target owners, independent paths, missing-owner and selected-link degradation assertions.",
+			"baselineSha256": "443a2b2e5045badd58f6b0cf4686da1fb944aadb207452b771af3d52b4d5599d",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/location-projectData.test.ts",
 			"lines": 103,
 			"ciMs": 1005,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced partial fake doc maps with valid empty document and explicit table/list URL, parser, validity, recovery and parent expectations. Retain malformed UUID and case normalization behavior. Removed schema self-check and fixture-only assertions.",
+			"baselineSha256": "cabcebac24979e69adcf0b3ffe266cdccfb11a66b829bac456d8d130d1bb8a00",
+			"reviewedSha256": "70d8e384ce33b6c9108876eda49d6dc8a6695443393f6f648a4fed73360e1dff"
 		},
 		{
 			"file": "lib/routing/__tests__/location-recoverLocation.test.ts",
 			"lines": 270,
 			"ciMs": 502,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced repeated identity fixtures and self-reported missing-owner cases with real progressive field/form/module deletion. All case-dependent workspaces and independent module conditions exercise recovery through actual owner changes.",
+			"baselineSha256": "17a9dba5a2f2a869881b5a78c0366ad9e6d44c8ff525fc7b7076ede44fef5113",
+			"reviewedSha256": "68d03eeab4ece946d5a84b3e8dc26d1ea3768242067344d6138621014f1635fe"
 		},
 		{
 			"file": "lib/routing/__tests__/location.test.ts",
 			"lines": 527,
 			"ciMs": 604,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read parser, serializer, validity, recovery and schema fully. Consolidated routes into independent expected path/location pairs over typed owner fixtures, with opaque encoding, retired routes, broken ancestry and absent owners. A valid two-form legacy URL exposed foreign-field selection; production parser now enforces that the named form owns the selected field.",
+			"baselineSha256": "1f7b6912ef54ce1d322068bd08c27c376c0f9cb6bf12f22e1dbc22d7f7135f55",
+			"reviewedSha256": "20a4cdcde522de18a4970ecffba07b28964af12dc3b5d83600641f378b956d4d"
 		},
 		{
 			"file": "lib/routing/__tests__/previewBreadcrumbs.test.ts",
 			"lines": 377,
 			"ciMs": 633,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole derivation and PreviewShell binding consumer. Retain stale target, selected-case, nested rendered-screen and entry-step semantics. Use actual typed UUID and case target fixtures, all three configuration workspaces and complete expected trails. New cardinality case exposed 1 cases for one unnamed case; fixed singular fallback. These state tests do not claim browser painting proof.",
+			"baselineSha256": "67f179720dd37f68a1805abbdd213edc6e413bb1a056509e63fdfe1ce58adab7",
+			"reviewedSha256": "7a035c558dd19c7116cfc4ea18a4adaeae60e37f6358844c98ccb816635ec136"
 		},
 		{
 			"file": "lib/routing/__tests__/topologyRecovery.test.ts",
 			"lines": 101,
 			"ciMs": 519,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full former-parent topology helper and field hierarchy predicate. Retained pure boundary decisions, corrected bare case-list fixture to carry its required case type, and verified real deletion recovery separately through the extracted production recovery state.",
+			"baselineSha256": "b5abbbfe3b6d12ee0220a0723e15c6d02b6ea9b4d0f5d702a188ed81275fcea1",
+			"reviewedSha256": "b4ff95dcf1f086a8b5fec0b764eb3f0ea7a7431541ee828ebb88422b6d7d33a5"
 		},
 		{
 			"file": "lib/routing/__tests__/undoRedoGateVerdict.test.ts",
 			"lines": 158,
 			"ciMs": 1301,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed standalone gate wrapper cases in favor of historyStep.test.ts. Real history actions now prove the gate prevents a peer-invalid inverse from changing either the document or undo history, preserves persistence queues on refusal and permits retry with current lookup definitions/access.",
+			"baselineSha256": "4df1971fe6ca4f93e5e024eb54350992b21780c40d29d54980d43e3bfa289de7",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/routing/__tests__/useClientPath-projectScope.test.tsx",
 			"lines": 128,
 			"ciMs": 542,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed fake popstate and mounted-hook history simulation. Production historyPolicy now owns fresh runtime claims, stale same-runtime generation scrubbing, another-app refusal, preserved Next state, malformed metadata and language query policy. Seven node cases compare exact replacement decisions; real browser covers native history selection/language behavior. Synchronous replacement remains before subscription notification in the thin browser adapter.",
+			"baselineSha256": "246c54c07bc72eca68c97c856e5a35eade01ae8a3f758d1e73bf09361567e339",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/runtimeCapabilities/__tests__/runtimeCapabilities.test.ts",

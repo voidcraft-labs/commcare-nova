@@ -13,6 +13,12 @@
 "use client";
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
+import {
+	type BuilderHistoryScope,
+	builderNavigationUrl,
+	reconcileBuilderHistoryEntry,
+	scopedBuilderHistoryState,
+} from "./historyPolicy";
 
 /** Module-level listener set for notifying subscribers of programmatic
  *  `pushState`/`replaceState` calls (which don't fire `popstate`). */
@@ -21,87 +27,22 @@ const listeners = new Set<() => void>();
 let cachedSegmentsPathname: string | undefined;
 let cachedSegments: string[] = [];
 
-/** Query state that belongs to the materialized Builder rather than to one
- * route. `design` is deliberately absent: it is a recovery token owned only
- * by `/build/new` and must disappear when that design becomes an app. */
-const PERSISTENT_BUILDER_QUERY_KEYS = ["lang"] as const;
-
-const PROJECT_SCOPE_STATE_KEY = "__novaProjectScope";
-interface BuilderHistoryScope {
-	/** Identifies one mounted reconciler runtime, not merely an app id. */
-	scopeId: string;
-	/** The app that owns case ids in this entry; null while `/build/new` is
-	 * waiting for atomic creation to mint an id. */
-	appId: string | null;
-	epoch: number;
-}
 let activeProjectScope: BuilderHistoryScope | null = null;
 
-function scopedHistoryState(): Record<string, unknown> {
-	const existing =
-		typeof window.history.state === "object" && window.history.state !== null
-			? (window.history.state as Record<string, unknown>)
-			: {};
-	return {
-		...existing,
-		...(activeProjectScope
-			? { [PROJECT_SCOPE_STATE_KEY]: activeProjectScope }
-			: {}),
-	};
-}
-
-function historyProjectScopeStamp(): BuilderHistoryScope | null {
-	const stamp = (window.history.state as Record<string, unknown> | null)?.[
-		PROJECT_SCOPE_STATE_KEY
-	];
-	if (
-		typeof stamp !== "object" ||
-		stamp === null ||
-		typeof (stamp as { scopeId?: unknown }).scopeId !== "string" ||
-		!(
-			(stamp as { appId?: unknown }).appId === null ||
-			typeof (stamp as { appId?: unknown }).appId === "string"
-		) ||
-		typeof (stamp as { epoch?: unknown }).epoch !== "number"
-	)
-		return null;
-	return stamp as BuilderHistoryScope;
-}
-
-/** A case id is Project data, unlike module/form UUIDs from the blueprint. If
- * back/forward enters an older generation, replace the deep link with Results
- * before subscribers can parse it and start a destination-scope row fetch. */
-function scrubCurrentCaseEntry(): boolean {
-	if (!activeProjectScope) return false;
-	const currentPath = window.location.pathname;
-	const parts = window.location.pathname.split("/").filter(Boolean);
-	const isCaseRecord =
-		parts[0] === "build" && parts[3] === "cases" && parts.length >= 5;
-	const nextPath = isCaseRecord
-		? `/${[parts[0], parts[1], parts[2], "results"].join("/")}`
-		: currentPath;
-	window.history.replaceState(
-		scopedHistoryState(),
-		"",
-		`${nextPath}${window.location.search}`,
+function reconcileHistory(event: "activate" | "pop"): boolean {
+	const { pathname, search } = window.location;
+	const replacement = reconcileBuilderHistoryEntry(
+		{ pathname, search, state: window.history.state },
+		activeProjectScope,
+		event,
 	);
-	return nextPath !== currentPath;
+	if (!replacement) return false;
+	window.history.replaceState(replacement.state, "", replacement.url);
+	return replacement.url !== `${pathname}${search}`;
 }
 
 function onPopState(): void {
-	const stamp = historyProjectScopeStamp();
-	/* The old app's listener is still mounted when Back first enters another
-	 * app. It has no authority to rewrite that app's valid case link. Only an
-	 * older generation of this exact reconciler runtime + app is stale; a new
-	 * runtime will authorize and restamp its own entry when it mounts. */
-	if (
-		activeProjectScope &&
-		stamp?.scopeId === activeProjectScope.scopeId &&
-		stamp.appId === activeProjectScope.appId &&
-		stamp.epoch !== activeProjectScope.epoch
-	) {
-		scrubCurrentCaseEntry();
-	}
+	reconcileHistory("pop");
 	notifyPathChange();
 }
 
@@ -154,48 +95,22 @@ export function activateBuilderHistoryScope(
 	epoch: number,
 ): void {
 	activeProjectScope = { scopeId, appId: appId ?? null, epoch };
-	const stamp = historyProjectScopeStamp();
-	if (
-		stamp?.scopeId === scopeId &&
-		stamp.appId === activeProjectScope.appId &&
-		stamp.epoch !== epoch
-	) {
-		if (scrubCurrentCaseEntry()) notifyPathChange();
-		return;
-	}
-	/* Direct loads, app changes, and newly mounted runtimes are authoritative
-	 * entries, not evidence of a stale Project generation. Preserve the path
-	 * (including a legitimate case deep link) and claim it for this runtime. */
-	window.history.replaceState(
-		scopedHistoryState(),
-		"",
-		`${window.location.pathname}${window.location.search}`,
-	);
+	if (reconcileHistory("activate")) notifyPathChange();
 }
 
 export function deactivateBuilderHistoryScope(scopeId: string): void {
 	if (activeProjectScope?.scopeId === scopeId) activeProjectScope = null;
 }
 
-function persistentBuilderSearch(): string {
-	const current = new URLSearchParams(window.location.search);
-	const persistent = new URLSearchParams();
-	for (const key of PERSISTENT_BUILDER_QUERY_KEYS) {
-		for (const value of current.getAll(key)) persistent.append(key, value);
-	}
-	const serialized = persistent.toString();
-	return serialized.length === 0 ? "" : `?${serialized}`;
-}
-
 /** The only write path for intra-builder screen history. */
 export function pushBuilderHistory(url: string, replace = false): void {
-	const next = new URL(url, window.location.href);
-	/* An explicit query owns its complete state. Path-only navigation carries
-	 * only Builder-wide lenses, never route-scoped recovery parameters. */
-	if (!url.includes("?")) next.search = persistentBuilderSearch();
-	const relative = `${next.pathname}${next.search}${next.hash}`;
-	if (replace) window.history.replaceState(scopedHistoryState(), "", relative);
-	else window.history.pushState(scopedHistoryState(), "", relative);
+	const relative = builderNavigationUrl(url, window.location.href);
+	const state = scopedBuilderHistoryState(
+		window.history.state,
+		activeProjectScope,
+	);
+	if (replace) window.history.replaceState(state, "", relative);
+	else window.history.pushState(state, "", relative);
 	notifyPathChange();
 }
 
