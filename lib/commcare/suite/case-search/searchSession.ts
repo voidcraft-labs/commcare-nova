@@ -11,7 +11,6 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 
 import type { Element } from "domhandler";
 import { el } from "@/lib/commcare/elementBuilders";
-import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	type CaseListConfig,
 	caseListColumnIsEmitted,
@@ -513,31 +512,6 @@ export function buildSearchQuery(args: SearchQueryArgs): SearchQueryEmission {
 		translationUnits,
 		instances,
 		hasPrompts: caseListConfig.searchInputs.length > 0,
-	};
-}
-
-/**
- * String adapter — serializes `buildSearchSession`'s Element for
- * callers that assert against the rendered XML string (the test
- * surface). The `<remote-request>` orchestrator
- * (`remoteRequest.ts::buildRemoteRequest`) consumes the Element
- * directly.
- */
-export function emitSearchSession(
-	args: SearchQueryArgs & { readonly hasDetailScreen?: boolean },
-): {
-	readonly xml: string;
-	readonly strings: Record<string, string>;
-	readonly translationUnits: Record<string, WireStringSource>;
-	readonly instances: ReadonlySet<string>;
-} {
-	const { element, strings, translationUnits, instances } =
-		buildSearchSession(args);
-	return {
-		xml: serializeXml(element),
-		strings,
-		translationUnits,
-		instances,
 	};
 }
 

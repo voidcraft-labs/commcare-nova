@@ -1426,7 +1426,7 @@ function collectRelevanceEvaluationInstances(
  * scope to resolve against and is skipped (the empty intersection would
  * degenerate to the runtime set and false-flag any legitimate non-runtime ref
  * on an orphaned detail). The emit-time accumulators
- * (`session.ts::deriveEntryDefinition`, `searchSession.ts::emitSearchSession`)
+ * (`session.ts::deriveEntryDefinition`, `searchSession.ts::buildSearchSession`)
  * are what make every referrer carry the detail's instances; this is their
  * cross-surface backstop.
  *

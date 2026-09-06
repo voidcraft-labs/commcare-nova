@@ -1632,3 +1632,20 @@ versions. Reproduction commands and hashed records accompany the proof.
 
 Validation: 89 focused checks across eight files, twelve native HQ comparisons
 and seven native Core methods pass. Full typecheck and strict Biome checks pass.
+
+## Search-session composition is tested as composition
+
+The 1,572-line session test treated XML entity spelling and repeated string
+fragments as acceptance. It reused the production XPath lowerer to manufacture
+an expected owner filter, and one ordering test never asserted the first
+position its title claimed. The complete Search export/native evidence now
+owns session acceptance. The replacement keeps private contracts: typed filter
+composition and identity, an intact OR clause, explicit matcher routing, one
+related-case quantifier containing both date bounds, dependency collection,
+locale joins, detail-confirm omission and explicit compiler-bypass refusals.
+Every positive fixture passes the document schema and full validation before
+its configuration reaches the private function. A test-only string adapter is
+removed from production.
+
+Validation: 36 session and full Search export checks pass; full typecheck passes.
+No emitted behavior changes in this replacement.

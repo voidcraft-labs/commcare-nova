@@ -4353,7 +4353,10 @@
 			"file": "lib/commcare/suite/case-search/__tests__/searchSession.test.ts",
 			"lines": 1572,
 			"ciMs": 871,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read all 1572 lines plus complete searchSession, xpathQuery and simpleArmDerivation implementations. Replaced repeated XML fragments, own-lowerXPath oracle and false acceptance claims with admitted positive fixtures, programmatic Predicate composition/identity/mode/related-day contracts, exact decoded query values, dependency sets and locale joins; retain explicit compiler-bypass refusals. Full Search export and native Core methods own consumer behavior. Removed test-only emitSearchSession serializer adapter.",
+			"baselineSha256": "17e9f2d441e59a27537aca06e99ff3d1a9a021b4fe421e99d89529e445333d9c",
+			"reviewedSha256": "3d02b62a8fc478d2ef462ed16dbe29db4e9811402556fb084e83531f5031fa2b"
 		},
 		{
 			"file": "lib/commcare/validator/__tests__/automations.test.ts",
