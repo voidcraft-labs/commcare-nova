@@ -93,6 +93,11 @@ import {
 	scanActorGenerationTargets,
 } from "./actorGenerationGate";
 import {
+	type AppsSortOrder,
+	decodeAppsCursor,
+	encodeAppsCursor,
+} from "./appPagination";
+import {
 	admitExactMediaReferences,
 	assertAppCapabilityInTransaction,
 	assertExpectedAppProject,
@@ -228,26 +233,7 @@ export interface DeletedAppSummary extends AppSummary {
 /** Closed run-lifecycle filter vocabulary for list/search surfaces. */
 export type AppStatus = AppDoc["status"];
 
-/** Sort orders supported by `listApps`. `searchApps` takes none — Fuse ranks
- *  by relevance, the only sensible ordering for a search. */
-export type AppsSortOrder =
-	| "updated_desc"
-	| "updated_asc"
-	| "name_asc"
-	| "name_desc";
-
-/**
- * Structured cursor used to resume enumeration in `listApps`. Discriminated
- * by `kind`, which MUST equal the `sort` the caller is running with; the
- * server enforces the match and throws rather than silently coerce. The `id`
- * component makes `(sort_field, id)` a stable composite sort key. Wire form:
- * base64url JSON via `encodeAppsCursor`/`decodeAppsCursor`.
- */
-export type ListAppsCursor =
-	| { kind: "updated_desc"; updated_at: string; id: string }
-	| { kind: "updated_asc"; updated_at: string; id: string }
-	| { kind: "name_asc"; name_lower: string; id: string }
-	| { kind: "name_desc"; name_lower: string; id: string };
+export type { AppsSortOrder, ListAppsCursor } from "./appPagination";
 
 /** Options consumed by `listApps`. Callers declare — no implicit defaults. */
 export interface ListAppsOptions {
@@ -2470,43 +2456,6 @@ export async function loadAppProjectId(
 const SEARCH_FETCH_BUFFER = 90;
 const FUSE_THRESHOLD = 0.4;
 
-function encodeAppsCursor(cursor: ListAppsCursor): string {
-	return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
-}
-
-function decodeAppsCursor(encoded: string): ListAppsCursor {
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(Buffer.from(encoded, "base64url").toString("utf8"));
-	} catch {
-		throw new Error("Invalid pagination cursor (malformed encoding).");
-	}
-	if (typeof parsed !== "object" || parsed === null) {
-		throw new Error("Invalid pagination cursor (not an object).");
-	}
-	const obj = parsed as Record<string, unknown>;
-	const kind = obj.kind;
-	const id = obj.id;
-	if (typeof id !== "string") {
-		throw new Error("Invalid pagination cursor (missing id).");
-	}
-	if (kind === "updated_desc" || kind === "updated_asc") {
-		const updatedAt = obj.updated_at;
-		if (typeof updatedAt !== "string") {
-			throw new Error(`Invalid pagination cursor (${kind} payload).`);
-		}
-		return { kind, updated_at: updatedAt, id };
-	}
-	if (kind === "name_asc" || kind === "name_desc") {
-		const nameLower = obj.name_lower;
-		if (typeof nameLower !== "string") {
-			throw new Error(`Invalid pagination cursor (${kind} payload).`);
-		}
-		return { kind, name_lower: nameLower, id };
-	}
-	throw new Error(`Invalid pagination cursor (unknown kind: ${String(kind)}).`);
-}
-
 function cursorFor(
 	summary: AppSummary,
 	nameLower: string,
@@ -2597,12 +2546,7 @@ async function queryAppsByScope(
 			break;
 	}
 	if (cursor) {
-		const decoded = decodeAppsCursor(cursor);
-		if (decoded.kind !== sort) {
-			throw new Error(
-				`Cursor was minted for sort="${decoded.kind}" but this call uses sort="${sort}".`,
-			);
-		}
+		const decoded = decodeAppsCursor(cursor, sort);
 		/* Resume strictly AFTER `(sort_field, id)` in the composite order. The
 		 * id tiebreak is ascending on every sort, so "after" is: primary field
 		 * past the boundary, OR equal primary and id greater. */

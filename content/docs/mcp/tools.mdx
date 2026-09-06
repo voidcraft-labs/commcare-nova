@@ -97,6 +97,8 @@ never table tags, export names, or display labels.
 | `get_app` | Summarize one app: modules, forms, fields, case types, worker information, roles, personas, and its organization model. The summary opens with the app's Nova Project, so your agent always knows whose workspace it's editing. |
 | `check_project_space_compatibility` | Check whether one explicitly selected CommCare HQ project space can run the app. Returns required app capabilities, blockers, non-blocking performance guidance, and next steps without changing the app or project space. |
 
+For app listing, keep the same sort when following `next_cursor`. An invalid or mismatched cursor returns `invalid_input`; restart without the cursor. Search scans a bounded batch of apps on each call, so follow `next_cursor` even when a page contains no matches.
+
 ## Languages and translations
 
 App languages use the same source/default/target overlay as the visual Builder.

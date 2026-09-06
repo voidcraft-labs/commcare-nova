@@ -1,6 +1,7 @@
 /** Pure exception-to-wire projection. Real access checks belong in the
  * Postgres suites; these vectors protect error taxonomy and information flow. */
 import { expect, it, vi } from "vitest";
+import { AppPaginationError } from "@/lib/db/appPagination";
 import {
 	AppProjectChangedError,
 	BlueprintCommitRejectedError,
@@ -57,6 +58,11 @@ it("collapses a commit-time permission loss without exposing its private reason"
 	expect(log.error).not.toHaveBeenCalled();
 });
 it.each([
+	{
+		error: new AppPaginationError(),
+		type: "invalid_input",
+		message: "This pagination cursor is invalid. Try again without a cursor.",
+	},
 	{
 		error: new McpInvalidInputError("Choose an app."),
 		type: "invalid_input",

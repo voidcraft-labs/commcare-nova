@@ -548,3 +548,25 @@ The consumer run passed 322 cases across 41 files in 12.02 seconds. After the
 final deletion-test consolidation, the focused run passed 35 cases across five
 files in 7.89 seconds. Type checking passed. These checks validate this slice;
 the full testing-method audit remains in progress.
+
+
+### App MCP tools now exercise protocol, persistence and authorization together
+
+Five callback-capture suites were removed. Their SDK imitation never ran the
+registered input schemas, and several foreign-access tests actually failed on a
+missing mocked app before their permission check could execute. The replacements
+use real SDK client/server dispatch and migrated Postgres/Better Auth tables.
+They prove shared/personal creation, exact persisted starter identities, real
+Project/viewer/foreign restrictions, deletion visibility, native transaction
+rollback and retry, four stable sort orders, and bounded fuzzy-search paging.
+Compile-time genesis option checks moved to the database owner.
+
+Malformed listing cursors reproduced an actual `internal` error. Cursor decoding
+now admits the emitted composite shape, canonical encoding and real timestamp
+before SQL, and rejects a different sort through `AppPaginationError`. MCP maps
+that typed refusal to `invalid_input` with a restart instruction. A pure decoder
+suite covers malformed payloads and impossible calendar dates; protocol tests
+prove malformed/date/sort failures through real handlers.
+
+The MCP and pagination validation passed 252 tests across 33 files in 12.54
+seconds. This is the current slice's evidence; the full audit is still active.

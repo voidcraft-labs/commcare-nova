@@ -6474,7 +6474,10 @@
 			"file": "lib/mcp/__tests__/createApp.test.ts",
 			"lines": 257,
 			"ciMs": 1493,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed fabricated genesis receipt and direct captured callback. Actual client creates through canonical genesis and real Project authorization; verifies returned baseline/starter against persisted hierarchy, distinct app/run ids, personal Project idempotence, persisted fallback names, membership refusals and a native rejecting trigger with full multi-table rollback then retry. Compile-time option exclusions moved to appGenesisTypes.test.ts.",
+			"baselineSha256": "7727db032d93d74405b867c965b42f0c852d631663d16324dae8c03294e5359f",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/mcp/__tests__/createProject.test.ts",
@@ -6486,7 +6489,10 @@
 			"file": "lib/mcp/__tests__/deleteApp.test.ts",
 			"lines": 175,
 			"ciMs": 1127,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed mocked soft-delete and fake SDK. The real app-tool lifecycle creates, reads and deletes a shared app through client dispatch, compares wire deadline with stored deadline and proves active read/list refusal while recoverable blueprint persists. Viewer and foreign/missing refusals leave all stored app rows/history unchanged. Deeper exact 30-day/restore invariants belong to actual DB lifecycle tests.",
+			"baselineSha256": "bc903714220b4c22205032a140d71a096223ffad629b45bc7ecb61a2d53998f6",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/mcp/__tests__/deploymentTools.test.ts",
@@ -6499,9 +6505,9 @@
 			"lines": 305,
 			"ciMs": 1600,
 			"status": "revised",
-			"review": "Read full serializer and shared classifier, access, deployment and commit error types. Rebuilt pure projection vectors around complete envelopes and information flow: all expected typed categories, all deployment code mappings, commit-time revocation, both resource collapses, credential-specific scope metadata, collision fault, arbitrary/circular throws and native abort classification. Assert expected rejections do not call operational error logging. These tests do not stand in for actual authorization, which now has real Postgres/SDK acceptance.",
+			"review": "Read full serializer and shared classifier, access, deployment and commit error types. Rebuilt pure projection vectors around complete envelopes and information flow: all expected typed categories, all deployment code mappings, commit-time revocation, both resource collapses, credential-specific scope metadata, collision fault, arbitrary/circular throws and native abort classification. Assert expected rejections do not call operational error logging. These tests do not stand in for actual authorization, which now has real Postgres/SDK acceptance. Added typed app-pagination invalid_input mapping with expected warn-only reporting.",
 			"baselineSha256": "3dff53993a3158f10bc0356203260471633033ecfde7e16d44fac857310313e1",
-			"reviewedSha256": "0879b4472aea16b2ec959915e8360928fd4834208587d23b7ced45f8cbb07e23"
+			"reviewedSha256": "b8f17c370694f42f877c422fcc74219e8665b77c7487228ab6fa9c4489374b92"
 		},
 		{
 			"file": "lib/mcp/__tests__/getAgentPrompt.test.ts",
@@ -6516,7 +6522,10 @@
 			"file": "lib/mcp/__tests__/getApp.test.ts",
 			"lines": 320,
 			"ciMs": 1121,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced mock access and fake summary tests with actual SDK reads of a created app and migrated Project membership. Earlier foreign-access tests failed on mocked missing load before their access mock was reached. New apps.postgres.test.ts checks actual Project header, persisted field/form identities, viewer read, foreign/missing identical refusals and deleted-app refusal. Prompt ownership suites exercise complete shared loader authorization.",
+			"baselineSha256": "f08c17478b4cc153341c77b5dd4cfecb19a41666ad0a3c4340be908a7e5df93f",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/mcp/__tests__/getAppHqFeatureFlagsCompatibility.test.ts",
@@ -6546,7 +6555,10 @@
 			"file": "lib/mcp/__tests__/listApps.test.ts",
 			"lines": 277,
 			"ciMs": 1067,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced callback-only fake SDK and mocked database with actual client dispatch and migrated Postgres membership joins in appListing.postgres.test.ts. Independent exact entries and all four sort orders span tied boundaries; native schema validation, deleted/foreign exclusion, membership revocation, no-membership output and cursor errors are observed at the wire. Malformed cursor reproduction exposed generic internal errors; typed validated cursors now produce recoverable invalid_input.",
+			"baselineSha256": "8ea6a58a8e1748ea6d625313cfd55e4e938dd64268c544b2a1cde6fba94780fd",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/mcp/__tests__/listMembers.test.ts",
@@ -6633,7 +6645,10 @@
 			"file": "lib/mcp/__tests__/searchApps.test.ts",
 			"lines": 234,
 			"ciMs": 1175,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced fake callback and mocked fuzzy results with real SDK plus SQL/Fuse search across Projects. Tests independently prove typo/case ranking, status/limit, foreign exclusion, no matches and following an empty scanned page to an older match. Native input schema and mismatched-cursor refusal run through real protocol dispatch. Search is documented as bounded scan pagination, not global match ranking.",
+			"baselineSha256": "d21cc31b91b74bf1271e2b28f063151f2ba8b266ed3a8098c17b9997ebc28f99",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/mcp/__tests__/sharedToolAdapter.test.ts",

@@ -109,6 +109,11 @@ full blueprint reads (`resolveAppAccess`) and lightweight Project reads
 restore continue to use the stored row; Project membership alone does not make
 a deleted app active.
 
+App list/search cursors are admitted by `appPagination.ts` before SQL: their
+sort, composite key, encoding and canonical timestamp must match the emitted
+shape. Invalid cursors throw `AppPaginationError`; MCP reports `invalid_input`
+with a restart instruction rather than an operational failure.
+
 **`app_changes` is permanent history.** It is the durable edit log and realtime
 catch-up source; there is no TTL or prune. Its closed kind set is `autosave`,
 `mcp`, `chat`, `blueprint-migration`, `fold-baseline`, and `project-move`.
