@@ -140,3 +140,18 @@ context. The retained pre-fix local and HQ suites are negative controls: Core
 rejects their query step because the later manual datum assignment cannot
 supply a value to an earlier step. This proves native frame/value execution,
 not a complete Android session, HQ build or remote transaction.
+
+## Search prompt state
+
+After the prompt producer and HQ regeneration above, run the same bounded Gradle
+command with `-PnovaProofResources=/tmp/nova-prompt-evidence` and
+`--tests nova.compatibility.SearchPromptRuntimeTest`.
+
+Four methods exercise both suites through the native query manager. The manager
+creates its own input instance, validates answer changes and refreshes itemsets.
+The fixture supplies emitted lookup bytes and session data, and registers source
+locale strings with the native localizer. Assertions check required conditions,
+combined author/CSQL rules, visible/hidden defaults, exact labels and parameters,
+unavailable-selection removal, numeric/location guards and quote obligations
+shared by two composed answers. The lookup value is checked in the actual CSQL
+payload. This does not install resources, render widgets or send a search request.

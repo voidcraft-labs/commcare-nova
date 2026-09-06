@@ -166,3 +166,19 @@ UCR/optimization/empty-list/registry/endpoint flags and sync-on-entry are off;
 advanced Search is on for authored defaults. Build version and public origin
 are fixed. No native generator is replaced, no resources are installed and no
 full HQ build is claimed. The resulting `*.hq-suite.xml` files feed Core.
+
+## Search prompts
+
+```bash
+mise exec -- npx tsx scripts/fixtures/hq/emit-prompt-evidence.ts /tmp/nova-prompt-evidence
+PYTHONDONTWRITEBYTECODE=1 /path/to/commcare-hq/.venv/bin/python \
+  scripts/fixtures/hq/search-emission-proof.py --corpus prompts \
+  --hq-root /path/to/commcare-hq --exports /tmp/nova-prompt-evidence
+```
+
+The same optional dependency overlay applies. This corpus requires exactly
+three admitted documents: widget metadata and lookup choices, numeric and quote
+guards, and dependent computed values with independent location guards. Complete
+native entries and remote requests match without normalization exceptions. The
+producer also emits the archive's source-language strings and exact lookup
+fixture bytes for Core. It does not generate native HQ locale resources.

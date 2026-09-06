@@ -416,3 +416,11 @@ pre-fix manual-link suites are native negative controls for source-context
 binding. These checks establish engine values and declared request behavior;
 they do not claim an HTTP request or Android screen. See the fixture READMEs
 and `docs/research/test-suite-audit/native-{hq,core}-search.json`.
+
+Search prompt acceptance adds three fully admitted fixtures. The native query
+manager consumes both generated suites and the emitted lookup rows, then checks
+required and validation errors as answers change, filtered choices and removal
+of unavailable selections, numeric/location guards and shared computed values.
+Ordinary CI retains the small metadata/dependency contracts and complete export
+joins. See `native-{hq,core}-prompts.json` and the native fixture READMEs for the
+exact source hashes, artifacts, commands and limits.

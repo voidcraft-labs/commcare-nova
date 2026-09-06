@@ -4307,7 +4307,10 @@
 			"file": "lib/commcare/suite/case-search/__tests__/caseSearch.integration.test.ts",
 			"lines": 1322,
 			"ciMs": 4040,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced repeated partial XML/platform/schema pins and findings-filtered fixtures with two shared-tool/canonical-workspace sequences on a fully admitted real app. Both update orders preserve whole clusters, real exports carry final state, and clearing display retains owner exclusion. Removed irrelevant DB mocks; host is explicitly in memory, with native full Search/prompt proofs owning runtime acceptance.",
+			"baselineSha256": "91a92b5b16624397a47f47a9660fe4c41950a86c7b631eede66f0755f53e2b48",
+			"reviewedSha256": "042689fcd118da3a93689a628f56d7d35bef27ed087ae8912d4843853b8a186a"
 		},
 		{
 			"file": "lib/commcare/suite/case-search/__tests__/claim.test.ts",
@@ -4347,7 +4350,10 @@
 			"file": "lib/commcare/suite/case-search/__tests__/searchPrompts.test.ts",
 			"lines": 1499,
 			"ciMs": 1529,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced whole fragment/golden method with admitted widget and guard fixtures, complete attribute/child and translation-source contracts, full HQ/CCZ joins, exact runtime dependency assignment and explicit naming refusal. Native HQ regenerates three complete prompt suites; Core query manager executes required/combined validation, lookup choices and clearing, numeric/location and multi-input quote guards on both paths. Removed production test-only string adapter and message export.",
+			"baselineSha256": "da80413a21de74d9dca3edbdf37fbf8ddf56aec52b4b8e037bb3d8cbbcec8b11",
+			"reviewedSha256": "5367bdf60c486f24121a3be2450b80a45ce0f51b13e546e2fe67166d51374820"
 		},
 		{
 			"file": "lib/commcare/suite/case-search/__tests__/searchSession.test.ts",

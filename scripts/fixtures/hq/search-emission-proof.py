@@ -13,6 +13,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--hq-root", required=True, type=Path)
 parser.add_argument("--exports", required=True, type=Path)
 parser.add_argument("--python-path", type=Path, help="Optional dependency overlay for the HQ environment")
+parser.add_argument("--corpus", choices=["search", "prompts"], default="search")
 args = parser.parse_args()
 hq_root = args.hq_root.resolve()
 sys.path.insert(0, str(hq_root))
@@ -78,6 +79,8 @@ def compare_entries(local, native, scenario):
     return differences
 
 expected = {"inline", "browse", "multiple", "parent", "registration-link", "hidden-link", "automatic", "hidden", "advanced", "remote", "remote-multiple", "remote-defaults"}
+if args.corpus == "prompts":
+    expected = {"prompt-widgets", "prompt-guards", "prompt-dataflow"}
 sources = sorted(args.exports.glob("*.json"))
 assert {source.stem for source in sources} == expected
 results = []
@@ -110,4 +113,4 @@ for source in sources:
     local_path = args.exports / f"{source.stem}.suite.xml"
     differences = compare_entries(etree.fromstring(local_path.read_bytes()), etree.fromstring(output.read_bytes()), source.stem)
     results.append({"scenario": source.stem, "sourceSha256": hashlib.sha256(raw).hexdigest(), "suiteSha256": hashlib.sha256(local_path.read_bytes()).hexdigest(), "nativeSuiteSha256": hashlib.sha256(output.read_bytes()).hexdigest(), "differences": differences})
-print(json.dumps({"hqCommit": subprocess.check_output(["git", "-C", str(hq_root), "rev-parse", "HEAD"], text=True).strip(), "scenarios": results, "limits": "Native HQ Application import and detail/entry/menu contributors, remote request/workflow/instance post-processing. Complete entry and remote-request trees compared, retaining leaf text and child order; two exact stated inert differences. Build version and URL origin are supplied; no resource install, full HQ build or network. Domain-only UCR, optimization, empty-list text, registry, endpoint and sync-on-form-entry flags disabled; advanced Search enabled for defaults."}, indent=2))
+print(json.dumps({"hqCommit": subprocess.check_output(["git", "-C", str(hq_root), "rev-parse", "HEAD"], text=True).strip(), "scenarios": results, "limits": "Native HQ Application import and detail/entry/menu contributors, remote request/workflow/instance post-processing. Complete entry and remote-request trees compared, retaining leaf text and child order; only explicitly recorded structural differences. Build version and URL origin are supplied; no resource install, full HQ build or network. Domain-only UCR, optimization, empty-list text, registry, endpoint and sync-on-form-entry flags disabled; advanced Search enabled for defaults."}, indent=2))

@@ -1649,3 +1649,29 @@ removed from production.
 
 Validation: 36 session and full Search export checks pass; full typecheck passes.
 No emitted behavior changes in this replacement.
+
+## Search prompt acceptance uses real answer state
+
+The 1,499-line prompt suite called adapted string fragments an HQ acceptance
+proof. Several fixtures bypassed domain typing or lookup admission. The
+1,322-line integration suite repeated private and XML checks, filtered out
+validator findings, and mocked persistence although its useful tool path only
+needed an in-memory workspace. Both suites are replaced. Private checks retain
+complete widget metadata, stable translation sources, dependency routing and
+internal refusal behavior; the integration sequence now edits both clusters in
+both orders, compiles the admitted result and clears only the requested cluster.
+The production string adapter and test-only quote-message export are removed.
+
+Three fully admitted app fixtures cover all visible widget kinds, hidden values,
+conditional required fields, combined author/CSQL validation, filtered lookup
+choices, calendar/count/location guards, table-lookup query values and computed
+text spanning two prompts. Native HQ regenerates complete entries and remote
+requests with no differences. Four Core methods consume both original exports:
+they prove error transitions, defaults, labels, repeated multi-select parameters,
+removal of unavailable choices, independent location errors and joint errors
+when otherwise valid answers combine both quote delimiters. The native query
+manager owns the virtual input instance; no copied evaluator decides validity.
+
+Validation: 47 focused checks across four files, three native HQ comparisons and
+four native Core methods pass. Full typecheck passes. These are engine and
+artifact checks, not rendered widgets, HTTP requests or server search results.

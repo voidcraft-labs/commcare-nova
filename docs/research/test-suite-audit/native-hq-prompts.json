@@ -1,0 +1,27 @@
+{
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"scenarios": [
+		{
+			"scenario": "prompt-dataflow",
+			"sourceSha256": "df6eec7af20891c2707c504f23432765a8b37366c5b805fbf632fa950d5246c5",
+			"suiteSha256": "014be22690412229eefab4067d8181f104929722f5dfcd00d4018ea412c0a521",
+			"nativeSuiteSha256": "544db99d1e8a48a6cdbb402dc5fd100599e7923f05ed3781ed21a107c5fb1d13",
+			"differences": []
+		},
+		{
+			"scenario": "prompt-guards",
+			"sourceSha256": "37247dfbd6c82b6dd0935f4695ca458cf334fedd00d4d6c08424f795af36bee5",
+			"suiteSha256": "d03b7f9e5145c01d49f122939076dcc10e2cc077d247991b8be5fd6489ebaae4",
+			"nativeSuiteSha256": "dc0a9df4052ad5f78c6af942f1233833bf80e05db12c10734bd418b08136bf1e",
+			"differences": []
+		},
+		{
+			"scenario": "prompt-widgets",
+			"sourceSha256": "caa89b2def794bbde6ee70951d4548795e734f3037af84ee63987085ae7e802f",
+			"suiteSha256": "0e71969e6f99f5e23b0c9a746f01f42eb38863904baf085faac566d75ece5cb7",
+			"nativeSuiteSha256": "1f24efb8d5119645ad9ebdb9f610109ca7569fdb09cf906dddbe8ca7158fcdc3",
+			"differences": []
+		}
+	],
+	"limits": "Native HQ Application import and detail/entry/menu contributors, remote request/workflow/instance post-processing. Complete entry and remote-request trees compared, retaining leaf text and child order; only explicitly recorded structural differences. Build version and URL origin are supplied; no resource install, full HQ build or network. Domain-only UCR, optimization, empty-list text, registry, endpoint and sync-on-form-entry flags disabled; advanced Search enabled for defaults."
+}
