@@ -180,7 +180,7 @@ describe("planLanguageIdentityRepair roots", () => {
 		});
 	});
 
-	it("rewrites a sole-en root to the eng sentinel and drops its metadata", () => {
+	it("clears a sole-en root to canonical SQL NULL and drops its metadata", () => {
 		const plan = planLanguageIdentityRepair(
 			sourceWith({
 				localizationText: JSON.stringify({
@@ -195,13 +195,8 @@ describe("planLanguageIdentityRepair roots", () => {
 		expect(plan.blocked).toEqual([]);
 		expect(plan.neededMappings).toEqual([]);
 		expect(plan.rootAction).toBe("rewrite");
-		expect(plan.rootRewriteText).not.toBeNull();
-		expect(JSON.parse(plan.rootRewriteText ?? "")).toEqual({
-			sourceLanguage: "eng",
-			defaultLanguage: "eng",
-			languageOrder: ["eng"],
-			translations: {},
-		});
+		expect(plan.rootRewriteText).toBeNull();
+		expect(languageIdentityPlanHasRewrites(plan)).toBe(true);
 		const dropped = plan.findings.filter(
 			(finding) =>
 				finding.classification === "informational" &&
@@ -257,7 +252,7 @@ describe("planLanguageIdentityRepair roots", () => {
 		const second = planLanguageIdentityRepair(
 			sourceWith({ localizationText: first.rootRewriteText }),
 		);
-		expect(second.rootAction).toBe("canonical");
+		expect(second.rootAction).toBe("null");
 		expect(languageIdentityPlanHasRewrites(second)).toBe(false);
 		expect(second.blocked).toEqual([]);
 		expect(second.neededMappings).toEqual([]);

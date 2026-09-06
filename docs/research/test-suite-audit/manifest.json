@@ -7821,7 +7821,10 @@
 			"file": "scripts/lib/__tests__/languageIdentityRepair.test.ts",
 			"lines": 586,
 			"ciMs": 1611,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read all 1563 planner/loader/writer lines, paired CLI, replay dematerialization and actual localization table constraints. Retain useful pure mapping/overlay/provenance/refusal tests; correct the English-only expectation that formerly blessed a noncanonical materialized shell. New languageIdentityRepair.postgres.test.ts executes six complete stored journeys: French/English history, baseline rewrite with immutable guard, all four stores rolled back on real fold mismatch then retried with exact intent digest/column updates, undecidable-code refusal and current-shaped English shell cleanup without history changes. The writer failure reproduced before fixing shared English-only canonicalization. Existing mutation/localization/fold tests pass.",
+			"baselineSha256": "e31ba1407009318a0dd91c9255bc0264c6fb36463fbfe15b9ba49bf905385987",
+			"reviewedSha256": "c3c7f7dcd75334346e289cd7ea56e9b7a2e91b1937c40d9e94b72660ed8e1bde"
 		},
 		{
 			"file": "scripts/lib/__tests__/languageRegistryGeneration.test.ts",

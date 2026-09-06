@@ -408,3 +408,23 @@ exclusions were removed because the complete region-list assertion already
 covers them. Changed ISO and macrolanguage column headers previously passed
 silently; both readers now verify their actual positional schema before deriving
 catalogs. Sixteen pure cases pass. No generated catalog was regenerated.
+
+
+### Historical language writes and canonical English-only storage
+
+The pure planner tests formerly blessed an English-only materialized root. A
+real repair transaction failed its own fold proof: replay removes that root,
+while the writer persisted it. The ordinary reducer and repair now share the
+same English-only predicate. A repair explicitly clears the SQL root, removes
+the baseline property and still counts as a rewrite when no history row needs
+changing. The root action distinguishes clearing from an unchanged SQL NULL.
+
+Six Postgres journeys cover French and English roots/history, baseline digest
+rewrites with the immutable guard restored, and all four stores including
+translation attempts and batch columns. A real head-versus-history mismatch
+rolls every write back; correcting the head then allows complete retry. Full
+translation record comparison proves only the intended identities and digest
+change. Undecidable identities refuse before writes, and a subsequent run is
+unchanged. These are historical storage-repair tests, not a paid translator run
+or a claim about old production data. The stale documentation saying this repair
+runs on every deployment was corrected to its explicit maintenance CLI.

@@ -753,13 +753,15 @@ never commit.
 
 The stored shape is canonical-only. The one-off language-identity migration
 (`scripts/migrate-language-identity.ts` over
-`scripts/lib/languageIdentityRepair.ts`, invoked by `scripts/migrate.ts` so it
-rides the production migrate Job) rewrites every store that can hold the old
+`scripts/lib/languageIdentityRepair.ts`, run only through its explicit
+historical-repair CLI) rewrites every store that can hold the old
 code-keyed shape: `apps.localization` roots, `app_changes.mutations` payloads
 (including removal of `updateLanguage` rows), `app_change_fold_baselines`
 snapshots, and stored translation-batch state. The migration script's private
 reader is the only place in the codebase that can parse the old shape. Each
-app's rewrite applies in one transaction and is proven by re-folding the app
+app's rewrite applies in one transaction. An English-only root becomes SQL
+NULL, and the equivalent baseline property is removed, using the same rule as
+ordinary mutation replay. The result is proven by re-folding the app
 from its baseline over the rewritten rows with the canonical-only schemas; a
 fleet postcondition scan asserts zero old-shape occurrences remain. A tag the
 mechanical rules cannot decide lands in a reviewed explicit-mapping table, and

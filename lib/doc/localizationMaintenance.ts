@@ -3,6 +3,7 @@
 import type { Draft } from "immer";
 import type { BlueprintDoc } from "@/lib/domain";
 import { collectTranslationUnits } from "@/lib/domain";
+import { isEnglishOnlyLocalization } from "@/lib/domain/localization";
 
 /**
  * Translation entries are owned by a deterministic unit in the current
@@ -35,14 +36,7 @@ export function pruneOrphanTranslationEntries(
 export function dematerializeEnglishOnlyLocalization(
 	draft: Draft<BlueprintDoc>,
 ): void {
-	const localization = draft.localization;
-	if (
-		localization?.sourceLanguage === "eng" &&
-		localization.defaultLanguage === "eng" &&
-		localization.languageOrder.length === 1 &&
-		localization.languageOrder[0] === "eng" &&
-		Object.keys(localization.translations).length === 0
-	) {
+	if (isEnglishOnlyLocalization(draft.localization)) {
 		delete draft.localization;
 	}
 }
