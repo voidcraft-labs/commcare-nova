@@ -2,6 +2,12 @@
 
 The trust layer between a user-uploaded asset and the wire. This package owns format validation, the attach- and export-time verdicts, the export budget, the wire manifest, and the deletion guard. It does NOT own the bytes (GCS, `lib/storage/media.ts`), the asset row (Postgres `media_assets`, `lib/db/mediaAssets.ts` + `MediaAssetDoc` in `lib/db/types.ts`), the domain primitives (`lib/domain/multimedia.ts` — `AssetKind` / `Media` / the MIME partitions / size caps / the export-ceiling constants / the GCS key derivations), or the wire emitters (`lib/commcare/multimedia/*`).
 
+Tests should use real bytes for format gates, and prove a malformed fixture
+passes earlier gates before claiming to exercise a later parser. Reuse small
+immutable byte fixtures, compare computed metadata with those bytes, and check
+every shipped built-in icon against its catalog hash and size. Keep Project
+filtering and shared-logo behavior explicit in attach and upload outcome tests.
+
 ## Boundary
 
 `manifest.ts` and `builtinIconAssets.ts` are two of the only consumers of the `@/lib/commcare` emission boundary outside the emitter itself (allowlisted in `biome.json`): they resolve assets to wire paths. The complete export composer, including media-row loading and the aggregate budget verdict, lives at `lib/export/boundaryValidation.ts`. Everything else here is boundary-free.

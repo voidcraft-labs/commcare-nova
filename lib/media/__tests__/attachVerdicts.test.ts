@@ -3,7 +3,7 @@
  * every doc-mutation media tool runs before its gated commit.
  *
  * Coverage:
- *   1. A ready, owned, kind-matched asset passes.
+ *   1. A ready, same-Project, kind-matched asset passes.
  *   2. Missing / foreign / pending / kind-mismatched assets fail with
  *      their own person-to-person line (foreign reads as missing —
  *      privacy).
@@ -97,7 +97,7 @@ beforeEach(() => {
 });
 
 describe("mediaAttachVerdict", () => {
-	it("passes a ready, owned, kind-matched asset", async () => {
+	it("passes a ready, same-Project, kind-matched asset", async () => {
 		seed(testMediaAssetId("a1"));
 		const verdict = await mediaAttachVerdict({
 			projectId: "project-1",
@@ -105,6 +105,10 @@ describe("mediaAttachVerdict", () => {
 			expectations: [imageExpectation(testMediaAssetId("a1"))],
 		});
 		expect(verdict).toEqual({ ok: true });
+		expect(loadAssetsByIdsMock).toHaveBeenCalledWith(
+			[testMediaAssetId("a1")],
+			"project-1",
+		);
 	});
 
 	it("fails a missing asset, pointing at the slot and the library", async () => {
@@ -131,7 +135,13 @@ describe("mediaAttachVerdict", () => {
 		if (verdict.ok) return;
 		expect(verdict.error).toContain("library");
 		expect(verdict.error).not.toContain("project-2");
-		expect(verdict.error).not.toMatch(/own|belong/i);
+		rows.delete(testMediaAssetId("a-foreign"));
+		const missing = await mediaAttachVerdict({
+			projectId: "project-1",
+			doc: emptyDoc(),
+			expectations: [imageExpectation(testMediaAssetId("a-foreign"))],
+		});
+		expect(missing).toEqual(verdict);
 	});
 
 	it("fails a pending asset with the still-uploading message", async () => {
@@ -224,6 +234,21 @@ describe("mediaAttachVerdict", () => {
 });
 
 describe("describeMediaExpectationFailures", () => {
+	it("refuses a foreign row even when supplied directly and cannot distinguish it from missing", () => {
+		const id = testMediaAssetId("foreign");
+		const expectations = [imageExpectation(id)];
+		const foreign = describeMediaExpectationFailures(
+			expectations,
+			new Map([
+				[id, { project_id: "private-project", status: "ready", kind: "image" }],
+			]),
+			"project-1",
+		);
+		expect(foreign).not.toBeNull();
+		expect(foreign).toBe(
+			describeMediaExpectationFailures(expectations, new Map(), "project-1"),
+		);
+	});
 	it("reports every failed expectation, one line each, and null when all hold", () => {
 		const table = new Map<MediaAssetId, MediaExpectationRow>([
 			[

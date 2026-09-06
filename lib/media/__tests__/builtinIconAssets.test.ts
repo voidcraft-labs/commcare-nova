@@ -12,7 +12,11 @@
 import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
-import { builtinIconRef, iconCatalogEntry } from "@/lib/domain/builtinIcons";
+import {
+	builtinIconRef,
+	ICON_CATALOG,
+	iconCatalogEntry,
+} from "@/lib/domain/builtinIcons";
 import {
 	builtinAssetRows,
 	partitionAssetRefs,
@@ -20,7 +24,7 @@ import {
 } from "../builtinIconAssets";
 
 describe("partitionAssetRefs", () => {
-	it("splits strict uploaded ids from closed built-in refs and dedupes both", () => {
+	it("splits uploaded ids from built-in refs and dedupes built-in slugs", () => {
 		const uploaded = testMediaAssetId("uploaded");
 		const { realIds, builtinSlugs } = partitionAssetRefs([
 			builtinIconRef("household"),
@@ -65,19 +69,25 @@ describe("resolveBuiltinManifestEntries", () => {
 		expect(asset.bytes).toBeUndefined();
 	});
 
-	it("loads the shipped bytes when withBytes is true, and they hash to the catalog", async () => {
-		const entries = await resolveBuiltinManifestEntries(["household"], true);
-		const [, asset] = entries[0];
-		expect(asset.bytes).toBeInstanceOf(Buffer);
-		// The shipped PNG's actual hash must equal the catalog's recorded hash —
-		// otherwise the content-hash wire path points at the wrong bytes.
-		const actual = createHash("sha256")
-			.update(asset.bytes as Buffer)
-			.digest("hex");
-		expect(actual).toBe(iconCatalogEntry("household")?.contentHash);
+	it("loads every shipped icon with the catalog hash and byte count", async () => {
+		// Read sequentially so this integrity check does not fan out filesystem work.
+		for (const entry of ICON_CATALOG) {
+			const [[id, asset]] = await resolveBuiltinManifestEntries(
+				[entry.slug],
+				true,
+			);
+			expect(id).toBe(builtinIconRef(entry.slug));
+			if (asset.bytes === undefined)
+				throw new Error(`Missing bytes for ${entry.slug}`);
+			expect(
+				createHash("sha256").update(asset.bytes).digest("hex"),
+				entry.slug,
+			).toBe(entry.contentHash);
+			expect(asset.bytes.length, entry.slug).toBe(entry.sizeBytes);
+		}
 	});
 
-	it("dedupes nothing here (the caller dedupes slugs) but resolves each given slug", async () => {
+	it("resolves every requested slug in request order", async () => {
 		const entries = await resolveBuiltinManifestEntries(
 			["household", "register"],
 			false,

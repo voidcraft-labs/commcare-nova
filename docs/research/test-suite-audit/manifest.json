@@ -6585,25 +6585,37 @@
 			"file": "lib/media/__tests__/attachVerdicts.test.ts",
 			"lines": 271,
 			"ciMs": 412,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain per-asset readiness/kind feedback, aggregate existing-reference budget, and no-I/O clears. Assert exact Project loader scope and compare foreign/missing verdicts, including direct foreign-row input to the pure verdict so a Project-filtering mock cannot mask the second gate. Remove incidental privacy word regex.",
+			"baselineSha256": "eb8b61c74df9650f9d2685c3bf4c4876396b2d00aa00a907dcdb0d7cc3adfaba",
+			"reviewedSha256": "fc358f7b982131914b597c5dab30f1acd92b8939049a18a1bd7d4c73bee87f1b"
 		},
 		{
 			"file": "lib/media/__tests__/boundaryValidation.test.ts",
 			"lines": 325,
 			"ciMs": 1372,
-			"status": "pending"
+			"status": "revised",
+			"review": "Keep real full validator wiring and simultaneous media/non-media findings with mocked metadata I/O only. Replace duplicate complete blueprint fixture with existing validDoc helper, use canonical column identity, and correct Project/owner terminology. Retain missing/pending/kind/budget/built-in/real-only load contracts.",
+			"baselineSha256": "c0187c1e4ce95d6c47d78a1b5a26463ad5ca929664a531278c34b18ee40c4a56",
+			"reviewedSha256": "1456809ae932cf987ec21051d76f107c2d702415416304f335cb2086e0b9d512"
 		},
 		{
 			"file": "lib/media/__tests__/builtinIconAssets.test.ts",
 			"lines": 90,
 			"ciMs": 145,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain partition and wire-manifest contracts, correct claim that uploaded IDs are deduplicated, and replace one-icon SHA test with sequential verification of every shipped catalog icon hash and byte count; no Buffer cast or PNG-decoding dependency.",
+			"baselineSha256": "95501c60c8c92dc44e339d945efe742a6715c880e8aed017ff698fc8d707b85a",
+			"reviewedSha256": "97b838cced27c9c84fd5c76acb0e01c144a3409fe8c73c181a179277de15e4e9"
 		},
 		{
 			"file": "lib/media/__tests__/exportBudget.test.ts",
 			"lines": 138,
 			"ciMs": 96,
-			"status": "pending"
+			"status": "revised",
+			"review": "Add exact accepted byte/count boundaries and reject one byte over; assert measured exportable count/byte totals independently of prose. Exercise repeated same-ID references and candidate de-duplication; retain pending/document exclusions and shared consumer message checks.",
+			"baselineSha256": "e1ecd76d612c4a6606fc198032e09cf68fa264619f4cce9ca983f6cca432cbc9",
+			"reviewedSha256": "9bee9ab83022d0a438d2056530d17ac153f9b620213efda5d51c80dda9913354"
 		},
 		{
 			"file": "lib/media/__tests__/moveMedia.test.ts",
@@ -6615,13 +6627,19 @@
 			"file": "lib/media/__tests__/uploadOutcome.test.ts",
 			"lines": 276,
 			"ciMs": 375,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replace fabricated cast-only blueprint identities with normalized domain fixture. Extend shared-image case to logo plus two form fields, proving a logo use cannot suppress a genuine failure and all carriers are named. Assert exact diagnostic payload/context and keep technical path/reason out of returned user warnings; retain logo-only, unknown path, HQ processing and missing-detail signals.",
+			"baselineSha256": "34970f64064d754c3bedb9c60fa842fa1e2603a65f0e45b79231f9d81beadc02",
+			"reviewedSha256": "be6d21068ea977145d7bb14ec61641075de84a76638982ff4179af754f49a580"
 		},
 		{
 			"file": "lib/media/__tests__/validate.test.ts",
 			"lines": 364,
 			"ciMs": 316,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain real PNG/JPEG/WAV/MP4 parsing; generate one immutable asymmetric PNG per suite, assert exact byte hash/size/dimensions and exact PCM duration. Tighten one-byte size boundary and extension-vs-MIME reason. Replace ambiguous corrupt PNG fixture with one independently proven to sniff as PNG then fail sharp; add malformed UTF-8/NUL refusal and Unicode/uppercase filename controls. No product parser mocks.",
+			"baselineSha256": "870d0d0c51c41378f88c9e40c938ebd4efe161e73d38de9b1d2752de3a5def78",
+			"reviewedSha256": "0477d50c2a4cea3bd8a1f6f8ea9aba978b3db42c7eca125b629d750b57a0631f"
 		},
 		{
 			"file": "lib/oauth/__tests__/capabilities.test.ts",
