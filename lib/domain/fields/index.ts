@@ -408,13 +408,13 @@ export function fieldKindDeclaresKey(kind: FieldKind, key: string): boolean {
  * a silent key drop.
  */
 function pickRepeatKeySet(mode: unknown): ReadonlySet<string> {
-	if (typeof mode === "string" && mode in repeatVariantKeySets) {
+	if (typeof mode === "string" && Object.hasOwn(repeatVariantKeySets, mode)) {
 		return repeatVariantKeySets[mode as RepeatMode];
 	}
 	return fieldKindKeySets.repeat;
 }
 
-/** Type guard for container kinds (group, repeat). Used wherever "can this
+/** Type guard for container kinds (group, repeat, section). Used wherever "can this
  *  field have children?" is asked — add/move field reducers, tree walkers,
  *  drag-drop validity checks. */
 export function isContainer(f: Field): f is ContainerField {
@@ -568,13 +568,14 @@ export function reconcileFieldForKind(
 
 /**
  * Drop the immutable `uuid` + `kind` slots from a field-kind schema and
- * make every remaining key optional-and-nullable — the patch shape for an
+ * make every remaining key optional as command intent, with stored-optional
+ * slots also nullable for clearing — the patch shape for an
  * `updateField` mutation. Identity and discriminant are fixed for the
  * lifetime of a field entity; everything else is mutable. Used once
  * per non-repeat kind plus once per repeat variant in
  * `fieldPatchSchemaByKind`.
  *
- * Each value is `.nullable().optional()`, encoding the three patch states:
+ * Optional stored slots encode three patch states:
  *   - absent → leave the property unchanged
  *   - `null` → CLEAR the property (the `updateField` reducer deletes the
  *     key). `null` is the on-the-wire representation of a blank: a patch

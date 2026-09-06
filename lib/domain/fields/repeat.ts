@@ -115,10 +115,10 @@ export const queryBoundRepeatSchema = repeatBase.extend({
 
 /**
  * Combined union of all three modes. Discriminated on `repeat_mode` so
- * consumers can narrow per-variant; the parent `fieldSchema` includes
- * each variant directly (rather than this combined schema) because Zod's
- * `discriminatedUnion("kind", ...)` requires unique discriminator values
- * per member, and three repeat variants share `kind: "repeat"`.
+ * consumers can narrow per-variant. The parent `fieldSchema` unions this
+ * repeat schema with its non-repeat kind union, because all three repeat
+ * variants share `kind: "repeat"` and cannot be separate members of one
+ * discriminated union on kind.
  */
 export const repeatFieldSchema = z.discriminatedUnion("repeat_mode", [
 	userControlledRepeatSchema,

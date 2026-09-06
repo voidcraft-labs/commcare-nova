@@ -6209,7 +6209,10 @@
 			"file": "lib/domain/__tests__/builtinIcons.test.ts",
 			"lines": 119,
 			"ciMs": 113,
-			"status": "pending"
+			"status": "revised",
+			"review": "Consolidated duplicate count/hash-shape samples into complete catalog identity and family admission, exact picker order, shared fallback, uploaded-asset separation and malformed/stale refs. The already-reviewed media bridge owns every shipped PNG hash and byte-count proof; no duplicated filesystem or invented catalog-size contract.",
+			"baselineSha256": "261d9bbf8e0d1046ed96434f5fa9a8b5f76c502f943a3b8a8e7e94459b92d222",
+			"reviewedSha256": "3c5154ba9f35e736aab69cf694959eb0ab142f2af2ceb2f1d00b586e2aebe58b"
 		},
 		{
 			"file": "lib/domain/__tests__/captureFormats.test.ts",
@@ -6302,13 +6305,19 @@
 			"file": "lib/domain/__tests__/fieldRegistry.test.ts",
 			"lines": 38,
 			"ciMs": 617,
-			"status": "pending"
+			"status": "revised",
+			"review": "Consolidated duplicate metadata suites into one data-contract proof: complete kind identity, nonblank labels and icon fragments, valid distinct conversion targets with no self conversion. Complete field-schema admission is owned beside it; this does not claim browser rendering.",
+			"baselineSha256": "85b0d5b78f22520be3422380bd73fa9d463e91204581ae2eaaa6ef9d6611f54c",
+			"reviewedSha256": "d80a940190a9b66e11440cc701e41455bbcea13b34e301174dd9dec5d39646bb"
 		},
 		{
 			"file": "lib/domain/__tests__/fields.test.ts",
 			"lines": 231,
 			"ciMs": 396,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced partial and multiply-invalid examples with schema-admitted controls for every kind and all repeat modes, exact authored output, independent label policies and single-property refusals. Tests actual container classification and candidate projection purity/key selection. Three inherited-key negative controls reproduced a pre-admission crash; own-membership correction preserves invalid modes for normal schema refusal.",
+			"baselineSha256": "4bbf73fa24dd0e96dd03f412d7eeb1ac0bc5ee7d26e609336493746b6121bcf9",
+			"reviewedSha256": "7fe718a26efc52c6eb0a3bc69c80fd26935c416aa866696b683b7a7ed7055111"
 		},
 		{
 			"file": "lib/domain/__tests__/forms.test.ts",
@@ -6320,13 +6329,18 @@
 			"file": "lib/domain/__tests__/jsonNumber.test.ts",
 			"lines": 92,
 			"ciMs": 114,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced source-import/string assertions with executed admission across every shared number range, positive/negative/subnormal/safe-boundary JSON round trips, lossy and nonnumeric refusals, retained refinements after extra bounds, and independently admitted nested literal/sort/tile/automation controls. This tests schema behavior rather than claiming source text proves all slots.",
+			"baselineSha256": "a485f40088d0ca6eebecd77d57ae1a05a06ac3be3de4b9d917879532332f8958",
+			"reviewedSha256": "54d7f73e8d432e7ca28a83ec83fb2c4b20b0a33683e5085499129da8cd96ae59"
 		},
 		{
 			"file": "lib/domain/__tests__/kinds.test.ts",
 			"lines": 26,
 			"ciMs": 291,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed duplicate icon/label type-shape tests and unchecked icon casts; fieldRegistry.test.ts owns complete metadata invariants and fields.test.ts owns actual per-kind schema admission.",
+			"baselineSha256": "ab2f76a479039d7a63ddcf2bdc1c67ba0e1b50038431dc6b79ff9b501cb31918"
 		},
 		{
 			"file": "lib/domain/__tests__/localization.test.ts",
@@ -6338,7 +6352,10 @@
 			"file": "lib/domain/__tests__/lookupIds.test.ts",
 			"lines": 40,
 			"ciMs": 96,
-			"status": "pending"
+			"status": "revised",
+			"review": "All three branded lookup identities retain distinct compile-time types, accept all RFC variants of v7, and reject malformed/version/variant/whitespace/prototype-looking strings identically at runtime and in exported schema patterns.",
+			"baselineSha256": "bfbc785837d9b42f81f67acc3bab9bb3c41f56b6e2870a33452ee3442b2917be",
+			"reviewedSha256": "827f73dc0f29521fe775666cdfc1dec4cb66c2da75599804d3c59c97cb64bf55"
 		},
 		{
 			"file": "lib/domain/__tests__/mediaRefDescribe.test.ts",
@@ -6422,7 +6439,10 @@
 			"file": "lib/domain/__tests__/uuid.test.ts",
 			"lines": 43,
 			"ciMs": 105,
-			"status": "pending"
+			"status": "revised",
+			"review": "Runtime canonical versions/variants and unchanged identity, expanded malformed/whitespace corpus, and executable exported JSON Schema pattern checked on that same independent corpus instead of a string-prefix assertion.",
+			"baselineSha256": "99d56182dc64c70e8e158d01eac1cb4dd1251e920018cc8415aa9c1599fcea13",
+			"reviewedSha256": "d09ada7e0f16f08a82eab71bd3083de58583f7d676d1c2cf2f1eb06310cdce5d"
 		},
 		{
 			"file": "lib/domain/__tests__/xpathProjection.test.ts",

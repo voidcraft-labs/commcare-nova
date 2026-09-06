@@ -1,38 +1,20 @@
-/**
- * fieldRegistry — invariant tests for the per-kind metadata table.
- *
- * `fieldRegistry` is the single source of truth for kind-keyed UI
- * affordances: the icon shown in the inspector header, the tooltip
- * label, the convertible-target list. Components read these without
- * fallbacks because the registry's shape is the contract — a missing
- * entry would render an empty span / break a tooltip silently. Walking
- * the registry once here catches a dropped entry the moment a new kind
- * lands.
- */
-
 import { describe, expect, it } from "vitest";
-import { fieldKinds, fieldRegistry } from "@/lib/domain";
+import { fieldKinds, fieldRegistry } from "../fields";
 
-describe("fieldRegistry", () => {
-	it("ships an icon body for every registered kind", () => {
-		// `<Icon body={...}>` renders the SVG fragment verbatim. An empty
-		// body string would render an empty `<svg>` with no warning, so
-		// the type guard is "non-empty string".
+describe("field metadata consumed by pickers", () => {
+	it("provides one named, drawable entry and distinct conversion targets per kind", () => {
+		expect(Object.keys(fieldRegistry).sort()).toEqual([...fieldKinds].sort());
 		for (const kind of fieldKinds) {
 			const meta = fieldRegistry[kind];
-			expect(meta.icon, `kind=${kind}`).toBeDefined();
-			expect(typeof meta.icon.body, `kind=${kind}`).toBe("string");
-			expect(meta.icon.body.length, `kind=${kind}`).toBeGreaterThan(0);
-		}
-	});
-
-	it("ships a label for every registered kind", () => {
-		// Tooltip + menu copy reads `meta.label` without a fallback; a
-		// missing label would surface as a blank tooltip or invisible
-		// menu item.
-		for (const kind of fieldKinds) {
-			const meta = fieldRegistry[kind];
-			expect(meta.label, `kind=${kind}`).toBeTruthy();
+			expect(meta.kind).toBe(kind);
+			expect(meta.label.trim().length, kind).toBeGreaterThan(0);
+			expect(meta.icon.body.trim(), kind).toMatch(/^</);
+			expect(new Set(meta.convertTargets).size, kind).toBe(
+				meta.convertTargets.length,
+			);
+			expect(meta.convertTargets, kind).not.toContain(kind);
+			for (const target of meta.convertTargets)
+				expect(Object.hasOwn(fieldRegistry, target)).toBe(true);
 		}
 	});
 });

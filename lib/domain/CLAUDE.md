@@ -11,7 +11,8 @@ This matches the exact-text JSONB loader: non-integers persist through
 `JSON.stringify`'s unique shortest round-trip decimal, while values that JSON
 would silently alias are rejected before mutation construction. New numeric
 slots reuse this leaf in addition to their own positive/nonnegative/integer
-range, never a bare `z.number()`.
+range, never a bare `z.number()`. Tests execute those schemas and numeric
+round trips; a source import or helper name cannot prove slot admission.
 
 ## BlueprintDoc — normalized, with derived state stripped at the boundary
 

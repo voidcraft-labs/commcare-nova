@@ -2077,3 +2077,21 @@ new migration, preserve both active and historical rows, and exercise same-value
 legacy updates. Restricted runtime-role verification executes the trigger after
 privilege convergence; the internal function is included in the exact routine
 inventory. The timestamp remains an honest time, never an identity surrogate.
+
+### Domain schemas are exercised as admission boundaries
+
+Removed numeric source-string assertions and duplicate field metadata suites.
+Number tests now execute every shared range, real JSON round trips and nested
+literal/sort/tile/automation consumers. UUID tests execute the exported schema
+patterns against accepted and rejected identities instead of matching a pattern
+prefix. Catalog tests cover every icon's identity and family; actual PNG hashes
+and sizes remain owned by the media bridge's complete shipped-asset test.
+
+Field schema fixtures cover every field kind and all three repeat modes, with
+admitted controls before single-property refusals. This exposed an inherited
+property lookup in candidate projection: `constructor`, `__proto__`, and
+`toString` selected prototype members as repeat key sets and threw before schema
+admission. Three negative controls fail with `allowedKeys.has is not a function`.
+The projection now requires own membership and carries an unknown mode through
+to an ordinary schema refusal. This is a candidate-processing totality fix;
+typed, admitted repeat modes retain their existing behavior.
