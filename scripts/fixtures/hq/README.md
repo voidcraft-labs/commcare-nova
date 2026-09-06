@@ -182,3 +182,19 @@ guards, and dependent computed values with independent location guards. Complete
 native entries and remote requests match without normalization exceptions. The
 producer also emits the archive's source-language strings and exact lookup
 fixture bytes for Core. It does not generate native HQ locale resources.
+
+## Nested CSQL functions
+
+Produce the two admitted apps with
+`mise exec -- npx tsx scripts/fixtures/hq/emit-function-evidence.ts /tmp/nova-function-evidence`.
+Run `search-emission-proof.py` as above with `--exports /tmp/nova-function-evidence
+--corpus functions`. The exact two-file corpus is required; every entry and
+remote request is compared in full.
+
+After Core's function proof below, run `search-payload-proof.py` with the same HQ
+root and dependency overlay, plus `--corpus functions
+--payloads /tmp/nova-core-capture-audit/build/nova-function-payloads.tsv
+--arguments /tmp/nova-core-capture-audit/build/nova-function-arguments.tsv`.
+Twenty exact query payloads compile to independently specified complete filters;
+twelve relation/matcher payloads preserve full native ASTs without running a
+relation query. The ungrouped date quantity is rejected as a negative control.

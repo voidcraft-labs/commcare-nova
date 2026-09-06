@@ -19,7 +19,7 @@
 // `emitCsqlFunctionArgumentSegments` evaluates it on-device and safely
 // quotes the resolved scalar inside the surrounding native call.
 //
-// If the bypass path ever surfaced one of the ten non-whitelist
+// If the bypass path ever surfaced one of the eleven non-whitelist
 // arms, the emitter throws a defensive error rather than emit
 // broken CSQL. The local `_exhaustive: never` default catches new
 // ValueExpression kinds at compile time.
@@ -66,10 +66,9 @@ import {
 import {
 	type CheckError,
 	checkExpression,
-	type TypeContext,
 } from "@/lib/domain/predicate/typeChecker";
 import type { ValueExpression } from "@/lib/domain/predicate/types";
-import type { CsqlSegment } from "../predicate/csqlSegment";
+import { type CsqlSegment, groupCsqlArgument } from "../predicate/csqlSegment";
 import {
 	classifyCalendarDateAddQuantity,
 	invalidWholeNumberXPath,
@@ -84,7 +83,10 @@ import {
 } from "../predicate/termEmitter";
 import { assertCsqlValueFunction } from "../xpath/functionCapabilities";
 import { isNativeCsqlValueExpression } from "./csqlCapabilities";
-import { emitOnDeviceExpression } from "./onDeviceEmitter";
+import {
+	emitCsqlRuntimeExpression,
+	type CsqlEmissionContext as TypeContext,
+} from "./csqlRuntimeExpression";
 
 export { isNativeCsqlValueExpression } from "./csqlCapabilities";
 
@@ -246,7 +248,7 @@ function emitCsqlFunctionArgumentSegments(
 		return emitCsqlExpressionSegments(expr, typeContext, runtimeQuoteStyle);
 	}
 	return quoteRuntimeCsqlValue(
-		emitOnDeviceExpression(expr, undefined, typeContext ?? {}),
+		emitCsqlRuntimeExpression(expr, typeContext),
 		runtimeQuoteStyle,
 		[
 			...collectRuntimeCsqlStringExpressionInputNames(
@@ -257,7 +259,6 @@ function emitCsqlFunctionArgumentSegments(
 	);
 }
 
-/** Single source of truth for CCHQ's native CSQL value-expression grammar. */
 /**
  * Emit `date-add(<date>, '<interval>', <quantity>)` as a segment list.
  * CCHQ's `_date_or_datetime_add` calls `confirm_args_count(node, 3)`
@@ -285,11 +286,15 @@ function emitDateAddSegments(
 	);
 	const intervalLiteral = quoteLiteral(expr.interval, "csql");
 	const quantitySegments = emitDateAddQuantitySegments(expr, typeContext);
+	const quantityArgument =
+		isNativeCsqlValueExpression(expr.quantity) && expr.quantity.kind !== "term"
+			? groupCsqlArgument(quantitySegments)
+			: quantitySegments;
 	return [
 		{ kind: "constant", text: `${functionName}(` },
 		...dateSegments,
 		{ kind: "constant", text: `, ${intervalLiteral}, ` },
-		...quantitySegments,
+		...quantityArgument,
 		{ kind: "constant", text: ")" },
 	];
 }

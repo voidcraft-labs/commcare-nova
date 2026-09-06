@@ -424,3 +424,12 @@ of unavailable selections, numeric/location guards and shared computed values.
 Ordinary CI retains the small metadata/dependency contracts and complete export
 joins. See `native-{hq,core}-prompts.json` and the native fixture READMEs for the
 exact source hashes, artifacts, commands and limits.
+
+The CSQL function corpus closes the nested-emission boundary: two admitted apps,
+HQ-regenerated entry trees, Core's real query manager, and twenty resulting
+lookup queries compiled by native HQ into independently specified complete
+filters. Twelve further payloads assert native argument ASTs, including matcher
+functions and typed relation chains; they do not execute relation queries.
+The pre-grouping quantity is a negative parser control. Private emitter tests
+cover composition and admission without claiming that a string assertion or
+Nova's own XPath parser proves native CSQL acceptance.

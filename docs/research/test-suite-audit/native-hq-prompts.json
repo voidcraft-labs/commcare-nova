@@ -3,23 +3,23 @@
 	"scenarios": [
 		{
 			"scenario": "prompt-dataflow",
-			"sourceSha256": "df6eec7af20891c2707c504f23432765a8b37366c5b805fbf632fa950d5246c5",
-			"suiteSha256": "014be22690412229eefab4067d8181f104929722f5dfcd00d4018ea412c0a521",
-			"nativeSuiteSha256": "544db99d1e8a48a6cdbb402dc5fd100599e7923f05ed3781ed21a107c5fb1d13",
+			"sourceSha256": "9623eddbc210cd4b17bef71fa2b92d0e4c1443c9bbabe093899433e71d78a756",
+			"suiteSha256": "b457245f6ec8eec75e4d7e6119261fe6d37b2c524ab053c45f812529960184ac",
+			"nativeSuiteSha256": "ed70fe67ef256ebf30daca4d129cff7d46bb8d5158636bd516cb9a0063e41cfb",
 			"differences": []
 		},
 		{
 			"scenario": "prompt-guards",
-			"sourceSha256": "37247dfbd6c82b6dd0935f4695ca458cf334fedd00d4d6c08424f795af36bee5",
-			"suiteSha256": "d03b7f9e5145c01d49f122939076dcc10e2cc077d247991b8be5fd6489ebaae4",
-			"nativeSuiteSha256": "dc0a9df4052ad5f78c6af942f1233833bf80e05db12c10734bd418b08136bf1e",
+			"sourceSha256": "4ef7d346b3b2774648ca83e79ffe3f60b4a4e1beb235a2bf3cd0c2a9c5a9e099",
+			"suiteSha256": "97f0059efd9380fc526ac93cbc4a863eb5f16d34f9487caa53933a4637295737",
+			"nativeSuiteSha256": "36e9755f5c1248db2fd291fbb00dfe766b7cf29182582bf013b8e6c708a5ce8e",
 			"differences": []
 		},
 		{
 			"scenario": "prompt-widgets",
-			"sourceSha256": "caa89b2def794bbde6ee70951d4548795e734f3037af84ee63987085ae7e802f",
-			"suiteSha256": "0e71969e6f99f5e23b0c9a746f01f42eb38863904baf085faac566d75ece5cb7",
-			"nativeSuiteSha256": "1f24efb8d5119645ad9ebdb9f610109ca7569fdb09cf906dddbe8ca7158fcdc3",
+			"sourceSha256": "2059643e48af5e7f963e81b0d68ad24ad542c727dcf299e3f50e9598ed3a3d0e",
+			"suiteSha256": "7650686a5f158bbfe02c5943fc921048a3ebf9d92451dbf18f6a19e2101a2126",
+			"nativeSuiteSha256": "53c41cde4250d8bea5f0739ccf28e7e86bf7d7d400ae7954271617ac9484e775",
 			"differences": []
 		}
 	],

@@ -155,3 +155,15 @@ combined author/CSQL rules, visible/hidden defaults, exact labels and parameters
 unavailable-selection removal, numeric/location guards and quote obligations
 shared by two composed answers. The lookup value is checked in the actual CSQL
 payload. This does not install resources, render widgets or send a search request.
+
+## Nested CSQL functions
+
+After the function producer and HQ regeneration above, run the bounded command
+with `-PnovaProofResources=/tmp/nova-function-evidence` and
+`--tests nova.compatibility.CsqlFunctionRuntimeTest`. Two methods use native suite
+parsing and the actual query manager on both export paths. Emitted lookup rows
+feed date, datetime, numeric and date-arithmetic function arguments; changing
+session data changes a conditional nested argument. The methods write
+`build/nova-function-payloads.tsv` and `build/nova-function-arguments.tsv` for the
+HQ proof. The latter establishes parsed relation structure, not server relation
+results. No resource installation, Android renderer or remote request is claimed.

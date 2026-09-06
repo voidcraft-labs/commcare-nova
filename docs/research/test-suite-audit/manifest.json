@@ -4091,7 +4091,10 @@
 			"file": "lib/commcare/expression/__tests__/csqlEmitter.test.ts",
 			"lines": 491,
 			"ciMs": 667,
-			"status": "pending"
+			"status": "revised",
+			"review": "Whole-method replacement: removed production quoting as its own expected oracle, simulated segment evaluation and parsing of handwritten examples. Focused private IR plus two fully admitted complete exports; native HQ regeneration, Core query values and native HQ CSQL filters prove nested lookup functions and grouped arguments. Fixed missing lookup emission context and comma-position function parsing.",
+			"baselineSha256": "dfaed9194ed04933d3f7d85c6fe84a100d44cc09cee1a438526993a8191c4a6a",
+			"reviewedSha256": "9827af8429a34a7154d0e214fc0fa5531968d29833802c3c9c34b289bbb385c5"
 		},
 		{
 			"file": "lib/commcare/expression/__tests__/onDeviceCompatibility.test.ts",
@@ -4214,7 +4217,10 @@
 			"file": "lib/commcare/predicate/__tests__/csqlEmitter.test.ts",
 			"lines": 2027,
 			"ciMs": 842,
-			"status": "pending"
+			"status": "revised",
+			"review": "Whole-method replacement after reading every test and emitter branch: discarded repeated substring assertions, schema-invalid claimed acceptance and same-input false idempotence. Positive constant/normalization cases pass full document admission; private bypasses remain explicitly defensive. Native two-export query-manager and HQ compiler/AST proofs cover the missing cross-function boundary, with no claim of server relation results.",
+			"baselineSha256": "eb4c2cf3e981615a4529ebebfd6305e3176e7076165dc1fe2075ec986f3a3618",
+			"reviewedSha256": "52163cfc9a73a78a22909b6405858b088b04943103aff834ded29ec4f6e89165"
 		},
 		{
 			"file": "lib/commcare/predicate/__tests__/csqlRepresentability.test.ts",

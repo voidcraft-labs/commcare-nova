@@ -463,6 +463,20 @@ Core's exact Search payloads then pass through HQ's CSQL compiler with expected
 UTC/date bounds. This is native value and query-compilation evidence, not a
 full device session or an Elasticsearch query result.
 
+CSQL runtime operands and nested native-function arguments share
+`expression/csqlRuntimeExpression.ts`: suite lookup naming, Search input identity,
+worker property names and the type context survive every nesting level. A table
+value wrapped in `date`, `datetime`, `double` or date arithmetic still reads the
+same declared fixture. The native function corpus consumes both exports in Core,
+then compiles the resulting scalar queries with HQ and checks relation argument
+ASTs separately, without claiming server relation-query results.
+
+HQ's pinned eulxml lexer omits commas from `OPERATOR_FORCERS`. Native functions
+in later argument positions therefore require grouping: `date-add(..., 'days',
+(double(...)))`. `groupCsqlArgument` owns that segment operation for native
+quantity/matcher values and relation/count filters. Never repair this by parsing
+or rewriting emitted XPath strings.
+
 ### Case-management scaffolding emission
 
 `xform/caseBlocks.ts::addCaseBlocks` emits the local case scaffolding for HQ's basic `FormActions`. Sharing an action input does not itself establish parity: HQ accepts fields its basic builder does not consume. In particular, it ignores `OpenSubCaseAction.relationship`. `subcaseWire.ts::hqCaseActions` therefore marks extension actions `never` while `xform/caseOps.ts` carries their active transactions in the source XForm, under a reserved `__nova_subcases` container at the exact parent/repeat scope. The retained action positions and types are necessary navigation metadata: HQ allocates non-repeat subcase ID datums even for `never` actions and matches form links by those types. Source extension creates use those same IDs; repeated creates use `uuid()` calculations. HQ emits an inactive redundant block (`relevant="false()"`), which the local splicer omits. The native proof in `scripts/fixtures/hq/` executes HQ's import, case builder, datum allocator, and navigation matcher; the six export regressions check mixed relationships, repeat scopes, required names, guarded property writes, and exact ID joins. Every `<case>` element carries the cx2 namespace (`http://commcarehq.org/case/transaction/v2`) — without it CommCare's submission processor treats the element as inert data, not a case transaction. The three `<case>` attributes (`case_id` / `date_modified` / `user_id`) wire to:

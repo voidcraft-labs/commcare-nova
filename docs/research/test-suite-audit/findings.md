@@ -1685,3 +1685,39 @@ composition checks move to the admitted prompt corpus. The dialect walk retains
 its structural role, including unsupported device descendants that validation
 must find; partial containment checks now assert the entire visit sequence.
 Fourteen focused checks pass. Neither helper suite claims native execution.
+
+## Nested CSQL expressions need a complete context and native parsing
+
+The expression suite parsed handwritten sample strings instead of emitted
+payloads and built expected runtime segments with the production quoting helper.
+The predicate suite repeatedly pinned fragments from schema-invalid apps,
+including unsupported property/function positions; its purported idempotence
+check merely called the same emitter twice. Both methods are replaced by small
+private composition checks, fully admitted positive predicate examples and a
+native chain from complete app exports to real query values and HQ compilation.
+
+A validated lookup value inside `date`, `datetime`, `double`, or date arithmetic
+failed export because native function arguments dropped lookup naming while the
+direct runtime-operand path preserved it. Both paths now share one runtime
+emission context. The accepted regression failed before the fix at the actual
+export boundary, not through an intentionally missing-context test.
+
+Native HQ compilation then found a second defect: its pinned eulxml 1.1.3 lexer
+omits COMMA from OPERATOR_FORCERS. A nested quantity function immediately after a
+comma is tokenized as a path and rejected. Explicit argument grouping preserves
+the authored expression and is shared by date quantities, matcher values and
+relation/count filters. The ungrouped quantity remains a negative native control.
+
+Two admitted apps pass native HQ entry regeneration and two Core methods on both
+export paths. Twenty Core-evaluated lookup payloads produce complete expected HQ
+filters, including the leap-day result and a session-dependent conditional.
+Twelve additional payloads preserve the complete native argument AST, including
+typed ancestor chains, child counts and a nested fuzzy-date value. Relation AST
+checks do not execute Elasticsearch or resolve remote case IDs. Records are in
+`native-hq-functions.json`, `native-core-functions.json`, and
+`native-csql-functions.json`.
+
+The broader related unit run passed 6,058 checks across 484 files and failed 20
+checks in four pending suites: 19 use stale organization-hook mocks, and one
+finds three validator codes missing user-facing messages. These remain audit
+work; this batch does not claim a passing full suite.

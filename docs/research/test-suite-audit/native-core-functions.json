@@ -1,0 +1,34 @@
+{
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"nativeSourceSha256": {
+		"src/main/java/org/commcare/xml/SuiteParser.java": "43576499c0190317d2b5db446a5d6253b6dfa5069d6116aaf8fc1af20d775de5",
+		"src/main/java/org/commcare/session/RemoteQuerySessionManager.java": "92b9ad6d3e7a23324569c16d0bc253542c233ff7bd90dc48a5878c32a893e46c",
+		"src/main/java/org/commcare/data/xml/VirtualInstances.java": "18fd191e78e28ba840588b838e14dbfab6a2b9e4a87ce7e8626807da5f3115eb"
+	},
+	"testSourceSha256": "a7ae090cfd2313ad96f52f8194a477cc69f5286458f75803e4a8e96c527bb0d6",
+	"tests": [
+		"laterArgumentsRetainNestedFunctionNodes",
+		"nativeFunctionsReceiveLookupValuesAtEveryDepth"
+	],
+	"failures": 0,
+	"errors": 0,
+	"skipped": 0,
+	"artifacts": {
+		"function-arguments.hq-suite.xml": "b26d32fb47faa5c9af4546483d48d8025b0fb86a494305427d4966278c8c3aa4",
+		"function-arguments.strings.txt": "832766d096cffe71b25c50057f501d147f78d1c3266e9fbeee3b5e912efa5e52",
+		"function-arguments.suite.xml": "fba01ca2dc9d17e75dc2e1e903d67c64992993dcca4f9fa8915af5650c6562bf",
+		"nested-lookup.hq-suite.xml": "e6c3cb1de9d0d7e9871d69c3e3645002ed384a58ef1cf05ccddb22a701c0a3de",
+		"nested-lookup.strings.txt": "4762ea8e35f2ab40a505dc9b1636fe58309df8a8e6037642520e31f0491bb786",
+		"nested-lookup.suite.xml": "c0f69a89c06bfa7156656ef77afa9e17b489ec03cd18ee7e2b282ee10dd38515",
+		"search-values.fixture.xml": "3233e54d1dcbdea805dff28a15b73c3cd2e80bcb54c47e03796156a50817925d"
+	},
+	"payloads": {
+		"nova-function-payloads.tsv": "2a3b6fcebfe5126f0b1280c32b7958974c9031482f70e26c7535e9a900129541",
+		"nova-function-arguments.tsv": "66b5002f2bb0a118c331930ed2e15c8cd8b5008591c2d82fca1f51fd24ea1edb"
+	},
+	"limits": [
+		"Real suite parser and RemoteQuerySessionManager on local and HQ-regenerated suites; no resource installation or rendered app",
+		"Real emitted fixture bytes and supplied session data; native date/numeric query arguments and conditional changes",
+		"Twenty exact scalar payloads compile with native HQ; twelve argument trees prove syntax and typed structure without server relation queries or Elasticsearch execution"
+	]
+}

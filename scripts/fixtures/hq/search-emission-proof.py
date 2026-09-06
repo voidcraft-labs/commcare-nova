@@ -13,7 +13,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--hq-root", required=True, type=Path)
 parser.add_argument("--exports", required=True, type=Path)
 parser.add_argument("--python-path", type=Path, help="Optional dependency overlay for the HQ environment")
-parser.add_argument("--corpus", choices=["search", "prompts"], default="search")
+parser.add_argument("--corpus", choices=["search", "prompts", "functions"], default="search")
 args = parser.parse_args()
 hq_root = args.hq_root.resolve()
 sys.path.insert(0, str(hq_root))
@@ -81,6 +81,8 @@ def compare_entries(local, native, scenario):
 expected = {"inline", "browse", "multiple", "parent", "registration-link", "hidden-link", "automatic", "hidden", "advanced", "remote", "remote-multiple", "remote-defaults"}
 if args.corpus == "prompts":
     expected = {"prompt-widgets", "prompt-guards", "prompt-dataflow"}
+if args.corpus == "functions":
+    expected = {"nested-lookup", "function-arguments"}
 sources = sorted(args.exports.glob("*.json"))
 assert {source.stem for source in sources} == expected
 results = []

@@ -1358,6 +1358,15 @@ values, literals, never case data — and the only home of the `matches-pattern`
 leaf (JavaRosa `regex()`, evaluated in Preview's dedicated Search worker
 runtime). Enforcement is Web Apps only; every surface says so.
 
+Search value expressions preserve their suite context through native CSQL
+function arguments, including lookup fixture naming and worker/input identities.
+A table value can therefore be converted or used in date arithmetic without
+losing its declared instance. Later function arguments are explicitly grouped
+where they can begin with another function: HQ's pinned eulxml lexer otherwise
+reads that function name as a path after a comma. Native Core-to-HQ payload
+proofs cover the conversion, calendar result and nested argument structure;
+`lib/commcare/CLAUDE.md` owns the emission detail.
+
 #### Search first
 
 A module may open on its Search screen instead of a browse list
