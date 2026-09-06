@@ -1,7 +1,7 @@
 /**
  * Event log types — one time-ordered stream, three final event families.
  *
- * `MutationEvent` captures every doc state change (actor=user or agent).
+ * `MutationEvent` captures mutations emitted by server tool surfaces.
  * `ArchivedMutationEvent` preserves pre-canonical mutation payloads as
  * non-dereferenced audit JSON. `ConversationEvent` captures user messages, assistant output, tool calls,
  * tool results, and classified errors. The log is supplemental: blueprint
@@ -292,7 +292,7 @@ export const conversationEventSchema = envelopeSchema.extend({
 export type ConversationEvent = z.infer<typeof conversationEventSchema>;
 
 /**
- * Discriminated union over both event families. Reads re-validate each
+ * Discriminated union over the three event families. Reads re-validate each
  * stored `event` page through `eventSchema.array().parse` (see
  * `decodeEvents`), so any shape drift fails the read instead of producing a
  * partial event sequence.

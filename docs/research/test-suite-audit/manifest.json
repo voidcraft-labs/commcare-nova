@@ -6339,25 +6339,37 @@
 			"file": "lib/log/__tests__/reader.postgres.test.ts",
 			"lines": 138,
 			"ciMs": 4110,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full reader and tests. Replaced partial sequence assertions with exact independent Postgres events covering both app and run filters, timestamp-before-sequence ordering, empty neighbors, corrupt-page refusal isolated from another run and latest-run lookup from columns despite malformed payload. Pure decode duplicates moved to schema cases.",
+			"baselineSha256": "acc69971487d47bda96e5e193e22d61ee46cb463712de5d09433d45ff274cdf5",
+			"reviewedSha256": "841dcf3d1ba6b2572a9beb4bd782dc0799f642dddc5e261e81a2a5c559ad9fe2"
 		},
 		{
 			"file": "lib/log/__tests__/types.test.ts",
 			"lines": 339,
 			"ciMs": 571,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full schema and every existing case. Replace incomplete all-variants claim with a typed exhaustive payload-family record, including missing usage, validation and attachment preparation. Validate JSON persistence shape, canonical lookup identity, strict nested error/audit and private annotation keys, numeric usage bounds and opaque archives. Fix false-positive unknown-payload case whose original envelope also lacked required source.",
+			"baselineSha256": "6f95b6209139e21dfff23655bde7f8e0480a3e90f267db6be20675dc68ec0009",
+			"reviewedSha256": "06f9dedec3fa7891eff88eb7e65d61cd19341c6da3d75a7b6a87fa624931f738"
 		},
 		{
 			"file": "lib/log/__tests__/writer.postgres.test.ts",
 			"lines": 249,
 			"ciMs": 2178,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full writer and existing tests. Compare complete projected rows and JSONB, exercise two concurrent writers with identical app/run/ts/seq, retain lookup replacement roundtrip without fixture-only assertions or obsolete null comments, and use a real INSERT-rejecting trigger to prove atomic batch loss and subsequent recovery.",
+			"baselineSha256": "826ebe18991e00c62f13a380c8c25e4714bd1694c019e4c50308fcb42bad048b",
+			"reviewedSha256": "8dfd1bb3e14f13d2c849d7bbf5c0534521cdf73c576b39f4bc8beb1595294b7a"
 		},
 		{
 			"file": "lib/log/__tests__/writer.test.ts",
 			"lines": 207,
 			"ciMs": 393,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete batcher. Rebuilt around exact events, real default 450 bound, original timer deadline, concurrent flush no-duplication, controlled blocked sink serialization, empty/nonempty finalization, synchronous and asynchronous failures and authoritative source immutability. Every writer and pending completion is owned and drained; no timer remains.",
+			"baselineSha256": "f1a9881d2b1cfc2ed273fcfb442194eeee1ab9429221d6383a85b7cbd1ab6095",
+			"reviewedSha256": "71f7f492b483b0280b9abafea3f18ffc67bffac0c7f1f1a8a3e07416291c8915"
 		},
 		{
 			"file": "lib/lookup/__tests__/actions.test.ts",

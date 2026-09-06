@@ -474,3 +474,21 @@ The design contract records stable geometry for immediately usable nested
 controls. A fresh production build passed the uninstrumented browser journey
 and strict error guard. Temporary observer/input instrumentation and CSS
 interventions were removed.
+
+
+### Event logging uses separate scheduling and persistence evidence
+
+The batcher suite now verifies exact event batches, the actual 450-event bound,
+non-sliding timer deadline, overlapping finalization, in-flight serialization,
+and recovery after both synchronous throws and asynchronous rejection. Tests
+own pending promises and assert that draining leaves no timers.
+
+The database suites independently seed app/run neighbors and timestamp/sequence
+inversions, compare complete persisted envelopes and JSONB, exercise concurrent
+writers with identical ordering keys, and use a real rejecting trigger to prove
+that a failed INSERT leaves no partial batch before a later batch succeeds.
+Schema vectors now enumerate all conversation payload families, including usage,
+validation and attachment preparation. Invalid discriminator tests retain every
+other required field so an unrelated missing source cannot make them pass.
+Thirty-two cases across four files passed locally in 5.76 seconds, including
+Postgres setup. No logging behavior was changed by this slice.
