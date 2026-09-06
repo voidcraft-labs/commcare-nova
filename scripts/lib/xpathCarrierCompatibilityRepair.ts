@@ -44,15 +44,6 @@ async function currentAppVersions(
 	}));
 }
 
-export function xpathCarrierCompatibilityVerificationShouldFail(
-	report: Pick<
-		XPathCarrierCompatibilityVerificationReport,
-		"errorFindings" | "unreadableApps"
-	>,
-): boolean {
-	return report.errorFindings > 0 || report.unreadableApps > 0;
-}
-
 /**
  * Verify every selected app's identity-bearing raw XPath. Typed lookup
  * expressions are outside this carrier because their UUID references remain
@@ -155,7 +146,7 @@ export async function runXPathCarrierCompatibilityVerification(
 		errorFindings,
 		unreadableApps,
 	};
-	if (xpathCarrierCompatibilityVerificationShouldFail(report)) {
+	if (errorFindings > 0 || unreadableApps > 0) {
 		throw new Error(
 			`XPath carrier verification failed with ${errorFindings} compatibility error(s) and ${unreadableApps} unreadable app(s).`,
 		);

@@ -304,3 +304,28 @@ second. A native-Date regression failed before the timestamp comparison was
 corrected. Compact message and tool summaries now assert real UTF-8 byte sizes,
 payload omission and fatal-error distinction. The bare SHA-256 repeat-input test
 was removed: it did not exercise watch collection or suppression behavior.
+
+### Diagnostic statistics and persisted verification
+
+The XPath deployment-verification test previously checked only an exported
+boolean expression. That file and helper export are removed. Four real-Postgres
+journeys now run the verifier on stored apps, proving exact selection, duplicate
+selection handling, deleted/restorable app inclusion, compatible expression
+counts, missing selections, independently incompatible and unreadable state,
+and absence of writes. Lifecycle-status repair tests already used real Postgres
+and were retained after source review.
+
+Log analytics now process a mixed current-mutation, archived-mutation and
+conversation history through grouping, timeline, error, stage and kind views.
+A fabricated `noop as never` fixture is replaced with a valid mutation. UTF-8
+payload accounting failed before the fix: Unicode output could be ranked below
+smaller ASCII output because the implementation counted UTF-16 code units.
+The diagnostic now measures actual serialized bytes; it remains a size estimate,
+not a tokenizer or billing calculation.
+
+Blueprint statistics retain destination-based case-name diagnostics and now
+exercise nested fields, full logic totals, module order and expression printing
+after an identity-preserving rename. Generic JSON search tests were retained as
+useful pure behavior checks. Related-case scan report tests now carry actual
+validator findings from authored fixtures through rendering, with deterministic
+multi-app ordering and independent refusal for unreadable and incompatible apps.

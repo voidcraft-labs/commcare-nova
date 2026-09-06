@@ -7608,13 +7608,19 @@
 			"file": "scripts/__tests__/blueprintScan.test.ts",
 			"lines": 122,
 			"ciMs": 61,
-			"status": "pending"
+			"status": "retained",
+			"review": "Full generic walker and CLI-pair parser read. These are useful pure JSON search contracts: exact object/array paths, same-node AND, primitive number/boolean matching, structural rejection, empty predicate, census and first-equals parsing. The walker intentionally accepts historical JSON; it does not claim the miniature tree is a schema-admitted current app.",
+			"baselineSha256": "b057a01fd45c63bbec25c5025df6deda3bcc0bcaf1af572878c3115ceb7767e6",
+			"reviewedSha256": "b057a01fd45c63bbec25c5025df6deda3bcc0bcaf1af572878c3115ceb7767e6"
 		},
 		{
 			"file": "scripts/__tests__/caseLifecycleStatus.postgres.test.ts",
 			"lines": 144,
 			"ciMs": 278,
-			"status": "pending"
+			"status": "retained",
+			"review": "Full tests and query/write implementation read. Already exercises real Postgres null-sensitive grouped scan, lifecycle timestamp preservation, second-run idempotence and app-scoped repair leaving another app untouched. Shared rollback fixture owns resources and immediate FK checking; no generated-SQL or mocked database proof.",
+			"baselineSha256": "ad89f47a884e68ecb8fc42e1f74a2cad11e49233e081ba0c5b78697c61a9bf1b",
+			"reviewedSha256": "ad89f47a884e68ecb8fc42e1f74a2cad11e49233e081ba0c5b78697c61a9bf1b"
 		},
 		{
 			"file": "scripts/__tests__/caseParentRelationshipRepair.postgres.test.ts",
@@ -7626,13 +7632,19 @@
 			"file": "scripts/__tests__/caseSearchRelatedCalculationScan.test.ts",
 			"lines": 123,
 			"ciMs": 577,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete scanner/report and actual validator plus read-only CLI consumer. Report privacy now uses findings from the real authored Blueprint fixture instead of manually empty-of-prose findings. Added unsorted multiple apps and duplicate unreadable identities; incompatibility and unreadability independently fail. Retained actual direct-versus-wrapped related expression boundary.",
+			"baselineSha256": "1e14140751620d91240e28abc081a7049c6d9efc22f99b09a305d5e8ce80cfe8",
+			"reviewedSha256": "c3f628bb745312f0f3675d6c8389638b6e051f31d4145eb4f220dec02413c0fe"
 		},
 		{
 			"file": "scripts/__tests__/log-stats.test.ts",
 			"lines": 137,
 			"ciMs": 77,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read all log-stat functions and CLI result-size consumer. Retained real aggregation examples; replaced fabricated noop-as-never with a valid mutation, reset fixture sequencing, added mixed current/archived/conversation history through all analytics and immutable input. Unicode output reverses the former incorrect character-length ordering, exposing and fixing UTF-8 size accounting.",
+			"baselineSha256": "225ba5ab451c0f1e3fbbb46afd63d2fe3905a105b63d5a79c64d3d3a6f16c035",
+			"reviewedSha256": "76f6c39355ba5df3e789f6fa881a808358fb7a77ae141a9a0410344573ec22fe"
 		},
 		{
 			"file": "scripts/__tests__/lookupReferenceEdgeScan.test.ts",
@@ -7746,7 +7758,10 @@
 			"file": "scripts/lib/__tests__/blueprint-stats.test.ts",
 			"lines": 137,
 			"ciMs": 462,
-			"status": "pending"
+			"status": "revised",
+			"review": "Full 622-line stats implementation read. Retained case-write destination and advanced-operation diagnostic checks; added nested normalized Blueprint traversal, complete kind/logic totals, module order, false-required exclusion, current-name projection after a UUID-preserving rename, empty module and unchanged input. The test uses actual typed expression construction and projection.",
+			"baselineSha256": "f194b280d9db78e43c1a05beadd4507893c5fbeac0049db3b9e672f6f901ac01",
+			"reviewedSha256": "580b5a8664d208200d0538f78b120e99b8508a505b34ab374cf0fe3ed0aad233"
 		},
 		{
 			"file": "scripts/lib/__tests__/caseStatusFilterRepair.test.ts",
@@ -7815,7 +7830,10 @@
 			"file": "scripts/lib/__tests__/xpathCarrierCompatibilityRepair.test.ts",
 			"lines": 25,
 			"ciMs": 1277,
-			"status": "pending"
+			"status": "removed",
+			"review": "Deleted the boolean-only suite and test-only exported predicate. Replacement Postgres tests execute the actual verification lifecycle on stored apps: exact selection with deduplication, deleted/restorable inclusion, positive compatible expression counts, no writes, missing selected app, incompatible carrier and independently schema-unreadable state. No paid calls or fake loader.",
+			"baselineSha256": "8178a8f310e31d6ddaee5f17b8bbd001cceb6ea1e92a139c6848d5235f41c287",
+			"reviewedSha256": null
 		},
 		{
 			"file": "scripts/lib/__tests__/xpathCompatibilityScan.test.ts",

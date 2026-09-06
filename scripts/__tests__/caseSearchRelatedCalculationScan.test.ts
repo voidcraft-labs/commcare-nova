@@ -80,24 +80,21 @@ describe("Case Search related-calculation persisted-state scan", () => {
 	});
 
 	it("renders deterministic fleet evidence without authored content", () => {
+		const findings = scanCaseSearchRelatedCalculations(scanDoc());
 		const report = buildCaseSearchRelatedCalculationScanReport(
 			[
-				{
-					appId: "app-z",
-					findings: [
-						{ moduleUuid: MODULE_UUID, columnUuid: WRAPPED_COLUMN_UUID },
-					],
-				},
+				{ appId: "app-z", findings },
 				{ appId: "app-clean", findings: [] },
+				{ appId: "app-a", findings },
 			],
-			["app-unreadable"],
+			["app-unreadable-z", "app-unreadable-a", "app-unreadable-z"],
 		);
 		const rendered = renderCaseSearchRelatedCalculationScanReport(report);
 
 		expect(report).toMatchObject({
-			scannedApps: 3,
-			affectedApps: 1,
-			affectedColumns: 1,
+			scannedApps: 5,
+			affectedApps: 2,
+			affectedColumns: 2,
 			exitCode: 1,
 		});
 		expect(rendered).toContain(`module ${MODULE_UUID}`);
@@ -105,9 +102,14 @@ describe("Case Search related-calculation persisted-state scan", () => {
 		expect(rendered).toContain("app app-unreadable");
 		expect(rendered).not.toContain("Private authored");
 		expect(rendered).not.toContain("double");
-		expect(rendered.indexOf("app app-z")).toBeLessThan(
-			rendered.indexOf("app app-unreadable"),
-		);
+		expect(report.findings.map((finding) => finding.appId)).toEqual([
+			"app-a",
+			"app-z",
+		]);
+		expect(report.unreadableAppIds).toEqual([
+			"app-unreadable-a",
+			"app-unreadable-z",
+		]);
 	});
 
 	it("returns a clean zero-exit report when every persisted app is compatible", () => {
@@ -119,5 +121,23 @@ describe("Case Search related-calculation persisted-state scan", () => {
 		expect(renderCaseSearchRelatedCalculationScanReport(report)).toContain(
 			"CLEAN: no persisted app saves an unsupported related-case calculation",
 		);
+	});
+	it("fails independently for unreadable apps and for incompatible saved columns", () => {
+		const unreadable = buildCaseSearchRelatedCalculationScanReport(
+			[],
+			["unreadable"],
+		);
+		const incompatible = buildCaseSearchRelatedCalculationScanReport([
+			{
+				appId: "affected",
+				findings: scanCaseSearchRelatedCalculations(scanDoc()),
+			},
+		]);
+		for (const report of [unreadable, incompatible]) {
+			expect(report.exitCode).toBe(1);
+			expect(
+				renderCaseSearchRelatedCalculationScanReport(report),
+			).not.toContain("CLEAN:");
+		}
 	});
 });

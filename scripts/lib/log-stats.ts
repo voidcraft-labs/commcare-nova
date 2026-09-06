@@ -1,10 +1,10 @@
 /**
  * Event-stream analytics for diagnostic scripts.
  *
- * Operates on the Phase-4 unified `Event[]` shape (mutation + conversation
- * events) as produced by the writer in `lib/log/writer.ts`. Token-cost TOTALS
- * (input/output/cache) live on the per-run summary doc at
- * `apps/{appId}/runs/{runId}` (see `lib/db/runSummary.ts`) — fetch that for
+ * Operates on the unified `Event[]` shape (current and archived mutations,
+ * plus conversation events) from `lib/log/writer.ts`. Token-cost totals
+ * (input/output/cache) live in Postgres run summaries
+ * (see `lib/db/runSummary.ts`) — fetch those for
  * "how much did this run cost." But per-TOOL result SIZES — the context-cost
  * proxy for "which tool's output inflated it" — ARE derived here from the
  * event log's `tool-result.output` (see `computeToolUsage`), because the
@@ -90,9 +90,12 @@ export function computeToolUsage(events: Event[]): ToolUsageRow[] {
 			row(event.payload.toolName).calls += 1;
 		} else if (event.payload.type === "tool-result") {
 			const r = row(event.payload.toolName);
-			// Serialized length is the size the model actually pays for when the
-			// result rides the context (close enough; JSON is the wire shape).
-			const bytes = JSON.stringify(event.payload.output ?? null).length;
+			// This is serialized UTF-8 payload size, not a tokenizer or billing
+			// measurement. String.length would undercount non-ASCII output.
+			const bytes = Buffer.byteLength(
+				JSON.stringify(event.payload.output ?? null),
+				"utf8",
+			);
 			r.results += 1;
 			r.totalOutputBytes += bytes;
 			if (bytes > r.maxOutputBytes) r.maxOutputBytes = bytes;
