@@ -1,12 +1,8 @@
 import "server-only";
 
 import { log } from "@/lib/logger";
-import {
-	authHeader,
-	type CommCareApiError,
-	type CommCareCredentials,
-	warnAndReturnError,
-} from "./http";
+import type { CommCareApiError, CommCareCredentials } from "./http";
+import { readHqJson, withHqReadDeadline } from "./readJson";
 
 export function isHqObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -22,35 +18,14 @@ export async function readHqCollection(
 	maxPages: number,
 ): Promise<readonly unknown[] | CommCareApiError> {
 	const target = new URL(firstUrl);
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), 30_000);
+
 	const rows: unknown[] = [];
 	let url = firstUrl;
-	try {
+	return withHqReadDeadline(async (signal) => {
 		for (let page = 0; page < maxPages; page++) {
-			let response: Response;
-			try {
-				response = await fetch(url, {
-					headers: { Authorization: authHeader(creds) },
-					redirect: "manual",
-					cache: "no-store",
-					signal: controller.signal,
-				});
-			} catch (error) {
-				log.warn(`[commcare] ${label} unavailable`, { error });
-				return { success: false, status: 503 };
-			}
-			if (!response.ok)
-				return await warnAndReturnError(`${label} refused`, response);
-			let body: unknown;
-			try {
-				body = await response.json();
-			} catch {
-				return {
-					success: false,
-					status: controller.signal.aborted ? 503 : 502,
-				};
-			}
+			const result = await readHqJson(creds, url, label, signal);
+			if ("success" in result) return result;
+			const body = result.data;
 			if (
 				!isHqObject(body) ||
 				!Array.isArray(body.objects) ||
@@ -89,7 +64,5 @@ export async function readHqCollection(
 			pages: maxPages,
 		});
 		return { success: false, status: 508 };
-	} finally {
-		clearTimeout(timer);
-	}
+	});
 }

@@ -916,3 +916,36 @@ upload followed by an unreadable inventory, and success followed by an absent
 table; none imports an app. An actually published and HTTP-confirmed runnable
 deployment remains byte-for-byte unchanged when a later publish has missing
 credentials or a stale target server.
+
+
+## Native HQ request identity, discovery and read ownership
+
+The old slug suite explicitly blessed `..` and described the resulting request
+as at worst a same-server 404. Native URL construction disproved the assumption:
+`/a/../apps/api/list_apps/` becomes `/apps/api/list_apps/`, and `.` also removes
+the project segment. The shared guard now rejects those two segments while
+retaining actual legacy spellings; endpoint-level tests inspect the full native
+request path. Source reads also refuse path-shaped app IDs and redirects.
+
+Replaced fake Response objects and zero-delay concurrency tests with actual
+HTTP membership and access responses, matched to HQ `UserDomainsResource`,
+`DoesNothingPaginator` and `app_manager/views/cli.py::list_apps`. The former
+reader followed query-relative cursors against the host root, threw on malformed
+URLs/JSON/network failures, accepted incomplete or duplicate memberships, and
+could follow same-origin cursors that changed the private capability filter.
+Discovery could reject early while sibling fetches were still running. The
+replacement proves complete lists and exact targets, holds each eight-request
+window at the peer, and proves a disconnected probe drains its seven siblings
+without starting a ninth. An app-access probe now requires HQ's real success
+envelope, rather than accepting an HTML login page with status 200.
+
+The shared JSON reader owns an abortable 30-second deadline through body reads;
+collections pass one signal through every page and compatibility keeps its
+existing shorter signal. Source, membership, app-access, app-version and build
+readers now use it. Native fake-clock cases prove abort and timer release at each
+public read boundary. Version fields with the wrong type and malformed build
+rows previously became absent/unreleased builds. Their decoders now refuse the
+whole answer. A real runnable PostgreSQL deployment remains byte-for-byte
+unchanged after malformed release JSON; only a subsequent explicit null release
+moves it back to built. The actual SDK compatibility test also rejects a next
+page that drops its private capability filter.

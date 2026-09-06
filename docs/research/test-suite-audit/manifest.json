@@ -3540,7 +3540,10 @@
 			"file": "lib/commcare/__tests__/appSource.test.ts",
 			"lines": 76,
 			"ciMs": 97,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced global fetch spies with native HTTP source reads. Proves complete target-owned profile JSON including empty bags, malformed refusal, exact app/project identity, no redirects, expected HTTP failures and transport loss, and an owned deadline released after abort. Native tests failed before dot-segment/app-id and redirect repairs; readJson now owns the complete response lifecycle.",
+			"baselineSha256": "89919ebd6d195491251b38337868f1ab1d40c73a6452f9ff4e9d2f8b705cd7fe",
+			"reviewedSha256": "129749b7fc551556a5527c34d158b7b0356c8eb233edd4a694e8e54b28c73a50"
 		},
 		{
 			"file": "lib/commcare/__tests__/bindTypes.test.ts",
@@ -3621,7 +3624,10 @@
 			"file": "lib/commcare/__tests__/client.test.ts",
 			"lines": 98,
 			"ciMs": 51,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced fragmented regex-only cases with native endpoint identity proofs for all supported legacy project-space spellings plus refusal before network for URL syntax and standalone dot segments. The old test explicitly accepted dot-dot and incorrectly called it harmless; native URL construction changes the requested path. Reviewed related app-version/build readers and added appReadings.test.ts for complete release evidence, exact app routes, redirect refusal and deadlines, with persisted runnable-state proof in the actual MCP refresh suite.",
+			"baselineSha256": "2603c36b11c9b0206a94ec58ce9c92badca99223f7db529de074833d585e0a01",
+			"reviewedSha256": "10eff5b8af1c3ebd295086100871c9c48d03757be5641b794c6ace9a6ec76d90"
 		},
 		{
 			"file": "lib/commcare/__tests__/commcare.test.ts",
@@ -3681,7 +3687,10 @@
 			"file": "lib/commcare/__tests__/discoverAccessibleDomains.test.ts",
 			"lines": 169,
 			"ciMs": 77,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced fake Response objects and zero-delay concurrency with native HTTP using actual HQ UserDomainsResource/DoesNothingPaginator and list_apps response shapes. Proves complete count and unique routeable membership, current and older pagination, query-relative cursor resolution, stable endpoint and capability filters, malformed/transport/permission failures, eight actual in-flight requests, owned sibling drain before error and no next window, and bounded unanswered reads. Root fixes stop returning incomplete lists or HTML-login success and stop early-rejecting with sibling fetches still live.",
+			"baselineSha256": "d27971b24af7eb7fda5a9939bbf66cbaf0653fef5109f70fa8bab10d1574e0cd",
+			"reviewedSha256": "f672a9c377e020b8610c11cc9be66faae33e5243e50c8821423b2701b626e5ec"
 		},
 		{
 			"file": "lib/commcare/__tests__/displayConditions.validation.test.ts",

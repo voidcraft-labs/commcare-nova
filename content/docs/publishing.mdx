@@ -43,6 +43,11 @@ features that need destination support. If any required support is missing, or
 Nova cannot confirm it, nothing is sent. The result names the capability and
 the next step.
 
+If Nova cannot confirm the complete list of project spaces your key can reach,
+it reports the connection problem instead of showing an incomplete list. A
+status check that cannot read reliable build or release information keeps the
+last confirmed status.
+
 Nova also reports useful guidance that does not stop the publish. For example,
 the project space may be able to run the app while large Search results open
 more slowly, or a persona may be missing worker information that CommCare HQ

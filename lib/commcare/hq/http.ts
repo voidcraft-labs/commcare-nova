@@ -56,14 +56,15 @@ export interface CommCareCredentials {
  * new domains (alphanum + hyphens), grandfathered (+ dots, colons), and
  * legacy (+ underscores). We accept all three since any routable domain
  * is a valid upload target. The regex prevents path traversal (no `/`)
- * while accepting all domains that HQ can actually resolve.
+ * while accepting HQ legacy spelling. Standalone dot segments are excluded:
+ * the URL parser removes them before any request reaches HQ.
  *
  * Source: corehq/apps/domain/utils.py — `legacy_domain_re`
  */
 const DOMAIN_SLUG_RE = /^[\w.:-]+$/;
 
 export function isValidDomainSlug(domain: string): boolean {
-	return DOMAIN_SLUG_RE.test(domain);
+	return domain !== "." && domain !== ".." && DOMAIN_SLUG_RE.test(domain);
 }
 
 /** The refusal a rejected slug produces, before any request is made. */

@@ -80,6 +80,21 @@ wrong-build bytes is unverified. Version and build-list readers validate the
 JSON envelope before reading fields, so JSON `null` remains an unavailable HQ
 answer rather than an internal exception.
 
+JSON source, version/build, project-space and collection reads share
+`hq/readJson.ts`: native fetch, no redirects, no cache, an owned deadline through
+body consumption, and explicit HTTP/transport/JSON failures. Paginated reads
+carry one signal through the full list; compatibility retains its shorter
+five-second deadline. Project-space pages must retain their count, unique valid
+names, exact endpoint and private filter. Discovery awaits every started probe
+in its eight-request window before returning a failure. App-access success
+requires the HQ `status: success` / `applications` envelope. Build rows and
+version fields are complete evidence: malformed release flags or missing
+version values are unavailable, never an absent release.
+
+Standalone `.` and `..` are not usable project-space or app path segments:
+native URL parsing removes them before HQ receives a request. Other legacy
+project-space dots, colons and underscores remain supported.
+
 The same response boundary applies to publishing. Import acknowledgements
 validate the verdict, remote identity, optional version and warnings before
 the deployment service records them; an update cannot return a different app.

@@ -46,6 +46,8 @@ import {
 	WAF_PADDING,
 	warnAndReturnError,
 } from "./hq/http";
+import { isHqObject } from "./hq/readCollection";
+import { readHqJson, withHqReadDeadline } from "./hq/readJson";
 /** Private compatibility inputs stay behind the CommCare boundary. They are
  * types here so no manifest can enter a browser bundle through this client. */
 import type {
@@ -133,70 +135,64 @@ async function listDomainsMatching(
 	featureFlag?: string,
 	signal?: AbortSignal,
 ): Promise<CommCareDomain[] | CommCareApiError> {
+	if (signal === undefined)
+		return withHqReadDeadline((owned) =>
+			listDomainsMatching(creds, featureFlag, owned),
+		);
 	const domains: CommCareDomain[] = [];
-	const base = baseUrl(creds);
+	const seen = new Set<string>();
 	const query = new URLSearchParams({ limit: "100" });
 	if (featureFlag) query.set("feature_flag", featureFlag);
-	let url: string | null = `${base}/api/user_domains/v1/?${query.toString()}`;
-	/** Safety bound — prevents infinite loops from buggy pagination pointers. */
-	const MAX_PAGES = 50;
-	let page = 0;
-
-	while (url && page < MAX_PAGES) {
-		page++;
-		const res = await fetch(url, {
-			headers: { Authorization: authHeader(creds) },
-			signal,
-		});
-
-		if (!res.ok) {
-			return logAndReturnError("listDomains failed", res);
-		}
-
-		const data: unknown = await res.json();
-		if (!isUserDomainsResponse(data)) {
-			log.warn("[commcare/project-space] invalid domain-list response shape", {
-				featureFlag,
+	const target = new URL(
+		`${baseUrl(creds)}/api/user_domains/v1/?${query.toString()}`,
+	);
+	let url = target.toString();
+	let total: number | undefined;
+	for (let page = 0; page < 50; page++) {
+		const result = await readHqJson(creds, url, "project space list", signal);
+		if ("success" in result) return result;
+		const data = result.data;
+		if (
+			!isUserDomainsResponse(data) ||
+			(total !== undefined && total !== data.meta.total_count)
+		)
+			return { success: false, status: 502 };
+		total = data.meta.total_count;
+		for (const row of data.objects) {
+			if (seen.has(row.domain_name)) return { success: false, status: 502 };
+			seen.add(row.domain_name);
+			domains.push({
+				name: row.domain_name,
+				displayName: row.project_name || row.domain_name,
 			});
+		}
+		if (data.meta.next === null || data.meta.next === undefined)
+			return domains.length === total
+				? domains
+				: { success: false, status: 502 };
+		let next: URL;
+		try {
+			next = new URL(data.meta.next, url);
+		} catch {
 			return { success: false, status: 502 };
 		}
-		for (const obj of data.objects) {
-			domains.push({
-				name: obj.domain_name,
-				displayName: obj.project_name || obj.domain_name,
-			});
-		}
-
-		/* Resolve pagination URL — validate it stays on the expected host.
-		 * Tastypie can return absolute URLs; if a proxy rewrites the host or
-		 * a MITM injects a foreign URL, following it would leak the user's
-		 * API key via the Authorization header. */
-		if (data.meta.next) {
-			const resolved = new URL(data.meta.next, base);
-			if (resolved.origin !== new URL(base).origin) {
-				log.warn("[commcare/project-space] rejected foreign pagination URL", {
-					featureFlag,
-					origin: resolved.origin,
-				});
-				return { success: false, status: 502 };
-			}
-			url = resolved.toString();
-		} else {
-			url = null;
-		}
+		if (
+			data.meta.next === "" ||
+			next.origin !== target.origin ||
+			next.pathname !== target.pathname ||
+			next.username ||
+			next.password ||
+			next.hash ||
+			JSON.stringify(next.searchParams.getAll("feature_flag")) !==
+				JSON.stringify(target.searchParams.getAll("feature_flag")) ||
+			[...next.searchParams.keys()].some(
+				(key) => key !== "limit" && key !== "offset" && key !== "feature_flag",
+			)
+		)
+			return { success: false, status: 502 };
+		url = next.toString();
 	}
-	if (url !== null) {
-		log.warn(
-			"[commcare/project-space] domain pagination exceeded safety bound",
-			{
-				featureFlag,
-				pages: MAX_PAGES,
-			},
-		);
-		return { success: false, status: 508 };
-	}
-
-	return domains;
+	return { success: false, status: 508 };
 }
 
 function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
@@ -215,6 +211,8 @@ function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
 	const meta = candidate.meta as Record<string, unknown>;
 	return (
 		typeof meta.total_count === "number" &&
+		Number.isSafeInteger(meta.total_count) &&
+		meta.total_count >= 0 &&
 		(meta.limit === undefined ||
 			meta.limit === null ||
 			typeof meta.limit === "number") &&
@@ -228,6 +226,9 @@ function isUserDomainsResponse(value: unknown): value is UserDomainsResponse {
 				item !== null &&
 				!Array.isArray(item) &&
 				typeof (item as Record<string, unknown>).domain_name === "string" &&
+				isValidDomainSlug(
+					(item as Record<string, unknown>).domain_name as string,
+				) &&
 				(typeof (item as Record<string, unknown>).project_name === "string" ||
 					(item as Record<string, unknown>).project_name === null),
 		)
@@ -516,12 +517,13 @@ async function runBoundedCompatibilityProbe<T>(
 /**
  * Test whether the API key can access a specific domain.
  *
- * Makes a lightweight GET to the list_apps endpoint — returns true on
- * 200, false on 401/403. CommCare HQ returns 401 (not 403) for domains
+ * Makes a lightweight GET to the list_apps endpoint: its explicit JSON success
+ * envelope proves access; ordinary 401/403 responses refuse it. CommCare HQ returns 401 (not 403) for domains
  * where the API key lacks app-level access, even though the key is valid
  * for the user_domains endpoint. Since callers already validated the key
  * via listDomains(), a per-domain 401 is a scope issue, not invalid creds.
- * Only 5xx errors propagate as CommCareApiError.
+ * Edge refusals, redirects, transport failures and malformed bodies remain
+ * unavailable answers rather than silently dropping an accessible space.
  */
 export async function testDomainAccess(
 	creds: CommCareCredentials,
@@ -529,13 +531,20 @@ export async function testDomainAccess(
 ): Promise<boolean | CommCareApiError> {
 	if (!isValidDomainSlug(domain)) return false;
 	const url = `${baseUrl(creds)}/a/${domain}/apps/api/list_apps/`;
-	const res = await fetch(url, {
-		headers: { Authorization: authHeader(creds) },
-	});
-
-	if (res.ok) return true;
-	if (res.status === 401 || res.status === 403) return false;
-	return logAndReturnError(`testDomainAccess(${domain}) failed`, res);
+	const result = await readHqJson(creds, url, "app access");
+	if ("success" in result) {
+		if (
+			(result.status === 401 || result.status === 403) &&
+			result.edgeRefusal !== true
+		)
+			return false;
+		return result;
+	}
+	return isHqObject(result.data) &&
+		result.data.status === "success" &&
+		Array.isArray(result.data.applications)
+		? true
+		: { success: false, status: 502 };
 }
 
 /**
@@ -916,7 +925,7 @@ export interface HqAppBuild {
 }
 
 function finiteIntOrNull(value: unknown): number | null {
-	return typeof value === "number" && Number.isSafeInteger(value)
+	return typeof value === "number" && Number.isSafeInteger(value) && value >= 0
 		? value
 		: null;
 }
@@ -939,32 +948,24 @@ export async function readAppVersions(
 	domain: string,
 	hqAppId: string,
 ): Promise<HqAppVersions | CommCareApiError> {
-	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(hqAppId))
+		return { success: false, status: 400 };
 	const url = `${baseUrl(creds)}/a/${domain}/apps/view/${encodeURIComponent(hqAppId)}/current_version/`;
-	let res: Response;
-	try {
-		res = await fetch(url, {
-			headers: { Authorization: authHeader(creds), Accept: "application/json" },
-		});
-	} catch (err) {
-		log.warn("[commcare] current_version request failed", {
-			domain,
-			error: err instanceof Error ? err.message : String(err),
-		});
-		return { success: false, status: 503 };
-	}
-	if (!res.ok) return warnAndReturnError("current_version failed", res);
-	let data: unknown;
-	try {
-		data = await res.json();
-	} catch {
-		return { success: false, status: 502 };
-	}
+	const result = await readHqJson(creds, url, "app versions");
+	if ("success" in result) return result;
+	const data = result.data;
 	if (typeof data !== "object" || data === null || Array.isArray(data))
 		return { success: false, status: 502 };
 	const record = data as Record<string, unknown>;
 	const currentVersion = finiteIntOrNull(record.currentVersion);
-	if (currentVersion === null) return { success: false, status: 502 };
+	if (
+		currentVersion === null ||
+		(record.latestBuild !== null &&
+			finiteIntOrNull(record.latestBuild) === null) ||
+		(record.latestReleasedBuild !== null &&
+			finiteIntOrNull(record.latestReleasedBuild) === null)
+	)
+		return { success: false, status: 502 };
 	return {
 		currentVersion,
 		latestBuildVersion: finiteIntOrNull(record.latestBuild),
@@ -992,27 +993,12 @@ export async function listAppBuilds(
 	domain: string,
 	hqAppId: string,
 ): Promise<readonly HqAppBuild[] | CommCareApiError> {
-	if (!isValidDomainSlug(domain)) return { success: false, status: 400 };
+	if (!isValidDomainSlug(domain) || !/^[\w-]+$/.test(hqAppId))
+		return { success: false, status: 400 };
 	const url = `${baseUrl(creds)}/a/${domain}/api/application/v1/${encodeURIComponent(hqAppId)}/`;
-	let res: Response;
-	try {
-		res = await fetch(url, {
-			headers: { Authorization: authHeader(creds), Accept: "application/json" },
-		});
-	} catch (err) {
-		log.warn("[commcare] application resource request failed", {
-			domain,
-			error: err instanceof Error ? err.message : String(err),
-		});
-		return { success: false, status: 503 };
-	}
-	if (!res.ok) return warnAndReturnError("application resource failed", res);
-	let data: unknown;
-	try {
-		data = await res.json();
-	} catch {
-		return { success: false, status: 502 };
-	}
+	const result = await readHqJson(creds, url, "app builds");
+	if ("success" in result) return result;
+	const data = result.data;
 	if (
 		typeof data !== "object" ||
 		data === null ||
@@ -1021,12 +1007,21 @@ export async function listAppBuilds(
 	)
 		return { success: false, status: 502 };
 	const builds: HqAppBuild[] = [];
+	const ids = new Set<string>();
 	for (const entry of data.versions) {
-		if (typeof entry !== "object" || entry === null) continue;
+		if (!isHqObject(entry)) return { success: false, status: 502 };
 		const row = entry as Record<string, unknown>;
 		const id = typeof row.id === "string" ? row.id : null;
 		const version = finiteIntOrNull(row.version);
-		if (id === null || version === null) continue;
+		if (
+			id === null ||
+			!/^[\w-]+$/.test(id) ||
+			version === null ||
+			typeof row.is_released !== "boolean" ||
+			ids.has(id)
+		)
+			return { success: false, status: 502 };
+		ids.add(id);
 		builds.push({
 			id,
 			version,

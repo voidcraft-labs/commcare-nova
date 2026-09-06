@@ -260,3 +260,12 @@ foreign JSON, and refused versus unacknowledged writes. Test a shared inventory
 deadline by advancing a controlled clock between real HTTP pages; own and drain
 the peer's blocked response promises. Do not imitate the deployment ledger in
 an in-memory mock.
+
+HQ project-space discovery uses actual upstream-shaped JSON and native HTTP.
+Its concurrency test holds complete groups of eight responses on explicit owned
+promises, then releases each group; it proves a failed request drains its
+siblings and prevents a ninth request. Do not substitute zero-delay timers or
+Response-shaped objects. URL tests assert the request the peer actually saw,
+including legacy domain spellings, dot-segment refusal, pagination and redirects.
+A recorded runnable deployment supplies the before/after proof that malformed
+version JSON cannot become an authoritative release withdrawal.

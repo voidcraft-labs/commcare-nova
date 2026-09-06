@@ -291,6 +291,13 @@ it("records readiness from the exact released profile, survives an unavailable c
 			reply(peer, VERSION_PATH, {
 				currentVersion: 3,
 				latestBuild: 3,
+				latestReleasedBuild: "3",
+			});
+			expect(errorBody(await call(client)).error_type).toBe("invalid_input");
+			expect(await snapshot()).toEqual(before);
+			reply(peer, VERSION_PATH, {
+				currentVersion: 3,
+				latestBuild: 3,
 				latestReleasedBuild: null,
 			});
 			const withdrawn = await refresh(client);
@@ -304,9 +311,14 @@ it("records readiness from the exact released profile, survives an unavailable c
 			expect((await snapshot()).deployments[0].state).toBe("built");
 		});
 		expect(urls(peer)).toEqual(
-			[VERSION_PATH, BUILD_PATH, PROFILE_PATH, VERSION_PATH, VERSION_PATH].map(
-				(path) => ({ method: "GET", fullUrl: HOST + path }),
-			),
+			[
+				VERSION_PATH,
+				BUILD_PATH,
+				PROFILE_PATH,
+				VERSION_PATH,
+				VERSION_PATH,
+				VERSION_PATH,
+			].map((path) => ({ method: "GET", fullUrl: HOST + path })),
 		);
 	});
 });

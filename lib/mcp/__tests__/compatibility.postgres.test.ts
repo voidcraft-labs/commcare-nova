@@ -247,6 +247,18 @@ it.each([
 		body: { objects: [] },
 		state: "unverified" as const,
 	},
+	{
+		label: "pagination that drops the private capability filter",
+		status: 200,
+		body: {
+			...visible,
+			meta: {
+				total_count: 2,
+				next: "/api/user_domains/v1/?limit=100&offset=100",
+			},
+		},
+		state: "unverified" as const,
+	},
 ])(
 	"distinguishes $label from confirmed availability without leaking upstream diagnostics",
 	async ({ status, body, state }) => {
