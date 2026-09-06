@@ -353,3 +353,30 @@ case updates in that same transaction, with counters updated only after commit.
 The regression proves rollback and complete retry. No production repair was run.
 The obsolete claim that this historical repair runs on every ordinary deployment
 was also removed after checking its actual CLI consumer.
+
+
+### Real membership and authentication migration admission
+
+The guarded writer suite no longer mocks its membership module or duplicates
+app persistence in its fixtures. Each revocation scenario first commits as a real
+Project member, then removes that membership or downgrades it to viewer. The next
+commit must refuse without changing the full stored app or history, including
+when the removed actor created the app.
+
+The account identity migration accepted a partial unique index as complete
+because it searched the printed index definition for column names. A real
+partial index reproduces that false admission. Catalog inspection now requires
+a valid, ready, unconditional unique index on exactly the two identity columns.
+Credential fixtures also prove normalization, separate provider namespaces,
+rolling inserts, duplicate refusal and an unchanged retry against real Postgres.
+
+OAuth migration tests prepare the provider schema once, then clone it for each
+journey. They verify complete retry preservation, nonempty scope preservation,
+IPv6 loopback classification and independent ambiguous redirect refusals. An
+actual backfill trigger failure proves resource registration, client links and
+rolling bridge installation roll back together before a successful retry.
+
+The XPath scan suite retains actual carrier analysis and now checks the complete
+fixture profile inventory and aggregate counts, including separate runtime-owner
+findings. Connect expressions use the current typed representation. Its scope is
+the scanner; exhaustive domain slot traversal remains a separate contract.

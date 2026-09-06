@@ -118,4 +118,58 @@ describe("Better Auth account identity scan-then-migrate", () => {
 			migrateBetterAuthAccountIdentity(dbHandle.pool),
 		).rejects.toThrow(/projected issuer\/account identity collision/);
 	});
+	it("normalizes credential identities and keeps their namespace separate from Google", async () => {
+		await createLegacyAccountTable();
+		await seedGoogleAccount("google", "user-a", "google-user");
+		await dbHandle.pool.query(`INSERT INTO auth_account (id, "accountId", "providerId", "userId")
+			VALUES ('credential', 'legacy-email', 'credential', 'user-a')`);
+		await migrateBetterAuthAccountIdentity(dbHandle.pool);
+		const accounts = await dbHandle.pool.query(
+			`SELECT id, issuer, "accountId" FROM auth_account ORDER BY id`,
+		);
+		expect(accounts.rows).toEqual([
+			{ id: "credential", issuer: "local:credential", accountId: "user-a" },
+			{
+				id: "google",
+				issuer: "https://accounts.google.com",
+				accountId: "user-a",
+			},
+		]);
+		await dbHandle.pool.query(`INSERT INTO auth_account (id, "accountId", "providerId", "userId")
+			VALUES ('rolling', 'old-account-id', 'credential', 'user-b')`);
+		expect(
+			(
+				await dbHandle.pool.query(
+					`SELECT issuer, "accountId" FROM auth_account WHERE id = 'rolling'`,
+				)
+			).rows,
+		).toEqual([{ issuer: "local:credential", accountId: "user-b" }]);
+		await expect(
+			dbHandle.pool.query(`INSERT INTO auth_account (id, "accountId", "providerId", "userId")
+			VALUES ('duplicate', 'another-old-id', 'credential', 'user-a')`),
+		).rejects.toMatchObject({ code: "23505" });
+		const current = await scanBetterAuthAccountIdentity(dbHandle.pool);
+		expect(current.state).toBe("current");
+		expect(await migrateBetterAuthAccountIdentity(dbHandle.pool)).toEqual(
+			current,
+		);
+	});
+
+	it("refuses a partial identity index that leaves accounts without uniqueness protection", async () => {
+		await createLegacyAccountTable();
+		await seedGoogleAccount("account-a", "subject-a", "user-a");
+		await migrateBetterAuthAccountIdentity(dbHandle.pool);
+		await dbHandle.pool.query(
+			`DROP INDEX "auth_account_issuer_accountId_uidx"`,
+		);
+		await dbHandle.pool.query(`CREATE UNIQUE INDEX "auth_account_issuer_accountId_uidx"
+			ON auth_account (issuer, "accountId") WHERE false`);
+		expect(await scanBetterAuthAccountIdentity(dbHandle.pool)).toMatchObject({
+			state: "blocked",
+			issuerAccountIndexPresent: false,
+		});
+		await expect(
+			migrateBetterAuthAccountIdentity(dbHandle.pool),
+		).rejects.toThrow(/index is absent or drifted/);
+	});
 });

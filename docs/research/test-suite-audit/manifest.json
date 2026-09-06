@@ -4777,9 +4777,9 @@
 			"lines": 1449,
 			"ciMs": 15331,
 			"status": "revised",
-			"review": "Remove three duplicate sequence/membership/success cases while retaining non-owner success. Seed valid concrete successor holders for stale-identity rejections, actually reverse retry key order, assert exact unchanged lease and entire persisted doc.",
+			"review": "Remove three duplicate sequence/membership/success cases while retaining non-owner success. Seed valid concrete successor holders for stale-identity rejections, actually reverse retry key order, assert exact unchanged lease and entire persisted doc. Further review removes the entire membership module mock and duplicate app fixture writer. Actual member removal and editor-to-viewer downgrade after a successful commit now prove fresh authority and unchanged whole persisted state/history, including creator revocation. SQL result uses inferred types instead of an as-never cast. Thirty cases pass.",
 			"baselineSha256": "ba39851279a20176cf6c4d6351c561b98aa1301eae9ef8997c9115e2a8b682c7",
-			"reviewedSha256": "633987721775a6d2f9122996165ada2a6e24b57900051b08e35bf1c2c4ea7b1c"
+			"reviewedSha256": "4baec678205e4c007c4702ac76bd16ae15a51bf79f3f067fadff32cf3f733306"
 		},
 		{
 			"file": "lib/db/__tests__/credits.postgres.test.ts",
@@ -7596,13 +7596,19 @@
 			"file": "scripts/__tests__/betterAuthAccountIdentity.postgres.test.ts",
 			"lines": 121,
 			"ciMs": 2139,
-			"status": "pending"
+			"status": "revised",
+			"review": "Full scan/writer and current installed Better Auth account schema/index source read. Retain real legacy migration plus actual provider migrator and rolling insert. Add credential identity rewrite, provider namespace separation, native uniqueness refusal, rolling credential insert and no-op retry. Actual partial unique index exposed false current admission; scanner now verifies structural PostgreSQL catalog facts instead of index-definition substrings.",
+			"baselineSha256": "2a76d2a105e83c39a5fe1eacdf337922c98cba955cacc05df0df97b5057e0cde",
+			"reviewedSha256": "94c78565faa2590a5ecf52d70fecfa49616a6f50323e4e19881b2a44de6e0dea"
 		},
 		{
 			"file": "scripts/__tests__/betterAuthOauthClientMigration.postgres.test.ts",
 			"lines": 116,
 			"ciMs": 2656,
-			"status": "pending"
+			"status": "revised",
+			"review": "Full 561-line scan/migrate/finalize implementation and schema options read. Preserve real native/web backfill, resource linking, rolling inserts and bridge finalization. Prepare current Better Auth schema once in an immutable template. Replace misleading already-current test with complete row/resource/link retry preservation and nonempty scope preservation. Add empty/mixed/lookalike URI refusals and actual trigger-failed backfill rollback of links, resource and bridge, then successful retry.",
+			"baselineSha256": "edf25833ffa833b812d79d46a8c2e15e6f5ad67b94400519ec6b08375911deb8",
+			"reviewedSha256": "829eb8372fe92100b997fddfe9d35616188215beffd5561b692d05679e5c0042"
 		},
 		{
 			"file": "scripts/__tests__/blueprintScan.test.ts",
@@ -7848,7 +7854,10 @@
 			"file": "scripts/lib/__tests__/xpathCompatibilityScan.test.ts",
 			"lines": 225,
 			"ciMs": 661,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read the whole scanner, carrier walker, compatibility analyzer paths and fleet CLI consumer. Replace legacy Connect string casts with typed XPath expressions; use actual scan output for exact field/form/catalog profile inventory, blank handling, function/lowering totals, both owner findings, deterministic aggregation and privacy. Retain mutable fixture-name refusals. This is scanner coverage, not an exhaustive proof of all domain expression slots.",
+			"baselineSha256": "84fb129d597b00895e58e4ff0b46f883462666150bd72d6982928eaaee1d6f77",
+			"reviewedSha256": "a27ae399dad93415ead3b57444e29bd93c5795266f90fc713306191406273b4d"
 		}
 	]
 }

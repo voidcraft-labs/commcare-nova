@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { authoredXPathCarriers } from "@/lib/commcare/xpath/carriers";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
 import {
 	scanBlueprintXPathCarriers,
@@ -10,7 +9,7 @@ import {
 } from "../xpathCompatibilityScan";
 
 describe("scanBlueprintXPathCarriers", () => {
-	it("inventories every persisted carrier with its owning runtime profile", () => {
+	it("scans field, form-link, Connect and catalog carriers under their runtime profiles", () => {
 		const moduleUuid = testUuid("scan-module");
 		const sourceFormUuid = testUuid("scan-source-form");
 		const targetFormUuid = testUuid("scan-target-form");
@@ -42,8 +41,8 @@ describe("scanBlueprintXPathCarriers", () => {
 								deliver_unit: {
 									id: "delivery",
 									name: "Delivery",
-									entity_id: "uuid()" as never,
-									entity_name: "'Delivery'" as never,
+									entity_id: xp("uuid()"),
+									entity_name: xp("'Delivery'"),
 								},
 							},
 							formLinks: [
@@ -98,22 +97,25 @@ describe("scanBlueprintXPathCarriers", () => {
 				},
 			],
 		});
-		const carriers = authoredXPathCarriers(doc);
-		expect(carriers.map(({ slot, profile }) => ({ slot, profile }))).toEqual(
-			expect.arrayContaining([
-				{ slot: "calculate", profile: "preview-form" },
-				{ slot: "form_link_condition", profile: "preview-session" },
-				{ slot: "form_link_datum_xpath", profile: "preview-session" },
+		const occurrences = scanBlueprintXPathCarriers(doc);
+		expect(occurrences.map(({ slot, profile }) => ({ slot, profile }))).toEqual(
+			[
+				...Array.from({ length: 4 }, () => ({
+					slot: "calculate",
+					profile: "preview-form",
+				})),
 				{ slot: "deliver_entity_id", profile: "wire-form" },
 				{ slot: "deliver_entity_name", profile: "wire-form" },
+				{ slot: "form_link_condition", profile: "preview-session" },
+				{ slot: "form_link_datum_xpath", profile: "preview-session" },
 				{ slot: "case_property_required", profile: "wire-catalog" },
 				{ slot: "case_property_validation", profile: "wire-catalog" },
-			]),
+			],
 		);
-		expect(carriers.some((carrier) => carrier.source === "")).toBe(true);
-		expect(carriers).toHaveLength(10);
-
-		const occurrences = scanBlueprintXPathCarriers(doc);
+		expect(occurrences.find(({ source }) => source === "")).toMatchObject({
+			calls: [],
+			findings: [],
+		});
 		const calls = occurrences.flatMap((occurrence) =>
 			occurrence.calls.map((call) => ({ path: occurrence.path, ...call })),
 		);
@@ -138,23 +140,28 @@ describe("scanBlueprintXPathCarriers", () => {
 		);
 
 		const summary = summarizeXPathCompatibility(occurrences);
-		expect(summary.expressions).toBe(10);
-		expect(summary.errorFindings).toBeGreaterThanOrEqual(2);
-		expect(summary.findings).toEqual(
-			expect.arrayContaining([
+		expect(summary).toEqual({
+			expressions: 10,
+			functionCalls: 6,
+			javaRosaLoweredCalls: 1,
+			errorFindings: 3,
+			findings: [
+				{
+					profile: "preview-form",
+					code: "XPATH_FUNCTION_UNAVAILABLE",
+					severity: "error",
+					count: 2,
+				},
 				{
 					profile: "preview-form",
 					code: "XPATH_UNSUPPORTED_UNION",
 					severity: "error",
 					count: 1,
 				},
-				{
-					profile: "preview-form",
-					code: "XPATH_FUNCTION_UNAVAILABLE",
-					severity: "error",
-					count: expect.any(Number),
-				},
-			]),
+			],
+		});
+		expect(summarizeXPathCompatibility([...occurrences].reverse())).toEqual(
+			summary,
 		);
 		const aggregateOutput = JSON.stringify(summary);
 		expect(aggregateOutput).not.toContain(doc.appId);
