@@ -4968,10 +4968,9 @@
 			"file": "lib/db/__tests__/moveAppToProject.test.ts",
 			"lines": 142,
 			"ciMs": 75,
-			"status": "revised",
-			"review": "Reset mock implementations between cases; prove normalization occurs before copy, exact source asset scope, and copied map reaches commit.",
-			"baselineSha256": "e4c11a89355a66967f500532ea27441cbe0a256b232e26a5b43965b43eb9b2fd",
-			"reviewedSha256": "2e4d7603e197ec738786180d31d6006d1c5ccd9f9bc1d9c6c9effba88f570156"
+			"status": "removed",
+			"review": "Replaced fabricated move/errors and orchestration method mocks with actual MCP/migrated-Postgres moveApp.postgres.test.ts. Proves cases, history, presence and conversation effects; native late rollback and retry; source/destination/scope and owner-retention refusals; real claimed run, failed native refund, exact-once refund before move; capture refusal with same-Project recovery. Two actual concurrent-move orderings exposed stale response scope: shared orchestration now returns its locked result to MCP and Server Action. Detailed media-copy tests remain at their own pending boundaries.",
+			"baselineSha256": "e4c11a89355a66967f500532ea27441cbe0a256b232e26a5b43965b43eb9b2fd"
 		},
 		{
 			"file": "lib/db/__tests__/mutationTargetAdmission.test.ts",
@@ -6590,7 +6589,9 @@
 			"file": "lib/mcp/__tests__/moveApp.test.ts",
 			"lines": 365,
 			"ciMs": 1506,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced fabricated move/errors and orchestration method mocks with actual MCP/migrated-Postgres moveApp.postgres.test.ts. Proves cases, history, presence and conversation effects; native late rollback and retry; source/destination/scope and owner-retention refusals; real claimed run, failed native refund, exact-once refund before move; capture refusal with same-Project recovery. Two actual concurrent-move orderings exposed stale response scope: shared orchestration now returns its locked result to MCP and Server Action. Detailed media-copy tests remain at their own pending boundaries.",
+			"baselineSha256": "d6194b612e9af03d7d116a5e0022872dac5b43c3ba62d8307c904388e4ddcb02"
 		},
 		{
 			"file": "lib/mcp/__tests__/ownership.test.ts",

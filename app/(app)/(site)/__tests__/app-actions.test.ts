@@ -93,7 +93,11 @@ describe("moveApp Project policy", () => {
 			role: "owner",
 			actorUserId: "user-1",
 		});
-		mocks.moveAppToProject.mockResolvedValue(undefined);
+		mocks.moveAppToProject.mockResolvedValue({
+			kind: "moved",
+			fromProjectId: "project-source",
+			projectId: "project-target",
+		});
 	});
 
 	it("moves the app", async () => {
@@ -124,6 +128,10 @@ describe("moveApp Project policy", () => {
 	});
 
 	it("retains exact same-Project case-data recovery", async () => {
+		mocks.moveAppToProject.mockResolvedValue({
+			kind: "already_in_project",
+			projectId: "project-source",
+		});
 		await expect(moveApp("app-1", "project-source")).resolves.toEqual({
 			success: true,
 			kind: "same_project_recovered",

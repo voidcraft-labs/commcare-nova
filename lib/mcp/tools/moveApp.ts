@@ -41,6 +41,7 @@ import { type ProjectAccess, resolveAppScope } from "@/lib/db/appAccess";
 import { ProjectMoveDeniedError } from "@/lib/db/commitGuard";
 import {
 	AppBusyError,
+	type AppProjectMoveResult,
 	AppRunStateCorruptError,
 	moveAppToProject,
 } from "@/lib/db/moveAppToProject";
@@ -121,8 +122,9 @@ export function registerMoveApp(server: McpServer, ctx: ToolContext): void {
 					"Moving an app into a Project requires an admin or owner role there. Ask an admin or owner of the destination Project to grant you that role, or have them move the app.",
 				);
 
+				let result: AppProjectMoveResult;
 				try {
-					await moveAppToProject({
+					result = await moveAppToProject({
 						appId: args.app_id,
 						fromProjectId: scope.projectId,
 						toProjectId: args.to_project_id,
@@ -145,14 +147,14 @@ export function registerMoveApp(server: McpServer, ctx: ToolContext): void {
 					throw err;
 				}
 
-				if (scope.projectId === args.to_project_id) {
+				if (result.kind === "already_in_project") {
 					return {
 						content: [
 							{
 								type: "text",
 								text: JSON.stringify({
 									app_id: args.app_id,
-									project_id: args.to_project_id,
+									project_id: result.projectId,
 									result: "already_in_project",
 									note: "The app is already in this Project, so nothing moved. Its case-data tenancy was verified and repaired where needed.",
 								}),
@@ -167,8 +169,8 @@ export function registerMoveApp(server: McpServer, ctx: ToolContext): void {
 							type: "text",
 							text: JSON.stringify({
 								app_id: args.app_id,
-								from_project_id: scope.projectId,
-								to_project_id: args.to_project_id,
+								from_project_id: result.fromProjectId,
+								to_project_id: result.projectId,
 								result: "moved",
 							}),
 						},

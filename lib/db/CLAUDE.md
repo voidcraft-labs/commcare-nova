@@ -307,7 +307,10 @@ sessions and Project-scoped external-action receipts, appends one attributed
 emits app/presence notifications atomically. Media byte copies are the only
 non-destructive pre-transaction work. Exact same-Project recovery instead locks
 the app, derives its fresh Project, and repairs only case tenancy: no migration
-row and no presence purge.
+row and no presence purge. The orchestration returns the committed move or the
+freshly locked repair Project. MCP and Server Actions project that result rather
+than inferring success from a stale preflight scope; a concurrent winner may
+change both the operation kind and the returned Project.
 Membership `INSERT`/`UPDATE`/`DELETE` take the matching exclusive transaction
 lock from a Better Auth `BEFORE STATEMENT` trigger; `TRUNCATE` raises SQLSTATE
 `55000` once its `BEFORE TRUNCATE` trigger fires, without ever waiting on the

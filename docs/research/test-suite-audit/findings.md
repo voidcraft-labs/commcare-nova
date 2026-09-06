@@ -621,3 +621,27 @@ no write. A membership transaction demoting the actor blocks an MCP role change;
 after commit, the waiting request must refuse. Removing the explicit membership
 lock temporarily made that test fail with a successful unauthorized response.
 The production lock is restored. No Project runtime behavior changed.
+
+### App moves: return the locked outcome
+
+The MCP move suite fabricated both authorization and the entire move; the
+orchestration suite replaced every stateful operation. Eight actual SDK and
+migrated-Postgres cases replace both. They prove tenant/case/history changes,
+conversation retention, presence removal, late transactional rollback and retry,
+source/destination refusal context, owner retention, capture refusal, and
+same-Project recovery. A real claimed edit blocks moving; an expired holder with
+a native refund failure leaves both credit and tenant unchanged, while a retry
+refunds exactly once before the move.
+
+An actual concurrent transaction exposed a response bug: MCP preflight read
+Project A, another move committed Project B, and case recovery correctly followed
+the fresh row but returned a response naming A. The shared orchestration now
+returns the committed move or locked repair result. MCP projects its actual
+Project and operation kind; the browser action uses that operation kind too.
+Native lock tests cover requests originally targeting either A or B when the
+other move wins. Neither adds a second history row. The reproduction failed
+before the change and passes after it.
+
+The complete MCP run plus the existing atomic-move and Server Action consumers
+passed 237 tests across 28 files in 15.33 seconds; type checking passed. Those
+consumer runs do not mark their remaining testing-method review complete.

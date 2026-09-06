@@ -210,6 +210,8 @@ Every app lives in exactly one **Nova Project**, and the Project is the sharing 
 
 The roles: a **viewer** reads apps and data, an **editor** also edits them, an **admin** also manages members, and the **owner** is the member who created the Project. Owner isn't assignable — the creator stays the one owner.
 
+After a concurrent move, an `already_in_project` response names the app's actual Project in `project_id`. Use that returned identity when continuing; another member may have moved the app since your request began.
+
 Prefer creating an app in the right Project from the start. An app that references Project data tables or has captured form submissions can't move between Projects, so `move_app` is the recovery path for apps born in the wrong place (typically the personal Project), not the everyday flow.
 
 <Callout type="info">
