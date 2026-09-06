@@ -354,7 +354,7 @@ function buildCaseBlocks(
 				}),
 			);
 		}
-	} else if (isUpdate || isClose) {
+	} else if (isUpdate || isClose || hasSubcases) {
 		// Case-update / case-close: no `<create>` block, but the case_id still
 		// wires to the case-loading session datum so the case-update block on
 		// the wire knows which case it's editing.
@@ -531,11 +531,11 @@ function buildCaseBlocks(
 		}
 	}
 
-	// Whether the primary case element appears at all. When the form has only
-	// subcases (no open/update/close on the parent), no `<case>` is appended
-	// under `<data>` and no attribute binds (date_modified, user_id) emit.
+	// A child-create-only followup still needs its selected parent block:
+	// every child index reads /data/case/@case_id. HQ bind_case_id likewise
+	// materializes this empty transaction even without parent property writes.
 	const dataChildren: CaseBlockChild[] = [];
-	if (isCreate || isUpdate || isClose) {
+	if (isCreate || isUpdate || isClose || hasSubcases) {
 		dataChildren.push({
 			parentPath: FormPath.root(),
 			element: buildCaseElement(caseChildren),

@@ -92,9 +92,9 @@ export function captureUrlNodePath(capturePath: FormPath): FormPath {
  *
  * Blank in, blank out. The guard is load-bearing on the HQ path: HQ
  * generates `relevant="count(<question path>) > 0"` for every case update
- * from the node it was given, and this node always exists, so without the
- * guard a form submitted with no attachment would write an address ending
- * in a bare slash. With it, clearing an attachment writes `""` — a real
+ * from the node it was given. The sibling follows the capture's relevance;
+ * while active, without the value guard a form submitted with no attachment
+ * would write an address ending in a bare slash. With it, clearing an attachment writes `""` — a real
  * blank that keeps the property honest about what the case now holds.
  */
 export function captureUrlCalculate(

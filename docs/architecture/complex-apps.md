@@ -1757,7 +1757,10 @@ written instead. `"url"` writes a link to the file, built as
 `if(<capture> = '', '', concat('<origin>/a/<domain>/api/form_attachment/v1/',
 /data/meta/instanceID, '/', <capture>))` on a SIBLING node
 (`lib/commcare/xform/captureUrlNode.ts`), which `formActions.ts` then names as
-the update's `question_path`.
+the update's `question_path`. The sibling follows the capture's relevance: a
+hidden capture emits no update, preserving the old case link; an active blank
+capture emits a blank property. Capture answers are never preloaded from case
+properties, since an old address is not a filename in the current submission.
 
 That indirection is the unit's whole reason for existing.
 `xform.py::CaseBlock.add_case_updates` routes an update into an `<attachment>`
@@ -1782,8 +1785,9 @@ capture question deliberately, so HQ's structural rule builds the
 `.ccz` reaches the same shape by running HQ's own rule rather than by being
 told — `caseBlocks.ts::attachmentQuestionPaths` collects the body's
 `<upload ref>` set, which is exactly what `::is_attachment` computes, so the
-two surfaces consume one input pair (`FormActions` + the body) and cannot
-diverge. The emitted bytes match `form_preparation_v2/update_attachment_case.xml`
+two surfaces consume one input pair (`FormActions` + the body). The native HQ
+and Core capture proof checks both generated forms through serialization; shared
+inputs alone do not establish equivalent runtime behavior. The emitted bytes match `form_preparation_v2/update_attachment_case.xml`
 and its `_advanced` twin: an empty `<update/>`, a sibling `<attachment>` whose
 child is named by the case property and carries `src="" from="local"`, and
 binds spelled `relevant="count(<question>) = 1"` plus `@src`

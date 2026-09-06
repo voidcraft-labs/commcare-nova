@@ -13,7 +13,7 @@
 	"evidence": [
 		{
 			"scenario": "registration",
-			"inputSha256": "6032562346c51f00c9deef12f99d3fd7db9bff3598ca0a3f10e699bbd6576a24",
+			"inputSha256": "f68a715285554bddb746b24d4ee24f51d929e0ea31dd2a86b911c2a2d0278544",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -39,7 +39,7 @@
 		},
 		{
 			"scenario": "followup",
-			"inputSha256": "df553573bff25c6434b28a1f4d00a406f9bbd1f5ee9ab1e5a6f37c7948e471c4",
+			"inputSha256": "73913185c0401a7c9903a3f508648ff7985e388061209ffef2f1f0a2ce662446",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -64,7 +64,7 @@
 		},
 		{
 			"scenario": "repeat",
-			"inputSha256": "5b77d645e7e2a3feac9decdb1f5053033284750feef42c7346c1fb00c04e41ba",
+			"inputSha256": "eac1b98728ce0c8121ec629d96dc6f9e5340d04bfc7abe252deddfc9aa260e48",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -85,7 +85,7 @@
 		},
 		{
 			"scenario": "query",
-			"inputSha256": "6f6dfb54f2757f9b6d719b46a0819f0be1187e8e948c270a8082bef49f332fca",
+			"inputSha256": "b6fa1041d82d8eae169cf633057896ddb86a4201ac92cc460ce46ffd09a8f817",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -106,7 +106,7 @@
 		},
 		{
 			"scenario": "multiple",
-			"inputSha256": "105487eaa0dc6785c42567b0de4738d2a00091ac00825c28b389939947833584",
+			"inputSha256": "8c83c0372fb9279aa21b83a01a4c7f6d743911199771e936b1f8cd0d4a57cd9d",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -128,7 +128,7 @@
 		},
 		{
 			"scenario": "multiple-repeat",
-			"inputSha256": "c78fc1a2683301b2df2a674869fc7f49102e9718cd84446de6ff49b396239ce8",
+			"inputSha256": "6dea254bd0d8ec256b80c8f2c2ad3d22db943842c7166cdd440164a84a2b4818",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -148,7 +148,7 @@
 	"workerEvidence": [
 		{
 			"scenario": "worker-survey",
-			"inputSha256": "b9ee803ad422d8a1e98a657c857793e04d0c256d48718821a3570b03cdb07b55",
+			"inputSha256": "b72ddf2b9071d645a76400eb0e514a21b5e86f5c0dd1a4fc7cadf58dc5fd7596",
 			"nativeWorkerBinds": [
 				{
 					"nodeset": "/data/commcare_usercase/case/@case_id",
@@ -174,7 +174,7 @@
 		},
 		{
 			"scenario": "worker-followup",
-			"inputSha256": "5c74c4d5ef589f258c15783b8c92b4cf9f701e3243e7ec7388fdf0c5f4c581f1",
+			"inputSha256": "f55d9e7968d9e20a290ee6b540b19358f862cb7c2b433b2b80e225d3f4ca2f00",
 			"nativeWorkerBinds": [
 				{
 					"nodeset": "/data/commcare_usercase/case/@case_id",
@@ -197,6 +197,38 @@
 			],
 			"nativeWorkerDatum": "instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/@case_id",
 			"nativeWorkerAssertion": "count(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]) = 1"
+		}
+	],
+	"captureEvidence": [
+		{
+			"scenario": "registration",
+			"inputSha256": "480e9824266b7303a4ba412a423b5cede467b0fa9eabde03ec37427c7ed62ae8",
+			"nativeFormSha256": "c8eb6ba40242b263d518dc722f98c89db9b976c1ef840c284d3f15db80636df1",
+			"localFormSha256": "3be3015a46d48429f8e42f5c364d656b54ed8e7debb9678730c9d37b54a2783d"
+		},
+		{
+			"scenario": "followup",
+			"inputSha256": "89bcd0b19cd1f797ed7c83b1762fc16634cfc361e2ec948288d2b31b09568f83",
+			"nativeFormSha256": "2cf8967f148d6c8c0d15af49ee19c7990ee18ab86588c3070987e8f4e0d00731",
+			"localFormSha256": "bc479e65e36af0950034ab35da20ca281f292291bf2c856082d397968441a46e"
+		},
+		{
+			"scenario": "repeat",
+			"inputSha256": "5414348dbe5d3d8c5ed361597d7d983892bb6649f9562f212716222d7582d3ca",
+			"nativeFormSha256": "b743116375be55a02b6e32804ae40bb6743fc3c1ddc356621bacb74242896010",
+			"localFormSha256": "f0bcf02f5b1915f47e8e22de354f3462c5baaf34385372431e44f17c2793c3f7"
+		},
+		{
+			"scenario": "query",
+			"inputSha256": "8ab69be5f3dc29c1beb29fb16dfaf92235984d53101d41cf8cd68377aa5acace",
+			"nativeFormSha256": "a7ca9a751fb8b705977364520e73bc3a1247f8b4a727f1179754f7097db8ae85",
+			"localFormSha256": "f6c46d61b286cb6c76bf0d851f066c1c761cb8e9e9c5fc4834cd6d483da346be"
+		},
+		{
+			"scenario": "multiple",
+			"inputSha256": "18520cd07999f3f4ed00a9c98e1d53b879c4fcb2a467c2f188602a6952b75872",
+			"nativeFormSha256": "004d42db7171919703a6960a6cb6702f22f39861fdef20beb64e38ff0d734ee7",
+			"localFormSha256": "c330ce8eaaae43c8e1a3036f421a8ac8399e9b13993b28255e5bfb6a1a00e6e0"
 		}
 	]
 }

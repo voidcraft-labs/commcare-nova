@@ -5,4 +5,6 @@ gradle.projectsEvaluated {
     }
     rootProject.sourceSets.test.java.srcDir(proofDir)
     rootProject.sourceSets.test.resources.srcDir(new File(proofDir, 'resources'))
+    def generatedResources = gradle.startParameter.projectProperties.get('novaProofResources')
+    if (generatedResources != null) rootProject.sourceSets.test.resources.srcDir(generatedResources)
 }

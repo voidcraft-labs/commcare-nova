@@ -63,10 +63,18 @@ in `scripts/fixtures/hq/` caught HQ accepting an extension relationship and then
 silently compiling it as a child. It checks the corrected import/build and
 navigation paths using native HQ classes with all socket connections refused.
 The accompanying export tests run in ordinary CI; the native proof requires an
-installed HQ environment and makes no device-execution claim. It also reads
+installed HQ environment. It also reads
 accepted worker-write exports through native HQ case, datum and assertion
 builders. Fixture hashes and optional source searches in developer checkouts
 are not substitutes for running a consumer against Nova output.
+
+Runtime claims need runtime execution. The capture proof in
+`scripts/fixtures/javarosa/` opens actual CCZ and HQ-regenerated forms in the
+pinned CommCare Core checkout, traverses native form-entry events, enters
+answers, changes relevance and clears one repeat member. It inspects both XPath
+results and serialized submission XML. This exposed editor-shadow parsing,
+hidden URL overwrites, capture preloads and missing parent IDs that structural
+checks had accepted. No remote submission or attachment upload runs.
 
 Case-write admission tests start with a fully accepted document and prove that
 a refusal reaches no persistence host. The shared tool body is tested once;

@@ -1364,3 +1364,66 @@ survey/followup exports and compares all four worker-case binds, the lookup
 datum and the entry assertion with the CCZ. A deliberately wrong local worker
 ID fails the comparison. This establishes native emission, not device execution
 or a persisted case submission. No production behavior changed in this batch.
+
+## Capture evidence reaches native form entry and submission XML
+
+The two old capture suites called case/meta helpers themselves and called that
+output a CCZ form. Their child fixtures bypassed full admission; assertions
+looked for global text fragments or compared Nova's own helper outputs. They are
+replaced by one target/no-target matrix over accepted documents and real archive
+output, plus native consumer execution of those same documents.
+
+The producer supplies five capture scenarios: registration, followup, a user
+repeat, a two-row query repeat and two selected cases. Native HQ imports and regenerates their case
+and meta blocks. CommCare Core at
+`8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305` opens both sets of forms, traverses
+entry events, changes answers and relevance, and serializes the resulting form
+instance. Native execution exposed four production defects:
+
+- CCZ forms retained Vellum editor attributes. Core's null-namespace attribute
+  lookup read `vellum:nodeset="#form/show"` before the executable `nodeset`,
+  causing a parser failure. CCZ compilation now removes attributes by Vellum
+  namespace identity, matching HQ's build transformation. Source editor
+  metadata stays available to HQ.
+- A hidden capture left its URL sibling relevant. Native calculation made it
+  blank, so the case update cleared the old link. The sibling now follows the
+  capture's relevance; the serialized hidden submission contains neither the
+  URL update nor the file attachment. An active blank still serializes a clear.
+- A followup preloaded a stored URL as the new upload's filename. Capture
+  writers are now excluded from case preloads, matching Preview's existing
+  projection. Scalar preloads remain intact.
+- A followup creating children without parent updates omitted the parent case
+  element, although every child index read its case ID. Native repeat entry
+  failed while evaluating the missing parent reference. The local compiler now
+  retains the empty primary transaction and selected case ID, as HQ does.
+
+The native submission checks also prove that clearing the first query row leaves
+the second row's URL intact and that every serialized child index names the
+selected parent. They do not upload file bytes, send a submission or execute
+server case transactions. `native-core-capture.json` records the passing report,
+source hashes and exact input form hashes; the native HQ record includes these
+capture transformations. Reproduction commands live with both proof harnesses.
+
+The adjacent repeat suite also had a false clean-validation claim: its matrix
+used the reserved case type `parent` and checked only two selected error codes.
+Its rewrite uses accepted household/child documents, direct-child XML reads,
+complete session datum lists and exact question-to-transaction binds. It covers
+all three repeat modes, one/two child buckets, cousin question IDs and actual
+noncontiguous action indices across root/repeat/root creates. It checks the
+runtime repeat shape without requiring editor-only metadata in device output.
+
+
+The final native run passes ten cases. The selected-case example additionally
+proves shared filenames reach two distinct selected case IDs, blank shared values
+preserve both records, and all-blank answers omit the entire ordinary transaction.
+The batch-emission suite now reads strict source/archive trees, proving authored
+operation/update/close ordering, scalar versus attachment routes, exact scoped
+identity bindings, no scalar preload, and close preserving an earlier retype.
+It verifies selection cardinality on actual expanded HQ details. Hand-decoding
+entities, unscoped `indexOf` ordering and editor-shadow requirements are removed.
+
+Validation: the final focused run passes 89 tests in five files; the native
+Core run passes all ten cases, and native HQ checks all 13 exported scenarios.
+Both 900-document wire corpora and the other compiler consumers passed in the
+broader run; its obsolete repeat/batch assertions were replaced and rerun.
+Full typecheck, strict Biome checks and all recorded review hashes pass.

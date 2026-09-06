@@ -1,0 +1,70 @@
+{
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"nativeSourceSha256": {
+		"src/main/java/org/javarosa/xform/parse/XFormParser.java": "1619ada1b3f7ea6c528b5250aff37ab2008cd26253ad772f47ef03a1d74423b8",
+		"src/main/java/org/javarosa/model/xform/XFormSerializingVisitor.java": "3b39ab90293114d2e5e2afcdc22e964ae0a90c3b51c7cade317930547bb98f4c",
+		"src/main/java/org/javarosa/core/model/FormDef.java": "dbc9b8ca910ba30fd28ac3c996015db16cf04a4053bae731252ade1fe4b3f9a0"
+	},
+	"testSourceSha256": "78ac0585e119ddfca8a3656e8be6eeb0e087d75d56bb0f9b88d09763ecfcd7a7",
+	"tests": [
+		"registration",
+		"hqRegistration",
+		"hqFollowup",
+		"repeat",
+		"hqMultiple",
+		"query",
+		"followup",
+		"hqRepeat",
+		"multiple",
+		"hqQuery"
+	],
+	"failures": 0,
+	"errors": 0,
+	"skipped": 0,
+	"forms": [
+		{
+			"scenario": "registration",
+			"inputSha256": "480e9824266b7303a4ba412a423b5cede467b0fa9eabde03ec37427c7ed62ae8",
+			"nativeFormSha256": "c8eb6ba40242b263d518dc722f98c89db9b976c1ef840c284d3f15db80636df1",
+			"localFormSha256": "3be3015a46d48429f8e42f5c364d656b54ed8e7debb9678730c9d37b54a2783d"
+		},
+		{
+			"scenario": "followup",
+			"inputSha256": "89bcd0b19cd1f797ed7c83b1762fc16634cfc361e2ec948288d2b31b09568f83",
+			"nativeFormSha256": "2cf8967f148d6c8c0d15af49ee19c7990ee18ab86588c3070987e8f4e0d00731",
+			"localFormSha256": "bc479e65e36af0950034ab35da20ca281f292291bf2c856082d397968441a46e"
+		},
+		{
+			"scenario": "repeat",
+			"inputSha256": "5414348dbe5d3d8c5ed361597d7d983892bb6649f9562f212716222d7582d3ca",
+			"nativeFormSha256": "b743116375be55a02b6e32804ae40bb6743fc3c1ddc356621bacb74242896010",
+			"localFormSha256": "f0bcf02f5b1915f47e8e22de354f3462c5baaf34385372431e44f17c2793c3f7"
+		},
+		{
+			"scenario": "query",
+			"inputSha256": "8ab69be5f3dc29c1beb29fb16dfaf92235984d53101d41cf8cd68377aa5acace",
+			"nativeFormSha256": "a7ca9a751fb8b705977364520e73bc3a1247f8b4a727f1179754f7097db8ae85",
+			"localFormSha256": "f6c46d61b286cb6c76bf0d851f066c1c761cb8e9e9c5fc4834cd6d483da346be"
+		},
+		{
+			"scenario": "multiple",
+			"inputSha256": "18520cd07999f3f4ed00a9c98e1d53b879c4fcb2a467c2f188602a6952b75872",
+			"nativeFormSha256": "004d42db7171919703a6960a6cb6702f22f39861fdef20beb64e38ff0d734ee7",
+			"localFormSha256": "c330ce8eaaae43c8e1a3036f421a8ac8399e9b13993b28255e5bfb6a1a00e6e0"
+		}
+	],
+	"checks": [
+		"Native parser, initialization and form entry",
+		"Capture filenames and generated submission URLs",
+		"Hidden capture omission from serialized case writes",
+		"Active blank property clear with neighboring query row preserved",
+		"No stored case URL preloaded into an upload question",
+		"Serialized child index targets selected parent",
+		"Two selected case IDs receive shared filenames; blank and all-blank shared writes are omitted"
+	],
+	"limits": [
+		"No attachment byte upload",
+		"No remote submission",
+		"No server case transaction application"
+	]
+}

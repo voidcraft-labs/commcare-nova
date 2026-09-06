@@ -2,6 +2,10 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import AdmZip from "adm-zip";
 import {
+	caseCaptureFixture,
+	caseCaptureScenarios,
+} from "../../../lib/commcare/__tests__/caseCaptureFixture";
+import {
 	extensionCaseFixture,
 	extensionScenarios,
 } from "../../../lib/commcare/__tests__/extensionCaseFixture";
@@ -20,6 +24,10 @@ if (!output)
 	);
 mkdirSync(output, { recursive: true });
 for (const [scenario, doc] of [
+	...[...caseCaptureScenarios, "multiple" as const].map(
+		(scenario) =>
+			[`capture-${scenario}`, caseCaptureFixture(scenario)] as const,
+	),
 	...extensionScenarios.map(
 		(scenario) => [scenario, extensionCaseFixture(scenario)] as const,
 	),
@@ -30,7 +38,17 @@ for (const [scenario, doc] of [
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 	if (findings.length) throw new Error(JSON.stringify(findings));
-	const hq = expandDoc(doc);
+	const hq = expandDoc(
+		doc,
+		scenario.startsWith("capture-")
+			? {
+					attachmentTarget: {
+						origin: "https://www.commcarehq.org",
+						domain: "demo-project",
+					},
+				}
+			: undefined,
+	);
 	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
 	writeFileSync(resolve(output, `${scenario}.json`), JSON.stringify(hq));
 	writeFileSync(

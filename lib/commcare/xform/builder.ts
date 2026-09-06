@@ -1181,6 +1181,9 @@ function buildFieldParts(
 				nodeset: captureUrlNodePath(nodePath).toXPath(),
 				type: "xsd:string",
 				calculate: captureUrlCalculate(nodePath, attachmentTarget),
+				// Core excludes irrelevant answers from nodesets. The address must
+				// disappear with its capture so its case write preserves old data.
+				relevant: `count(${nodePath.toXPath()}) > 0`,
 			}),
 		);
 	}

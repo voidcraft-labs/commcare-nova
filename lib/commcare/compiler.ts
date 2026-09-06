@@ -99,6 +99,7 @@ import { moduleTypeContext } from "@/lib/commcare/validator/rules/case-list/shar
 import { validateSuite } from "@/lib/commcare/validator/suiteOracle";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { addCaseBlocks } from "@/lib/commcare/xform/caseBlocks";
+import { stripVellumAttributes } from "@/lib/commcare/xform/deviceForm";
 import { addMetaBlock } from "@/lib/commcare/xform/metaBlock";
 import { orderedFormUuids } from "@/lib/doc/fieldWalk";
 import {
@@ -673,7 +674,7 @@ export function compileCcz(
 				);
 			}
 			if (xform) {
-				xform = addMetaBlock(xform);
+				xform = stripVellumAttributes(addMetaBlock(xform));
 			}
 
 			// Entry — `deriveEntryDefinition` builds the datum + post-submit

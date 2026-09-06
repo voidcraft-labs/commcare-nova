@@ -3582,7 +3582,10 @@
 			"file": "lib/commcare/__tests__/captureAttachmentEmission.test.ts",
 			"lines": 420,
 			"ciMs": 1517,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "104fd86dbe02cce2289ba53853401b1ef6b30ab44e7a8ad87fc7be73a328b1ff",
+			"reviewedSha256": null,
+			"review": "Replaced hand-composed fake CCZ outputs, invalid child fixtures, global substring checks and private helper membership comparisons with caseCaptureEmission.test.ts over strict-schema/domain-valid documents and real archived forms. Same fixtures execute through native HQ case/meta lowering and CommCare Core form entry plus submission serialization on both paths. Native regressions exposed and fixed Vellum editor-shadow parsing, hidden capture URL overwrites, loading old URLs as filenames, and missing selected-parent case blocks for child-only followups. Target/no-target routing and scoped attachment/update/preload/parent joins remain ordinary CI checks."
 		},
 		{
 			"file": "lib/commcare/__tests__/captureUpload.test.ts",
@@ -3597,7 +3600,10 @@
 			"file": "lib/commcare/__tests__/captureUrlEmission.test.ts",
 			"lines": 323,
 			"ciMs": 1081,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "2cc2f295bd818200c7dd568ebe5dfc949f256faca8bfc4a74c5d1b5034626ec2",
+			"reviewedSha256": null,
+			"review": "Replaced hand-composed fake CCZ outputs, invalid child fixtures, global substring checks and private helper membership comparisons with caseCaptureEmission.test.ts over strict-schema/domain-valid documents and real archived forms. Same fixtures execute through native HQ case/meta lowering and CommCare Core form entry plus submission serialization on both paths. Native regressions exposed and fixed Vellum editor-shadow parsing, hidden capture URL overwrites, loading old URLs as filenames, and missing selected-parent case blocks for child-only followups. Target/no-target routing and scoped attachment/update/preload/parent joins remain ordinary CI checks."
 		},
 		{
 			"file": "lib/commcare/__tests__/caseBlocks.test.ts",
@@ -3909,7 +3915,10 @@
 			"file": "lib/commcare/__tests__/multiSelectEmission.test.ts",
 			"lines": 386,
 			"ciMs": 1371,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "bff9d710cc278f20aba29e2098ba6477205bf499f5d97484b0a828ef3ad3759a",
+			"reviewedSha256": "868d0f33a0997a335be8422a3d69156b205cebb38eea2d7ab175b7541b88ccfd",
+			"review": "Replaced entity-deescaping, unscoped string order and editor-metadata requirements with strict scoped source/archive XML over accepted documents. Checks actual expanded HQ selection details; per-selected-case identity and operation/update/close ordering; complete scalar/file routing with target and without; no scalar preload; per-parent child IDs with retained unconsumed HQ datum; close preserving prior retype. Separate native capture example executes two selected cases through Core and submission serialization, including hidden, blank and all-blank shared writes."
 		},
 		{
 			"file": "lib/commcare/__tests__/multimediaEmission.test.ts",
@@ -3969,7 +3978,10 @@
 			"file": "lib/commcare/__tests__/repeatContextSubcase.test.ts",
 			"lines": 545,
 			"ciMs": 1258,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "6e0ab5e54a9c93373bed84475debb9093ed3f959062e8b803554dc6fd988a9d8",
+			"reviewedSha256": "dccd27b245e51e348fd6f1e4c994b9e4e2c904152d056cdbba1a6fa343119498",
+			"review": "Replaced global regex/substrings and selective two-code validation with full strict-schema/domain admission and scoped transaction, answer-bind, repeat-control and suite-entry joins. Old matrix used reserved parent case type and omitted accessible child modules. Eight accepted cases now prove three repeat modes, one/two child buckets, cousin IDs, real root/repeat/root noncontiguous action numbering, per-iteration UUID calculates, complete session datums and frozen count-node seeding. Editor-only Vellum attributes are no longer mistaken for device structure. Native capture proof independently executes user/query repeat emission; this matrix claims structural coverage only."
 		},
 		{
 			"file": "lib/commcare/__tests__/repeatModes.test.ts",
