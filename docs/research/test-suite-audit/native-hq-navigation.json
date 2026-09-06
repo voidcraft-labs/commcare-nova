@@ -1,0 +1,72 @@
+{
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"forms": [
+		{
+			"scenario": "base",
+			"form": 0,
+			"inputSha256": "751aa926eb69397847722f495b325bb7cb3f8c179c657507f8ebc0df6ae538cb",
+			"nativeFormSha256": "59f26dca654c6004563b9093a085e3b5f344d6069ea00a5ac424c0d64b51b705"
+		},
+		{
+			"scenario": "base",
+			"form": 1,
+			"inputSha256": "751aa926eb69397847722f495b325bb7cb3f8c179c657507f8ebc0df6ae538cb",
+			"nativeFormSha256": "b5509dd18b741c0c62652fe3eb532767b107dd6ab249347fb8737db3342e7985"
+		},
+		{
+			"scenario": "conditions",
+			"form": 0,
+			"inputSha256": "a7b802172d752f75e535a631ccea0bea2a2615831625ec0db55408da07978481",
+			"nativeFormSha256": "62a172a63b82d87a0dd4d84b70302a9083a6f771ed940f00cb4345203eb2ea3e"
+		},
+		{
+			"scenario": "links",
+			"form": 0,
+			"inputSha256": "b4f997d650f32f32250194959b32a55723662a116b9dc654c96644d328f17efe",
+			"nativeFormSha256": "d523587b23c098d1d775074865daa6f46aacc9482a0039f06b8e3e9d3c2d328a"
+		},
+		{
+			"scenario": "links",
+			"form": 1,
+			"inputSha256": "b4f997d650f32f32250194959b32a55723662a116b9dc654c96644d328f17efe",
+			"nativeFormSha256": "944063789ccf62670b220839499c11b7b169ddee3240f40a63c9f21ea37c3e8f"
+		},
+		{
+			"scenario": "owner",
+			"form": 0,
+			"inputSha256": "fb28563cc302f408bb214331cdf3b9ce97c93033abd1b5aaa0036ab21c241ba2",
+			"nativeFormSha256": "5d8c00953251c1752b68d40744b8a421247799ef33449c43f745dde7be964464"
+		},
+		{
+			"scenario": "owner",
+			"form": 1,
+			"inputSha256": "fb28563cc302f408bb214331cdf3b9ce97c93033abd1b5aaa0036ab21c241ba2",
+			"nativeFormSha256": "1ce014259b020693e7350c6174df39b3bb23d6625f90662aa4d86657b0ee9b1d"
+		},
+		{
+			"scenario": "search-date-add",
+			"form": 0,
+			"inputSha256": "e1bb8e8552fbb87464c8754665f04fa5cd9f8b282799d4ad250ed62febcf7bed",
+			"nativeFormSha256": "38ed5b179552d906e818a6c70e20c2ec9dcd37766937c1e9d8df8c022be76b8c"
+		},
+		{
+			"scenario": "search-datetime-add",
+			"form": 0,
+			"inputSha256": "980e79a548e94b36d6182a17603b0e73766d431b8f9ce641ff45af5c52cfc669",
+			"nativeFormSha256": "a06247f5821f51405ae3d5491b27e1b1646e7691c230677afcfef4db888e438a"
+		},
+		{
+			"scenario": "search-day-range",
+			"form": 0,
+			"inputSha256": "70fc4708142339bff854184daea03c9183317d9ebccebf1e0c8039725a6ed525",
+			"nativeFormSha256": "7745d9783449108cb38df00c9f9a2a72b66f3d8935697980b55ae7bfddea5293"
+		},
+		{
+			"scenario": "search-legacy",
+			"form": 0,
+			"inputSha256": "9276555902f06df96d451e88bd35a5aa634f87b28d8c43bd491047e93b2aee87",
+			"nativeFormSha256": "251f2cfc9b89527ff4fc5c3f27f35a0c9d7e13656fdab2028584422e044f8ce3"
+		}
+	],
+	"limits": "Native HQ source import, XForm case/meta regeneration and registration datum allocation. No full HQ build, DB or remote calls; only domain config boundaries replaced."
+}

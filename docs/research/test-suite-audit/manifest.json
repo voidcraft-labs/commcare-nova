@@ -3672,7 +3672,10 @@
 			"file": "lib/commcare/__tests__/compiler.test.ts",
 			"lines": 2733,
 			"ciMs": 4312,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "b6d1a59e907aabb735ef928021558c243cdaa0177cd16515da4020cfe1b3977d",
+			"reviewedSha256": "88abaa5a7594a5a0031a7195655018e3628ec16a853615a94d7439ee8de63176",
+			"review": "Full 2733-line method rewrite: deleted developer-path skips, copied XML self-hash fixture, invalid empty-form/case-condition positives and duplicated case/tile checks. Valid archive identity/resource/refusal cases and navigation/Search cross-artifact joins share eight accepted documents with native HQ/Core proofs. Native execution establishes preload/default precedence, stored ordinary external ID, owner exclusions, conditions, link frames and exact Search payloads; native HQ CSQL compiles complete expected UTC/date filters. Broader case/media/resource proof is in previously redesigned native suites and 900-document corpus."
 		},
 		{
 			"file": "lib/commcare/__tests__/compilerMedia.test.ts",

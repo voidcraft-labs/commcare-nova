@@ -97,3 +97,20 @@ hidden sorting, explicit and inherited style, and group header depth. Local
 suites also resolve the form/browse entries and inspect entity/computed datums
 for persistent details and group companion data. This does not exercise an
 Android or Web Apps renderer, nor claim a full HQ-generated navigation suite.
+
+## Navigation, ordinary case writes and Search payloads
+
+Run the navigation producer and HQ form proof in [../hq/README.md](../hq/README.md).
+Use `-PnovaProofResources=/tmp/nova-navigation-evidence` with the command above
+and select `--tests nova.compatibility.NavigationRuntimeTest`.
+
+Six methods cover saved-value/default precedence (including stored blank) and
+normalized registration external IDs on both form paths; actual suite instances
+for module and case conditions; native case nodes for empty/whitespace owner
+exclusions; link/fallback frame selection; and actual `RemoteQueryDatum` payloads
+for supplied and absent prompts. The native processor writes into Core's
+in-memory storage, which does not prove server database rollback. Navigation
+checks evaluate parsed conditions and frame values without an Android session.
+The test writes `build/nova-search-payloads.tsv` for the HQ CSQL proof. Its ten
+rows must compile to the expected complete date filters; no Elasticsearch
+request or rendered Search screen is claimed.

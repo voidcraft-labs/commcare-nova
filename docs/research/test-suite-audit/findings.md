@@ -1541,3 +1541,33 @@ Validation: 11 focused tile checks, eight native HQ comparisons and 16 native
 Core parser/model cases pass. Both generated-app corpora (900 documents) pass
 with the shared independent namespace-aware XML reader. Full typecheck and
 strict formatting pass. No production behavior changes in this batch.
+
+## Compiler integration no longer skips its external contract
+
+The 2,733-line compiler file is replaced with admitted archive/navigation
+scenarios. Developer-specific HQ fixture directories, copied fixture self-hashes,
+an empty-form scaffold presented as a deliverable, and an unavailable case
+condition disappear. Existing native case/tile suites and the 900-document
+resource corpus own their complete contracts instead of being duplicated here.
+The new cases check profile resource resolution, distinct installation IDs and
+sequence values, post-injection refusal, module/form condition scopes, owner
+availability without Search, conditional form links, and complete prompt/query
+joins across the two exports.
+
+The same eight valid documents feed actual native HQ import and 11 regenerated
+forms. Core initializes both form paths and proves that stored case values,
+including blank, win over an authored starting value. Its real case processor
+stores an ordinary registration external ID as the normalized scalar. The suite
+parser's actual condition and frame models evaluate role/case conditions and
+link/fallback selection. Native case nodes prove owner token normalization and
+preservation of unassigned cases. Core also evaluates the exact Search data
+expressions with supplied and absent prompt nodes, and writes ten actual CSQL
+payloads. HQ's native CSQL compiler accepts those payloads and produces the
+complete independently specified filters: seven days after leap day, one hour
+after UTC midnight, and inclusive-start/exclusive-end date, custom datetime
+and indexed creation-time ranges. A property wrapped in `date()` is the rejected
+negative control. This proves query compilation, not Elasticsearch execution.
+
+Validation: 10 focused compiler cases, six native execution methods, 11 native
+HQ forms and ten native CSQL payloads pass. Typecheck passes. No production
+behavior changed in this replacement.

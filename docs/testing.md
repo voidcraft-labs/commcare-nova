@@ -401,3 +401,10 @@ Core's suite parser reads both paths and inspects native tile dimensions, style,
 hidden sorting and grouping. These are parser/model checks, not rendered UI
 acceptance. Reproduction commands and external-domain controls are documented
 in `scripts/fixtures/hq/README.md` and `scripts/fixtures/javarosa/README.md`.
+
+The compiler's navigation corpus has a second native chain: HQ regenerates the
+forms, Core checks ordinary case writes and navigation values, and Core's actual
+Search query strings pass through HQ's CSQL compiler. The record distinguishes
+native model/value execution from a full session or server query. Ordinary CI
+checks the admitted artifacts and their cross-export joins; native reproduction
+requires the documented external checkouts and does not silently skip tests.

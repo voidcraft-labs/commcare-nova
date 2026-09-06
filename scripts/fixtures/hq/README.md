@@ -114,3 +114,29 @@ Only four unrelated external domain flags are disabled (UCR, list optimizations,
 empty-list text and data registry). The native contributors are unmodified;
 network access is denied. This is detail regeneration, not a full HQ build.
 The resulting `*.hq-details.xml` files feed the native Core proof below.
+
+## Navigation forms and Search payloads
+
+```bash
+mise exec -- npx tsx scripts/fixtures/hq/emit-navigation-evidence.ts /tmp/nova-navigation-evidence
+PYTHONDONTWRITEBYTECODE=1 /path/to/commcare-hq/.venv/bin/python \
+  scripts/fixtures/hq/navigation-emission-proof.py \
+  --hq-root /path/to/commcare-hq --exports /tmp/nova-navigation-evidence
+```
+
+This regenerates 11 forms from eight admitted documents. Run the Core navigation
+proof next, then feed its exact evaluated payloads to the native CSQL compiler:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 /path/to/commcare-hq/.venv/bin/python \
+  scripts/fixtures/hq/search-payload-proof.py --hq-root /path/to/commcare-hq \
+  --payloads /path/to/commcare-core/build/nova-search-payloads.tsv
+```
+
+Both commands accept `--python-path` for a local dependency overlay. The first
+runs real import, case/meta generation and new-case datum allocation, with
+external usercase, case-index, edited-fields and data-registry configuration
+disabled. The second runs the actual HQ CSQL parser/compiler without replacing
+its functions. Complete expected filters specify leap-day arithmetic and UTC
+half-open date/datetime ranges; an invalid property-function comparison must
+raise HQ's `CaseFilterError`. No database or remote search request runs.
