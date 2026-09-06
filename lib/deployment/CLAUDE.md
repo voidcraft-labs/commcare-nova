@@ -689,3 +689,13 @@ still match under the final app-row lock. This covers changed selection
 cardinality, bypass, filters, topology and endpoint removal without a second
 partial authoring fingerprint. Even unrelated committed edits require a new
 publish before another checked copy; existing URLs retain HQ's behavior.
+
+
+Worker credentials live together in `provisioningOutcomes`, keyed by server and
+project space. The per-target fold retains every distinct unconfirmed password
+for a persona/username; repeated uncertain creates cannot disprove earlier ones.
+Only a confirmed create for that exact account clears its old candidates, and
+explicit dismissal removes one candidate on one target. Hooks select that target
+before rendering. Account adoption proves existence, not a candidate password;
+`workerCredentialRows` shares the complete rows and uncertainty labels with the
+clipboard. Nothing persists these values; reset/page teardown clears them.

@@ -2183,7 +2183,10 @@ checking and provisioning write and are withheld from viewers. The Workers
 panel lives inside each record's card there and NOWHERE else — it is the only
 place a worker's password is ever shown, and `DeploymentStatus` takes the
 panel as a composed slot precisely so a second credential surface cannot exist
-by accident. The Publish dialog keeps the destination select, the
+by accident. Confirmed and uncertain credentials share one session outcome per
+server/project-space target. Every distinct uncertain retry password survives;
+another destination can neither show nor clear it. Display and clipboard retain
+account-versus-password uncertainty. The Publish dialog keeps the destination select, the
 project-space compatibility check, the publish itself, and the landed outcome's record; above its form
 the targets the app has already reached render as compact rows linking to the
 section rather than as a second full copy that would have to be kept honest.

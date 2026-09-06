@@ -256,3 +256,13 @@ the next form. Preview exit, reset, persona changes, and a confirmed Project
 change clear the entire launch with the other running facts. The Preview shell
 retires a launch on a document change and prevents a stale launch from turning
 into an ordinary form's first-case convenience fallback.
+
+
+Worker credentials live together in `provisioningOutcomes`, keyed by server and
+project space. The per-target fold retains every distinct unconfirmed password
+for a persona/username; repeated uncertain creates cannot disprove earlier ones.
+Only a confirmed create for that exact account clears its old candidates, and
+explicit dismissal removes one candidate on one target. Hooks select that target
+before rendering. Account adoption proves existence, not a candidate password;
+`workerCredentialRows` shares the complete rows and uncertainty labels with the
+clipboard. Nothing persists these values; reset/page teardown clears them.

@@ -19,7 +19,8 @@
  */
 
 import { describe, expect, it } from "vitest";
-import type { BlueprintDoc } from "@/lib/domain";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { asUuid, type BlueprintDoc } from "@/lib/domain";
 import type { DeploymentResource } from "../types";
 import type { PlannedWorker, RemoteWorker } from "../workerProvisionPlan";
 import {
@@ -35,11 +36,11 @@ import {
 } from "../workerProvisionPlan";
 
 const DOMAIN = "myproject";
-const AMINA = "018f0000-0000-7000-8000-000000000001";
-const JOSEPH = "018f0000-0000-7000-8000-000000000002";
-const DENVER = "018f0000-0000-7000-8000-0000000000d1";
-const CADRE = "018f0000-0000-7000-8000-0000000000c1";
-const CHW = "018f0000-0000-7000-8000-0000000000e1";
+const AMINA = asUuid("018f0000-0000-7000-8000-000000000001");
+const JOSEPH = asUuid("018f0000-0000-7000-8000-000000000002");
+const DENVER = asUuid("018f0000-0000-7000-8000-0000000000d1");
+const CADRE = asUuid("018f0000-0000-7000-8000-0000000000c1");
+const CHW = asUuid("018f0000-0000-7000-8000-0000000000e1");
 
 function worker(over: Partial<PlannedWorker> = {}): PlannedWorker {
 	return {
@@ -140,7 +141,8 @@ describe("usernames", () => {
 			hqWorkers: [remote({ userId: "somebody-elses" })],
 		});
 		expect(result).toMatchObject({ ok: false, reason: "unprovisionable" });
-		if (result.ok || result.reason !== "unprovisionable") return;
+		if (result.ok || result.reason !== "unprovisionable")
+			throw new Error("Expected provisioning problems");
 		expect(result.problems.map((problem) => problem.kind)).toEqual([
 			"username",
 			"username",
@@ -166,7 +168,8 @@ describe("usernames", () => {
 			],
 		});
 		expect(result).toMatchObject({ ok: false, reason: "unprovisionable" });
-		if (result.ok || result.reason !== "unprovisionable") return;
+		if (result.ok || result.reason !== "unprovisionable")
+			throw new Error("Expected provisioning problems");
 		expect(result.problems[0]).toMatchObject({ kind: "username-repeated" });
 	});
 
@@ -179,7 +182,8 @@ describe("usernames", () => {
 			workers: [worker(), worker({ username: "amina.osei" })],
 		});
 		expect(result).toMatchObject({ ok: false, reason: "unprovisionable" });
-		if (result.ok || result.reason !== "unprovisionable") return;
+		if (result.ok || result.reason !== "unprovisionable")
+			throw new Error("Expected provisioning problems");
 		expect(result.problems).toEqual([
 			expect.objectContaining({
 				kind: "persona-repeated",
@@ -193,7 +197,7 @@ describe("a project space with none of these accounts", () => {
 	it("makes each one and claims it", () => {
 		const result = plan({});
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error("Expected a provisionable plan");
 		expect(result.pushes[0]).toMatchObject({
 			remoteId: null,
 			ownership: "nova-created",
@@ -223,7 +227,7 @@ describe("a project space with none of these accounts", () => {
 			adoptPersonaUuids: [AMINA],
 		});
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error("Expected a provisionable plan");
 		expect(result.pushes[0]).toMatchObject({
 			remoteId: "somebody-elses",
 			ownership: "adopted",
@@ -235,7 +239,7 @@ describe("a project space Nova already owns accounts on", () => {
 	it("updates in place under the claim already recorded", () => {
 		const result = plan({ mappings: [mapping()], hqWorkers: [remote()] });
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error("Expected a provisionable plan");
 		expect(result.pushes[0]).toMatchObject({
 			remoteId: "hq-amina",
 			ownership: "nova-created",
@@ -248,7 +252,7 @@ describe("a project space Nova already owns accounts on", () => {
 			hqWorkers: [remote()],
 		});
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error("Expected a provisionable plan");
 		expect(result.pushes[0]?.ownership).toBe("adopted");
 	});
 
@@ -258,7 +262,7 @@ describe("a project space Nova already owns accounts on", () => {
 		// Either way, making a second one is the wrong move.
 		const result = plan({ mappings: [mapping()] });
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error("Expected a provisionable plan");
 		expect(result.pushes[0]).toMatchObject({
 			remoteId: "hq-amina",
 			ownership: "nova-created",
@@ -283,7 +287,7 @@ describe("a project space Nova already owns accounts on", () => {
 			mappings: [mapping({ ownership: "adopted" })],
 		});
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
+		if (!result.ok) throw new Error("Expected a provisionable plan");
 		expect(result.pushes[0]).toMatchObject({
 			remoteId: null,
 			ownership: "nova-created",
@@ -298,7 +302,8 @@ describe("things CommCare HQ would take and then not do", () => {
 			workerDataGaps: new Map([[AMINA, ["Cadre"]]]),
 		});
 		expect(result).toMatchObject({ ok: false, reason: "unprovisionable" });
-		if (result.ok || result.reason !== "unprovisionable") return;
+		if (result.ok || result.reason !== "unprovisionable")
+			throw new Error("Expected provisioning problems");
 		expect(result.problems[0]).toEqual({
 			kind: "missing-worker-data",
 			personaUuid: AMINA,
@@ -312,7 +317,8 @@ describe("things CommCare HQ would take and then not do", () => {
 		// would otherwise answer 201 with the worker standing nowhere.
 		const result = plan({ workers: [worker({ locationUuids: [DENVER] })] });
 		expect(result).toMatchObject({ ok: false, reason: "unprovisionable" });
-		if (result.ok || result.reason !== "unprovisionable") return;
+		if (result.ok || result.reason !== "unprovisionable")
+			throw new Error("Expected provisioning problems");
 		expect(result.problems[0]).toEqual({
 			kind: "place-not-pushed",
 			personaUuid: AMINA,
@@ -323,17 +329,25 @@ describe("things CommCare HQ would take and then not do", () => {
 
 	it("resolves each place through the ledger, primary first", () => {
 		const result = plan({
-			workers: [worker({ locationUuids: [DENVER] })],
-			mappings: [placeMapping()],
+			workers: [worker({ locationUuids: [DENVER, "second-place"] })],
+			mappings: [
+				mapping({
+					kind: "location",
+					novaResourceId: "second-place",
+					remoteId: "hq-second",
+				}),
+				placeMapping(),
+			],
 		});
 		expect(result.ok).toBe(true);
-		if (!result.ok) return;
-		expect(result.pushes[0]?.locationIds).toEqual(["hq-denver"]);
+		if (!result.ok) throw new Error("Expected a provisionable plan");
+		expect(result.pushes[0]?.locationIds).toEqual(["hq-denver", "hq-second"]);
 	});
 });
 
 describe("required worker information", () => {
-	const doc = {
+	const doc: BlueprintDoc = {
+		...buildDoc({}),
 		userProperties: {
 			[CADRE]: { uuid: CADRE, slug: "cadre", label: "Cadre", required: true },
 		},
@@ -347,17 +361,17 @@ describe("required worker information", () => {
 			[JOSEPH]: { uuid: JOSEPH, name: "Joseph" },
 		},
 		personaOrder: [AMINA, JOSEPH],
-	} as unknown as BlueprintDoc;
+	};
 
 	it("counts a role's default as a value the persona has", () => {
 		expect([...requiredWorkerDataGaps(doc).keys()]).toEqual([JOSEPH]);
 	});
 
 	it("reads a blank override as no value at all", () => {
-		const blanked = {
+		const blanked: BlueprintDoc = {
 			...doc,
 			personas: {
-				...(doc as { personas: Record<string, unknown> }).personas,
+				...doc.personas,
 				[AMINA]: {
 					uuid: AMINA,
 					name: "Amina",
@@ -365,7 +379,7 @@ describe("required worker information", () => {
 					values: { [CADRE]: "  " },
 				},
 			},
-		} as unknown as BlueprintDoc;
+		};
 		expect([...requiredWorkerDataGaps(blanked).keys()].sort()).toEqual(
 			[AMINA, JOSEPH].sort(),
 		);
@@ -377,7 +391,8 @@ describe("required worker information", () => {
 });
 
 describe("plannedWorkersFor", () => {
-	const doc = {
+	const doc: BlueprintDoc = {
+		...buildDoc({}),
 		userProperties: {
 			[CADRE]: { uuid: CADRE, slug: "cadre", label: "Cadre" },
 		},
@@ -396,7 +411,7 @@ describe("plannedWorkersFor", () => {
 			[JOSEPH]: { uuid: JOSEPH, name: "Joseph" },
 		},
 		personaOrder: [AMINA, JOSEPH],
-	} as unknown as BlueprintDoc;
+	};
 
 	it("keys the worker data by each property's current slug", () => {
 		const [projected] = plannedWorkersFor(doc, [
@@ -523,5 +538,38 @@ describe("retainUnconfirmedWorkers", () => {
 			...held,
 			[unconfirmedWorkerKey(JOSEPH, second.username)]: second,
 		});
+	});
+});
+
+it("does not adopt an unnamed conflict when another persona was approved", () => {
+	const result = plan({
+		workers: [
+			worker(),
+			worker({
+				personaUuid: JOSEPH,
+				personaName: "Joseph",
+				username: "joseph",
+			}),
+		],
+		hqWorkers: [
+			remote(),
+			remote({
+				userId: "hq-joseph",
+				username: `joseph@${DOMAIN}.commcarehq.org`,
+			}),
+		],
+		adoptPersonaUuids: [AMINA],
+	});
+	expect(result).toEqual({
+		ok: false,
+		reason: "conflict",
+		conflicts: [
+			{
+				personaUuid: JOSEPH,
+				personaName: "Joseph",
+				username: `joseph@${DOMAIN}.commcarehq.org`,
+				remoteId: "hq-joseph",
+			},
+		],
 	});
 });

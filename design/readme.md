@@ -53,6 +53,13 @@ Nova's craft shows up as ergonomics first, aesthetics second:
 - **Celebrate quietly.** "Your app is ready". Warmth, not fireworks. Exclamation points almost never.
 - **Explain consequences, calmly.** Destructive flows state what happens and how to undo, never alarm or guilt: the delete tooltip reads "Move to recently deleted", the confirm button "Confirm delete".
 
+**Credential uncertainty.** The Workers panel uses “Account unconfirmed” when
+an account may not exist and “Password unconfirmed” when the account exists but
+a retained password is uncertain. Keep every candidate visible until resolved or
+explicitly dismissed, include the label in copied credentials, and keep dismissal
+buttons at the normal touch size. Never turn account adoption into a claim that a
+password works.
+
 **Casing.** The wordmark and product name are **always lowercase**: `commcare nova`. Everything else (titles, headings, labels, menu items, buttons) uses sentence case ("Build your first app", "Move to Project"), never Title Case. Data-domain labels mirroring user content (form names like "Register New Case") are the exception. There are **no etched console labels anymore**: the old UPPERCASE-mono chrome (`HIDDEN`, `LIVE`) is retired, and status tags are quiet sentence-case sans ("Hidden") or pill badges.
 
 **UX-writing mechanics:**

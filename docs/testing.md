@@ -286,3 +286,11 @@ answer ordering and credential survival. Reporting-read failures run against an
 actual failed database read rather than a mocked setup-artifact function. Password
 generation tests control only the entropy boundary to force missing character
 classes and biased-byte rejection; transport log checks belong at the native peer.
+
+Provisioning credential retention is tested through the real session store with
+no React renderer: repeated uncertain attempts, identical replies, same-named
+targets on different servers, exact confirmed creation, dismissal and reset.
+The production credential component also runs in Chromium with production CSS
+and the platform clipboard, proving copy labels, candidate accumulation, remount,
+single-row dismissal and the touch target. This component check is separate from
+the actual SDK/Postgres/HQ provisioning lifecycle.

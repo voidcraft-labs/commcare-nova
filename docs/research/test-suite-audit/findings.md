@@ -1013,3 +1013,30 @@ test supplies only low accepted entropy bytes (with rejected 255 bytes interleav
 so required character classes must be established by the generator rather than
 passed by chance across hundreds of random samples. Native HTTP and persisted
 lifecycle tests own the credential logging/persistence evidence.
+
+
+## Retained worker credentials: target isolation and repeated uncertainty
+
+A two-case negative run against the actual session store reproduced both losses:
+a second unconfirmed password replaced the first, and a confirmed India account
+erased a US candidate under the same persona and complete username. The global
+uncertain dictionary also rendered in every destination card. Confirmed and
+uncertain credentials now live together per server/project-space target. The pure
+fold deduplicates identical replies but retains every distinct candidate; confirmed
+creation clears only its exact account candidates, and dismissal targets one row.
+
+Extracted the actual credential component and its programmatic row/clipboard
+projection. Adoption proves account existence without asserting a candidate
+password works. Display and clipboard use the same uncertainty labels and retain
+all candidates. Chromium exercises the production component and production CSS
+with native clipboard permissions: copy acknowledgement resets on added content,
+all passwords survive remount, dismissal affects one row, and its native button
+meets 44 pixels. The component fixture controls only supplied outcomes; real
+backend provisioning remains independently proved through SDK/Postgres/native HTTP.
+
+Read the full worker planner and its 527-line baseline suite. Retained pure
+ownership and required-data rules; replaced partial Blueprint casts with complete
+typed document containers and real UUIDs, removed failure-hiding early returns,
+proved primary/additional-place order against reversed mappings, and added partial
+adoption refusal. Session-store-wide review remains pending; these checks cover
+its provisioning slice rather than claiming the whole 1,822-line suite.

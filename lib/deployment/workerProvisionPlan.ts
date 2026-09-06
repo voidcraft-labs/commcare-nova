@@ -31,10 +31,9 @@
  *     unusable location assignment answers 201 and silently drops it.
  *     A refusal a person can act on has to come from here.
  *
- * Everything in this module is pure, and none of it ever sees a password.
- * A credential is generated at the moment of the write, handed back once,
- * and stored nowhere — a planner that held one would be a planner whose
- * result could be logged.
+ * Planning is pure and never receives passwords. The separate session folds
+ * at the end retain once-shown credentials only in the mounted page; none
+ * of their inputs or results may be logged or persisted.
  */
 
 import type { BlueprintDoc } from "@/lib/domain";
@@ -689,14 +688,35 @@ export function retainUnconfirmedWorkers(
 	const next = { ...held };
 	for (const worker of answer.workers) {
 		if (!worker.created) continue;
-		delete next[unconfirmedWorkerKey(worker.personaUuid, worker.username)];
+		for (const [key, candidate] of Object.entries(next)) {
+			if (
+				candidate.personaUuid === worker.personaUuid &&
+				candidate.username === worker.username
+			)
+				delete next[key];
+		}
 	}
 	/* Optional because a client loaded against one revision can reach a
 	 * server running another: Server Action ids are pinned stable across
 	 * builds so open tabs survive a deploy, which is exactly the window
 	 * where an older answer carries no `unconfirmed` at all. */
 	for (const worker of answer.unconfirmed ?? []) {
-		next[unconfirmedWorkerKey(worker.personaUuid, worker.username)] = worker;
+		// A second uncertain create cannot disprove the first. Retain every
+		// distinct password; a repeated identical answer needs no duplicate row.
+		if (
+			Object.values(next).some(
+				(candidate) =>
+					candidate.personaUuid === worker.personaUuid &&
+					candidate.username === worker.username &&
+					candidate.password === worker.password,
+			)
+		)
+			continue;
+		const base = unconfirmedWorkerKey(worker.personaUuid, worker.username);
+		let key = base,
+			suffix = 0;
+		while (Object.hasOwn(next, key)) key = `${base}:${++suffix}`;
+		next[key] = worker;
 	}
 	return next;
 }
@@ -714,6 +734,7 @@ export function retainUnconfirmedWorkers(
  * to hold them.
  */
 export interface HeldProvisioningOutcome {
+	readonly unconfirmed: Readonly<Record<string, UnconfirmedWorker>>;
 	readonly workers: readonly ProvisionedWorker[];
 	readonly refusal: WorkerProvisionRefusal | null;
 }
@@ -743,6 +764,7 @@ export function foldProvisioningOutcome(
 	answer: {
 		readonly workers: readonly ProvisionedWorker[];
 		readonly refusal: WorkerProvisionRefusal | null;
+		readonly unconfirmed?: readonly UnconfirmedWorker[];
 	},
 ): HeldProvisioningOutcome {
 	const merged = [...(held?.workers ?? [])];
@@ -761,5 +783,9 @@ export function foldProvisioningOutcome(
 			password: worker.password ?? merged[at].password,
 		};
 	}
-	return { workers: merged, refusal: answer.refusal };
+	return {
+		workers: merged,
+		refusal: answer.refusal,
+		unconfirmed: retainUnconfirmedWorkers(held?.unconfirmed ?? {}, answer),
+	};
 }

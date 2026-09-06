@@ -5426,7 +5426,10 @@
 			"file": "lib/deployment/__tests__/workerProvisionPlan.test.ts",
 			"lines": 527,
 			"ciMs": 621,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole planner and baseline suite. Retain pure account-ownership, prerequisite and effective-data contracts with complete typed containers and real UUIDs; replace silent branch returns, prove primary-first multi-place order against reversed mappings and refusal of an unnamed second adoption. Actual session-store regressions reproduce cross-server credential erasure and repeated uncertain-password replacement. Move candidates into per-target held outcomes, retain distinct attempts, and verify native clipboard/component rendering independently.",
+			"baselineSha256": "c25b58b23e12fc49388125837238bd3ceb7ab60fbf04c3b7505910226778cf80",
+			"reviewedSha256": "0392abe4d96615bdae022d67ef47e5ecd400910534f93a0e02e74d2d0f969757"
 		},
 		{
 			"file": "lib/doc/__tests__/absoluteGuardCoverage.test.ts",

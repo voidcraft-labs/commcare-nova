@@ -1411,3 +1411,13 @@ check time, because HQ chooses the build each recipient opens.
 Download options can select US, India, or EU explicitly. Leaving the choice at
 Use published destination delegates resolution to the compile boundary and
 never silently selects US when no unambiguous destination exists.
+
+
+Worker credentials live together in `provisioningOutcomes`, keyed by server and
+project space. The per-target fold retains every distinct unconfirmed password
+for a persona/username; repeated uncertain creates cannot disprove earlier ones.
+Only a confirmed create for that exact account clears its old candidates, and
+explicit dismissal removes one candidate on one target. Hooks select that target
+before rendering. Account adoption proves existence, not a candidate password;
+`workerCredentialRows` shares the complete rows and uncertainty labels with the
+clipboard. Nothing persists these values; reset/page teardown clears them.

@@ -729,11 +729,16 @@ export function useChatAppReady(): boolean {
  * produces one asks the person to go and look at their project space,
  * which means closing the dialog that would have held it.
  */
-export function useUnconfirmedWorkers(): readonly [
-	string,
-	UnconfirmedWorker,
-][] {
-	return useBuilderSessionShallow((s) => Object.entries(s.unconfirmedWorkers));
+export function useUnconfirmedWorkers(
+	server: string,
+	domain: string,
+): readonly [string, UnconfirmedWorker][] {
+	return useBuilderSessionShallow((s) =>
+		Object.entries(
+			s.provisioningOutcomes[provisioningOutcomeKey(server, domain)]
+				?.unconfirmed ?? {},
+		),
+	);
 }
 
 /** Fold one provisioning answer into the held credentials. */
@@ -742,8 +747,15 @@ export function useRecordProvisioningOutcome(): BuilderSessionState["recordProvi
 }
 
 /** Forget one held credential, once a person says they have it. */
-export function useDismissUnconfirmedWorker(): (key: string) => void {
-	return useBuilderSession((s) => s.dismissUnconfirmedWorker);
+export function useDismissUnconfirmedWorker(
+	server: string,
+	domain: string,
+): (key: string) => void {
+	const dismiss = useBuilderSession((s) => s.dismissUnconfirmedWorker);
+	return useCallback(
+		(key: string) => dismiss(server, domain, key),
+		[dismiss, server, domain],
+	);
 }
 
 /** One target's held provisioning outcome: the accounts made this session
