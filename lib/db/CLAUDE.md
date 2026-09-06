@@ -277,7 +277,11 @@ writes no row and advances no sequence. A named-system repair may load a source
 that strictly parses but fails today's absolute gate—the reason the repair is
 needed—while its requested target still passes the complete current gate before
 anything commits; user-attributed synthetic writes retain strict source
-admission. `repairLookupReferenceEdges` is the
+admission. `appendSyntheticBatchInTransaction` shares that same implementation
+when a repair must compose document/history changes with related data writes.
+The choice-value repair uses it so a case-row failure rolls back the document
+too, preserving the old-to-new mapping for a complete retry.
+`repairLookupReferenceEdges` is the
 app-locked maintenance sibling for derived edge state only: it rederives the
 structural target set from the committed blueprint and replaces the stored
 edge sets, writing no entity, history, or sequence. It is server-only and

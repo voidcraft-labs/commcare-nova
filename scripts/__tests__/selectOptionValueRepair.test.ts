@@ -7,6 +7,7 @@ import {
 	toPersistableDoc,
 } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { expressionSource } from "@/lib/domain/expressionSource";
 import { translationSourceFingerprint } from "@/lib/domain/localization";
 import { proseText } from "@/lib/domain/prose";
 import { casePropertyOptionTranslationUnitId } from "@/lib/domain/translationUnits";
@@ -14,17 +15,6 @@ import { planSelectOptionValueRepair } from "../lib/selectOptionValueRepair";
 
 function option(value: string, label: string, n: number) {
 	return { uuid: testUuid(`opt-${n}`), value, label: proseText(label) };
-}
-
-/** The text parts of a stored expression, joined; reference parts are
- *  identity nodes with no text of their own. */
-function textParts(expression: unknown): string {
-	const parts = (
-		expression as { parts?: Array<{ kind: string; text?: string }> }
-	)?.parts;
-	return (parts ?? [])
-		.map((part) => (part.kind === "text" ? (part.text ?? "") : ""))
-		.join("");
 }
 
 describe("planSelectOptionValueRepair", () => {
@@ -308,11 +298,26 @@ describe("planSelectOptionValueRepair", () => {
 		const flag = Object.values(plan.targetDoc.fields).find(
 			(field) => field?.id === "flag",
 		);
-		// The stored expression is parts-based: the reference is its own part
-		// and the literal lives whole inside a text part.
+		if (flag === undefined) throw new Error("Missing flag field");
 		expect(
-			textParts(flag?.kind === "hidden" ? flag.calculate : undefined),
-		).toBe("if( = 'a_b_2', 1, 0)");
+			expressionSource(
+				flag,
+				"calculate",
+				hydratePersistedBlueprint(plan.targetDoc),
+			),
+		).toBe("if(/data/answer = 'a_b_2', 1, 0)");
+		const answer = Object.values(plan.targetDoc.fields).find(
+			(field) => field.id === "answer",
+		);
+		if (answer === undefined) throw new Error("Missing answer field");
+		answer.id = "response";
+		expect(
+			expressionSource(
+				flag,
+				"calculate",
+				hydratePersistedBlueprint(plan.targetDoc),
+			),
+		).toBe("if(/data/response = 'a_b_2', 1, 0)");
 	});
 
 	it("leaves a literal alone when the same old value was renamed two different ways", () => {
@@ -372,10 +377,13 @@ describe("planSelectOptionValueRepair", () => {
 		const flag = Object.values(plan.targetDoc.fields).find(
 			(field) => field?.id === "flag",
 		);
-		// The stored expression is parts-based: the reference is its own part
-		// and the literal lives whole inside a text part.
+		if (flag === undefined) throw new Error("Missing flag field");
 		expect(
-			textParts(flag?.kind === "hidden" ? flag.calculate : undefined),
-		).toBe("if( = 'a b', 1, 0)");
+			expressionSource(
+				flag,
+				"calculate",
+				hydratePersistedBlueprint(plan.targetDoc),
+			),
+		).toBe("if(/data/first = 'a b', 1, 0)");
 	});
 });

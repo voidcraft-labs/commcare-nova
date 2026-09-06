@@ -329,3 +329,27 @@ after an identity-preserving rename. Generic JSON search tests were retained as
 useful pure behavior checks. Related-case scan report tests now carry actual
 validator findings from authored fixtures through rendering, with deterministic
 multi-app ordering and independent refusal for unreadable and incompatible apps.
+
+### Historical repair writers and complete retry
+
+The case-status helper suite is replaced by real guarded writes for all three
+reviewed filters across both affected apps. Whole-document comparison, attributed
+history, idempotence, unreviewed-app exclusion, later user correction and an
+app-wide pre-write refusal now exercise the actual repair lifecycle.
+
+The choice-value writer suite formerly replaced both its fluent database and
+its writer. Five Postgres journeys replace that entire file. Actual gate and
+history-write failures prove per-app continuation; an unreadable snapshot is
+terminal. Ordered multi-select rows retain other values and timestamps, with
+another app untouched. The pure planner suite now projects complete expressions
+and renames the referenced field after repair to prove its UUID identity survives.
+
+A PostgreSQL trigger refusing a case-row update exposed a real partial commit:
+the document and history had already committed, while the case retained the old
+choice value. A later scan would see a clean document and skip the remaining row
+repair. `appendSyntheticBatchInTransaction` now shares the standalone writer's
+exact preparation and guarded commit implementation. The repair composes its
+case updates in that same transaction, with counters updated only after commit.
+The regression proves rollback and complete retry. No production repair was run.
+The obsolete claim that this historical repair runs on every ordinary deployment
+was also removed after checking its actual CLI consumer.

@@ -7656,13 +7656,19 @@
 			"file": "scripts/__tests__/selectOptionValueRepair.test.ts",
 			"lines": 381,
 			"ciMs": 1547,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole 381-line suite and 716-line planner/writer. Retained gate-before/after, catalog/field agreement, close-condition, translation-overlay identity, sibling collision and ambiguous literal cases. Removed fake text-part projection; full expressions now print through the actual domain projection, and renaming the referenced field after repair proves its UUID reference survived.",
+			"baselineSha256": "42a55b8582047b57bfe6beded5a62bb639b3dbd3dc6aa64fb600e283bf61eda6",
+			"reviewedSha256": "5f19330cbebbe28e0a59db883ad4fb597aaa9bc3f68676c0d91dc8f71e28c386"
 		},
 		{
 			"file": "scripts/__tests__/selectOptionValueRepairWriter.test.ts",
 			"lines": 207,
 			"ciMs": 892,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed complete fake fluent database and mocked writer suite. Five Postgres journeys exercise real gate refusal, real history-write refusal with next-app continuation, terminal unreadable snapshot, single-select rollback/retry, and ordered multi-select scoped rows with unchanged timestamps. The row-write failure exposed a document-only commit that made retries skip unfinished data repair; document/history/rows now share the guarded transaction.",
+			"baselineSha256": "9bbc9c688fd734aa3127df9059133e4d988a5344a928735d24aa793efa5c80f8",
+			"reviewedSha256": null
 		},
 		{
 			"file": "scripts/__tests__/standaloneLauncher.test.ts",
@@ -7767,7 +7773,10 @@
 			"file": "scripts/lib/__tests__/caseStatusFilterRepair.test.ts",
 			"lines": 147,
 			"ciMs": 1275,
-			"status": "pending"
+			"status": "removed",
+			"review": "Full planner/writer and old tests reviewed; replaced entire helper-only suite with three Postgres repair journeys. Actual guarded writes repair all three reviewed filters across both apps, preserve full documents, produce attributed history once, exclude unreviewed apps, retain later user correction, and refuse the whole app when one destination option is missing.",
+			"baselineSha256": "d0ca6d936ce67409973b79d48b21c1640ee04b1b105c4b5cb7ac0213e2f680c3",
+			"reviewedSha256": null
 		},
 		{
 			"file": "scripts/lib/__tests__/designArtifactProducerRuns.test.ts",

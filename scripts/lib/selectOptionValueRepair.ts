@@ -23,12 +23,11 @@
  * and requires the target to be gate-clean.
  */
 
-import { sql } from "kysely";
-import { getCaseStoreDatabase } from "../../lib/case-store/postgres/connection";
+import { sql, type Transaction } from "kysely";
 import { parser } from "../../lib/commcare/xpath";
-import { appendSyntheticBatch } from "../../lib/db/apps";
+import { appendSyntheticBatchInTransaction } from "../../lib/db/apps";
 import { BlueprintCommitRejectedError } from "../../lib/db/commitGuard";
-import { getAppDb } from "../../lib/db/pg";
+import { type AppDatabase, getAppDb, withAppTx } from "../../lib/db/pg";
 import {
 	fieldCaseWrite,
 	isXPathExpression,
@@ -567,11 +566,11 @@ export async function loadSelectOptionValueRepairSnapshot(
  * a string and is replaced outright, a multi select as an array in which
  * only the matching element is. Returns the number of rows touched.
  */
-export async function rewriteCaseRows(
+async function rewriteCaseRows(
+	db: Transaction<AppDatabase>,
 	appId: string,
 	rewrite: CasePropertyRewrite,
 ): Promise<number> {
-	const db = await getCaseStoreDatabase();
 	let total = 0;
 	for (const [from, to] of rewrite.values) {
 		const path = sql`ARRAY[${rewrite.property}]::text[]`;
@@ -637,21 +636,13 @@ export interface SelectOptionValueRepairReport {
 }
 
 /**
- * Apply the repair to every live app that needs it: the document first,
- * through the synthetic writer (which refuses a target that is not
- * gate-clean, leaving the app untouched), then the case rows. The rows
- * follow the document rather than share its transaction because the two
- * live behind different handles; a failure between them leaves a document
- * whose next scan reports the rows still holding the old token.
- *
- * A per-app failure is collected into `blockedApps` instead of thrown. This
- * runs on every deploy, ahead of the revision it converges for, and the worst
- * this repair can do to an app it cannot fix is leave it exactly where it
- * already was: locked, and named in the Job's log. Failing the Job is
- * strictly worse — it blocks the deploy for everyone AND strands every app
- * the repair could have fixed. Only the snapshot load sits outside the guard,
- * so a database that has gone away still fails the Job loudly rather than
- * reporting a fleet of blocked apps.
+ * Apply each app's document, history and case-value changes in one transaction.
+ * A row-write failure leaves the original document available for a complete
+ * retry; a document-only commit would hide its old-to-new value mapping from
+ * the next scan. Per-app refusals are reported and other selected apps continue.
+ * Snapshot-load failures remain terminal. The CLI returns a failing exit code
+ * when any app remains blocked; this historical repair is not an automatic
+ * ordinary-deployment step.
  */
 export async function runSelectOptionValueRepair(
 	appIds: readonly string[],
@@ -671,21 +662,26 @@ export async function runSelectOptionValueRepair(
 		try {
 			const plan = planSelectOptionValueRepair(snapshot.blueprint);
 			if (plan.rewrites.length === 0) continue;
-			await appendSyntheticBatch({
-				appId,
-				expectedBaseSeq: snapshot.mutationSeq,
-				targetDoc: plan.targetDoc,
-				batchId: `${REPAIR_BATCH_PREFIX}:${appId}`,
-				authority: {
-					kind: "system",
-					actorId: REPAIR_ACTOR,
-					reason:
-						"Rewrite choice values the stored-value grammar refuses (spaces, quotes, empty) to the slug the validator suggests.",
-				},
+			const caseRows = await withAppTx(async (tx) => {
+				await appendSyntheticBatchInTransaction(tx, {
+					appId,
+					expectedBaseSeq: snapshot.mutationSeq,
+					targetDoc: plan.targetDoc,
+					batchId: `${REPAIR_BATCH_PREFIX}:${appId}`,
+					authority: {
+						kind: "system",
+						actorId: REPAIR_ACTOR,
+						reason:
+							"Rewrite choice values the stored-value grammar refuses (spaces, quotes, empty) to the slug the validator suggests.",
+					},
+				});
+				let rewrittenRows = 0;
+				for (const rewrite of plan.casePropertyRewrites) {
+					rewrittenRows += await rewriteCaseRows(tx, appId, rewrite);
+				}
+				return rewrittenRows;
 			});
-			for (const rewrite of plan.casePropertyRewrites) {
-				rewrittenCaseRows += await rewriteCaseRows(appId, rewrite);
-			}
+			rewrittenCaseRows += caseRows;
 			rewrittenValues += plan.rewrites.length;
 			rewrittenCloseConditions += plan.closeConditionRewrites;
 			rewrittenLiterals += plan.literalRewrites.length;

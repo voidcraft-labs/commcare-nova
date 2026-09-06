@@ -534,6 +534,30 @@ function syntheticActorId(authority: SyntheticBatchAuthority): string {
 export async function appendSyntheticBatch(
 	args: AppendSyntheticBatchArgs,
 ): Promise<AppendSyntheticBatchResult> {
+	const prepared = prepareSyntheticBatch(args);
+	return withAppTx((tx) => commitPreparedSyntheticBatch(tx, args, prepared));
+}
+
+/** Compose a guarded document repair with its related data writes. The caller
+ * owns the transaction; every authorization, sequence, replay and commit gate
+ * is identical to appendSyntheticBatch. Throwing after this call rolls back
+ * both the document/history and the caller's data changes. */
+export async function appendSyntheticBatchInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: AppendSyntheticBatchArgs,
+): Promise<AppendSyntheticBatchResult> {
+	return commitPreparedSyntheticBatch(tx, args, prepareSyntheticBatch(args));
+}
+
+interface PreparedSyntheticBatch {
+	readonly batchId: string;
+	readonly actorUserId: string;
+	readonly requestedTarget: BlueprintDoc;
+}
+
+function prepareSyntheticBatch(
+	args: AppendSyntheticBatchArgs,
+): PreparedSyntheticBatch {
 	if (!Number.isSafeInteger(args.expectedBaseSeq) || args.expectedBaseSeq < 0) {
 		throw new Error("Synthetic batch base sequence must be nonnegative.");
 	}
@@ -548,148 +572,150 @@ export async function appendSyntheticBatch(
 	}
 	const actorUserId = syntheticActorId(args.authority);
 	// Hydration rebuilds derived in-memory state without changing canonical
-	// identities and is independent of the locked basis. Keep it outside the
-	// retryable transaction closure.
+	// identities and is independent of the locked basis. The standalone writer
+	// prepares once before its retry loop; the composable writer uses the
+	// caller's existing transaction.
 	const requestedTarget = hydratePersistedBlueprint(args.targetDoc);
 
-	type InternalResult = AppendSyntheticBatchResult & {
-		persistable?: PersistedBlueprint;
-	};
-	const result = await withAppTx(async (tx): Promise<InternalResult> => {
-		const fresh = await lockAppRow(tx, args.appId);
-		if (!fresh) {
-			throw new Error("[appendSyntheticBatch] app row is unavailable");
-		}
-		const latch = await tx
-			.selectFrom("app_changes")
-			.select("seq")
-			.where("app_id", "=", args.appId)
-			.where("batch_id", "=", batchId)
-			.executeTakeFirst();
-		if (args.authority.kind === "user") {
-			await assertProjectCapabilityInTransaction(
-				tx,
-				args.authority.actorUserId,
-				fresh.project_id,
-				"edit",
-				"You no longer have edit access to this app's Project.",
-			);
-		}
-		if (latch) {
-			return {
-				kind: "deduped",
-				seq: safePersistedSequence(
-					latch.seq,
-					`app_changes.seq for app ${args.appId}`,
-				),
-			};
-		}
-		if (
-			safePersistedSequence(
-				fresh.mutation_seq,
-				`apps.mutation_seq for app ${args.appId}`,
-			) !== args.expectedBaseSeq
-		) {
-			throw new BlueprintCommitRejectedError(
-				"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
-			);
-		}
+	return { batchId, actorUserId, requestedTarget };
+}
 
-		// A named system repair may be needed precisely because a strengthened
-		// absolute gate exposed historical state. It receives a strictly parsed,
-		// schema-admitted source and still has to land a fully gate-clean target.
-		// User-attributed synthetic writes retain the ordinary strict read gate.
-		const previousSnapshot =
-			args.authority.kind === "system"
-				? await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, fresh)
-				: await loadStrictAppSnapshotFromRowInTransaction(tx, fresh);
-		const previousPersistable = previousSnapshot.app.blueprint;
-		const previousDoc = previousSnapshot.doc;
-		let syntheticMutations: Mutation[];
-		try {
-			syntheticMutations = diffDocsToMutations(previousDoc, requestedTarget);
-		} catch (error) {
-			if (error instanceof CasePropertySemanticProvenanceRequiredError) {
-				throw new BlueprintCommitRejectedError(
-					"The requested repair changes case-property identities without the original explicit rename command. Whole-document repair cannot decide whether saved case rows should move.",
-				);
-			}
-			throw error;
-		}
-		const mutations = admitMutationBatch(syntheticMutations);
-		const prepared = prepareMutationCandidate(previousDoc, mutations);
-		const replayed = toPersistableDoc(prepared.nextDoc);
-		const requested = toPersistableDoc(requestedTarget);
-		if (!deepEqual(replayed, requested)) {
-			throw new BlueprintCommitRejectedError(
-				"The requested repair cannot be represented as a deterministic mutation batch.",
-			);
-		}
-		if (mutations.length === 0) {
-			return {
-				kind: "noop",
-				seq: safePersistedSequence(
-					fresh.mutation_seq,
-					`apps.mutation_seq for app ${args.appId}`,
-				),
-			};
-		}
-		if (mutationTargetsInvalid(previousDoc, mutations)) {
-			throw new BlueprintCommitRejectedError(
-				"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
-			);
-		}
-		const previousTargets = extractLookupReferenceTargets(previousDoc);
-		const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
-		const lookupTargets = unionLookupReferenceTargetSets(
-			previousTargets,
-			candidateTargets,
-		);
-		const lookupContext = await lookupContextForAuthoritativeWrite(
+async function commitPreparedSyntheticBatch(
+	tx: Transaction<AppDatabase>,
+	args: AppendSyntheticBatchArgs,
+	{ batchId, actorUserId, requestedTarget }: PreparedSyntheticBatch,
+): Promise<AppendSyntheticBatchResult> {
+	const fresh = await lockAppRow(tx, args.appId);
+	if (!fresh) {
+		throw new Error("[appendSyntheticBatch] app row is unavailable");
+	}
+	const latch = await tx
+		.selectFrom("app_changes")
+		.select("seq")
+		.where("app_id", "=", args.appId)
+		.where("batch_id", "=", batchId)
+		.executeTakeFirst();
+	if (args.authority.kind === "user") {
+		await assertProjectCapabilityInTransaction(
 			tx,
+			args.authority.actorUserId,
 			fresh.project_id,
-			lookupTargets,
+			"edit",
+			"You no longer have edit access to this app's Project.",
 		);
-		const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
-		if (!verdict.ok) {
-			throw new BlueprintCommitRejectedError(
-				describeCommitFindings(verdict.findings),
-			);
-		}
-		const persistable = toPersistableDoc(verdict.nextDoc);
-		const seq = nextPersistedSequence(
+	}
+	if (latch) {
+		return {
+			kind: "deduped",
+			seq: safePersistedSequence(
+				latch.seq,
+				`app_changes.seq for app ${args.appId}`,
+			),
+		};
+	}
+	if (
+		safePersistedSequence(
 			fresh.mutation_seq,
 			`apps.mutation_seq for app ${args.appId}`,
+		) !== args.expectedBaseSeq
+	) {
+		throw new BlueprintCommitRejectedError(
+			"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
 		);
-		await admitExactMediaReferences(tx, {
-			appId: args.appId,
-			projectId: fresh.project_id,
-			candidateDoc: verdict.nextDoc,
-		});
-		await applyOrganizationCommitIntegrity(tx, {
-			appId: args.appId,
-			previousDoc,
-			candidateDoc: verdict.nextDoc,
-		});
-		await replaceLookupReferenceEdges(tx, {
-			appId: args.appId,
-			projectId: fresh.project_id,
-			targets: candidateTargets,
-		});
-		await writeCommittedBatch(tx, {
-			appId: args.appId,
-			seq,
-			batchId,
-			prevDoc: previousPersistable,
-			committedDoc: persistable,
-			mutations,
-			actorUserId,
-			kind: "blueprint-migration",
-		});
-		return { kind: "committed", seq, persistable };
+	}
+
+	// A named system repair may be needed precisely because a strengthened
+	// absolute gate exposed historical state. It receives a strictly parsed,
+	// schema-admitted source and still has to land a fully gate-clean target.
+	// User-attributed synthetic writes retain the ordinary strict read gate.
+	const previousSnapshot =
+		args.authority.kind === "system"
+			? await loadSchemaAdmittedAppSnapshotFromRowInTransaction(tx, fresh)
+			: await loadStrictAppSnapshotFromRowInTransaction(tx, fresh);
+	const previousPersistable = previousSnapshot.app.blueprint;
+	const previousDoc = previousSnapshot.doc;
+	let syntheticMutations: Mutation[];
+	try {
+		syntheticMutations = diffDocsToMutations(previousDoc, requestedTarget);
+	} catch (error) {
+		if (error instanceof CasePropertySemanticProvenanceRequiredError) {
+			throw new BlueprintCommitRejectedError(
+				"The requested repair changes case-property identities without the original explicit rename command. Whole-document repair cannot decide whether saved case rows should move.",
+			);
+		}
+		throw error;
+	}
+	const mutations = admitMutationBatch(syntheticMutations);
+	const prepared = prepareMutationCandidate(previousDoc, mutations);
+	const replayed = toPersistableDoc(prepared.nextDoc);
+	const requested = toPersistableDoc(requestedTarget);
+	if (!deepEqual(replayed, requested)) {
+		throw new BlueprintCommitRejectedError(
+			"The requested repair cannot be represented as a deterministic mutation batch.",
+		);
+	}
+	if (mutations.length === 0) {
+		return {
+			kind: "noop",
+			seq: safePersistedSequence(
+				fresh.mutation_seq,
+				`apps.mutation_seq for app ${args.appId}`,
+			),
+		};
+	}
+	if (mutationTargetsInvalid(previousDoc, mutations)) {
+		throw new BlueprintCommitRejectedError(
+			"This app changed while the repair was being prepared. Reload the latest app and prepare the repair again.",
+		);
+	}
+	const previousTargets = extractLookupReferenceTargets(previousDoc);
+	const candidateTargets = extractLookupReferenceTargets(prepared.nextDoc);
+	const lookupTargets = unionLookupReferenceTargetSets(
+		previousTargets,
+		candidateTargets,
+	);
+	const lookupContext = await lookupContextForAuthoritativeWrite(
+		tx,
+		fresh.project_id,
+		lookupTargets,
+	);
+	const verdict = evaluatePreparedMutationCandidate(prepared, lookupContext);
+	if (!verdict.ok) {
+		throw new BlueprintCommitRejectedError(
+			describeCommitFindings(verdict.findings),
+		);
+	}
+	const persistable = toPersistableDoc(verdict.nextDoc);
+	const seq = nextPersistedSequence(
+		fresh.mutation_seq,
+		`apps.mutation_seq for app ${args.appId}`,
+	);
+	await admitExactMediaReferences(tx, {
+		appId: args.appId,
+		projectId: fresh.project_id,
+		candidateDoc: verdict.nextDoc,
 	});
-	const { persistable: _persistable, ...publicResult } = result;
-	return publicResult;
+	await applyOrganizationCommitIntegrity(tx, {
+		appId: args.appId,
+		previousDoc,
+		candidateDoc: verdict.nextDoc,
+	});
+	await replaceLookupReferenceEdges(tx, {
+		appId: args.appId,
+		projectId: fresh.project_id,
+		targets: candidateTargets,
+	});
+	await writeCommittedBatch(tx, {
+		appId: args.appId,
+		seq,
+		batchId,
+		prevDoc: previousPersistable,
+		committedDoc: persistable,
+		mutations,
+		actorUserId,
+		kind: "blueprint-migration",
+	});
+	return { kind: "committed", seq };
 }
 
 interface ProjectMoveThreadSnapshot {
