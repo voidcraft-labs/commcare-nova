@@ -1147,3 +1147,15 @@ now delegates to the same generic error-owning database fixture as ordinary
 isolated databases. The existing app relay, chat replay, transport, chat POST
 cancellation/build and native pool suites pass without that workaround (107
 cases). No pool timeout or test timeout was raised.
+
+
+### Chat event-log completion ownership
+
+A real events-table lock strengthens the existing post-wait snapshot-failure
+scenario: the newly adopted edit has a committed usage summary and released lock,
+but its response cannot finish while its Waiting event INSERT is blocked. This
+scenario already passed before the change; its ordinary failure finalizer
+already awaited LogWriter. The remaining outer cleanup used a detached flush;
+it now awaits the same writer in a finally after attempting the fallback lock
+release. This is a cleanup-contract correction, not a reproduced event loss in
+the ordinary snapshot-failure path.

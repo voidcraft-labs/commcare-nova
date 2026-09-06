@@ -73,8 +73,9 @@ design can resume after a deploy. `designSessionId`, `runId`, `errorType`, and
 
 Fire-and-forget. `LogWriter.logEvent(event)` enqueues; a 100ms timer (or
 a 450-event buffer threshold — a plain bound on how many rows one INSERT
-carries) triggers one batched INSERT into `events`. `flush()` drains on
-request end (finally block, onFinish, abort handler). Errors log but never
+carries) triggers one batched INSERT into `events`. `flush()` is awaited by the producer
+at request completion. Chat also awaits it in its outer cleanup after attempting
+exact-holder lock release, even if the ordinary finalizer or release throws. Errors log but never
 throw — observability failures must not block generation. Multiple
 requests sharing a `runId` (the normal edit-thread case) cannot overwrite
 each other's events because the `id` identity column is server-assigned

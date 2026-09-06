@@ -39,6 +39,7 @@
 import type { LanguageModelUsage, UIMessageChunk } from "ai";
 import type { Insertable, Kysely } from "kysely";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import type { GenerationContext } from "@/lib/agent";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
@@ -1621,7 +1622,7 @@ describe("server-derived build-vs-edit mode", () => {
 		expect(finalRow).toEqual({ status: "complete", res_settled: true });
 	}, 30_000);
 
-	it("a wait-path adoption that fails before SA construction still flushes the ADOPTED mode to its run summary", async () => {
+	it("a wait-path snapshot failure settles the adopted edit before draining its event log", async () => {
 		/* The accumulator was seeded with the PRE-WAIT mode (build). The poll
 		 * loop adopts EDIT mid-wait, wins, and then the post-win snapshot read
 		 * faults — a death BEFORE the SA-construction `configureRun` that used
@@ -1648,43 +1649,66 @@ describe("server-derived build-vs-edit mode", () => {
 			.mockResolvedValueOnce(snapshot)
 			.mockRejectedValue(new Error("post-win snapshot connection dropped"));
 
-		const response = await POST(
-			new Request("http://localhost/api/chat", {
-				method: "POST",
-				headers: { "content-type": "application/json" },
-				body: JSON.stringify({
-					appId: WAITFAIL_APP,
-					threadId: WAITFAIL_THREAD,
-					messages: [
-						{
-							id: "wait-adopt-user",
-							role: "user",
-							parts: [{ type: "text", text: "Rename the app." }],
-						},
-					],
-				}),
-			}),
-		);
-		expect(response.status).toBe(200);
-		const wirePromise = response.text();
-
-		await pollFor(async () => {
-			const rows = await appDb
-				.selectFrom("events")
-				.select("event")
-				.where("app_id", "=", WAITFAIL_APP)
+		let responseEnded = false;
+		const releaseHolder = async () => {
+			await appDb
+				.updateTable("apps")
+				.set({ status: "complete", awaiting_input: false, res_settled: true })
+				.where("id", "=", WAITFAIL_APP)
 				.execute();
-			return rows.some((r) => JSON.stringify(r.event).includes("Waiting"))
-				? true
-				: undefined;
-		});
-		await appDb
-			.updateTable("apps")
-			.set({ status: "complete", awaiting_input: false, res_settled: true })
-			.where("id", "=", WAITFAIL_APP)
-			.execute();
+		};
+		const wire = await whileBlocked(
+			{ uri: () => dbHandle.uri },
+			(pg) => pg.query("LOCK TABLE events IN SHARE MODE"),
+			async () => {
+				const response = await POST(
+					new Request("http://localhost/api/chat", {
+						method: "POST",
+						headers: { "content-type": "application/json" },
+						body: JSON.stringify({
+							appId: WAITFAIL_APP,
+							threadId: WAITFAIL_THREAD,
+							messages: [
+								{
+									id: "wait-adopt-user",
+									role: "user",
+									parts: [{ type: "text", text: "Rename the app." }],
+								},
+							],
+						}),
+					}),
+				);
+				expect(response.status).toBe(200);
+				const body = await response.text();
+				responseEnded = true;
+				return body;
+			},
+			async (_settled, pg) => {
+				// The Waiting event's real INSERT is blocked. Let the new edit claim
+				// win and fail its snapshot read; the failure finalizer must own that
+				// earlier event write even after its usage finalization has committed.
+				await releaseHolder();
+				await pollFor(async () =>
+					appDb
+						.selectFrom("run_summaries")
+						.select("prompt_mode")
+						.where("design_session_id", "=", WAITFAIL_SESSION)
+						.executeTakeFirst(),
+				);
+				await pollFor(async () => {
+					const row = await appDb
+						.selectFrom("apps")
+						.select("lock_run_id")
+						.where("id", "=", WAITFAIL_APP)
+						.executeTakeFirstOrThrow();
+					return row.lock_run_id === null ? true : undefined;
+				});
+				await pg.query("SELECT 1");
+				expect(responseEnded).toBe(false);
+			},
+			releaseHolder,
+		);
 
-		const wire = await wirePromise;
 		expect(wire).toContain('"type":"internal"');
 		expect(createSolutionsArchitectMock).not.toHaveBeenCalled();
 
