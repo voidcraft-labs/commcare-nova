@@ -20,27 +20,19 @@ import { useEffect, useMemo, useState } from "react";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import {
-	useOrganizationLevelRecord,
-	useOrganizationRuleInputs,
-} from "@/lib/doc/hooks/useOrganizationCollections";
-import {
-	assignedLocationUuids,
-	levelHoldsWorkers,
-	type Persona,
-} from "@/lib/domain";
+import { useOrganizationRuleInputs } from "@/lib/doc/hooks/useOrganizationCollections";
+import type { Persona } from "@/lib/domain";
 import { locationChoiceLabel } from "@/lib/organization/locationLabels";
-import {
-	personaAssignmentIssue,
-	personaAssignmentRemovalIssues,
-} from "@/lib/organization/ownerTargetVerdicts";
+import { personaAssignmentIssue } from "@/lib/organization/ownerTargetVerdicts";
 import type { StoredLocation } from "@/lib/organization/types";
 import { useCanEdit } from "@/lib/session/hooks";
 import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
+import { PERSONA_LOCATION_PAGE_SIZE } from "./organizationUi";
 import {
-	PERSONA_LOCATION_PAGE_SIZE,
-	personaLocationPage,
-} from "./organizationUi";
+	type PersonaLocationChange,
+	personaLocationEditor,
+	planPersonaLocationChange,
+} from "./personaLocationEditor";
 
 export function PersonaLocations({
 	persona,
@@ -63,62 +55,51 @@ export function PersonaLocations({
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
 	const doc = useOrganizationRuleInputs();
-	const levels = useOrganizationLevelRecord();
-	const assigned = useMemo(
-		() => assignedLocationUuids(persona.locations),
-		[persona.locations],
-	);
-	const assignedSet = useMemo(() => new Set(assigned), [assigned]);
-	const authoritative =
-		!loading && error === undefined && warning === undefined && !refreshing;
 	const [requestedPage, setRequestedPage] = useState(0);
-	const assignedPage = useMemo(
-		() => personaLocationPage(assigned, requestedPage),
-		[assigned, requestedPage],
-	);
-	const rowFocus = useRemovedRowFocus(assigned.length);
-	const byId = new Map<string, StoredLocation>(
-		locations.map((location) => [location.id, location]),
-	);
-	// A worker cannot be assigned to an archived place, so it is not offered —
-	// and archiving one already removed the assignments that pointed at it.
-	const available = locations.filter(
-		(location) =>
-			location.archivedAt === null &&
-			levels[location.levelUuid] !== undefined &&
-			levelHoldsWorkers(levels[location.levelUuid]) &&
-			!assignedSet.has(location.id),
-	);
-	const assignableCount = locations.filter(
-		(location) =>
-			location.archivedAt === null &&
-			levels[location.levelUuid] !== undefined &&
-			levelHoldsWorkers(levels[location.levelUuid]),
-	).length;
-	const removalIssues = useMemo(
-		() =>
-			canEdit && authoritative
-				? personaAssignmentRemovalIssues(
-						doc,
-						locations,
-						persona.uuid,
-						assigned,
-						assignedPage.ids,
-					)
-				: new Map<string, string>(),
-		[
-			assigned,
-			assignedPage.ids,
-			canEdit,
+	const inputs = useMemo(
+		() => ({
 			doc,
-			authoritative,
+			persona,
 			locations,
-			persona.uuid,
+			loading,
+			error,
+			warning,
+			refreshing,
+			canEdit,
+			requestedPage,
+		}),
+		[
+			doc,
+			persona,
+			locations,
+			loading,
+			error,
+			warning,
+			refreshing,
+			canEdit,
+			requestedPage,
 		],
 	);
-
-	const set = (next: readonly string[]) =>
-		mutations.setPersonaLocations(persona.uuid, next);
+	const {
+		assigned,
+		assignedPage,
+		authoritative,
+		available,
+		rows,
+		removalIssues,
+		emptyMessage,
+	} = useMemo(() => personaLocationEditor(inputs), [inputs]);
+	const rowFocus = useRemovedRowFocus(assigned.length);
+	const changeAssignment = (change: PersonaLocationChange) => {
+		const planned = planPersonaLocationChange(inputs, change);
+		if (planned === undefined) return;
+		if (planned.removedIndex !== undefined)
+			rowFocus.onRemoved(planned.removedIndex);
+		const result = mutations.setPersonaLocations(persona.uuid, planned.ids);
+		if (!result.ok) return;
+		setRequestedPage(planned.page);
+		if (planned.focusIndex !== undefined) rowFocus.focusRow(planned.focusIndex);
+	};
 
 	useEffect(() => {
 		if (requestedPage !== assignedPage.page) {
@@ -145,14 +126,9 @@ export function PersonaLocations({
 				<p className="text-[13px] leading-relaxed text-nova-text-muted">
 					Loading places…
 				</p>
-			) : assignableCount === 0 &&
-				assigned.length === 0 &&
-				warning === undefined &&
-				!refreshing ? (
+			) : emptyMessage !== undefined ? (
 				<p className="text-[13px] leading-relaxed text-nova-text-muted">
-					{locations.length === 0
-						? "This app has no places yet. Add them in Organization, then assign this persona to one."
-						: "No live place is at a level where people work. Change a level in Organization, then assign this persona."}
+					{emptyMessage}
 				</p>
 			) : (
 				<>
@@ -183,12 +159,7 @@ export function PersonaLocations({
 					) : (
 						<div className="flex flex-col gap-2">
 							<ul className="flex flex-col gap-1.5">
-								{assignedPage.ids.map((id, pageIndex) => {
-									const index = assignedPage.start + pageIndex;
-									const location = byId.get(id);
-									const withoutLocation = assigned.filter(
-										(other) => other !== id,
-									);
+								{rows.map(({ id, index, location, label }) => {
 									const removalIssue = removalIssues.get(id);
 									const removalIssueId = `persona-location-removal-${persona.uuid}-${id}`;
 									return (
@@ -199,13 +170,7 @@ export function PersonaLocations({
 											className="nova-focusable-inset flex min-h-11 flex-wrap items-center gap-x-2.5 gap-y-1 rounded-lg border border-nova-border bg-nova-deep px-3 py-1.5"
 										>
 											<span className="min-w-0 flex-1 text-[13px] [overflow-wrap:anywhere]">
-												{location === undefined
-													? authoritative
-														? "A place that no longer exists"
-														: warning !== undefined
-															? "Assigned place unavailable until places reload"
-															: "Refreshing assigned place"
-													: locationChoiceLabel(location)}
+												{label}
 											</span>
 											{index === 0 && (
 												<span className="shrink-0 rounded-sm bg-nova-violet/[0.15] px-1.5 py-0.5 text-[11px] text-nova-violet-bright">
@@ -220,12 +185,7 @@ export function PersonaLocations({
 															variant="ghost"
 															className="shrink-0"
 															onClick={() => {
-																set([
-																	id,
-																	...assigned.filter((other) => other !== id),
-																]);
-																setRequestedPage(0);
-																rowFocus.focusRow(0);
+																changeAssignment({ kind: "main", id });
 															}}
 														>
 															Make main
@@ -244,8 +204,7 @@ export function PersonaLocations({
 														className="shrink-0"
 														disabled={removalIssue !== undefined}
 														onClick={() => {
-															rowFocus.onRemoved(index);
-															set(withoutLocation);
+															changeAssignment({ kind: "remove", id });
 														}}
 													>
 														<Icon
@@ -315,10 +274,7 @@ export function PersonaLocations({
 							locations={available}
 							value=""
 							onValueChange={(value) => {
-								setRequestedPage(
-									Math.floor(assigned.length / PERSONA_LOCATION_PAGE_SIZE),
-								);
-								set([...assigned, value]);
+								changeAssignment({ kind: "add", id: value });
 							}}
 							ariaLabel="Add a place"
 							placeholder="Choose a place"

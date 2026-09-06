@@ -1831,3 +1831,25 @@ exports. The wider unit import graph completes 493 files in 176 seconds: 490
 pass; 19 tests in three pending simulated-DOM suites fail because their
 organization-hook mock lacks `useOrganizationRuleInputs`. Those suites remain
 part of the method redesign; the broader run is not recorded as green.
+
+## Organization owner and persona editor evidence
+
+Removed both entire simulated-DOM owner/persona suites. Their broad hook mocks
+had already drifted from production, and the persona removal test supplied its
+own business verdict based on a fixture identity. The replacement uses the
+actual production owner-mode transitions and persona assignment projection and
+planner, with real organization footprint/refusal rules. It distinguishes
+incomplete catalog reads from missing assignments, tracks staged ownership
+against peer replacements, checks complete ordered assignment proposals and
+page selection, and evaluates removal candidates only on the visible page.
+The component applies page and main-row focus changes only after the document
+mutation succeeds.
+
+Seventeen state tests and full typecheck pass. The existing production-build
+browser organization journey passes without retries in 15.3 seconds, including
+assignment ordering, removal focus, fixed/reverse ownership, save and reload.
+That browser result proves the exercised interactions, not an absence of server
+faults: its log repeatedly reports usercase row synchronization attempted with
+no materialized `commcare-user` schema. That newly observed ordering/materialization
+issue remains under investigation. The broader Places suite still needs its
+whole-method review; this batch does not claim all organization tests are green.

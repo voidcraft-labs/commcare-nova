@@ -1175,6 +1175,13 @@ so the generic expression card never renders them. Its location control offers
 only live case-owning places and reverse destinations with a case-owning level
 above them; the transaction remains authoritative for persona-specific
 address-book reachability and races.
+A staged owner picker belongs to the exact expression it opened from; a peer
+replacement or clear controls the displayed mode. `caseOwnerUi` owns that
+transition and the distinction between incomplete catalog reads and missing
+saved places. `personaLocationEditor` derives assigned rows and bounded removal
+verdicts from the real organization rules. Assignment gestures propose complete
+ordered identities; page changes and main-row focus follow a successful document
+commit, while incomplete reads pause changes.
 Organization location choices share `LocationChoiceSelect`: at the 10,000-row
 store bound it searches by name or unique site code, pages 50 rows at a time,
 mounts only that page's options, and runs cross-store candidate verdicts only

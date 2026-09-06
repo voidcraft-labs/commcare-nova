@@ -133,6 +133,12 @@ they must join children and prove parent listeners are removed. For lazy
 dependencies, inspect a real bundler's static and dynamic output graph instead
 of searching import text.
 
+Organization editor state tests use the real ownership rules and complete
+assignment proposals. A fake verdict keyed to a fixture name only proves that
+the component displays its own mock. Test incomplete reads, peer replacements,
+permission changes and page selection in the production state model; use the
+actual browser workflow for focus, picker interaction and persisted reload.
+
 A rejection test must begin with an otherwise admissible input. Prove the valid
 case succeeds before introducing the fault, or pair it with an accepted case
 that uses the same fixture. Matching a generic error cannot establish why the

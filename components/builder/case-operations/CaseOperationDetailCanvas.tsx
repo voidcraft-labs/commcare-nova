@@ -91,7 +91,10 @@ import { useRemovedRowFocus } from "@/lib/ui/hooks/useRemovedRowFocus";
 import { CaseOperationLinks } from "./CaseOperationLinks";
 import { useCaseTargetDraft } from "./CaseTargetDraftContext";
 import {
+	type CaseOwnerModeDraft,
 	caseOwnerCopy,
+	caseOwnerMode,
+	caseOwnerModeChange,
 	fixedOwnerModeIssue,
 	organizationOwnerModeIssue,
 	pendingFixedOwnerLabel,
@@ -692,23 +695,8 @@ export function CaseOwnerSection({
 			? (levels.find((level) => level.uuid === selectedLevelUuid)?.name ??
 				"A level that no longer exists")
 			: undefined;
-	const mode =
-		selected?.term.kind === "fixed-location"
-			? "fixed"
-			: selected?.term.kind === "owner-location-at-level"
-				? "reverse"
-				: "expression";
-	const [draftMode, setDraftMode] = useState<
-		| {
-				readonly mode: "expression" | "fixed" | "reverse";
-				readonly baseValue: ValueExpression | undefined;
-		  }
-		| undefined
-	>();
-	const displayedMode =
-		draftMode !== undefined && draftMode.baseValue === value
-			? draftMode.mode
-			: mode;
+	const [draftMode, setDraftMode] = useState<CaseOwnerModeDraft>();
+	const displayedMode = caseOwnerMode(value, draftMode);
 	const displayedModeLabel =
 		displayedMode === "fixed"
 			? "A particular place"
@@ -719,21 +707,15 @@ export function CaseOwnerSection({
 	const { addRef, onCleared } = useClearedSlotFocus(value);
 
 	const changeMode = (next: unknown) => {
-		if (next === "expression") {
+		const change = caseOwnerModeChange(next, value, {
+			fixed: fixedModeIssue,
+			reverse: reverseModeIssue,
+		});
+		if (change.kind === "change") {
 			setDraftMode(undefined);
-			onChange(actingUser());
-			return;
-		}
-		if (next === "fixed") {
-			if (fixedModeIssue === undefined) {
-				setDraftMode({ mode: "fixed", baseValue: value });
-			}
-			return;
-		}
-		if (next === "reverse") {
-			if (reverseModeIssue === undefined) {
-				setDraftMode({ mode: "reverse", baseValue: value });
-			}
+			onChange(change.value);
+		} else if (change.kind === "stage") {
+			setDraftMode(change.draft);
 		}
 	};
 

@@ -435,7 +435,10 @@
 			"file": "components/builder/app-setup/__tests__/PersonaLocations.test.tsx",
 			"lines": 334,
 			"ciMs": 1860,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read the entire suite and production consumer. Replace simulated markup, invented removal verdicts and visible-page mock calls with production personaLocationEditor state and complete assignment plans using real organization rules. Actual browser journey verifies assignment ordering, removal focus, persistence and reload. Incomplete reads and permission changes are pure state tests; no DOM or admission claim from mocks.",
+			"baselineSha256": "864c661b64415b4069ed92c78e39db3cfcf30f29c919472ea444d3b63ae90def",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/app-setup/__tests__/PersonaRemoveConfirm.test.tsx",
@@ -723,7 +726,10 @@
 			"file": "components/builder/case-operations/__tests__/CaseOwnerSection.test.tsx",
 			"lines": 171,
 			"ciMs": 4894,
-			"status": "pending"
+			"status": "removed",
+			"review": "Read the entire suite and owner section. Remove simulated controls and broad hook mocks. Actual production caseOwnerMode and caseOwnerModeChange exercise staged selection, peer replacement, clear and read-state refusal. Browser journey exercises the real fixed and reverse owner controls and persisted reload.",
+			"baselineSha256": "a894d7e547b1fbf62088a313642d0ee2cb2df67b4c356f096476a154562acaae",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/case-operations/__tests__/CaseTargetDraftContext.test.tsx",
@@ -747,7 +753,10 @@
 			"file": "components/builder/case-operations/__tests__/caseOwnerUi.test.ts",
 			"lines": 60,
 			"ciMs": 46,
-			"status": "pending"
+			"status": "rewritten",
+			"review": "Replace the whole method with complete owner-action consequences, catalog read-state distinctions, staged picker identity, peer replacement and clear, and unavailable mode refusal. Tests use the production state transitions consumed by CaseOwnerSection; browser focus and persistence are verified separately.",
+			"baselineSha256": "ed7c7995ac659edb02c21f351faf581e8c55b6b854df495825193224b3bfaa46",
+			"reviewedSha256": "e6435e53ab8edcc51fa8acfd85f8007fcccd225d4ba2edf6823d63a97d7e2f4f"
 		},
 		{
 			"file": "components/builder/case-operations/__tests__/formFieldScope.test.ts",
