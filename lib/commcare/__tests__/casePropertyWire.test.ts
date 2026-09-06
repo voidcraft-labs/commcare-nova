@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { emitCasePropertyWirePath } from "../casePropertyWire";
 
+// Core CaseChildElement exposes case identity/type/owner/status as attributes.
+// external_id is also copied from Case.data into a child by setCaseProperties;
+// ordinary properties, including prototype-like names, remain child reads.
 describe("emitCasePropertyWirePath", () => {
 	it.each([
 		["case_name", "case_name"],
@@ -15,11 +18,4 @@ describe("emitCasePropertyWirePath", () => {
 	])("maps Nova property %s to CommCare leaf %s", (property, expected) => {
 		expect(emitCasePropertyWirePath(property)).toBe(expected);
 	});
-
-	it.each(["name", "external-id", "date-opened"])(
-		"does not normalize the schema-invalid spelling %s when the boundary is bypassed",
-		(property) => {
-			expect(emitCasePropertyWirePath(property)).toBe(property);
-		},
-	);
 });

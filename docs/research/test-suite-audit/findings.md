@@ -1340,3 +1340,27 @@ binds each expression from its actual target. The ordinary-repeat and query-repe
 examples failed before this correction, and the matrix now also covers repeated
 entries under multiple selected parents. These are explicit wire-scope checks;
 the native HQ proof preserves the source and does not evaluate JavaRosa XPath.
+
+## Case-write tests use accepted documents and executable consumer evidence
+
+The old question-path oracle checked a stored upstream fixture's byte count
+and SHA-256 without invoking Nova. Its optional source searches depended on
+a developer-specific checkout path. Those tests and the sole fixture are
+removed. Their replacement exports accepted documents before and after real
+question rename/move mutations, including identical cousin question names.
+
+The old admission parity suite repeated the same shared tool body through a
+mocked MCP writer. One module-less refusal started with an independently invalid
+followup form (`NO_CASE_TYPE`). The replacement starts with valid documents,
+checks the precise candidate refusal, asserts no persistence call, and compares
+accepted committed state before driving real preview submissions. Nested query
+iterations and two cousin repeat identities produce five distinct named child
+effects; external IDs stay in scalar slots.
+
+Worker-record tests now use strict, scoped XML and a separate valid browsing
+module. The previous browse fixture placed forms on a `caseListOnly` module, a
+shape authoring rejects. The new native HQ proof compiles the same accepted
+survey/followup exports and compares all four worker-case binds, the lookup
+datum and the entry assertion with the CCZ. A deliberately wrong local worker
+ID fails the comparison. This establishes native emission, not device execution
+or a persisted case submission. No production behavior changed in this batch.

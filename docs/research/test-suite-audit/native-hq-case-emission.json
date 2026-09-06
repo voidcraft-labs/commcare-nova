@@ -2,6 +2,8 @@
 	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
 	"nativeSourceSha256": {
 		"corehq/apps/app_manager/xform.py": "2315052dfe55553b6e70b9bd0492c018ceb4e34fece56981430118fabd0a2601",
+		"corehq/apps/app_manager/suite_xml/xml_models.py": "e900dad2fa376f86a0f17c9a10da9fc977e6322c39417e68cb3d64b39b313359",
+		"corehq/apps/app_manager/xpath.py": "3d5862a8264859473b1f503de727b79288aa8eaedccaf0ab246c07ba23cd865a",
 		"corehq/apps/app_manager/models/applications.py": "816abfcf2db34c7412b85cf4c6e098886debec9b03a27dec04bd67d862d75516",
 		"corehq/apps/app_manager/models/forms.py": "06db242757ca10c4008a98997de4583a59a82cf0aa2899b99cb5cb40caba4835",
 		"corehq/apps/app_manager/models/form_actions.py": "5b8de2ee1a693c51818c3176936e32751be37f939e8ebdd3d97c7df317987ea0",
@@ -11,7 +13,7 @@
 	"evidence": [
 		{
 			"scenario": "registration",
-			"inputSha256": "d1b8fcdc127fe4187ecf43ff0cabfdd83f48e8f91e5b7aedeace904a8a8e7233",
+			"inputSha256": "6032562346c51f00c9deef12f99d3fd7db9bff3598ca0a3f10e699bbd6576a24",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -37,7 +39,7 @@
 		},
 		{
 			"scenario": "followup",
-			"inputSha256": "654e644bdadfe2e98b2c8d363a5c7b247416b66b8d90141866139492ccae807f",
+			"inputSha256": "df553573bff25c6434b28a1f4d00a406f9bbd1f5ee9ab1e5a6f37c7948e471c4",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -62,7 +64,7 @@
 		},
 		{
 			"scenario": "repeat",
-			"inputSha256": "f98a617cad6b38b1aef40f1435e53502cf260389b54c7f7d3e2012219e4b29ae",
+			"inputSha256": "5b77d645e7e2a3feac9decdb1f5053033284750feef42c7346c1fb00c04e41ba",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -83,7 +85,7 @@
 		},
 		{
 			"scenario": "query",
-			"inputSha256": "eae9f891d9604e04d4407f340da4993f9eec9743026eca2c2d3189d2bb1a3519",
+			"inputSha256": "6f6dfb54f2757f9b6d719b46a0819f0be1187e8e948c270a8082bef49f332fca",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -104,7 +106,7 @@
 		},
 		{
 			"scenario": "multiple",
-			"inputSha256": "14e065cfb84d26de029b79e471b7ee71934025d1901dd698cc841f7752e4650b",
+			"inputSha256": "105487eaa0dc6785c42567b0de4738d2a00091ac00825c28b389939947833584",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -126,7 +128,7 @@
 		},
 		{
 			"scenario": "multiple-repeat",
-			"inputSha256": "275ef42a2fc8d80ca164d01fa750b418bff96f55ded34f464f3c246389726780",
+			"inputSha256": "c78fc1a2683301b2df2a674869fc7f49102e9718cd84446de6ff49b396239ce8",
 			"extensionIndexes": [
 				{
 					"case_type": "patient",
@@ -141,6 +143,60 @@
 			"nativeCreateDatums": [],
 			"nativeLinkSourceId": null,
 			"nativeOwnerPreload": null
+		}
+	],
+	"workerEvidence": [
+		{
+			"scenario": "worker-survey",
+			"inputSha256": "b9ee803ad422d8a1e98a657c857793e04d0c256d48718821a3570b03cdb07b55",
+			"nativeWorkerBinds": [
+				{
+					"nodeset": "/data/commcare_usercase/case/@case_id",
+					"calculate": "instance('commcaresession')/session/data/usercase_id"
+				},
+				{
+					"nodeset": "/data/commcare_usercase/case/@date_modified",
+					"type": "xsd:dateTime",
+					"calculate": "/data/meta/timeEnd"
+				},
+				{
+					"nodeset": "/data/commcare_usercase/case/@user_id",
+					"calculate": "/data/meta/userID"
+				},
+				{
+					"nodeset": "/data/commcare_usercase/case/update/visits_done",
+					"calculate": "/data/visits_so_far",
+					"relevant": "count(/data/visits_so_far) > 0"
+				}
+			],
+			"nativeWorkerDatum": "instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/@case_id",
+			"nativeWorkerAssertion": "count(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]) = 1"
+		},
+		{
+			"scenario": "worker-followup",
+			"inputSha256": "5c74c4d5ef589f258c15783b8c92b4cf9f701e3243e7ec7388fdf0c5f4c581f1",
+			"nativeWorkerBinds": [
+				{
+					"nodeset": "/data/commcare_usercase/case/@case_id",
+					"calculate": "instance('commcaresession')/session/data/usercase_id"
+				},
+				{
+					"nodeset": "/data/commcare_usercase/case/@date_modified",
+					"type": "xsd:dateTime",
+					"calculate": "/data/meta/timeEnd"
+				},
+				{
+					"nodeset": "/data/commcare_usercase/case/@user_id",
+					"calculate": "/data/meta/userID"
+				},
+				{
+					"nodeset": "/data/commcare_usercase/case/update/visits_done",
+					"calculate": "/data/visits_so_far",
+					"relevant": "count(/data/visits_so_far) > 0"
+				}
+			],
+			"nativeWorkerDatum": "instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]/@case_id",
+			"nativeWorkerAssertion": "count(instance('casedb')/casedb/case[@case_type='commcare-user'][hq_user_id=instance('commcaresession')/session/context/userid]) = 1"
 		}
 	]
 }

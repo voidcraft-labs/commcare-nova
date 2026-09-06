@@ -5,6 +5,7 @@ import {
 	extensionCaseFixture,
 	extensionScenarios,
 } from "../../../lib/commcare/__tests__/extensionCaseFixture";
+import { usercaseWriteFixture } from "../../../lib/commcare/__tests__/usercaseWriteFixture";
 import { compileCcz } from "../../../lib/commcare/compiler";
 import { expandDoc } from "../../../lib/commcare/expander";
 import { runValidation } from "../../../lib/commcare/validator/runner";
@@ -18,14 +19,24 @@ if (!output)
 		"Usage: tsx scripts/fixtures/hq/emit-case-evidence.ts OUTPUT_DIRECTORY",
 	);
 mkdirSync(output, { recursive: true });
-for (const scenario of extensionScenarios) {
-	const doc = extensionCaseFixture(scenario);
+for (const [scenario, doc] of [
+	...extensionScenarios.map(
+		(scenario) => [scenario, extensionCaseFixture(scenario)] as const,
+	),
+	...(["survey", "followup"] as const).map(
+		(type) => [`worker-${type}`, usercaseWriteFixture(type)] as const,
+	),
+]) {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
 	if (findings.length) throw new Error(JSON.stringify(findings));
 	const hq = expandDoc(doc);
 	const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
 	writeFileSync(resolve(output, `${scenario}.json`), JSON.stringify(hq));
+	writeFileSync(
+		resolve(output, `${scenario}.suite.xml`),
+		zip.readAsText("suite.xml"),
+	);
 	writeFileSync(
 		resolve(output, `${scenario}.xml`),
 		zip.readAsText("modules-0/forms-0.xml"),

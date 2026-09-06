@@ -63,7 +63,17 @@ in `scripts/fixtures/hq/` caught HQ accepting an extension relationship and then
 silently compiling it as a child. It checks the corrected import/build and
 navigation paths using native HQ classes with all socket connections refused.
 The accompanying export tests run in ordinary CI; the native proof requires an
-installed HQ environment and makes no device-execution claim.
+installed HQ environment and makes no device-execution claim. It also reads
+accepted worker-write exports through native HQ case, datum and assertion
+builders. Fixture hashes and optional source searches in developer checkouts
+are not substitutes for running a consumer against Nova output.
+
+Case-write admission tests start with a fully accepted document and prove that
+a refusal reaches no persistence host. The shared tool body is tested once;
+invoking it twice behind different stubs does not establish SA/MCP transport
+parity. Accepted results feed the real preview engine and export paths, with
+query iterations, cousin repeats, scalar routing and actual gated identity
+edits. Persistence and transport contracts remain separate tests.
 
 Generated corpora must pass the actual strict schema as well as semantic
 validation; TypeScript casts and a domain-rule pass cannot establish schema

@@ -2,10 +2,14 @@
 
 The producer exports six strictly valid Nova documents through the real
 expander and CCZ compiler: registration, followup, user-controlled repeat,
-query-bound repeat, multiple selected parents, and repeated entries under multiple selected parents. Each creates two extension
-cases with an ordinary child between them. Registration also links to the first
+query-bound repeat, multiple selected parents, and repeated entries under multiple
+selected parents. Each creates two extension cases with an ordinary child between
+them. Registration also links to the first
 new extension. An extension also carries a captured file, including the combined
-repeat/selection scope. The same document fixtures drive `extensionCaseEmission.test.ts`.
+repeat/selection scope. The same document fixtures drive
+`extensionCaseEmission.test.ts`. Two further documents exercise a worker-record
+write on a survey and a followup form; these also drive
+`usercaseWriteWire.test.ts`. The followup app has a separate, valid browse module.
 
 ```bash
 mise exec -- npx tsx scripts/fixtures/hq/emit-case-evidence.ts /tmp/nova-case-evidence
@@ -20,6 +24,8 @@ socket connections and replaces only external configuration: default build
 selection, usercase availability, two feature toggles, and cache storage. It
 executes native `Application.from_source`, `XForm._create_casexml`,
 `EntriesHelper.get_new_case_id_datums_meta`, and the native navigation matcher.
+Worker evidence also executes `XForm._add_usercase`,
+`EntriesHelper.get_extra_case_id_datums`, and `add_usercase_id_assertion`.
 It never saves an app or submits a form. Each native XML artifact is written
 beside its input, and stdout records the HQ commit and input/source SHA-256s.
 
@@ -34,6 +40,9 @@ use the same generated case ID, while repeats generate IDs per iteration.
 
 Assertions verify two preserved extension indices, every inactive native case
 path, the complete native create-datum list, and the native link match. A separate
-call to native `add_case_preloads` checks the private owner-attribute projection. These
-checks establish HQ's import/build transformation and navigation metadata for
+call to native `add_case_preloads` checks the private owner-attribute projection.
+Worker checks compare every worker-case bind against the local CCZ and join
+the native lookup and assertion to the actual suite entry. An audit negative
+control changed the CCZ bind to a wrong worker ID and failed that comparison.
+These checks establish HQ's import/build transformation and navigation metadata for
 these examples. They do not execute JavaRosa, Android, or a case submission.

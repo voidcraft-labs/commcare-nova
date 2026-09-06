@@ -3618,19 +3618,28 @@
 			"file": "lib/commcare/__tests__/casePropertyWire.test.ts",
 			"lines": 25,
 			"ciMs": 543,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retained the independent casedb leaf mapping examples, including dynamic current_status and prototype-like toString. Verified Core CaseChildElement attribute construction, child case_name/date_opened, and Case.data external_id copied into a child. Removed three schema-invalid alias pass-through tests: they only pinned the lexical identity helper on inputs outside this domain contract and would prohibit harmless defensive checks. No source-file scans or native-execution claims in the test.",
+			"baselineSha256": "e3e5ffe785a42d0403ec1e312116fddcdd275c735884dab49e34379dc510f38c",
+			"reviewedSha256": "e9393b565167317004394a8eaa128cc71398a7578ab8f48d82fb36dad999b1ca"
 		},
 		{
 			"file": "lib/commcare/__tests__/caseWriteQuestionPathOracle.test.ts",
 			"lines": 335,
 			"ciMs": 983,
-			"status": "pending"
+			"status": "removed",
+			"review": "Deleted self-hash and optional local-checkout source searches plus their sole fixture. caseWriteEmission.test.ts instead drives real gated rename and group move with same-named cousin answers through HQ expansion and CCZ compilation, strict XML trees, complete update/name binds and preload identities. Duplicate/no-action refusal now belongs to caseWriteBoundary.",
+			"baselineSha256": "af037eb623aa2a47d826e5278685b1d11a4dcbd17fe52f95607ed703bf0868b1",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/commcare/__tests__/caseWriteSurfaceParity.test.ts",
 			"lines": 1154,
 			"ciMs": 5308,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced with caseWriteBoundary.test.ts at the actual shared tool and candidate-gate boundary; removed redundant MCP-body invocation and fake database writer. Every starting app is schema-valid and passes all findings, refusals cannot persist, and accepted documents drive real FormEngine/actions. Corrected a pre-invalid module-less followup fixture. Real query iterations plus cousin child repeats produce five independently named children with scalar external IDs; hidden versus blank scalar and corruption refusals are explicit.",
+			"baselineSha256": "e1b51ccf9df7d4cf3cbb1b0ff61cca104421aaf19119e1d160393a4413586553",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/commcare/__tests__/client.test.ts",
@@ -4017,7 +4026,10 @@
 			"file": "lib/commcare/__tests__/usercaseWriteWire.test.ts",
 			"lines": 362,
 			"ciMs": 1208,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced global tag scans, implementation-constant expectations, split-string browse detection and conditional upstream skip. Four tests join scoped strict XML worker transaction, suite datum/assertion, locale resource, current retargeted path and last-writer removal. Browse is a separate valid module. Shared producer feeds the same accepted survey/followup artifacts to native HQ _add_usercase and EntriesHelper builders; all four binds and datum/assertion match, and wrong-worker-ID negative control fails.",
+			"baselineSha256": "191e8689c229f271d343cb17890bac3856700e21e14cd07f81d5a27aa2147ece",
+			"reviewedSha256": "2eeeebe126483827a607e8ff3d6e81cc41e1d727b54d15036cc46bc0c50be603"
 		},
 		{
 			"file": "lib/commcare/__tests__/validationRules.test.ts",
@@ -6131,7 +6143,10 @@
 			"file": "lib/domain/__tests__/caseWriteInventory.test.ts",
 			"lines": 374,
 			"ciMs": 742,
-			"status": "pending"
+			"status": "retained",
+			"review": "Read complete inventory and issue derivation. These are programmatic tests of a partial-document classification boundary, not claims of authorable full apps: exact direct-child and worker policy, distinct repeat UUID buckets, query iteration segments, no-action classification and cardinality findings. Actual accepted nested repeats and runtime children are independently covered by the replacement caseWriteBoundary suite.",
+			"baselineSha256": "46049077ee44292b6b514ab0babe8dfe7e4075298e0a97c4da143e52a9894ec0",
+			"reviewedSha256": "46049077ee44292b6b514ab0babe8dfe7e4075298e0a97c4da143e52a9894ec0"
 		},
 		{
 			"file": "lib/domain/__tests__/columnApplicability.test.ts",

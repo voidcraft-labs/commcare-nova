@@ -27,6 +27,7 @@ def deny_network(*_args, **_kwargs):
     raise RuntimeError("Network disabled for native HQ evidence")
 
 socket.socket.connect = deny_network
+socket.socket.connect_ex = deny_network
 os.environ["CCHQ_TESTING"] = "1"
 os.environ["DJANGO_SETTINGS_MODULE"] = "testsettings"
 from manage import init_hq_python_path
@@ -47,6 +48,7 @@ from corehq.apps.app_manager.suite_xml.sections.entries import EntriesHelper
 from corehq.apps.app_manager.suite_xml.post_process.workflow import (
     WorkflowDatumMeta, _find_best_match, workflow_meta_from_session_datum,
 )
+from corehq.apps.app_manager.suite_xml.xml_models import Entry
 from corehq.apps.builds.models import BuildSpec
 from lxml import etree
 
@@ -104,8 +106,47 @@ for scenario in ["registration", "followup", "repeat", "query", "multiple", "mul
         matched_id = matched.source_id
         assert matched_id == "case_id_new_episode_1"
     results.append({"scenario": scenario, "inputSha256": hashlib.sha256(raw).hexdigest(), "extensionIndexes": [dict(node.attrib) for node in indexes], "disabledNativeTransactions": disabled, "nativeCreateDatums": expected_ids, "nativeLinkSourceId": matched_id, "nativeOwnerPreload": owner_preload})
+# The worker scenarios use native action activation, the XForm transaction
+# builder, and the suite datum/assertion builders on actual Nova exports.
+worker_results = []
+for scenario in ["worker-survey", "worker-followup"]:
+    raw = (args.exports / f"{scenario}.json").read_bytes()
+    with patch("corehq.apps.app_manager.models.applications.get_default_build_spec", return_value=BuildSpec(version="2.53.0", build_number=1)):
+        app = Application.from_source(json.loads(raw), "nova-case-evidence")
+    form = app.get_module(0).get_form(0)
+    with patch("corehq.apps.app_manager.models.applications.domain_has_usercase_access", return_value=True), patch("corehq.apps.app_manager.xform.SAVE_ONLY_EDITED_FORM_FIELDS.enabled", return_value=False):
+        xform = XForm(form.source, domain="nova-case-evidence")
+        xform._create_casexml(form)
+        xform._add_usercase(form)
+        native_xml = etree.tostring(xform.xml)
+        datums = EntriesHelper.get_extra_case_id_datums(form)
+    (args.exports / f"{scenario}.hq.xml").write_bytes(native_xml)
+    native = etree.fromstring(native_xml)
+    local = etree.fromstring((args.exports / f"{scenario}.xml").read_bytes())
+    def worker_binds(tree):
+        return sorted([dict(bind.attrib) for bind in tree.xpath('//x:model/x:bind[starts-with(@nodeset, "/data/commcare_usercase/")]', namespaces=namespaces)], key=lambda b: b["nodeset"])
+    assert worker_binds(native) == worker_binds(local), scenario
+    assert len(worker_binds(native)) == 4, scenario
+    # Answer nodes inherit the primary instance's form-specific namespace.
+    blocks = native.xpath('//x:model/x:instance[not(@src)]/*/*[local-name()="commcare_usercase"]/cx:case', namespaces=namespaces)
+    assert len(blocks) == 1, scenario
+    assert [etree.QName(child).localname for child in blocks[0]] == ["update"], scenario
+    assert [etree.QName(child).localname for child in blocks[0][0]] == ["visits_done"], scenario
+    assert len(datums) == 1 and datums[0].datum.id == "usercase_id" and datums[0].requires_selection is False, scenario
+    suite = etree.fromstring((args.exports / f"{scenario}.suite.xml").read_bytes())
+    entries = suite.xpath("entry[form=$xmlns]", xmlns=form.xmlns)
+    assert len(entries) == 1, scenario
+    entry = entries[0]
+    assert entry.xpath('session/datum[@id="usercase_id"]/@function') == [str(datums[0].datum.function)], scenario
+    expected_entry = Entry()
+    EntriesHelper.add_usercase_id_assertion(expected_entry)
+    assert entry.xpath('assertions/assert/@test') == [str(expected_entry.assertions[0].test)], scenario
+    assert entry.xpath('assertions/assert/text/locale/@id') == [expected_entry.assertions[0].text[0].locale_id], scenario
+    worker_results.append({"scenario": scenario, "inputSha256": hashlib.sha256(raw).hexdigest(), "nativeWorkerBinds": worker_binds(native), "nativeWorkerDatum": str(datums[0].datum.function), "nativeWorkerAssertion": str(expected_entry.assertions[0].test)})
 native_files = [
     "corehq/apps/app_manager/xform.py",
+    "corehq/apps/app_manager/suite_xml/xml_models.py",
+    "corehq/apps/app_manager/xpath.py",
     "corehq/apps/app_manager/models/applications.py",
     "corehq/apps/app_manager/models/forms.py",
     "corehq/apps/app_manager/models/form_actions.py",
@@ -116,4 +157,5 @@ print(json.dumps({
     "hqCommit": subprocess.check_output(["git", "-C", str(hq_root), "rev-parse", "HEAD"], text=True).strip(),
     "nativeSourceSha256": {name: hashlib.sha256((hq_root / name).read_bytes()).hexdigest() for name in native_files},
     "evidence": results,
+    "workerEvidence": worker_results,
 }, indent=2))
