@@ -120,6 +120,9 @@ project space keeps one app that tracks what you build in Nova. The one
 exception: if the app was deleted on CommCare HQ since Nova put it there, Nova
 tells you so when you try, and publishing once more creates a fresh one.
 
+If a status check overlaps a new publish, Nova keeps the new publish's status.
+Answers about the earlier version cannot replace it.
+
 Immediately before an update, Nova reads the current CommCare HQ app and keeps
 destination-specific behavior it does not own. If that app cannot be read
 safely, Nova leaves the existing HQ app unchanged instead of guessing what to

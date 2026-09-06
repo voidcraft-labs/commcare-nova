@@ -2056,3 +2056,24 @@ discarded hypothesis: the full validator already rejects them, so no invalid
 document is used to claim a reachable name collision. Regeneration is proven as
 a document projection; neither HTTP execution nor manually applied HQ settings
 are claimed by this suite.
+
+### Deployment observations identify accepted pushes independently of time
+
+The native store test reproduced a stale observation landing after two publishes
+shared one millisecond. The former suite rewound the first timestamp with SQL,
+which prevented the collision it needed to investigate. The store now compares
+a UUID assigned by Postgres to every accepted mapping write. Identical source
+revisions and remote ids do not collapse distinct acknowledgements. The trigger
+covers old writers too; observation-only updates preserve the token.
+
+The full store review replaced sequential uniqueness claims with blocked native
+writers, added exact constraint identities and whole-batch rollback after a
+second-resource failure, and proved fresh push identity and membership after
+real lock contention. Those tests use the actual auth migration schema and
+explicitly permit multiple connections. A first contention fixture mistakenly
+queued a read behind its own sole blocked connection; it was corrected at the
+fixture boundary, without timeout increases. Migration tests start before the
+new migration, preserve both active and historical rows, and exercise same-value
+legacy updates. Restricted runtime-role verification executes the trigger after
+privilege convergence; the internal function is included in the exact routine
+inventory. The timestamp remains an honest time, never an identity surrogate.

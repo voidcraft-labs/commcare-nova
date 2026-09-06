@@ -365,6 +365,8 @@ export interface DeploymentResource {
 	/** The Nova mutation sequence this remote resource was built from. */
 	readonly pushedRevision: number | null;
 	readonly pushedAt: string | null;
+	/** Unique identity of this accepted mapping write, independent of time. */
+	readonly pushToken: string;
 	/** CommCare HQ's own version number, as of the last observation. */
 	readonly remoteRevision: number | null;
 	readonly remoteObservedAt: string | null;

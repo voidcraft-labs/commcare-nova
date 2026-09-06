@@ -451,9 +451,11 @@ because each fold states its precondition against that fresh row:
   each record their own app and the ledger files whichever recorded
   first as superseded — the same answer two sequential creates produce.
 - `applyDeploymentObservation` folds only while the active mapping still
-  carries the remote id AND the `pushed_at` the observation read before
-  asking — the per-publish staleness token, needed because an in-place
-  republish keeps the id — so a refresh that spent five seconds asking
+  carries the remote id AND the `push_token` the observation read before
+  asking. Postgres assigns a fresh UUID on insertion and every update of
+  push fields, even when the timestamp, source revision, and remote id stay
+  equal. Observation-only updates and supersession retain that identity.
+  Thus a refresh that spent five seconds asking
   about what a publish meanwhile replaced discards its answers instead
   of overwriting the fresh record. It also records the remote revision
   in that same transaction.

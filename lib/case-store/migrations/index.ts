@@ -1,5 +1,6 @@
 import * as deploymentEntryPoints from "./20260904000000_deployment_entry_points";
 import * as entryPointHandles from "./20260904010000_entry_point_handles";
+import * as deploymentPushTokens from "./20260906000000_deployment_push_tokens";
 // Case-store migration set + provider.
 //
 // Static (import-based) `MigrationProvider` rather than Kysely's
@@ -150,6 +151,7 @@ export const caseStoreMigrations: Record<string, Migration> = {
 	"20260830000000_design_lookup_handle_kinds": designLookupHandleKinds,
 	"20260904000000_deployment_entry_points": deploymentEntryPoints,
 	"20260904010000_entry_point_handles": entryPointHandles,
+	"20260906000000_deployment_push_tokens": deploymentPushTokens,
 };
 
 export const caseStoreMigrationProvider: MigrationProvider = {

@@ -5200,7 +5200,7 @@
 			"ciMs": 11790,
 			"status": "revised",
 			"review": "Retain real migration/runtime/cleanup role and DDL privilege checks; remove duplicate emitted-SQL assertion in favor of observed ownership; stop swallowing connection cleanup failures. Canonical genesis now exercises built-in worker schema admission under both the actual migration and runtime database roles; redirect only the case-store connection and restore it after each birth.",
-			"reviewedSha256": "d53b6116f0c1c71ab0b31de47285f9a33167a1e7c45508ea00f16bda545332f6",
+			"reviewedSha256": "0ce225289184475a4d1ef220f4bfadcdf288893fb223da927389dd6342a20d99",
 			"baselineSha256": "8aa6968cec21c97975e50f78365ad191212af889240c0ecbed2ad1200160a62d"
 		},
 		{
@@ -5489,7 +5489,7 @@
 			"status": "revised",
 			"baselineSha256": "d3a7a3fd96c5389e531a40ce44eb4dac5c912dc10aea16225243d7f31e48fe3f",
 			"review": "Real pure resource selection is the appropriate boundary. Consolidated exact resource outcomes for renamed/recreated/removed/unnamed table and location states; added inactive-object deduplication, current remote reuse, kind-scoped identity, immutable inputs and unavailable-name fallback. Native deployment history reproduces live apps reported as abandoned, and the one shared selector now fixes browser and MCP including fallback.",
-			"reviewedSha256": "caf7654a3d25e515be13292df9885d2cb73a6889cb803092150f9af49e725aff"
+			"reviewedSha256": "a6da16331259ecb11aeb108058d8cf7dc12a131321cb63a5d3eb488c908b3985"
 		},
 		{
 			"file": "lib/deployment/__tests__/locationResourcePlan.test.ts",
@@ -5498,7 +5498,7 @@
 			"status": "revised",
 			"review": "Read the full pure planner and suite against upstream placement, ownership, and metadata replacement rules. Retained fast programmatic plan proof, replaced untyped fake organization casts with complete typed vocabulary and real UUID identities, added partial-adoption refusal for a remotely replaced mapping, and required exact reverse-hop findings through skipped levels. Integration counterparts now execute real organization writes, inventories, depth batches, metadata overlay, adoption and archive supersession.",
 			"baselineSha256": "b36502d39344ee14d227cb2f5725676abf369e36e3c87e3679bc87c9237ccbed",
-			"reviewedSha256": "c6fcd72bb650ae7ea3b70700991689f65ec53f0525681930369b2a066a391fb5"
+			"reviewedSha256": "f45d6f19102cd5dddcb696c285caad5f029cdaa523dc8f1f053d6daf5c0acf46"
 		},
 		{
 			"file": "lib/deployment/__tests__/lookupResourcePlan.test.ts",
@@ -5507,7 +5507,7 @@
 			"status": "revised",
 			"review": "Replaced verbose and partly nondiscriminating examples with full ownership plans, typed IDs, exact conflicts/adoptions and immutable inputs. Actual MCP/PG adopted-then-missing recreation exposed and fixed false adoption provenance on a new HQ object.",
 			"baselineSha256": "d20fa0214e997ca742b9ca0f0897c12e20370247f8b103911bec51e8ec36aac1",
-			"reviewedSha256": "9bf992497cc0aed0686f608a1a0f4be2a6e745ecb817807063659570d72a0552"
+			"reviewedSha256": "cc5b14de8f449b09cee3883cd4f277d478d73ac74e351870b4d41a7e7d1e2c44"
 		},
 		{
 			"file": "lib/deployment/__tests__/observe.test.ts",
@@ -5576,7 +5576,10 @@
 			"file": "lib/deployment/__tests__/store.postgres.test.ts",
 			"lines": 1148,
 			"ciMs": 16515,
-			"status": "pending"
+			"status": "revised",
+			"review": "Whole store and test-method review: actual migrated auth/PG schema, native blocked concurrent writers and fresh membership/push identity after competing commits, independent SQLSTATE/constraint assertions, second-resource batch rollback, preserved ownership/adoption/reconciliation/history and explicit entry-point evidence sequence gates. Same-time/same-source accepted publishes reproduce the timestamp collision and now use database-generated push identities; migration prefix and restricted runtime trigger proofs accompany the fix.",
+			"baselineSha256": "07a87915be91e1b539b559e9c54ec305505550ddba250e14c9050d946784b0ad",
+			"reviewedSha256": "98236e2abc8cc5a143ff4343f557a857f6bbf684cd731dfc8d42c187c4bf8ca6"
 		},
 		{
 			"file": "lib/deployment/__tests__/workerCredentials.test.ts",
@@ -5594,7 +5597,7 @@
 			"status": "revised",
 			"review": "Read whole planner and baseline suite. Retain pure account-ownership, prerequisite and effective-data contracts with complete typed containers and real UUIDs; replace silent branch returns, prove primary-first multi-place order against reversed mappings and refusal of an unnamed second adoption. Actual session-store regressions reproduce cross-server credential erasure and repeated uncertain-password replacement. Move candidates into per-target held outcomes, retain distinct attempts, and verify native clipboard/component rendering independently.",
 			"baselineSha256": "c25b58b23e12fc49388125837238bd3ceb7ab60fbf04c3b7505910226778cf80",
-			"reviewedSha256": "0392abe4d96615bdae022d67ef47e5ecd400910534f93a0e02e74d2d0f969757"
+			"reviewedSha256": "ec88026de42143616bb33463fdd77675ae75a1c263abda03b2be8a602858b677"
 		},
 		{
 			"file": "lib/doc/__tests__/absoluteGuardCoverage.test.ts",

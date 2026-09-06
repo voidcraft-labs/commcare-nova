@@ -35,6 +35,8 @@ export interface PerTestDatabaseHandle {
 export interface PerTestDatabaseOptions {
 	/** Postgres identifier rules: alphanumeric + underscore, lowercase, no leading digit. */
 	databaseNamePrefix: string;
+	/** Native concurrency tests may opt into multiple checked-out sessions. */
+	poolMax?: number;
 	/** Clone the production migration result for behavior tests; omit for migration tests. */
 	schema?: "migrated";
 	/** Build shared expensive preconditions once, then clone them per test.
@@ -121,7 +123,7 @@ export function setupPerTestDatabase(
 			options.schema,
 			suiteTemplate,
 		);
-		const built = buildIsolatedDb(created.uri);
+		const built = buildIsolatedDb(created.uri, { max: options.poolMax ?? 1 });
 		const previousLocalDatabaseUrl = process.env.NOVA_DB_LOCAL_URL;
 		if (options.establishLocalMigrationAuthority === true) {
 			process.env.NOVA_DB_LOCAL_URL = created.uri;

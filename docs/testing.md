@@ -42,6 +42,14 @@ tests is preferable to preserving the shape or count of the previous suite.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
 
+Deployment store tests use real auth migrations and concurrent Postgres sessions.
+A database lock observer establishes that writes are waiting before releasing
+or committing the competing transaction. Concurrent-call tests using a
+single-connection pool only establish application queueing. Push identity tests
+freeze only `Date`, keeping I/O native, and publish twice with identical time,
+source revision, and remote id. Migration tests start from the actual previous
+migration prefix; runtime privilege tests execute the trigger after convergence.
+
 Browser error assertions include document teardown. `attachErrorGuard` is
 awaited before navigation, and its final assertion runs after page close but
 before context close. Chromium can deliver a teardown beacon without emitting

@@ -77,6 +77,7 @@ function appResource(): DeploymentResource {
 		adoptedAt: null,
 		adoptedBy: null,
 		pushedRevision: 3,
+		pushToken: "01992000-0000-7000-8000-000000000001",
 		pushedAt: "2026-08-01T00:00:00Z",
 		remoteRevision: null,
 		remoteObservedAt: null,

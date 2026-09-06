@@ -28,6 +28,7 @@ function resource(over: Partial<DeploymentResource>): DeploymentResource {
 		adoptedAt: null,
 		adoptedBy: null,
 		pushedRevision: null,
+		pushToken: "01992000-0000-7000-8000-000000000001",
 		pushedAt: null,
 		remoteRevision: null,
 		remoteObservedAt: null,

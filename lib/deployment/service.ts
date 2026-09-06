@@ -732,7 +732,7 @@ export async function publishAppToHq(
 				};
 				const observed = await applyDeploymentObservation(input.scope, target, {
 					observedRemoteId: updateTarget.remoteId,
-					observedPushedAt: updateTarget.pushedAt,
+					observedPushToken: updateTarget.pushToken,
 					outcomes: [
 						[
 							"upload",
@@ -1396,7 +1396,7 @@ export async function refreshDeployment(
 	}
 	const { view } = await applyDeploymentObservation(scope, target, {
 		observedRemoteId: remote.remoteId,
-		observedPushedAt: remote.pushedAt,
+		observedPushToken: remote.pushToken,
 		outcomes: observation.outcomes,
 		remoteRevision: observation.remoteRevision,
 	});

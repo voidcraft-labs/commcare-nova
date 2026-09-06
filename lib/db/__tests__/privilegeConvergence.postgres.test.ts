@@ -642,6 +642,28 @@ describe("database privilege convergence", () => {
 				{ status: "complete", name: "Runtime genesis" },
 			).finally(() => runtimeCaseDatabase.mockRestore());
 			__setAppDbForTests(null);
+			// The acknowledgement trigger must execute under the restricted runtime
+			// role after convergence has revoked direct access to internal routines.
+			const target = await sql<{ id: string }>`INSERT INTO app_deployments
+				(app_id, project_id, server, domain, state, created_by)
+				VALUES (${genesis.appId}, ${probeProjectId}, 'production', 'token-proof', 'uploaded', ${probeUserId})
+				RETURNING id`.execute(runtime.db);
+			const originalPush = await sql<{
+				push_token: string;
+			}>`INSERT INTO app_deployment_resources
+				(deployment_id, kind, nova_resource_id, remote_id, ownership, pushed_at, pushed_revision)
+				VALUES (${target.rows[0].id}::uuid, 'app', ${genesis.appId}, 'hq-token-proof', 'nova-created', now(), 1)
+				RETURNING push_token`.execute(runtime.db);
+			const nextPush = await sql<{
+				push_token: string;
+			}>`UPDATE app_deployment_resources
+				SET pushed_at = pushed_at WHERE deployment_id = ${target.rows[0].id}::uuid
+				RETURNING push_token`.execute(runtime.db);
+			expect(nextPush.rows).toHaveLength(1);
+			expect(nextPush.rows[0].push_token).not.toBe(
+				originalPush.rows[0].push_token,
+			);
+
 			const genesisProof = await sql<{
 				baselines: string;
 				digest_matches: boolean;

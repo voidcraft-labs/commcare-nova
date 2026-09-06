@@ -72,6 +72,7 @@ function mapping(over: Partial<DeploymentResource> = {}): DeploymentResource {
 		adoptedAt: null,
 		adoptedBy: null,
 		pushedRevision: null,
+		pushToken: "01992000-0000-7000-8000-000000000001",
 		pushedAt: "2026-08-20T00:00:00.000Z",
 		remoteRevision: null,
 		remoteObservedAt: null,

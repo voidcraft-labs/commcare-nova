@@ -236,11 +236,12 @@ export function canonicalTestBlueprint(
  */
 export function setupAppStateTestDb(
 	prefix = "app_state_",
-	options: { authSchema?: "migrated" } = {},
+	options: { authSchema?: "migrated"; poolMax?: number } = {},
 ): AppStateTestDb {
 	const handle = setupPerTestDatabase({
 		schema: "migrated",
 		databaseNamePrefix: prefix,
+		poolMax: options.poolMax,
 		...(options.authSchema === "migrated"
 			? {
 					establishLocalMigrationAuthority: true as const,

@@ -9,14 +9,18 @@ export async function whileBlocked<T>(
 	check: (settled: boolean, controller: PgClient) => Promise<void>,
 	/** Release an operation-specific gate even if observing the SQL lock fails. */
 	releasePending?: () => void | Promise<void>,
+	/** Commit a competing writer after the blocked-state assertions. */
+	releaseTransaction: "ROLLBACK" | "COMMIT" = "ROLLBACK",
 ): Promise<T> {
 	const pg = new PgClient({ connectionString: h.uri() });
+	let transactionOpen = false;
 	let pending:
 		| Promise<{ ok: true; value: T } | { ok: false; error: unknown }>
 		| undefined;
 	try {
 		await pg.connect();
 		await pg.query("BEGIN");
+		transactionOpen = true;
 		await hold(pg);
 		const pid = (
 			await pg.query<{ pid: number }>("SELECT pg_backend_pid() AS pid")
@@ -54,12 +58,13 @@ export async function whileBlocked<T>(
 			await new Promise<void>((resolve) => setImmediate(resolve));
 		}
 		await check(settled, pg);
-		await pg.query("ROLLBACK");
+		await pg.query(releaseTransaction);
+		transactionOpen = false;
 		const outcome = await pending;
 		if (!outcome.ok) throw outcome.error;
 		return outcome.value;
 	} finally {
-		await pg.query("ROLLBACK").catch(() => {});
+		if (transactionOpen) await pg.query("ROLLBACK").catch(() => {});
 		await releasePending?.();
 		if (pending !== undefined) await pending;
 		await pg.end();
