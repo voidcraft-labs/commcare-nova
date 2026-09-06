@@ -6252,7 +6252,10 @@
 			"file": "lib/export/__tests__/boundaryValidation.test.ts",
 			"lines": 836,
 			"ciMs": 1363,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replace cast-only snapshot/revision/UUID fixtures with real parsed types. Merge duplicate empty-mode preparation checks. Replace identical mocked missing/foreign comparison with exact unavailable-table request and wrong-Project snapshot refusal. Repair false-positive reverse-owner fixture whose destination did not own cases; require full successful preparation and real expansion/fixture declaration for all three modes. Keep actual lookup emission plus missing-naming negative control, per-mode HQ tag refusals, and row findings across every mode. Replace impossible 10001-row single table with three individually valid tables; accept exact 10000 aggregate rows then reject one extra before media byte resolution.",
+			"baselineSha256": "1aedee7ed870ea6d9fd75e01922ea9f7fae24df03ad4b325b18724c39c66469b",
+			"reviewedSha256": "99815c73d2a42deb61e38d6d63e18d7dd6da31b576b4530bd5ca1f8e1554a2db"
 		},
 		{
 			"file": "lib/generation/__tests__/designProgressWire.test.ts",
