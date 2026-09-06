@@ -1022,7 +1022,11 @@ rather than a wire one. `isEdgeRefusal` marks those responses
 (`CommCareApiError.edgeRefusal`) so no surface reports a proxy's 403 as a
 verdict about the key or the account's permissions.
 
-Media ZIP uploads own a 60-second deadline through their response body; accepted
+App imports, lookup workbook uploads, and media ZIP uploads own a 60-second
+deadline through success and refusal response bodies. Location batches own 30
+seconds. All writes refuse redirects. Expiry preserves uncertainty about remote
+changes, and the operation owner releases its timer only after body consumption.
+Accepted
 ZIPs start a separate 45-second status clock shared by every fetch and retry wait.
 Both requests refuse redirects and bind routeable app/processing IDs. A completion
 requires HQ's literal success and completion flags, the acknowledged processing ID,

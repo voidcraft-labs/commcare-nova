@@ -1,3 +1,4 @@
+import { withHqRequestDeadline } from "./deadline";
 import "server-only";
 
 /**
@@ -248,79 +249,96 @@ export async function uploadLookupTableWorkbook(
 	);
 	form.append("replace", options.replace ? "true" : "false");
 
-	let res: Response;
-	try {
-		res = await fetch(`${baseUrl(creds)}/a/${domain}/fixtures/fixapi/`, {
-			method: "POST",
-			headers: { Authorization: authHeader(creds) },
-			body: form,
-		});
-	} catch (error) {
-		log.error("[commcare] lookup table upload unreachable", undefined, {
-			domain,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		/* The request went out and no answer came back, so what CommCare HQ
-		 * did with the workbook is unknown. */
-		return { success: false, status: 503, message: "", mayHaveLanded: true };
-	}
-	if (!res.ok) {
-		/* No verdict body, so no sentence to keep. Whether anything landed
-		 * is the shared rule: the permission layer answers before
-		 * `_run_upload` can run, while anything else means it may have run
-		 * and stopped somewhere unknown. That deliberately includes a
-		 * gateway's own 502 or 504, which says the request was forwarded
-		 * and then waited on, not that it never arrived. */
-		const refusal = await logAndReturnError("lookup table upload failed", res);
-		return {
-			...refusal,
-			message: "",
-			mayHaveLanded: writeMayHaveLanded(res.status, refusal.edgeRefusal),
-		};
-	}
-	let body: unknown;
-	try {
-		body = await res.json();
-	} catch {
-		log.error("[commcare] lookup table upload returned non-JSON", undefined, {
-			domain,
-		});
-		/* CommCare HQ answered something Nova cannot read, which says
-		 * nothing about what it did with the workbook. */
-		return { success: false, status: 502, message: "", mayHaveLanded: true };
-	}
-	if (
-		!isHqObject(body) ||
-		(body.code !== FIXTURE_UPLOAD_SUCCESS_CODE &&
-			body.code !== FIXTURE_UPLOAD_PARTIAL_CODE &&
-			body.code !== FIXTURE_UPLOAD_FORMAT_FAILURE_CODE)
-	) {
-		log.error(
-			"[commcare] lookup table upload verdict is malformed",
-			undefined,
-			{ domain },
-		);
-		// Only HQ's explicit pre-write format refusal proves nothing landed.
-		// An unknown verdict cannot authorize dropping the ownership evidence.
-		return { success: false, status: 502, message: "", mayHaveLanded: true };
-	}
-	const message = typeof body.message === "string" ? body.message : "";
-	if (body.code !== FIXTURE_UPLOAD_SUCCESS_CODE) {
-		log.error("[commcare] lookup table upload refused", undefined, {
-			domain,
-			code: typeof body.code === "number" ? body.code : null,
-			message: message.substring(0, 200),
-		});
-		/* A warning is a refusal here. CommCare HQ warns when some rows
-		 * landed and others did not, and Nova pushes whole tables: a
-		 * partial result is a project space whose data no longer matches
-		 * the app that was about to be sent to it. */
-		return {
-			success: false,
-			status: typeof body.code === "number" ? body.code : 502,
-			message,
-			mayHaveLanded: body.code === FIXTURE_UPLOAD_PARTIAL_CODE,
-		};
-	}
-	return { success: true, message };
+	return withHqRequestDeadline(async (signal) => {
+		let res: Response;
+		try {
+			res = await fetch(`${baseUrl(creds)}/a/${domain}/fixtures/fixapi/`, {
+				method: "POST",
+				headers: { Authorization: authHeader(creds) },
+				body: form,
+				redirect: "manual",
+				signal,
+			});
+		} catch (error) {
+			log.error("[commcare] lookup table upload unreachable", undefined, {
+				domain,
+				error: error instanceof Error ? error.message : String(error),
+			});
+			/* The request went out and no answer came back, so what CommCare HQ
+			 * did with the workbook is unknown. */
+			return { success: false, status: 503, message: "", mayHaveLanded: true };
+		}
+		if (!res.ok) {
+			/* No verdict body, so no sentence to keep. Whether anything landed
+			 * is the shared rule: the permission layer answers before
+			 * `_run_upload` can run, while anything else means it may have run
+			 * and stopped somewhere unknown. That deliberately includes a
+			 * gateway's own 502 or 504, which says the request was forwarded
+			 * and then waited on, not that it never arrived. */
+			const refusal = await logAndReturnError(
+				"lookup table upload failed",
+				res,
+			);
+			return {
+				...refusal,
+				message: "",
+				mayHaveLanded: writeMayHaveLanded(res.status, refusal.edgeRefusal),
+			};
+		}
+		let body: unknown;
+		try {
+			body = await res.json();
+		} catch {
+			log.error("[commcare] lookup table upload returned non-JSON", undefined, {
+				domain,
+			});
+			/* CommCare HQ answered something Nova cannot read, which says
+			 * nothing about what it did with the workbook. */
+			return {
+				success: false,
+				status: signal.aborted ? 503 : 502,
+				message: "",
+				mayHaveLanded: true,
+			};
+		}
+		if (
+			!isHqObject(body) ||
+			(body.code !== FIXTURE_UPLOAD_SUCCESS_CODE &&
+				body.code !== FIXTURE_UPLOAD_PARTIAL_CODE &&
+				body.code !== FIXTURE_UPLOAD_FORMAT_FAILURE_CODE)
+		) {
+			log.error(
+				"[commcare] lookup table upload verdict is malformed",
+				undefined,
+				{ domain },
+			);
+			// Only HQ's explicit pre-write format refusal proves nothing landed.
+			// An unknown verdict cannot authorize dropping the ownership evidence.
+			return {
+				success: false,
+				status: 502,
+				message: "",
+				mayHaveLanded: true,
+			};
+		}
+		const message = typeof body.message === "string" ? body.message : "";
+		if (body.code !== FIXTURE_UPLOAD_SUCCESS_CODE) {
+			log.error("[commcare] lookup table upload refused", undefined, {
+				domain,
+				code: typeof body.code === "number" ? body.code : null,
+				message: message.substring(0, 200),
+			});
+			/* A warning is a refusal here. CommCare HQ warns when some rows
+			 * landed and others did not, and Nova pushes whole tables: a
+			 * partial result is a project space whose data no longer matches
+			 * the app that was about to be sent to it. */
+			return {
+				success: false,
+				status: typeof body.code === "number" ? body.code : 502,
+				message,
+				mayHaveLanded: body.code === FIXTURE_UPLOAD_PARTIAL_CODE,
+			};
+		}
+		return { success: true, message };
+	}, 60_000);
 }

@@ -344,3 +344,31 @@ it("rejects unroutable domains before either HTTP operation", async () => {
 		expect(peer.getCallHistory()?.calls()).toEqual([]);
 	});
 });
+
+it("refuses an upload redirect without resending workbook bytes to another destination", async () => {
+	await withHttpPeer(async (peer) => {
+		peer
+			.get(HOST)
+			.intercept({ path: UPLOAD, method: "POST" })
+			.reply(307, "Moved", {
+				headers: { location: "/a/other/fixtures/fixapi/" },
+			});
+		expect(
+			await uploadLookupTableWorkbook(CREDS, DOMAIN, workbook(), {
+				replace: true,
+			}),
+		).toEqual({
+			success: false,
+			status: 307,
+			edgeRefusal: false,
+			message: "",
+			mayHaveLanded: true,
+		});
+		expect(
+			peer
+				.getCallHistory()
+				?.calls()
+				.map((call) => call.fullUrl),
+		).toEqual([HOST + UPLOAD]);
+	});
+});

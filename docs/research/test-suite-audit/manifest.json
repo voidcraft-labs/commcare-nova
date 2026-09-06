@@ -3784,9 +3784,9 @@
 			"lines": 325,
 			"ciMs": 112,
 			"status": "revised",
-			"review": "Replaced global fetch spies and four-byte fake workbook with native HTTP peer decoding and actual XLSX bytes. Independent response fixtures prove complete pagination, empty-vs-malformed inventory, malformed row rejection, same-space/resource cursors and manual redirects, late-page refusal, page ceiling, HTTP/network/JSON failures, encoded multipart replacement policy, format refusal vs partial acceptance, and unknown verdict uncertainty. Root fixes refuse incomplete inventory rather than overwriting by an assumed absence, and treat unknown upload verdicts as possibly landed rather than losing ownership evidence.",
+			"review": "Replaced global fetch spies and four-byte fake workbook with native HTTP peer decoding and actual XLSX bytes. Independent response fixtures prove complete pagination, empty-vs-malformed inventory, malformed row rejection, same-space/resource cursors and manual redirects, late-page refusal, page ceiling, HTTP/network/JSON failures, encoded multipart replacement policy, format refusal vs partial acceptance, and unknown verdict uncertainty. Root fixes refuse incomplete inventory rather than overwriting by an assumed absence, and treat unknown upload verdicts as possibly landed rather than losing ownership evidence. Native 307 upload refusal and shared actual socket tests additionally prove destination binding and 60-second cancellation through accepted/refused body reads.",
 			"baselineSha256": "747f00f63114603194172daf9d6311ffad2924f8acc14167b6857ee44de460d2",
-			"reviewedSha256": "9325a272a94410ced503c66df00ca8c3f76fe1e9fc81ec19abe7e0c6db457e22"
+			"reviewedSha256": "a2308f441f5659c0758425ca90b79f1cf724725591968d5ef0355ce231e98765"
 		},
 		{
 			"file": "lib/commcare/__tests__/hqWorkers.test.ts",

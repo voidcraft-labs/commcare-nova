@@ -1050,3 +1050,16 @@ agrees; displaced credentials remain visible and copyable as unconfirmed. The
 programmatic check spans session state through the real display/clipboard model.
 The browser transport failure copy also acknowledges that creation may have
 completed and explains recovery when the answer and password never arrived.
+
+### HQ writes must own response bodies and destination
+
+Native socket tests found app imports, lookup workbook uploads, and atomic
+location batches could wait indefinitely for either headers or response bytes.
+They now own 60/60/30-second abort deadlines respectively, preserving uncertain
+write outcomes. Lookup POST also followed a 307 into a different project space;
+it now refuses redirects before resending bytes. An operation-scoped deadline
+helper serves complete reads and writes. Tests cover real socket closure for
+headers, accepted bodies, and refusal bodies across all six write operations;
+returning a body-reading promise without awaiting it would release the deadline
+early and is detected by the refusal-body cases. The native harness drains and
+closes its own request even when a negative control fails.

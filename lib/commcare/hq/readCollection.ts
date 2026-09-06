@@ -1,8 +1,9 @@
+import { withHqRequestDeadline } from "./deadline";
 import "server-only";
 
 import { log } from "@/lib/logger";
 import type { CommCareApiError, CommCareCredentials } from "./http";
-import { readHqJson, withHqReadDeadline } from "./readJson";
+import { readHqJson } from "./readJson";
 
 export function isHqObject(value: unknown): value is Record<string, unknown> {
 	return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -21,7 +22,7 @@ export async function readHqCollection(
 
 	const rows: unknown[] = [];
 	let url = firstUrl;
-	return withHqReadDeadline(async (signal) => {
+	return withHqRequestDeadline(async (signal) => {
 		for (let page = 0; page < maxPages; page++) {
 			const result = await readHqJson(creds, url, label, signal);
 			if ("success" in result) return result;

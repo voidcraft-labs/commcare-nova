@@ -294,3 +294,10 @@ The production credential component also runs in Chromium with production CSS
 and the platform clipboard, proving copy labels, candidate accumulation, remount,
 single-row dismissal and the touch target. This component check is separate from
 the actual SDK/Postgres/HQ provisioning lifecycle.
+
+HQ transport cancellation uses actual loopback sockets with the selected HQ host
+mapped only inside the test dispatcher. Stalled headers and partial accepted or
+refused response bodies must settle at the owned deadline and close the socket.
+An in-memory response fixture cannot prove body cancellation; a global timer count
+can also include Undici's unrelated scheduler, so native checks assert request
+settlement and socket ownership directly.

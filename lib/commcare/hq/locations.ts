@@ -1,3 +1,4 @@
+import { withHqRequestDeadline } from "./deadline";
 import "server-only";
 
 /**
@@ -402,60 +403,74 @@ export async function patchHqLocations(
 		})),
 	});
 
-	let res: Response;
-	try {
-		res = await fetch(`${baseUrl(creds)}/a/${domain}/api/location/v2/`, {
-			method: "PATCH",
-			headers: {
-				Authorization: authHeader(creds),
-				"Content-Type": "application/json",
-			},
-			body,
-			redirect: "manual",
-		});
-	} catch (error) {
-		log.warn("[commcare] location push unreachable", {
-			domain,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return { success: false, status: 503, message: "", mayHaveLanded: true };
-	}
-
-	if (res.status !== 202) return refusedPush(res, domain, places.length);
-
-	let parsed: unknown;
-	try {
-		parsed = await res.json();
-	} catch {
-		log.error("[commcare] location push returned non-JSON", undefined, {
-			domain,
-		});
-		return { success: false, status: 502, message: "", mayHaveLanded: true };
-	}
-	if (
-		!Array.isArray(parsed) ||
-		parsed.length !== places.length ||
-		new Set(parsed).size !== parsed.length ||
-		!parsed.every(
-			(id, index): id is string =>
-				typeof id === "string" &&
-				/^[A-Za-z0-9_-]+$/.test(id) &&
-				(places[index].locationId === undefined ||
-					id === places[index].locationId),
-		)
-	) {
-		log.error(
-			"[commcare] location push answered an unusable shape",
-			undefined,
-			{
+	return withHqRequestDeadline(async (signal) => {
+		let res: Response;
+		try {
+			res = await fetch(`${baseUrl(creds)}/a/${domain}/api/location/v2/`, {
+				method: "PATCH",
+				headers: {
+					Authorization: authHeader(creds),
+					"Content-Type": "application/json",
+				},
+				body,
+				redirect: "manual",
+				signal,
+			});
+		} catch (error) {
+			log.warn("[commcare] location push unreachable", {
 				domain,
-				sent: places.length,
-				received: Array.isArray(parsed) ? parsed.length : null,
-			},
-		);
-		return { success: false, status: 502, message: "", mayHaveLanded: true };
-	}
-	return { ids: parsed };
+				error: error instanceof Error ? error.message : String(error),
+			});
+			return { success: false, status: 503, message: "", mayHaveLanded: true };
+		}
+
+		if (res.status !== 202)
+			return await refusedPush(res, domain, places.length);
+
+		let parsed: unknown;
+		try {
+			parsed = await res.json();
+		} catch {
+			log.error("[commcare] location push returned non-JSON", undefined, {
+				domain,
+			});
+			return {
+				success: false,
+				status: signal.aborted ? 503 : 502,
+				message: "",
+				mayHaveLanded: true,
+			};
+		}
+		if (
+			!Array.isArray(parsed) ||
+			parsed.length !== places.length ||
+			new Set(parsed).size !== parsed.length ||
+			!parsed.every(
+				(id, index): id is string =>
+					typeof id === "string" &&
+					/^[A-Za-z0-9_-]+$/.test(id) &&
+					(places[index].locationId === undefined ||
+						id === places[index].locationId),
+			)
+		) {
+			log.error(
+				"[commcare] location push answered an unusable shape",
+				undefined,
+				{
+					domain,
+					sent: places.length,
+					received: Array.isArray(parsed) ? parsed.length : null,
+				},
+			);
+			return {
+				success: false,
+				status: 502,
+				message: "",
+				mayHaveLanded: true,
+			};
+		}
+		return { ids: parsed };
+	}, 30_000);
 }
 
 /**

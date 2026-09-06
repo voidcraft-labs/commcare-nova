@@ -1,3 +1,4 @@
+import { withHqRequestDeadline } from "./hq/deadline";
 /**
  * CommCare HQ REST API client — server-side only.
  *
@@ -47,7 +48,7 @@ import {
 	warnAndReturnError,
 } from "./hq/http";
 import { isHqObject } from "./hq/readCollection";
-import { readHqJson, withHqReadDeadline } from "./hq/readJson";
+import { readHqJson } from "./hq/readJson";
 /** Private compatibility inputs stay behind the CommCare boundary. They are
  * types here so no manifest can enter a browser bundle through this client. */
 import type {
@@ -136,7 +137,7 @@ async function listDomainsMatching(
 	signal?: AbortSignal,
 ): Promise<CommCareDomain[] | CommCareApiError> {
 	if (signal === undefined)
-		return withHqReadDeadline((owned) =>
+		return withHqRequestDeadline((owned) =>
 			listDomainsMatching(creds, featureFlag, owned),
 		);
 	const domains: CommCareDomain[] = [];
@@ -654,77 +655,83 @@ export async function importApp(
 		"app.json",
 	);
 
-	let res: Response;
-	try {
-		res = await fetch(url, {
-			method: "POST",
-			headers: { Authorization: authHeader(creds) },
-			body: formData,
-			redirect: "manual",
-		});
-	} catch (error) {
-		log.error("[commcare] import response unavailable", error, { domain });
-		return { success: false, status: 503 };
-	}
-
-	if (!res.ok) {
-		/* A 404 on the update arm is an ANSWER — the app Nova mapped was
-		 * deleted on HQ's side — handled as a first-class outcome by the
-		 * publish lifecycle, so it files at warn level like the observation
-		 * reads' expected refusals. */
-		if (updateAppId && res.status === 404) {
-			return warnAndReturnError("import target missing", res);
+	return withHqRequestDeadline(async (signal) => {
+		let res: Response;
+		try {
+			res = await fetch(url, {
+				method: "POST",
+				headers: { Authorization: authHeader(creds) },
+				body: formData,
+				redirect: "manual",
+				signal,
+			});
+		} catch (error) {
+			log.error("[commcare] import response unavailable", error, { domain });
+			return { success: false, status: 503 };
 		}
-		return logAndReturnError("import failed", res);
-	}
 
-	let data: unknown;
-	try {
-		data = await res.json();
-	} catch {
-		log.error("[commcare] import returned non-JSON", undefined, { domain });
-		return { success: false, status: 502 };
-	}
-	if (typeof data !== "object" || data === null || Array.isArray(data)) {
-		return { success: false, status: 502 };
-	}
-	const acknowledgement = data as Record<string, unknown>;
+		if (!res.ok) {
+			/* A 404 on the update arm is an ANSWER — the app Nova mapped was
+			 * deleted on HQ's side — handled as a first-class outcome by the
+			 * publish lifecycle, so it files at warn level like the observation
+			 * reads' expected refusals. */
+			if (updateAppId && res.status === 404) {
+				return await warnAndReturnError("import target missing", res);
+			}
+			return await logAndReturnError("import failed", res);
+		}
 
-	/* HQ can return HTTP 200 with success:false for application-level
-	 * import failures (malformed JSON, schema violations). The response
-	 * body is already consumed so we log the parsed result directly. */
-	if (acknowledgement.success === false) {
-		log.error("[commcare] import rejected by HQ", undefined, { domain, data });
-		return { success: false, status: 422 };
-	}
-	const { app_id: appId, version, warnings } = acknowledgement;
-	if (
-		acknowledgement.success !== true ||
-		typeof appId !== "string" ||
-		!/^[A-Za-z0-9_-]+$/.test(appId) ||
-		(updateAppId !== undefined && appId !== updateAppId) ||
-		(version !== undefined &&
-			(typeof version !== "number" ||
-				!Number.isSafeInteger(version) ||
-				version < 0)) ||
-		(warnings !== undefined &&
-			(!Array.isArray(warnings) ||
-				!warnings.every((warning) => typeof warning === "string")))
-	) {
-		// This id becomes the durable ownership mapping. A truthy verdict or
-		// an unrelated returned id cannot establish what this publish wrote.
-		log.error("[commcare] import acknowledgement is malformed", undefined, {
-			domain,
-		});
-		return { success: false, status: 502 };
-	}
+		let data: unknown;
+		try {
+			data = await res.json();
+		} catch {
+			log.error("[commcare] import returned non-JSON", undefined, { domain });
+			return { success: false, status: signal.aborted ? 503 : 502 };
+		}
+		if (typeof data !== "object" || data === null || Array.isArray(data)) {
+			return { success: false, status: 502 };
+		}
+		const acknowledgement = data as Record<string, unknown>;
 
-	return {
-		success: true,
-		appId,
-		version: typeof version === "number" ? version : null,
-		warnings: warnings ?? [],
-	};
+		/* HQ can return HTTP 200 with success:false for application-level
+		 * import failures (malformed JSON, schema violations). The response
+		 * body is already consumed so we log the parsed result directly. */
+		if (acknowledgement.success === false) {
+			log.error("[commcare] import rejected by HQ", undefined, {
+				domain,
+				data,
+			});
+			return { success: false, status: 422 };
+		}
+		const { app_id: appId, version, warnings } = acknowledgement;
+		if (
+			acknowledgement.success !== true ||
+			typeof appId !== "string" ||
+			!/^[A-Za-z0-9_-]+$/.test(appId) ||
+			(updateAppId !== undefined && appId !== updateAppId) ||
+			(version !== undefined &&
+				(typeof version !== "number" ||
+					!Number.isSafeInteger(version) ||
+					version < 0)) ||
+			(warnings !== undefined &&
+				(!Array.isArray(warnings) ||
+					!warnings.every((warning) => typeof warning === "string")))
+		) {
+			// This id becomes the durable ownership mapping. A truthy verdict or
+			// an unrelated returned id cannot establish what this publish wrote.
+			log.error("[commcare] import acknowledgement is malformed", undefined, {
+				domain,
+			});
+			return { success: false, status: 502 };
+		}
+
+		return {
+			success: true,
+			appId,
+			version: typeof version === "number" ? version : null,
+			warnings: warnings ?? [],
+		};
+	}, 60_000);
 }
 
 // ── Multimedia upload (bulk API) ───────────────────────────────────
@@ -857,7 +864,7 @@ async function pollMediaBundleStatus(
 	base: string,
 	processingId: string,
 ): Promise<MediaBundleUploadResult | CommCareApiError> {
-	return withHqReadDeadline(async (signal) => {
+	return withHqRequestDeadline(async (signal) => {
 		const deadline = Date.now() + MEDIA_BUNDLE_POLL_TIMEOUT_MS;
 		while (!signal.aborted && Date.now() < deadline) {
 			let response: Response;
