@@ -84,3 +84,16 @@ Run the XML producer and HQ proof above, then select
 CCZ and HQ-regenerated forms, assert the tab/LF/CR-bearing default answer and
 read the worker's question prompt with accents, combining marks, non-Latin
 scripts, emoji and C1 characters. This checks runtime values, not only parsing.
+
+## Case-tile suite parsing
+
+Run the tile producer and native HQ proof in [../hq/README.md](../hq/README.md),
+then use the command above with `-PnovaProofResources=/tmp/nova-tile-evidence`
+and `--tests nova.compatibility.TileSuiteRuntimeTest`. Sixteen cases parse the
+full local suite or the HQ-regenerated detail artifact through Core's actual
+`SuiteParser`, with resource installation disabled via its existing constructor.
+They inspect native `Detail`/`DetailField` values, maximum grid dimensions,
+hidden sorting, explicit and inherited style, and group header depth. Local
+suites also resolve the form/browse entries and inspect entity/computed datums
+for persistent details and group companion data. This does not exercise an
+Android or Web Apps renderer, nor claim a full HQ-generated navigation suite.

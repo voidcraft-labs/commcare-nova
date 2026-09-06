@@ -4029,13 +4029,19 @@
 			"file": "lib/commcare/__tests__/tileEmissionParity.test.ts",
 			"lines": 321,
 			"ciMs": 1087,
-			"status": "pending"
+			"status": "revised",
+			"baselineSha256": "165130b58c89030b60147b52d08587e0ddc3f9c9951dec3f946cc0687783ac67",
+			"reviewedSha256": "61672581c9e05ec7e8d7d50922567eccc2a9396eb8f328cfe62a5b02e375ae0b",
+			"review": "Full method replacement: one eight-document admissible export corpus and production preview state checks replace fragment HTML parsers and duplicate partial HQ/group assertions. Native HQ DetailContributor regenerates actual exported documents; native Core SuiteParser checks all 16 artifacts. Corrected false HQ group-last-order claim. Unplaced visible cell is invalid and no longer a positive delivered-app fixture. Full compiler suite remains separately pending."
 		},
 		{
 			"file": "lib/commcare/__tests__/tileGroupEmission.test.ts",
 			"lines": 402,
 			"ciMs": 1247,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "995edb84a787c527682cae74c15f05f30326ac235ef3ca7ef6ec71529261480e",
+			"reviewedSha256": "995edb84a787c527682cae74c15f05f30326ac235ef3ca7ef6ec71529261480e",
+			"review": "Full method replacement: one eight-document admissible export corpus and production preview state checks replace fragment HTML parsers and duplicate partial HQ/group assertions. Native HQ DetailContributor regenerates actual exported documents; native Core SuiteParser checks all 16 artifacts. Corrected false HQ group-last-order claim. Unplaced visible cell is invalid and no longer a positive delivered-app fixture. Full compiler suite remains separately pending."
 		},
 		{
 			"file": "lib/commcare/__tests__/usercaseWriteWire.test.ts",
@@ -4101,7 +4107,10 @@
 			"file": "lib/commcare/hqJson/__tests__/caseTile.test.ts",
 			"lines": 201,
 			"ciMs": 733,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "a330e371910ba53052576c5297e2409fe81a537ebdfb1d20e9b640c5dc7a5dc1",
+			"reviewedSha256": "a330e371910ba53052576c5297e2409fe81a537ebdfb1d20e9b640c5dc7a5dc1",
+			"review": "Full method replacement: one eight-document admissible export corpus and production preview state checks replace fragment HTML parsers and duplicate partial HQ/group assertions. Native HQ DetailContributor regenerates actual exported documents; native Core SuiteParser checks all 16 artifacts. Corrected false HQ group-last-order claim. Unplaced visible cell is invalid and no longer a positive delivered-app fixture. Full compiler suite remains separately pending."
 		},
 		{
 			"file": "lib/commcare/locations/__tests__/fixture.test.ts",

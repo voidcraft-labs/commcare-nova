@@ -1564,18 +1564,18 @@ connection are shown together under one heading. Grouping lives INSIDE the tile
 layout, so "a group on a detail with no tile" is unrepresentable rather than
 merely rejected, and turning the tile off clears the grouping in the same write.
 
-It emits `<group function="string(./index/<id>)" header-rows="N"/>` as the last
-child of BOTH short details — `m{N}_case_short` and the deep-copied
+Nova emits `<group function="string(./index/<id>)" header-rows="N"/>` on both
+short details, `m{N}_case_short` and the deep-copied
 `m{N}_search_short`, because
 `suite_xml/features/case_tiles.py::CaseTileHelper.build_case_tile_detail` gates
 on `detail_type.endswith('short')` — plus a companion
 `<datum id="<caseDatumId>_parent_ids">` on every FORM entry that loads a case
 (`suite_xml/sections/entries.py::EntriesHelper.get_case_datums_basic_module`
 adds it only under `if form:`). HQ JSON writes the same thing as
-`case_tile_group`. The byte oracle is
-`tests/test_suite_case_tiles_grouping.py::SuiteCaseTilesGroupingTest`, whose
-inline `assertXmlPartialEqual` pair pins both exactly; three of the four upstream
-`<group>` fixtures misspell the attribute `grid-header-rows` and prove nothing.
+`case_tile_group`. The native proof in `scripts/fixtures/hq/` imports Nova's
+actual export and regenerates its details with HQ's `DetailContributor`;
+Core's `SuiteParser` reads both paths. Child order is not a runtime constraint:
+Nova appends the group last, while HQ can put the Search action after it.
 `header-rows` is always written, because the client falls back to `1`
 (`DetailGroupParser::ATTRIBUTE_NAME_HEADER_ROWS`) while HQ's model defaults to
 `2`.

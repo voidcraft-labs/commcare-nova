@@ -90,3 +90,27 @@ referenced characters, scoped namespaces, duplicate expanded attribute names,
 and comments/CDATA containing literal reference spellings. DTD and XML 1.1
 refusals are explicit Nova policy and are excluded from native malformedness
 claims. This does not connect to HQ, save an app or build Android.
+
+## Case-tile regeneration
+
+```bash
+mise exec -- npx tsx scripts/fixtures/hq/emit-tile-evidence.ts /tmp/nova-tile-evidence
+PYTHONDONTWRITEBYTECODE=1 /path/to/commcare-hq/.venv/bin/python \
+  scripts/fixtures/hq/tile-emission-proof.py \
+  --hq-root /path/to/commcare-hq --exports /tmp/nova-tile-evidence
+```
+
+The optional `--python-path` argument adds a local dependency overlay, as in the
+case and XML proofs. Eight schema-valid, validator-admitted documents cover row
+and tile layouts, visible borders/shading, hidden retained placement and sort,
+explicit one/two-row groups, Search, persistent tiles and a formless browser.
+The real `Application.from_source` and `DetailContributor` regenerate all detail
+fields from the actual HQ JSON. The comparison checks decoded grid/style,
+values, sort rules, group settings and action counts against local CCZ details.
+Absent and false border flags have the same consumer meaning. Child order is
+not compared: HQ can append Search after the group, and Core accepts both.
+
+Only four unrelated external domain flags are disabled (UCR, list optimizations,
+empty-list text and data registry). The native contributors are unmodified;
+network access is denied. This is detail regeneration, not a full HQ build.
+The resulting `*.hq-details.xml` files feed the native Core proof below.

@@ -10,11 +10,8 @@
 // `commcare-core/.../org/commcare/xml/DetailParser.java::DetailParser.parse`
 // dispatches `<detail>` children by name in a `while (nextTagInBlock)`
 // loop, so its position among the siblings is not a wire constraint.
-// Nova pins it last to match HQ's own emission order
-// (`case_tiles.py::CaseTileHelper.build_case_tile_detail` assigns
-// `detail.tile_group` after the fields and the register action) and the
-// one correctly-spelled fixture,
-// `formplayer/src/test/resources/archives/case_list_auto_select/suite.xml`.
+// Nova appends it after actions. Native HQ may append a Search action
+// after the group; both orders parse to the same Core detail model.
 //
 // **`header-rows` is always written.** The attribute is optional in the
 // grammar and the two sides default it DIFFERENTLY: the client falls
@@ -26,12 +23,8 @@
 // Relying on either default silently halves or doubles the header
 // depending on which side reads the app.
 //
-// Beware the spelling when reading upstream fixtures: three of the four
-// `<group>` elements in the Dimagi trees write `grid-header-rows`,
-// which parses as an unknown attribute and silently takes the client
-// default, so they prove nothing about header-row behavior. The byte
-// oracle for this emitter is HQ's own inline assertion,
-// `commcare-hq/corehq/apps/app_manager/tests/test_suite_case_tiles_grouping.py::SuiteCaseTilesGroupingTest`.
+// The native HQ proof regenerates these details from actual Nova exports,
+// and Core's SuiteParser reads both paths (scripts/fixtures/{hq,javarosa}).
 //
 // The `function` value is the only thing the device validates, and it
 // validates it loosely: `DetailGroupParser::parse` runs

@@ -393,3 +393,11 @@ actual mutation gates, and checks exact decoded whitespace and Unicode. The
 native proof parses actual HQ source and local CCZ forms; Core separately
 initializes both forms and reads their answer and question text. A successful
 HTML-parser round trip or an emitter paired with its own oracle is insufficient.
+
+Case tiles use the same admitted document corpus in ordinary CI and the native
+proof: actual archive fields and session datums, HQ export, and programmatic
+preview projections. HQ's real detail contributor regenerates the export;
+Core's suite parser reads both paths and inspects native tile dimensions, style,
+hidden sorting and grouping. These are parser/model checks, not rendered UI
+acceptance. Reproduction commands and external-domain controls are documented
+in `scripts/fixtures/hq/README.md` and `scripts/fixtures/javarosa/README.md`.

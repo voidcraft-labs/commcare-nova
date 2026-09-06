@@ -558,14 +558,19 @@ Nova's authoring words for vertical alignment (`top`/`middle`/`bottom`) map to `
 
 `caseListConfig.tile.grouping` emits `<group function="string(./index/<id>)" header-rows="N"/>` as the LAST child of the short `<detail>` (`suite/case-list/tileGroup.ts`, appended by `shortDetail.ts::buildDetailShell`), plus a companion `<datum id="<caseDatumId>_parent_ids">` on every FORM entry that loads a case (`session.ts::deriveSessionDatums`). HQ JSON writes the same thing as `case_tile_group: { doc_type: "CaseTileGroupConfig", index_identifier, header_rows }` on the short detail only, and omits the key entirely when grouping is off — safe because `Detail.wrap` default-constructs a `CaseTileGroupConfig()` whose `index_identifier` is `None`, and because `_merge_source_into_app` replaces `modules` wholesale so a republish leaves no stale value.
 
-The byte oracle is `commcare-hq/corehq/apps/app_manager/tests/test_suite_case_tiles_grouping.py::SuiteCaseTilesGroupingTest`, whose inline `assertXmlPartialEqual` pair pins both the element and the datum exactly. `__tests__/tileGroupEmission.test.ts` asserts against those strings; `__tests__/tileEmissionParity.test.ts` proves the suite, the HQ JSON, the preview split, and the SA read surface agree about one grouped document.
+`__tests__/tileEmissionParity.test.ts` uses strict admissible documents and
+checks the actual archive, HQ JSON and programmatic preview projection. The
+native proof under `scripts/fixtures/hq/` imports those same documents and runs
+HQ's real `DetailContributor`; Core's `SuiteParser` then reads both artifacts.
+It covers ordinary and Search details, hidden sort carriers, explicit and
+inherited presentation, grouping and persistent selection details.
 
 Six facts the shape depends on:
 
 - **BOTH short details carry it.** `models/modules.py::ModuleDetailsMixin.get_details` yields `search_short` from a deep copy of the case short detail, and `case_tiles.py::CaseTileHelper.build_case_tile_detail` gates on `self.detail_type.endswith('short')` — so the search-results list groups exactly as the browse list does. The long detail never does.
 - **`header-rows` is always written.** Absent, `commcare-core .../xml/DetailGroupParser::parse` falls back to `1` while HQ's own `models/case_list.py::CaseTileGroupConfig.header_rows` defaults to `2`, so an omitted attribute halves or doubles the header depending on which side reads it.
 - **The companion datum is form-entry-only.** `suite_xml/sections/entries.py::EntriesHelper.get_case_datums_basic_module` takes `datums[-1]` and adds it only under `if form:`, so a `caseListOnly` browse entry and a registration form's entry carry none. Its predicate is a plain `@case_id` match and deliberately does NOT reuse `caseLoadingNodeset`'s type/status/filter fragment.
-- **Child order is a pin, not a constraint.** `commcare-core .../xml/DetailParser::parse` is a `while (nextTagInBlock("detail"))` name-dispatch loop. Last-child position matches HQ's assignment order and the one correctly-spelled upstream fixture (`formplayer/src/test/resources/archives/case_list_auto_select/suite.xml`); three of the four upstream `<group>` fixtures misspell the attribute `grid-header-rows` and prove nothing.
+- **Child order is not a constraint.** `commcare-core .../xml/DetailParser::parse` dispatches children by name. Nova appends the group last; actual HQ regeneration puts a Search action after it. Both parse correctly, so tests compare the consumed detail contract rather than requiring byte order.
 - **`function` is validated only by `XPathParseTool.parseXPath`** (`DetailGroupParser::parse`), so the identifier's schema — `XML_ELEMENT_NAME_PATTERN` on `CaseTileGrouping.identifier` — is what makes the interpolation total. There is no escaping anywhere, by construction.
 - **The grouping is Web-Apps-only at the RENDERER.** `commcare-core` parses `<group>`, stores it on `Detail`, and evaluates the key in `cases/entity/AsyncEntity::getGroupKey` — but the only consumers of that key are `util/screen/EntityScreenHelper::groupEntities` (the `src/cli` session engine formplayer builds on) and formplayer's `EntityListResponse`. Nothing in `commcare-android` reads it, so on Android a grouped list is an ordinary tile list. Say that in author-facing copy rather than implying parity.
 

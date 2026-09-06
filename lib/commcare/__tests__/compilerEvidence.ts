@@ -1,11 +1,7 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import AdmZip from "adm-zip";
-import { type Element, isTag } from "domhandler";
-import { textContent } from "domutils";
 import { assert, type IProperty, type Parameters } from "fast-check";
-import { parseDocument } from "htmlparser2";
-import { SaxesParser } from "saxes";
 import { expect } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -23,6 +19,8 @@ import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { type BlueprintDoc, blueprintDocSchema } from "@/lib/domain";
 import { walkAssetRefs } from "@/lib/domain/mediaRefs";
+
+import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
 // Real, small media. Multiple asset IDs sharing content exercise bundle dedup.
 const png = Buffer.from(
@@ -70,20 +68,6 @@ function manifestFor(doc: BlueprintDoc): AssetManifest {
 		});
 	}
 	return manifest;
-}
-
-function children(element: Element, name: string): Element[] {
-	return element.children.filter(isTag).filter((e) => e.name === name);
-}
-function one(elements: Element[]): Element {
-	expect(elements).toHaveLength(1);
-	const element = elements[0];
-	if (!element) throw new Error("Missing XML element");
-	return element;
-}
-function xmlRoot(xml: string): Element {
-	new SaxesParser({ xmlns: true }).write(xml).close();
-	return one(parseDocument(xml, { xmlMode: true }).children.filter(isTag));
 }
 
 // Select fast-check's synchronous overload explicitly. This boundary cannot
@@ -150,27 +134,34 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 	for (const asset of manifest.values())
 		expect(zip.getEntry(asset.wirePath)?.getData()).toEqual(asset.bytes);
 
-	const suite = xmlRoot(suiteXml);
+	const suite = readXmlEvidence(suiteXml);
 	const forms = new Map<string, { path: string; xml: string }>();
-	const resources = children(suite, "xform");
+	const resources = xmlChildren(suite, "xform");
 	expect(resources).toHaveLength(Object.keys(doc.forms).length);
 	const resourcePaths = new Set<string>();
 	for (const xform of resources) {
-		const resource = one(children(xform, "resource"));
-		const local = one(
-			children(resource, "location").filter(
-				(e) => e.attribs.authority === "local",
+		const resource = onlyXml(xmlChildren(xform, "resource"));
+		const local = onlyXml(
+			xmlChildren(resource, "location").filter(
+				(e) => e.attributes.authority === "local",
 			),
 		);
-		const path = textContent(local).replace(/^\.\//, "");
+		const path = local.text.replace(/^\.\//, "");
 		expect(resourcePaths.has(path)).toBe(false);
 		resourcePaths.add(path);
 		const xml = read(path);
-		const root = xmlRoot(xml);
-		const head = one(children(root, "h:head"));
-		const model = one(children(head, "model"));
-		const main = one(children(model, "instance").filter((e) => !e.attribs.src));
-		const namespace = one(main.children.filter(isTag)).attribs.xmlns;
+		const root = readXmlEvidence(xml);
+		const head = onlyXml(xmlChildren(root, "head"));
+		const model = onlyXml(
+			head.children.filter(
+				(node) =>
+					node.name === "model" && node.uri === "http://www.w3.org/2002/xforms",
+			),
+		);
+		const main = onlyXml(
+			xmlChildren(model, "instance").filter((e) => !e.attributes.src),
+		);
+		const namespace = onlyXml(main.children).uri;
 		expect(namespace).toBeTruthy();
 		expect(forms.has(namespace)).toBe(false);
 		forms.set(namespace, { path, xml });
@@ -180,18 +171,18 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 		.filter((e) => /^modules-\d+\/forms-\d+\.xml$/.test(e.entryName));
 	expect(new Set(archivedForms.map((e) => e.entryName))).toEqual(resourcePaths);
 	const visited = new Set<string>();
-	for (const entry of children(suite, "entry")) {
-		const formElements = children(entry, "form");
+	for (const entry of xmlChildren(suite, "entry")) {
+		const formElements = xmlChildren(entry, "form");
 		if (formElements.length === 0) continue; // Case-list browsing is formless.
-		const namespace = textContent(one(formElements));
+		const namespace = onlyXml(formElements).text;
 		expect(visited.has(namespace)).toBe(false);
 		visited.add(namespace);
 		const form = forms.get(namespace);
 		if (!form) throw new Error(`Suite entry names an absent form ${namespace}`);
-		const sessions = children(entry, "session");
+		const sessions = xmlChildren(entry, "session");
 		expect(sessions.length).toBeLessThanOrEqual(1);
-		const datums = sessions.flatMap((session) => children(session, "datum"));
-		const datumIds = new Set(datums.map((d) => d.attribs.id));
+		const datums = sessions.flatMap((session) => xmlChildren(session, "datum"));
+		const datumIds = new Set(datums.map((d) => d.attributes.id));
 		expect(datumIds.size).toBe(datums.length);
 		expect(
 			validateBindingResolution(

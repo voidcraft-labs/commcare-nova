@@ -1,0 +1,967 @@
+{
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"scenarios": [
+		{
+			"scenario": "boxed",
+			"sourceSha256": "cd6e1ce5ee7707ddaf26a4f78c5af02706d709f68506980b8d0404ef44d5ecf5",
+			"suiteSha256": "90b2177d15779812601beb835906b8a0c01bf81130c01f130af8b9bd39ee2f1a",
+			"nativeDetailsSha256": "00abbf4b8823504de8de309a1c4a8fffcd1181f15c73b0c0100f19383777c8be",
+			"details": {
+				"m0_case_short": {
+					"fields": [
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "0",
+									"grid-height": "1",
+									"grid-width": "4"
+								},
+								"horizontal": "left",
+								"vertical": "start",
+								"font": "large",
+								"border": true,
+								"shading": true
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "center",
+								"vertical": "center",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "2",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "right",
+								"vertical": "end",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": "0",
+							"templateWidth": "0",
+							"value": "rank",
+							"sort": {
+								"type": "string",
+								"order": "1",
+								"direction": "ascending",
+								"value": "rank"
+							}
+						}
+					],
+					"group": null,
+					"actions": 0
+				},
+				"m0_case_long": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						}
+					],
+					"group": null,
+					"actions": 0
+				}
+			}
+		},
+		{
+			"scenario": "grouped-browse",
+			"sourceSha256": "33d5bb1421f8b98c1886284cf9185670c7ee0783001f891a32b0f5ecede6a214",
+			"suiteSha256": "aab67672cd95c9d016e72180c3fa7861ca3168fce6f5c2f6596e397e9a537259",
+			"nativeDetailsSha256": "5cc49dd567ba622cdb3fb47f20b696e9401742acd8964795d5beb62e9ca7ceb9",
+			"details": {
+				"m0_case_short": {
+					"fields": [
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "0",
+									"grid-height": "1",
+									"grid-width": "4"
+								},
+								"horizontal": "left",
+								"vertical": "start",
+								"font": "large",
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "center",
+								"vertical": "center",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "2",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "right",
+								"vertical": "end",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": "0",
+							"templateWidth": "0",
+							"value": "rank",
+							"sort": {
+								"type": "string",
+								"order": "1",
+								"direction": "ascending",
+								"value": "rank"
+							}
+						}
+					],
+					"group": {
+						"function": "string(./index/parent)",
+						"header-rows": "1"
+					},
+					"actions": 0
+				},
+				"m0_case_long": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						}
+					],
+					"group": null,
+					"actions": 0
+				}
+			}
+		},
+		{
+			"scenario": "grouped-one",
+			"sourceSha256": "4c61da980064ba5b1c74fbea127563d55106834774d01a896c276aba5831e4b4",
+			"suiteSha256": "dc728cf15ec8bdfd7b12cedfc693506b7c631b87fefcd0562eb5a4a952874842",
+			"nativeDetailsSha256": "5cc49dd567ba622cdb3fb47f20b696e9401742acd8964795d5beb62e9ca7ceb9",
+			"details": {
+				"m0_case_short": {
+					"fields": [
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "0",
+									"grid-height": "1",
+									"grid-width": "4"
+								},
+								"horizontal": "left",
+								"vertical": "start",
+								"font": "large",
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "center",
+								"vertical": "center",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "2",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "right",
+								"vertical": "end",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": "0",
+							"templateWidth": "0",
+							"value": "rank",
+							"sort": {
+								"type": "string",
+								"order": "1",
+								"direction": "ascending",
+								"value": "rank"
+							}
+						}
+					],
+					"group": {
+						"function": "string(./index/parent)",
+						"header-rows": "1"
+					},
+					"actions": 0
+				},
+				"m0_case_long": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						}
+					],
+					"group": null,
+					"actions": 0
+				}
+			}
+		},
+		{
+			"scenario": "grouped-search",
+			"sourceSha256": "272d028e021c0a53a4cb461a5c8c3281b90475664eef29f6b2376c37305bc741",
+			"suiteSha256": "7d3e254cdd5891f260551f21b60793cedae4ad7f4ecdc31b874a96cfe67af162",
+			"nativeDetailsSha256": "62545ef6f9d3aadea7aa089b9106ea1e25244daa031396fcd1fe14d17aafb744",
+			"details": {
+				"m0_case_short": {
+					"fields": [
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "0",
+									"grid-height": "1",
+									"grid-width": "4"
+								},
+								"horizontal": "left",
+								"vertical": "start",
+								"font": "large",
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "center",
+								"vertical": "center",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "2",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "right",
+								"vertical": "end",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": "0",
+							"templateWidth": "0",
+							"value": "rank",
+							"sort": {
+								"type": "string",
+								"order": "1",
+								"direction": "ascending",
+								"value": "rank"
+							}
+						}
+					],
+					"group": {
+						"function": "string(./index/parent)",
+						"header-rows": "1"
+					},
+					"actions": 1
+				},
+				"m0_case_long": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						}
+					],
+					"group": null,
+					"actions": 0
+				},
+				"m0_search_short": {
+					"fields": [
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "0",
+									"grid-height": "1",
+									"grid-width": "4"
+								},
+								"horizontal": "left",
+								"vertical": "start",
+								"font": "large",
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "center",
+								"vertical": "center",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "2",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "right",
+								"vertical": "end",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": "0",
+							"templateWidth": "0",
+							"value": "rank",
+							"sort": {
+								"type": "string",
+								"order": "1",
+								"direction": "ascending",
+								"value": "rank"
+							}
+						}
+					],
+					"group": {
+						"function": "string(./index/parent)",
+						"header-rows": "1"
+					},
+					"actions": 0
+				},
+				"m0_search_long": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						}
+					],
+					"group": null,
+					"actions": 0
+				}
+			}
+		},
+		{
+			"scenario": "grouped-two",
+			"sourceSha256": "44c5658937bd35e61a1f91efb774d86da5116216815a21630e83cdeda87279cc",
+			"suiteSha256": "6be48a4d8a5d0811a8e34dc922105ee3acbc1a9513e3a42b3e99874013686357",
+			"nativeDetailsSha256": "34481a9d147b9a02b78d8c1fb52971f105f9e3a53e4489b0418363fd1dec445e",
+			"details": {
+				"m0_case_short": {
+					"fields": [
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "0",
+									"grid-height": "2",
+									"grid-width": "4"
+								},
+								"horizontal": "left",
+								"vertical": "start",
+								"font": "large",
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "2",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "center",
+								"vertical": "center",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "2",
+									"grid-y": "2",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "right",
+								"vertical": "end",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": "0",
+							"templateWidth": "0",
+							"value": "rank",
+							"sort": {
+								"type": "string",
+								"order": "1",
+								"direction": "ascending",
+								"value": "rank"
+							}
+						}
+					],
+					"group": {
+						"function": "string(./index/parent)",
+						"header-rows": "2"
+					},
+					"actions": 0
+				},
+				"m0_case_long": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						}
+					],
+					"group": null,
+					"actions": 0
+				}
+			}
+		},
+		{
+			"scenario": "persistent",
+			"sourceSha256": "54452ccda1d96de1e844959ab2d788c78cccabfc5730281e6fcd0e59efaa4894",
+			"suiteSha256": "748ee7c0f67488fa72d782d0460e9357b7e8a23e1af737c36f2211e2e7889550",
+			"nativeDetailsSha256": "5dc070a2d072aeba842e73a685a188415b1a3edf7576bf90d38af139464520de",
+			"details": {
+				"m0_case_short": {
+					"fields": [
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "0",
+									"grid-height": "1",
+									"grid-width": "4"
+								},
+								"horizontal": "left",
+								"vertical": "start",
+								"font": "large",
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "center",
+								"vertical": "center",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "2",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "right",
+								"vertical": "end",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": "0",
+							"templateWidth": "0",
+							"value": "rank",
+							"sort": {
+								"type": "string",
+								"order": "1",
+								"direction": "ascending",
+								"value": "rank"
+							}
+						}
+					],
+					"group": null,
+					"actions": 0
+				},
+				"m0_case_long": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						}
+					],
+					"group": null,
+					"actions": 0
+				}
+			}
+		},
+		{
+			"scenario": "plain",
+			"sourceSha256": "689e0f10782f1a36e1905cf8c03dae10d6ef8826ac6ffb058ee9a42f7db19a6e",
+			"suiteSha256": "1e57bf3ecdcbbcfec57d74172a562885c489985392b5cdca78ee3825184e6a33",
+			"nativeDetailsSha256": "f29f3abef08305cafd6dc44cc440bdd4ab68de2e39cd62c1c415f17ed045eea1",
+			"details": {
+				"m0_case_short": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": "0",
+							"templateWidth": "0",
+							"value": "rank",
+							"sort": {
+								"type": "string",
+								"order": "1",
+								"direction": "ascending",
+								"value": "rank"
+							}
+						}
+					],
+					"group": null,
+					"actions": 0
+				},
+				"m0_case_long": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						}
+					],
+					"group": null,
+					"actions": 0
+				}
+			}
+		},
+		{
+			"scenario": "tile",
+			"sourceSha256": "c57b1217f9616b0e269267d1f024658144994894d294a3539b8b7beab42ac05e",
+			"suiteSha256": "88a0c1070ac181e756462523295ce5ee7d1a9873d641847d6b002be8d23dbfe1",
+			"nativeDetailsSha256": "5dc070a2d072aeba842e73a685a188415b1a3edf7576bf90d38af139464520de",
+			"details": {
+				"m0_case_short": {
+					"fields": [
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "0",
+									"grid-height": "1",
+									"grid-width": "4"
+								},
+								"horizontal": "left",
+								"vertical": "start",
+								"font": "large",
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "0",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "center",
+								"vertical": "center",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": {
+								"grid": {
+									"grid-x": "2",
+									"grid-y": "1",
+									"grid-height": "1",
+									"grid-width": "2"
+								},
+								"horizontal": "right",
+								"vertical": "end",
+								"font": null,
+								"border": false,
+								"shading": false
+							},
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": "0",
+							"templateWidth": "0",
+							"value": "rank",
+							"sort": {
+								"type": "string",
+								"order": "1",
+								"direction": "ascending",
+								"value": "rank"
+							}
+						}
+					],
+					"group": null,
+					"actions": 0
+				},
+				"m0_case_long": {
+					"fields": [
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "case_name",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "village",
+							"sort": null
+						},
+						{
+							"style": null,
+							"headerWidth": null,
+							"templateWidth": null,
+							"value": "last_visit",
+							"sort": null
+						}
+					],
+					"group": null,
+					"actions": 0
+				}
+			}
+		}
+	],
+	"limits": "Native Application.from_source and DetailContributor regeneration compared with actual CCZ details, including grid/style values, hidden sorting, grouping values and actions. False/absent border flags are equivalent. This is not a full HQ build or Android/Web Apps rendering. Domain-only UCR, optimization, empty-list text and registry flags are disabled; network access is refused."
+}

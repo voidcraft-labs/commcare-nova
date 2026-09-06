@@ -1,321 +1,311 @@
-/**
- * The three emission paths agree about which columns hold a square.
- *
- * `lib/domain/modules.ts::tileCellFor` is the single admission decision,
- * but a shared helper only helps while every path actually calls it — the
- * bug this file exists to prevent was three paths each deciding
- * independently, two of them right and the HQ JSON writer wrong, so an
- * uploaded app drew a different tile from the one the author arranged and
- * the local `.ccz` produced.
- *
- * So this asserts the agreement itself, on ONE document, rather than
- * trusting three per-path tests that could each stay green while drifting
- * apart. The document deliberately carries the shape that broke: a column
- * hidden from Results that still owns a Default-order rule AND kept the
- * placement it had before it was hidden, with a border on that retained
- * cell so a leak would also flip the whole tile to boxed.
- */
-
 import AdmZip from "adm-zip";
-import { Parser } from "htmlparser2";
 import { describe, expect, it } from "vitest";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { summarizeBlueprint } from "@/lib/agent/summarizeBlueprint";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
-import { projectCaseListForHq } from "@/lib/commcare/hqJson/caseList";
-import type { BlueprintDoc } from "@/lib/domain";
-import { orderedColumns, tileCell } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { blueprintDocSchema, orderedColumns } from "@/lib/domain";
 import { splitTileGridByGroupHeader } from "@/lib/preview/caseTileGrouping";
 import { projectTileGrid } from "@/lib/preview/caseTileLayout";
 import { tileResultsColumns } from "@/lib/preview/caseTileRendering";
+import { tileFixture, tileScenarios } from "./tileFixture";
+import { onlyXml, readXmlEvidence, xmlChildren } from "./xmlEvidence";
 
-/** Shown, placed, and bordered. */
-const SHOWN = tileCell(0, 0, 4, 1);
-/**
- * Hidden from Results, still orders the list, still holds the placement it
- * had before it was hidden — reaching to column 10 and asking for a border,
- * so a leak on any path is visible twice over: a wider grid AND a tile
- * switched into boxed layout.
- */
-const HIDDEN_CARRIER = tileCell(4, 0, 6, 2, { showBorder: true });
-
-function tiledDoc(): BlueprintDoc {
-	const base = caseListConfig([
-		{ field: "case_name", header: "Name" },
-		{ field: "village", header: "Village" },
-	]);
-	return buildDoc({
-		appName: "TileEmissionParity",
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				caseListConfig: {
-					...base,
-					columns: [
-						{ ...base.columns[0], tile: SHOWN },
+/** Native HQ regeneration and Core SuiteParser replay use these same documents. */
+describe("delivered case tiles", () => {
+	it.each(tileScenarios)(
+		"%s preserves layout, ordering, and navigation",
+		(scenario) => {
+			const doc = tileFixture(scenario);
+			blueprintDocSchema.parse(toPersistableDoc(doc));
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+			const hq = expandDoc(doc);
+			const zip = new AdmZip(compileCcz(hq, doc.appName, doc));
+			const suite = readXmlEvidence(zip.readAsText("suite.xml"));
+			const details = xmlChildren(suite, "detail");
+			const search = scenario === "grouped-search";
+			const grouped = scenario.startsWith("grouped-");
+			const headerRows = scenario === "grouped-two" ? 2 : 1;
+			const tiled = scenario !== "plain";
+			expect(details.map((detail) => detail.attributes.id)).toEqual(
+				search
+					? [
+							"m0_case_short",
+							"m0_case_long",
+							"m0_search_short",
+							"m0_search_long",
+						]
+					: ["m0_case_short", "m0_case_long"],
+			);
+			for (const detail of details) {
+				const short = detail.attributes.id.endsWith("short");
+				const fields = xmlChildren(detail, "field");
+				expect(fields).toHaveLength(short ? 4 : 3);
+				expect(
+					fields.flatMap((field) => xmlChildren(field, "style")).length,
+				).toBe(short && tiled ? 3 : 0);
+				if (short && tiled) {
+					const styles = fields
+						.slice(0, 3)
+						.map((field) => onlyXml(xmlChildren(field, "style")));
+					expect(styles.map((style) => style.attributes)).toEqual([
 						{
-							...base.columns[1],
-							tile: HIDDEN_CARRIER,
-							visibleInList: false,
-							sort: { direction: "asc" as const, priority: 0 },
+							"horz-align": "left",
+							"vert-align": "start",
+							"font-size": "large",
+							...(scenario === "boxed"
+								? { "show-border": "true", "show-shading": "true" }
+								: {}),
 						},
-					],
-					tile: {},
-				},
-				forms: [
-					{
-						name: "Visit",
-						type: "followup",
-						fields: [
-							f({ kind: "text", id: "notes", label: proseText("Notes") }),
-						],
-					},
-				],
-			},
-		],
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [
-					{ name: "case_name", label: proseText("Name") },
-					{ name: "village", label: proseText("Village") },
-				],
-			},
-		],
-	});
-}
-
-/** Every `<grid>` under the short detail, as attribute maps. */
-function suiteGrids(doc: BlueprintDoc): Record<string, string>[] {
-	const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
-	const entry = zip.getEntry("suite.xml");
-	if (entry === null) throw new Error("compileCcz produced no suite.xml");
-
-	const grids: Record<string, string>[] = [];
-	let depth = 0;
-	let inShortDetail = false;
-	const parser = new Parser(
-		{
-			onopentag(name, attribs) {
-				if (name === "detail" && attribs.id === "m0_case_short") {
-					inShortDetail = true;
-					depth = 0;
-				}
-				if (inShortDetail) {
-					depth += 1;
-					if (name === "grid") grids.push({ ...attribs });
-				}
-			},
-			onclosetag() {
-				if (!inShortDetail) return;
-				depth -= 1;
-				if (depth === 0) inShortDetail = false;
-			},
-		},
-		{ xmlMode: true },
-	);
-	parser.write(entry.getData().toString("utf-8"));
-	parser.end();
-	return grids;
-}
-
-/**
- * The same shape, GROUPED: a name band over a visit band, plus the same
- * hidden carrier — placed so that if any path counted it, the header band
- * would gain a cell that straddles the boundary.
- */
-function groupedDoc(): BlueprintDoc {
-	const base = caseListConfig([
-		{ field: "case_name", header: "Name" },
-		{ field: "village", header: "Village" },
-		{ field: "last_visit", header: "Last visit" },
-	]);
-	return buildDoc({
-		appName: "GroupedTileEmissionParity",
-		modules: [
-			{
-				name: "Visits",
-				caseType: "patient",
-				caseListConfig: {
-					...base,
-					columns: [
-						{ ...base.columns[0], tile: tileCell(0, 0, 4, 1) },
+						{ "horz-align": "center", "vert-align": "center" },
+						{ "horz-align": "right", "vert-align": "end" },
+					]);
+					expect(
+						styles.map(
+							(style) => onlyXml(xmlChildren(style, "grid")).attributes,
+						),
+					).toEqual([
 						{
-							...base.columns[1],
-							tile: HIDDEN_CARRIER,
-							visibleInList: false,
-							sort: { direction: "asc" as const, priority: 0 },
+							"grid-x": "0",
+							"grid-y": "0",
+							"grid-width": "4",
+							"grid-height": String(headerRows),
 						},
-						{ ...base.columns[2], tile: tileCell(0, 1, 4, 1) },
-					],
-					tile: { grouping: { identifier: "parent", headerRows: 1 } },
-				},
-				forms: [
-					{
-						name: "Visit",
-						type: "followup",
-						fields: [
-							f({ kind: "text", id: "notes", label: proseText("Notes") }),
-						],
-					},
-				],
-			},
-		],
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [
-					{ name: "case_name", label: proseText("Name") },
-					{ name: "village", label: proseText("Village") },
-					{ name: "last_visit", label: proseText("Last visit") },
-				],
-			},
-		],
-	});
-}
-
-/** Every `<group>` under the short detail, as attribute maps. */
-function suiteGroups(doc: BlueprintDoc): Record<string, string>[] {
-	const zip = new AdmZip(compileCcz(expandDoc(doc), doc.appName, doc));
-	const entry = zip.getEntry("suite.xml");
-	if (entry === null) throw new Error("compileCcz produced no suite.xml");
-
-	const groups: Record<string, string>[] = [];
-	let depth = 0;
-	let inShortDetail = false;
-	const parser = new Parser(
-		{
-			onopentag(name, attribs) {
-				if (name === "detail" && attribs.id === "m0_case_short") {
-					inShortDetail = true;
-					depth = 0;
+						{
+							"grid-x": "0",
+							"grid-y": String(headerRows),
+							"grid-width": "2",
+							"grid-height": "1",
+						},
+						{
+							"grid-x": "2",
+							"grid-y": String(headerRows),
+							"grid-width": "2",
+							"grid-height": "1",
+						},
+					]);
 				}
-				if (inShortDetail) {
-					depth += 1;
-					if (name === "group") groups.push({ ...attribs });
+				if (short) {
+					const carrier = fields[3];
+					expect(xmlChildren(carrier, "style")).toEqual([]);
+					expect(onlyXml(xmlChildren(carrier, "header")).attributes.width).toBe(
+						"0",
+					);
+					expect(
+						onlyXml(xmlChildren(carrier, "template")).attributes.width,
+					).toBe("0");
+					const sort = onlyXml(xmlChildren(carrier, "sort"));
+					expect(sort.attributes).toEqual({
+						type: "string",
+						order: "1",
+						direction: "ascending",
+					});
+					expect(
+						onlyXml(xmlChildren(onlyXml(xmlChildren(sort, "text")), "xpath"))
+							.attributes.function,
+					).toBe("rank");
 				}
-			},
-			onclosetag() {
-				if (!inShortDetail) return;
-				depth -= 1;
-				if (depth === 0) inShortDetail = false;
-			},
+				expect(
+					xmlChildren(detail, "group").map((group) => group.attributes),
+				).toEqual(
+					short && grouped
+						? [
+								{
+									function: "string(./index/parent)",
+									"header-rows": String(headerRows),
+								},
+							]
+						: [],
+				);
+				if (short && grouped)
+					expect(detail.children.at(-1)?.name).toBe("group");
+			}
+			const entries = xmlChildren(suite, "entry");
+			expect(
+				entries.map(
+					(entry) => onlyXml(xmlChildren(entry, "command")).attributes.id,
+				),
+			).toEqual(
+				scenario === "grouped-browse" ? ["m0-case-list"] : ["m0-f0", "m0-f1"],
+			);
+			const datums = xmlChildren(
+				onlyXml(xmlChildren(entries[0], "session")),
+				"datum",
+			);
+			const selection = datums[0];
+			expect(selection.attributes).toMatchObject({
+				id: "case_id",
+				"detail-select": "m0_case_short",
+				"detail-confirm": "m0_case_long",
+			});
+			expect(selection.attributes["detail-persistent"]).toBe(
+				scenario === "persistent" ? "m0_case_short" : undefined,
+			);
+			expect(datums.slice(1).map((datum) => datum.attributes)).toEqual(
+				grouped && scenario !== "grouped-browse"
+					? [
+							{
+								id: "case_id_parent_ids",
+								function:
+									"join(' ', distinct-values(instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/index/parent))",
+							},
+						]
+					: [],
+			);
+			if (scenario === "grouped-browse")
+				expect(xmlChildren(entries[0], "form")).toEqual([]);
+			else {
+				const registration = xmlChildren(
+					onlyXml(xmlChildren(entries[1], "session")),
+					"datum",
+				);
+				expect(registration).toHaveLength(1);
+				expect(registration[0].attributes.function).toBe("uuid()");
+				expect(registration[0].attributes.nodeset).toBeUndefined();
+				expect(registration[0].attributes["detail-persistent"]).toBeUndefined();
+			}
+			const wire = hq.modules[0].case_details;
+			expect(wire.short.case_tile_template).toBe(tiled ? "custom" : null);
+			expect(wire.short.persist_tile_on_forms).toBe(
+				scenario === "persistent" ? true : null,
+			);
+			expect(wire.long.case_tile_template).toBeNull();
+			const placement = (column: (typeof wire.short.columns)[number]) => ({
+				x: column.grid_x,
+				y: column.grid_y,
+				width: column.width,
+				height: column.height,
+				horizontal: column.horizontal_align,
+				vertical: column.vertical_align,
+				font: column.font_size,
+				border: column.show_border,
+				shading: column.show_shading,
+			});
+			const unplaced = {
+				x: null,
+				y: null,
+				width: null,
+				height: null,
+				horizontal: null,
+				vertical: null,
+				font: null,
+				border: null,
+				shading: null,
+			};
+			expect(wire.long.columns.map(placement)).toEqual([
+				unplaced,
+				unplaced,
+				unplaced,
+			]);
+			expect(wire.short.columns.map(placement)).toEqual(
+				tiled
+					? [
+							{
+								x: 0,
+								y: 0,
+								width: 4,
+								height: headerRows,
+								horizontal: "left",
+								vertical: "start",
+								font: "large",
+								border: scenario === "boxed" ? true : null,
+								shading: scenario === "boxed" ? true : null,
+							},
+							{
+								x: 0,
+								y: headerRows,
+								width: 2,
+								height: 1,
+								horizontal: "center",
+								vertical: "center",
+								font: null,
+								border: null,
+								shading: null,
+							},
+							{
+								x: 2,
+								y: headerRows,
+								width: 2,
+								height: 1,
+								horizontal: "right",
+								vertical: "end",
+								font: null,
+								border: null,
+								shading: null,
+							},
+							unplaced,
+						]
+					: [unplaced, unplaced, unplaced, unplaced],
+			);
+
+			expect(wire.short.columns).toHaveLength(4);
+			expect(wire.long.columns).toHaveLength(3);
+			expect(wire.short.columns[3]).toMatchObject({
+				format: "invisible",
+				grid_x: null,
+				grid_y: null,
+				width: null,
+				height: null,
+				show_border: null,
+				show_shading: null,
+			});
+			expect(wire.short.case_tile_group).toEqual(
+				grouped
+					? {
+							doc_type: "CaseTileGroupConfig",
+							index_identifier: "parent",
+							header_rows: headerRows,
+						}
+					: undefined,
+			);
+			expect(wire.long.case_tile_group).toBeUndefined();
 		},
-		{ xmlMode: true },
 	);
-	parser.write(entry.getData().toString("utf-8"));
-	parser.end();
-	return groups;
-}
 
-describe("the three emission paths agree about which columns hold a square", () => {
-	it("gives a square to the shown column and to nothing else", () => {
-		const doc = tiledDoc();
-		const module = doc.modules[doc.moduleOrder[0]];
-		const config = module.caseListConfig;
-		if (config === undefined) throw new Error("expected a case-list config");
-
-		// (1) The local `.ccz` suite: exactly one `<grid>`, the shown column's.
-		const grids = suiteGrids(doc);
-		expect(grids).toEqual([
-			{
-				"grid-height": "1",
-				"grid-width": "4",
-				"grid-x": "0",
-				"grid-y": "0",
-			},
-		]);
-
-		// (2) HQ JSON — the PRIMARY delivery path, and the one that was wrong.
-		// The carrier is still persisted so CCHQ can sort by it, but carries
-		// none of the four coordinates and none of the presentation slots.
-		const { caseDetails } = projectCaseListForHq(module, doc);
-		expect(caseDetails.short.columns).toHaveLength(2);
-		expect(caseDetails.short.columns[0]).toMatchObject({
-			grid_x: 0,
-			grid_y: 0,
-			width: 4,
-			height: 1,
-		});
-		const carrier = caseDetails.short.columns[1];
-		expect(carrier.grid_x).toBeNull();
-		expect(carrier.grid_y).toBeNull();
-		expect(carrier.width).toBeNull();
-		expect(carrier.height).toBeNull();
-		expect(carrier.show_border).toBeNull();
-
-		// (3) The preview projection.
-		const carried = tileResultsColumns(
-			orderedColumns(config, "list"),
-			config.tile,
-		);
-		const projection = projectTileGrid(carried.map((entry) => entry.column));
-		expect(projection.cells).toHaveLength(1);
-		expect(projection.cells[0].columnUuid).toBe(config.columns[0].uuid);
-
-		// The agreement that matters: all three describe the SAME grid. The
-		// carrier reaches to column 10 and asks for a border, so any path that
-		// leaked it would report a 10-column extent here, or a boxed tile.
-		expect(projection.columns).toBe(4);
-		expect(projection.rows).toBe(1);
-		expect(projection.cells[0].mode).toBe("flow");
-
-		// And the carrier is still CARRIED on both wire paths — dropping it
-		// would silently break ordering, which is the opposite failure.
-		expect(carried).toHaveLength(2);
-		expect(carried[1].valueHidden).toBe(true);
-		expect(caseDetails.short.columns[1].format).toBe("invisible");
-	});
-});
-
-describe("every surface agrees about a GROUPED tile, on one document", () => {
-	it("splits the same tile the same way in the wire, the preview, and the read surface", () => {
-		const doc = groupedDoc();
-		const module = doc.modules[doc.moduleOrder[0]];
-		const config = module.caseListConfig;
-		if (config === undefined) throw new Error("expected a case-list config");
-
-		// (1) The local `.ccz` suite. HQ's own byte oracle for this element is
-		// `commcare-hq/corehq/apps/app_manager/tests/test_suite_case_tiles_grouping.py::SuiteCaseTilesGroupingTest`,
-		// whose inline partial is exactly this attribute pair.
-		expect(suiteGroups(doc)).toEqual([
-			{ function: "string(./index/parent)", "header-rows": "1" },
-		]);
-
-		// (2) HQ JSON — the PRIMARY delivery path.
-		const { caseDetails } = projectCaseListForHq(module, doc);
-		expect(caseDetails.short.case_tile_group).toEqual({
-			doc_type: "CaseTileGroupConfig",
-			index_identifier: "parent",
-			header_rows: 1,
-		});
-		expect(caseDetails.long.case_tile_group).toBeUndefined();
-
-		// (3) The preview projection, split for the grouped renderer.
-		const carried = tileResultsColumns(
-			orderedColumns(config, "list"),
-			config.tile,
-		);
-		const projection = projectTileGrid(carried.map((entry) => entry.column));
-		const split = splitTileGridByGroupHeader(projection, 1);
-		// The hidden carrier reaches row 0 and spans two rows, so any path that
-		// counted it would put a boundary-crossing cell in the header. Exactly
-		// one cell in each half, and the extent stays the shown columns'.
-		expect(split.header.cells.map((cell) => cell.columnUuid)).toEqual([
-			config.columns[0].uuid,
-		]);
-		expect(split.body.cells.map((cell) => cell.columnUuid)).toEqual([
-			config.columns[2].uuid,
-		]);
-		expect(split.header.columns).toBe(4);
-		expect(split.header.rows).toBe(2);
-
-		// (4) The SA's read surface, which is the only read an edit turn gets.
-		const summary = summarizeBlueprint(doc);
-		expect(summary).toContain("grouped_by: parent connection");
-		expect(summary).toContain("top row is the group heading");
-	});
+	it.each(["tile", "grouped-one", "grouped-two"] as const)(
+		"%s preview uses only the visible grid while retaining the sort carrier",
+		(scenario) => {
+			const doc = tileFixture(scenario);
+			const config = doc.modules[doc.moduleOrder[0]].caseListConfig;
+			if (!config) throw new Error("Missing fixture case list");
+			const columns = tileResultsColumns(
+				orderedColumns(config, "list"),
+				config.tile,
+			);
+			expect(columns.map((column) => column.valueHidden)).toEqual([
+				false,
+				false,
+				false,
+				true,
+			]);
+			const grid = projectTileGrid(columns.map((column) => column.column));
+			expect(grid.cells.map((cell) => cell.columnUuid)).toEqual(
+				config.columns.slice(0, 3).map((column) => column.uuid),
+			);
+			expect(grid.cells.map((cell) => cell.mode)).toEqual([
+				"flow",
+				"flow",
+				"flow",
+			]);
+			expect(grid.columns).toBe(4);
+			expect(grid.rows).toBe(scenario === "grouped-two" ? 3 : 2);
+			if (config.tile?.grouping) {
+				const split = splitTileGridByGroupHeader(
+					grid,
+					config.tile.grouping.headerRows,
+				);
+				expect(split.header.cells.map((cell) => cell.columnUuid)).toEqual([
+					config.columns[0].uuid,
+				]);
+				expect(split.body.cells.map((cell) => cell.columnUuid)).toEqual(
+					config.columns.slice(1, 3).map((column) => column.uuid),
+				);
+				expect(summarizeBlueprint(doc)).toContain(
+					"grouped_by: parent connection",
+				);
+			}
+		},
+	);
 });

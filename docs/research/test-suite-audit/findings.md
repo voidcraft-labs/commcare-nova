@@ -1513,3 +1513,31 @@ Validation: 114 focused XML/gate/export cases pass; the large-app test passes in
 one second. The broader compiler/parser consumers and both wire corpora (900 documents total) also pass after replacing the obsolete classification assertions.
 Native evidence records source identities, actual exported bytes and the limits
 of each proof. No remote submission or paid model call runs.
+
+## Tile evidence uses native regenerated details
+
+Two fragment-parser suites and a redundant partial HQ projection suite are
+replaced by one set of admitted document
+scenarios shared with real HQ regeneration and Core parsing. Eight documents
+cover row and tile layouts, visible borders/shading, hidden retained geometry
+and sort, grouping at two depths, Search, persistent details and a formless
+case-list browser. The local test inspects the complete relevant fields and
+session datum scopes from the archive and the actual HQ export; preview checks
+use production state projections without a synthetic DOM. The redundant custom
+HTML parser helpers and group-only suite are removed. A formerly positive
+unplaced-visible-column fixture bypassed admissibility; it no longer serves as
+evidence for a delivered app.
+
+Native HQ imports the actual exported JSON and runs `DetailContributor`. Core's
+real `SuiteParser` reads all eight local suites and eight HQ detail artifacts,
+then assertions inspect native dimensions, inherited/explicit style, hidden
+sorting, group header depth and local navigation datums. A formerly asserted
+fact was false: native HQ can append its Search action after the group, whereas
+Nova appends the group last. Core accepts both. Tests and contracts now describe
+consumed values instead of pinning that incidental order. No production behavior
+changed, and the evidence does not claim a full HQ build or rendered UI.
+
+Validation: 11 focused tile checks, eight native HQ comparisons and 16 native
+Core parser/model cases pass. Both generated-app corpora (900 documents) pass
+with the shared independent namespace-aware XML reader. Full typecheck and
+strict formatting pass. No production behavior changes in this batch.

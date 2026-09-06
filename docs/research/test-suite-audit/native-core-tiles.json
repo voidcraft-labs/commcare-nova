@@ -1,0 +1,56 @@
+{
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"nativeSourceSha256": {
+		"src/main/java/org/commcare/xml/SuiteParser.java": "43576499c0190317d2b5db446a5d6253b6dfa5069d6116aaf8fc1af20d775de5",
+		"src/main/java/org/commcare/xml/DetailParser.java": "47e4c0fe86b5ec62e2a89bd2a8687e1216bbbfa00cd1bdc1042f4c0cb9d14d23",
+		"src/main/java/org/commcare/xml/DetailFieldParser.java": "93164a1a3b25c2f32c9abcdbbf2580a050bfc1fc44bf015fe38e8360a51396c2",
+		"src/main/java/org/commcare/xml/StyleParser.java": "f64bfaf25045882cf4acb96302cd31e5b3d3de91a92aadaeab8c77746c1800f6",
+		"src/main/java/org/commcare/xml/GridParser.java": "c1739df93a0a66228b03e4c24f0f7036eb6c7222f0710599aea1af47e41f9e8f",
+		"src/main/java/org/commcare/xml/DetailGroupParser.java": "ea9c005194ac2f194f5e19a8227a64bc30c2c083f05666b074bcd12448b5b159"
+	},
+	"testSourceSha256": "0e5565529b3a3aa88a31de338ad141f8bfd4dbe9347a93758de8b45c4cf2053a",
+	"tests": [
+		"readsLayoutGroupingAndSelectionContract[plain suite.xml]",
+		"readsLayoutGroupingAndSelectionContract[plain hq-details.xml]",
+		"readsLayoutGroupingAndSelectionContract[tile suite.xml]",
+		"readsLayoutGroupingAndSelectionContract[tile hq-details.xml]",
+		"readsLayoutGroupingAndSelectionContract[boxed suite.xml]",
+		"readsLayoutGroupingAndSelectionContract[boxed hq-details.xml]",
+		"readsLayoutGroupingAndSelectionContract[persistent suite.xml]",
+		"readsLayoutGroupingAndSelectionContract[persistent hq-details.xml]",
+		"readsLayoutGroupingAndSelectionContract[grouped-one suite.xml]",
+		"readsLayoutGroupingAndSelectionContract[grouped-one hq-details.xml]",
+		"readsLayoutGroupingAndSelectionContract[grouped-two suite.xml]",
+		"readsLayoutGroupingAndSelectionContract[grouped-two hq-details.xml]",
+		"readsLayoutGroupingAndSelectionContract[grouped-search suite.xml]",
+		"readsLayoutGroupingAndSelectionContract[grouped-search hq-details.xml]",
+		"readsLayoutGroupingAndSelectionContract[grouped-browse suite.xml]",
+		"readsLayoutGroupingAndSelectionContract[grouped-browse hq-details.xml]"
+	],
+	"failures": 0,
+	"errors": 0,
+	"skipped": 0,
+	"artifacts": {
+		"boxed.hq-details.xml": "00abbf4b8823504de8de309a1c4a8fffcd1181f15c73b0c0100f19383777c8be",
+		"boxed.suite.xml": "90b2177d15779812601beb835906b8a0c01bf81130c01f130af8b9bd39ee2f1a",
+		"grouped-browse.hq-details.xml": "5cc49dd567ba622cdb3fb47f20b696e9401742acd8964795d5beb62e9ca7ceb9",
+		"grouped-browse.suite.xml": "aab67672cd95c9d016e72180c3fa7861ca3168fce6f5c2f6596e397e9a537259",
+		"grouped-one.hq-details.xml": "5cc49dd567ba622cdb3fb47f20b696e9401742acd8964795d5beb62e9ca7ceb9",
+		"grouped-one.suite.xml": "dc728cf15ec8bdfd7b12cedfc693506b7c631b87fefcd0562eb5a4a952874842",
+		"grouped-search.hq-details.xml": "62545ef6f9d3aadea7aa089b9106ea1e25244daa031396fcd1fe14d17aafb744",
+		"grouped-search.suite.xml": "7d3e254cdd5891f260551f21b60793cedae4ad7f4ecdc31b874a96cfe67af162",
+		"grouped-two.hq-details.xml": "34481a9d147b9a02b78d8c1fb52971f105f9e3a53e4489b0418363fd1dec445e",
+		"grouped-two.suite.xml": "6be48a4d8a5d0811a8e34dc922105ee3acbc1a9513e3a42b3e99874013686357",
+		"persistent.hq-details.xml": "5dc070a2d072aeba842e73a685a188415b1a3edf7576bf90d38af139464520de",
+		"persistent.suite.xml": "748ee7c0f67488fa72d782d0460e9357b7e8a23e1af737c36f2211e2e7889550",
+		"plain.hq-details.xml": "f29f3abef08305cafd6dc44cc440bdd4ab68de2e39cd62c1c415f17ed045eea1",
+		"plain.suite.xml": "1e57bf3ecdcbbcfec57d74172a562885c489985392b5cdca78ee3825184e6a33",
+		"tile.hq-details.xml": "5dc070a2d072aeba842e73a685a188415b1a3edf7576bf90d38af139464520de",
+		"tile.suite.xml": "88a0c1070ac181e756462523295ce5ee7d1a9873d641847d6b002be8d23dbfe1"
+	},
+	"limits": [
+		"Real Core SuiteParser with resource installation disabled",
+		"HQ artifacts contain native regenerated details, not the full navigation suite",
+		"No Android or Web Apps rendering"
+	]
+}
