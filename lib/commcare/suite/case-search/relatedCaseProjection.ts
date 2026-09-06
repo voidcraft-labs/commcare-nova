@@ -41,9 +41,9 @@ export type RelatedCaseSearchProjection =
  * Search detail. Each nested lookup retains the canonical relation's case-type
  * filter. CommCare Core's `XPathPathExpr.getReference` admits `current()` as
  * the expression root followed by parent, child, and predicate steps, then
- * `evalRaw` contextualizes it against the original row. Runtime coverage lives
- * in `FormDefTest.testNestedRepeatActions` (`current()/../@id`) and
- * `XPathPathExprTest.testNestedPreds` (sibling `../team[...]` selection).
+ * `evalRaw` contextualizes it against the original row. The native
+ * `SearchRuntimeTest` evaluates actual local and HQ-regenerated detail templates
+ * against supporting rows, including a same-id row of the wrong case type.
  */
 function emitHqContextRelativeAncestorProperty(
 	via: Extract<

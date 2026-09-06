@@ -5,7 +5,7 @@
  * The CCHQ wire layer's `<remote-request>` carries a mandatory
  * `<data key="case_type" ref="'<type>'"/>` slot — without a case
  * type, the orchestrator at
- * `lib/commcare/suite/case-search/remoteRequest.ts::emitRemoteRequest`
+ * `lib/commcare/suite/case-search/remoteRequest.ts::buildRemoteRequest`
  * throws at wire-emission time. The HQ JSON projection at
  * `lib/commcare/hqJson/caseList.ts::projectDefaultProperties` also
  * short-circuits the simple-arm cross-walk derivation when

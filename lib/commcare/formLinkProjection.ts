@@ -1317,6 +1317,8 @@ export interface ProjectedFormLink {
 	readonly unmatched: readonly FrameDatum[];
 	readonly missing: readonly FrameDatum[];
 	readonly unused: readonly string[];
+	/** Manual selections that HQ cannot use to hydrate a preceding Search query. */
+	readonly unrepresentableQueryDatums?: readonly string[];
 }
 
 export interface ProjectedFormLinks {
@@ -1534,6 +1536,64 @@ export function projectFormLinkSessionExpression(
 	)(expression);
 }
 
+/** HQ leaves a manual link's hydration query pointed at the target's old
+ * session datum. Core defines every step against the source context, so the
+ * subsequent manual assignment cannot supply that query. Automatic matching
+ * does bind the query to the source. Use it when every non-query step is
+ * identical; otherwise only an unchanged source selection is representable. */
+function projectManualSearchLink(
+	target: readonly FrameChild[],
+	datums: readonly { readonly name: string; readonly xpath: string }[],
+	sourceDatums: readonly FrameDatum[],
+	sourceIds: ReadonlySet<string>,
+): {
+	readonly match: ManualMatch;
+	readonly datums: typeof datums;
+	readonly unrepresentableQueryDatums: readonly string[];
+} {
+	const match = matchFrameToManual(target, datums, sourceIds);
+	const queries = target.flatMap((child) =>
+		child.type === "datum" && child.datum.query !== undefined
+			? [child.datum.query]
+			: [],
+	);
+	if (queries.length === 0 || match.missing.length || match.unused.length)
+		return { match, datums, unrepresentableQueryDatums: [] };
+	const automatic = matchFrameToSource(target, sourceDatums);
+	const withoutQueries = (children: readonly MatchedChild[]) =>
+		children.filter((child) => child.type !== "query");
+	const manualSteps = withoutQueries(match.children);
+	const autoSteps = withoutQueries(automatic.children);
+	const sameSteps =
+		automatic.unmatched.length === 0 &&
+		manualSteps.length === autoSteps.length &&
+		manualSteps.every((child, index) => {
+			const other = autoSteps[index];
+			return (
+				other !== undefined &&
+				child.type === other.type &&
+				child.id === other.id &&
+				(child.type === "command" ||
+					(other.type === "datum" && child.value === other.value))
+			);
+		});
+	if (sameSteps)
+		return {
+			match: { ...match, children: automatic.children },
+			datums: [],
+			unrepresentableQueryDatums: [],
+		};
+	const byName = new Map(datums.map((datum) => [datum.name, datum.xpath]));
+	const unrepresentableQueryDatums = queries
+		.filter(
+			(query) =>
+				!sourceIds.has(query.nextDatumId) ||
+				byName.get(query.nextDatumId) !== sessionDataRef(query.nextDatumId),
+		)
+		.map((query) => query.nextDatumId);
+	return { match, datums, unrepresentableQueryDatums };
+}
+
 /**
  * Project one form's links, or `undefined` when it has none. Pure over the
  * document and the context; the expander (HQ JSON), the compiler (local
@@ -1582,13 +1642,22 @@ export function projectFormLinks(
 			xpath: project(datum.xpath),
 		}));
 		if (link.datums !== undefined) {
-			const match = matchFrameToManual(target, datums, sourceIds);
+			const manual = projectManualSearchLink(
+				target,
+				datums,
+				sourceDatums,
+				sourceIds,
+			);
+			const { match } = manual;
 			return {
 				uuid: link.uuid,
 				...(guard !== undefined && { guard }),
 				target: link.target,
 				children: match.children,
-				datums,
+				datums: manual.datums,
+				...(manual.unrepresentableQueryDatums.length > 0 && {
+					unrepresentableQueryDatums: manual.unrepresentableQueryDatums,
+				}),
 				unmatched: [],
 				missing: match.missing,
 				unused: match.unused,

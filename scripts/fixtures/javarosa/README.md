@@ -114,3 +114,29 @@ checks evaluate parsed conditions and frame values without an Android session.
 The test writes `build/nova-search-payloads.tsv` for the HQ CSQL proof. Its ten
 rows must compile to the expected complete date filters; no Elasticsearch
 request or rendered Search screen is claimed.
+
+## Search sessions, claiming and form links
+
+Run the Search producer and HQ proof in [../hq/README.md](../hq/README.md), then
+select `--tests nova.compatibility.SearchRuntimeTest` with
+`-PnovaProofResources=/tmp/nova-search-evidence`. Seven methods consume both
+export paths through the real suite parser, without installing resources.
+Native entity nodesets exclude related rows and wrong case types, enforce the
+inline open-case filter and parent selection, and preserve remote Search's
+different status behavior. Actual detail templates read a typed supporting
+parent and reject the same ID under another case type. Native case storage and
+`PostRequest` evaluate claim parameters and relevance for single, parent and
+multiple selections. No claim HTTP request is sent.
+
+`CommCarePlatform` registers the parsed suite and `CommCareSession` selects the
+query. The actual `RemoteQuerySessionManager` owns default answers and virtual
+input instances, including changed/cleared answers, hidden prompts, translated
+query parameters and normalized owner exclusions. Search-input instances start
+with allocated native bases and deferred roots; supplying an empty root would
+incorrectly prevent the query manager from supplying current answers.
+
+Both native form-link frames hydrate the newly created case from the source
+context. The retained pre-fix local and HQ suites are negative controls: Core
+rejects their query step because the later manual datum assignment cannot
+supply a value to an earlier step. This proves native frame/value execution,
+not a complete Android session, HQ build or remote transaction.

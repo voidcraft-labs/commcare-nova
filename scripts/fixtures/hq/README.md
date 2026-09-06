@@ -140,3 +140,29 @@ disabled. The second runs the actual HQ CSQL parser/compiler without replacing
 its functions. Complete expected filters specify leap-day arithmetic and UTC
 half-open date/datetime ranges; an invalid property-function comparison must
 raise HQ's `CaseFilterError`. No database or remote search request runs.
+
+## Search suite regeneration
+
+```bash
+mise exec -- npx tsx scripts/fixtures/hq/emit-search-evidence.ts /tmp/nova-search-evidence
+PYTHONDONTWRITEBYTECODE=1 /path/to/commcare-hq/.venv/bin/python \
+  scripts/fixtures/hq/search-emission-proof.py \
+  --hq-root /path/to/commcare-hq --exports /tmp/nova-search-evidence
+```
+
+The optional `--python-path` supplies the same local dependency overlay. Twelve
+schema-valid, validator-admitted apps cover inline/browse/remote Search,
+single/multiple/parent selection, automatic/hidden/advanced/defaulted prompts,
+and automatic and explicit registration links. Native HQ import and its real
+detail, entry and menu contributors run before remote-request, workflow and
+instance post-processing. Complete entry and remote-request trees must match,
+including decoded values and child order. Two exact differences are asserted
+before normalization: HQ's explicit unfiltered `match-all()` and Nova's unused
+ordinary collection-instance declaration. The Core proof consumes the original
+artifacts from both paths, including those differences.
+
+Network is denied. Domain configuration is supplied explicitly: unrelated
+UCR/optimization/empty-list/registry/endpoint flags and sync-on-entry are off;
+advanced Search is on for authored defaults. Build version and public origin
+are fixed. No native generator is replaced, no resources are installed and no
+full HQ build is claimed. The resulting `*.hq-suite.xml` files feed Core.

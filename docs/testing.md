@@ -408,3 +408,11 @@ Search query strings pass through HQ's CSQL compiler. The record distinguishes
 native model/value execution from a full session or server query. Ordinary CI
 checks the admitted artifacts and their cross-export joins; native reproduction
 requires the documented external checkouts and does not silently skip tests.
+
+Search evidence likewise uses twelve admitted apps and native HQ suite
+contributors, followed by Core's actual query manager, selection nodesets,
+claim parameters/relevance and detail templates on both export paths. Retained
+pre-fix manual-link suites are native negative controls for source-context
+binding. These checks establish engine values and declared request behavior;
+they do not claim an HTTP request or Android screen. See the fixture READMEs
+and `docs/research/test-suite-audit/native-{hq,core}-search.json`.

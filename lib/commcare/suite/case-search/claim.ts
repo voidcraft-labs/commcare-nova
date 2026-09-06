@@ -15,7 +15,6 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 
 import type { Element } from "domhandler";
 import { el } from "@/lib/commcare/elementBuilders";
-import { serializeXml } from "@/lib/commcare/serializeXml";
 
 /** Portable URL used only by unbound structural emission and fixture tests.
  * Actual exports supply their resolved selected-server runtime target. */
@@ -165,14 +164,4 @@ export function buildInlineClaimPost(args: {
 			...(collection && others.length === 0 ? [] : ["commcaresession"]),
 		],
 	};
-}
-
-/**
- * String adapter — serializes `buildClaimPost`'s Element for callers
- * that assert against the rendered XML string (the `claim.test.ts`
- * test surface). The orchestrator (`remoteRequest.ts`) calls
- * `buildClaimPost` directly.
- */
-export function emitClaimPost(multiple = false): string {
-	return serializeXml(buildClaimPost(multiple));
 }

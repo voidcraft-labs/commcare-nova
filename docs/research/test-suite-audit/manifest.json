@@ -3858,7 +3858,9 @@
 			"file": "lib/commcare/__tests__/inlineSearchEmission.test.ts",
 			"lines": 735,
 			"ciMs": 1878,
-			"status": "pending"
+			"status": "removed",
+			"review": "Whole-method replacement: removed invalid case fixtures, partial HQ oracles and text/namespace-erasing comparison. searchEmission uses twelve schema-valid fully admitted apps and complete joins; native HQ contributors compare whole entries, Core executes selections, claims, query defaults and link hydration on both exports. The native manual-link failure led to a projection fix and shared gate refusal.",
+			"baselineSha256": "339a76ab0f84ef260ccd9df261260289b71e0a7b344957825c3301346bf19e33"
 		},
 		{
 			"file": "lib/commcare/__tests__/languageWire.test.ts",
@@ -4311,25 +4313,35 @@
 			"file": "lib/commcare/suite/case-search/__tests__/claim.test.ts",
 			"lines": 121,
 			"ciMs": 73,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced test-only string rendering and copied fragments with admitted complete Search exports plus native PostRequest evaluations against indexed case storage: single, parent, multiple, remote and all-local scenarios verify parameters and request relevance on both paths. Removed unused production serializer adapter.",
+			"baselineSha256": "24c6ce147275162e4a9c890b34e27152df42759e5ee15d7918348d7a7d9d51d1"
 		},
 		{
 			"file": "lib/commcare/suite/case-search/__tests__/compileForPlatform.test.ts",
 			"lines": 281,
 			"ciMs": 711,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole platform projection and old suite. Replaced repeated fictional shells with actual author-choice truth table across Android/Web Apps, visible/hidden/mixed/absent prompts and five filters; all output flags and input immutability asserted. Native Search manager separately consumes automatic/hidden/defaulted scenarios.",
+			"baselineSha256": "508d9576f732a403f86f7341cb83430c6c69ae0096cc2c0fd86419842d613c09",
+			"reviewedSha256": "178b7dca7c4f2a06c0b8e1518d683adad93aa14e9de852ec207cf0c470ba1478"
 		},
 		{
 			"file": "lib/commcare/suite/case-search/__tests__/relatedCaseProjection.test.ts",
 			"lines": 210,
 			"ciMs": 790,
-			"status": "pending"
+			"status": "retained",
+			"review": "Read whole private classifier and all tests. Retain deterministic classification of identity/current, typed multi-hop ancestors, reserved attributes, graph-resolved any-relation, unsupported child/ambiguous/calculated relations, literal user relation and emitted/dormant/sort-only support. These are projection tests, not runtime proof; new native Search test separately evaluates actual HQ/local detail templates with supporting parent and wrong-type control.",
+			"baselineSha256": "d258e9719ad0f42a1f6d88b1ae0a7447bfe16d35fc38050d1daa5679e75264ca",
+			"reviewedSha256": "d258e9719ad0f42a1f6d88b1ae0a7447bfe16d35fc38050d1daa5679e75264ca"
 		},
 		{
 			"file": "lib/commcare/suite/case-search/__tests__/remoteRequest.test.ts",
 			"lines": 569,
 			"ciMs": 721,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced hand-constructed invalid modules and serialized golden with complete Search fixture admission and whole native HQ entry comparison. Actual Core query manager owns defaults, virtual inputs, answer changes/clearing, exclusions and request payloads. Removed unused production emission adapter.",
+			"baselineSha256": "ae545958fc6315ba30378641824ea6b7920132d6b6c7e3b54af03f7622c2bdd6"
 		},
 		{
 			"file": "lib/commcare/suite/case-search/__tests__/searchPrompts.test.ts",
@@ -4371,10 +4383,10 @@
 			"file": "lib/commcare/validator/__tests__/gate.perf.test.ts",
 			"lines": 115,
 			"ciMs": 3321,
-			"status": "revised",
+			"status": "removed",
 			"review": "Removed invalid large fixture and 20-second no-op-permitting timing guard. Replaced by gateScale.test.ts: strict valid 3000-field app with expressions, nested fields and case writers, full successful boundary evaluation, then exact late-field reference refusal. Runtime measured by the test runner without a permissive performance claim.",
 			"baselineSha256": "948f45131f4897db4d6ac67ceaa076556ba5552c7d13c2f1cd5ee1c9c18c6d97",
-			"reviewedSha256": "948f45131f4897db4d6ac67ceaa076556ba5552c7d13c2f1cd5ee1c9c18c6d97"
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/commcare/validator/__tests__/gate.test.ts",

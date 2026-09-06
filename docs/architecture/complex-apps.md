@@ -2568,3 +2568,16 @@ the link opens. It never probes a link by executing it, because execution may
 claim cases. HQ IDs are explicit external inputs; multiple selections use HQ's
 comma-separated transport and reject IDs that cannot round-trip. The domain,
 CommCare, Preview, and deployment subtree contracts own the detailed behavior.
+
+### Manual links into Search
+
+Core defines every frame step against the source evaluation context. HQ's
+manual link matcher leaves an inline hydration query pointed at the target's
+old selection even when the following datum assigns another value. Native
+`StackFrameStep.defineStep` reproduces the resulting missing-value failure
+from both emitted suites. `projectFormLinks` uses automatic matching when all
+non-query steps are identical to the manual projection, preserving authored
+intent while letting HQ bind hydration to the actual source case. Otherwise a
+manual query may only retain an existing source selection under the same datum.
+`FORM_LINK_SEARCH_CASE_UNREPRESENTABLE` refuses incompatible manual assignments
+at both shared mutation gates. Ordinary list destinations retain manual values.

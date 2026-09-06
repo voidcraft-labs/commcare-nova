@@ -1,0 +1,94 @@
+{
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"scenarios": [
+		{
+			"scenario": "advanced",
+			"sourceSha256": "463b2e7c4da3ef085fb27fca625453d2eb5c10eb646c99d542d5479b7828bdf1",
+			"suiteSha256": "d5f85136b987ac914cc85a346ccb4a922f27a6f5863b226970040634fcd31bbb",
+			"nativeSuiteSha256": "61f8654ada059ded67ddccf52b55cbb2b8de420dd23cf35164b6af8d72dd55a2",
+			"differences": []
+		},
+		{
+			"scenario": "automatic",
+			"sourceSha256": "4e225833e4159fd0c19f10786e4f6b4ffb57a4b14d489d0fa5a12944aafa9e4c",
+			"suiteSha256": "a1f0e7d27636d30f668ec5f3a106c93cd189486b3c1bda1bc75f58a436380cbf",
+			"nativeSuiteSha256": "eac2e09bd6ad98e5d984c137965636d30d85012df2ec7b46fefbe303c19476a6",
+			"differences": [
+				"HQ adds an explicit match-all query to unprompted unfiltered Search"
+			]
+		},
+		{
+			"scenario": "browse",
+			"sourceSha256": "814ff69406a8e024649d9bb2231d10fa173286d093cacc2002390d97d49119f8",
+			"suiteSha256": "5a15add2a0822e73ed9afb970db02862ca7babb9476ead44951abc82dd3ca078",
+			"nativeSuiteSha256": "61bffbfa9a081050518e281a5026f022907a6a4ec7ed1629b21fa2f9d882eb1e",
+			"differences": []
+		},
+		{
+			"scenario": "hidden-link",
+			"sourceSha256": "6b58b9f99a704be69ff6f1346781aeb28ee5c0fdaccb26578a8418b0b9796242",
+			"suiteSha256": "5a62f3c033a3f8238446a40787d9f92f10a60c70038bbc9d03cc484066b72d37",
+			"nativeSuiteSha256": "02c1f8e15a9407095abd80ea1fafdc84a1e10fe4377df364606e86486ea54fec",
+			"differences": []
+		},
+		{
+			"scenario": "hidden",
+			"sourceSha256": "02471cbcda87ceb8d6f0efb6a5ad29b10b5a28b1536734c70f18afd2c4530ebe",
+			"suiteSha256": "815e06c7c4fc179c2d85af566ab0c9825a0e26c45b783e51bb8ed246773dfd10",
+			"nativeSuiteSha256": "54255855a690b3a94236baefa9f68b54264167f944878f0e830a7646844a75c0",
+			"differences": []
+		},
+		{
+			"scenario": "inline",
+			"sourceSha256": "0494081062d4cfbed7cce5b665e4e3d91b50a682c9533ee9bf93e73d1d9ab7f0",
+			"suiteSha256": "dc9dba22cb3a4bd627037f02ae1fe2985e8c154a9fe991d287a882db80a19d6c",
+			"nativeSuiteSha256": "6e9f3573ac5780cd04c5bfe43de2433361a90c75eca73f51f26b1aac329a66fc",
+			"differences": []
+		},
+		{
+			"scenario": "multiple",
+			"sourceSha256": "ee12e03e4cecdb9c92465343064cea3c89284ca83483c12c55a95fbb3cce8cac",
+			"suiteSha256": "0b6e546bdd07e658d10a2cf9d218626c304cadbdc7d36c34a9d738f7d08ef92e",
+			"nativeSuiteSha256": "9e04ca9852f8b6c427156f10b88bfad26d0429a03e87549bca5e3fb841810472",
+			"differences": []
+		},
+		{
+			"scenario": "parent",
+			"sourceSha256": "e40dc2965df28bdc13c25500a2deeaa43ff70e3cf0957772becae209b053dc1a",
+			"suiteSha256": "e70b91fb7aedf16106cc9d2f301ce4595889a913159cb05f050fe04a7213723c",
+			"nativeSuiteSha256": "749418b2c882ba9477214800beb1914acaa35ce560306b381b80691576779389",
+			"differences": []
+		},
+		{
+			"scenario": "registration-link",
+			"sourceSha256": "d7243109c5e4c3005ebe2079744da974473496dc206c7be5694449dc248cbe61",
+			"suiteSha256": "4a6cb29bf91ab6f50f2496e8266f7ecf43a3ec07ac1e7a257652e0bcca942f97",
+			"nativeSuiteSha256": "873b50647c02ca2b36c4c4ebe2f276338a6a35b047e618e598a0967736b3121c",
+			"differences": []
+		},
+		{
+			"scenario": "remote-defaults",
+			"sourceSha256": "1f6ca4c065143b01c7b7c6bb133d1104d9ec8231c128c91ffcd3eb9d93d21e62",
+			"suiteSha256": "912678254d05f31c12907f127bf703cb105cd86f70c9f5671947e0cac5a50ff7",
+			"nativeSuiteSha256": "89fe98e3c01380f24a18dba6f0eed3577f8334dcbc71f66f6eeeb37fbcd3ff55",
+			"differences": []
+		},
+		{
+			"scenario": "remote-multiple",
+			"sourceSha256": "7f86575eaaadf8b00aadd07dad27a2c989932a2c04bfbdf5444c982b55bcaab2",
+			"suiteSha256": "75eb14ffd47ac668b7e39825000b3c2fe0aef97d516bcaf7073c8373b677fb05",
+			"nativeSuiteSha256": "b24835c11fee82b0d92bffad8d392302046067baabb189d9f8ca9a985fc5a0c8",
+			"differences": [
+				"Nova declares the ordinary collection instance even without a suite expression reading it"
+			]
+		},
+		{
+			"scenario": "remote",
+			"sourceSha256": "057b8fa6b9cb7d7055e2b07157c34c4d768828237408cbd20493727d0b182f64",
+			"suiteSha256": "3f0ec80105f58f7a223326146b444c5501fbf06ef41e8cb0dc3e3bdccf1e5bb7",
+			"nativeSuiteSha256": "f22e96053a8ee0bea8a74169cfb426b7119f38e4837836ce7fff95f12fb92f21",
+			"differences": []
+		}
+	],
+	"limits": "Native HQ Application import and detail/entry/menu contributors, remote request/workflow/instance post-processing. Complete entry and remote-request trees compared, retaining leaf text and child order; two exact stated inert differences. Build version and URL origin are supplied; no resource install, full HQ build or network. Domain-only UCR, optimization, empty-list text, registry, endpoint and sync-on-form-entry flags disabled; advanced Search enabled for defaults."
+}

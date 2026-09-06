@@ -1,0 +1,62 @@
+{
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"nativeSourceSha256": {
+		"src/main/java/org/commcare/xml/SuiteParser.java": "43576499c0190317d2b5db446a5d6253b6dfa5069d6116aaf8fc1af20d775de5",
+		"src/main/java/org/commcare/suite/model/StackFrameStep.java": "e4114963cdd5870de7bec624a743de5ee7c04a63fcafc4600342b086b68efd55",
+		"src/main/java/org/commcare/suite/model/PostRequest.java": "a71013c647f4d9d90adb1264ee20dc831335927b0f9bd1fc7efc798638626d5b",
+		"src/main/java/org/commcare/session/RemoteQuerySessionManager.java": "92b9ad6d3e7a23324569c16d0bc253542c233ff7bd90dc48a5878c32a893e46c",
+		"src/main/java/org/commcare/data/xml/VirtualInstances.java": "18fd191e78e28ba840588b838e14dbfab6a2b9e4a87ce7e8626807da5f3115eb",
+		"src/main/java/org/javarosa/core/model/condition/EvaluationContext.java": "af4fb4eae779deb1b4373e1266e6da63a440ff65fe3b8ac57865a11038893f95"
+	},
+	"testSourceSha256": "a654d7bc3169aaee2d9c533205d425005004a62cb8aa83af4d8eedd64752baa8",
+	"tests": [
+		"oldManualFrameCannotReadTheFutureSelection",
+		"nativeDetailReadsOnlyTheTypedSupportingParent",
+		"hqHydrationFetchesTheCaseAssignedByTheLink",
+		"nativeQueryManagerOwnsDefaultsHiddenInputsAndAnswerPayloads",
+		"nativeClaimIncludesOnlyMissingSelectedCases",
+		"nativeSelectionFiltersTypeRelatedRowsStatusAndParent",
+		"localHydrationFetchesTheCaseAssignedByTheLink"
+	],
+	"failures": 0,
+	"errors": 0,
+	"skipped": 0,
+	"artifacts": {
+		"advanced.suite.xml": "d5f85136b987ac914cc85a346ccb4a922f27a6f5863b226970040634fcd31bbb",
+		"automatic.suite.xml": "a1f0e7d27636d30f668ec5f3a106c93cd189486b3c1bda1bc75f58a436380cbf",
+		"browse.suite.xml": "5a15add2a0822e73ed9afb970db02862ca7babb9476ead44951abc82dd3ca078",
+		"hidden-link.suite.xml": "5a62f3c033a3f8238446a40787d9f92f10a60c70038bbc9d03cc484066b72d37",
+		"hidden.suite.xml": "815e06c7c4fc179c2d85af566ab0c9825a0e26c45b783e51bb8ed246773dfd10",
+		"inline.suite.xml": "dc9dba22cb3a4bd627037f02ae1fe2985e8c154a9fe991d287a882db80a19d6c",
+		"multiple.suite.xml": "0b6e546bdd07e658d10a2cf9d218626c304cadbdc7d36c34a9d738f7d08ef92e",
+		"parent.suite.xml": "e70b91fb7aedf16106cc9d2f301ce4595889a913159cb05f050fe04a7213723c",
+		"registration-link.suite.xml": "4a6cb29bf91ab6f50f2496e8266f7ecf43a3ec07ac1e7a257652e0bcca942f97",
+		"remote-defaults.suite.xml": "912678254d05f31c12907f127bf703cb105cd86f70c9f5671947e0cac5a50ff7",
+		"remote-multiple.suite.xml": "75eb14ffd47ac668b7e39825000b3c2fe0aef97d516bcaf7073c8373b677fb05",
+		"remote.suite.xml": "3f0ec80105f58f7a223326146b444c5501fbf06ef41e8cb0dc3e3bdccf1e5bb7"
+	},
+	"hqArtifacts": {
+		"advanced.hq-suite.xml": "61f8654ada059ded67ddccf52b55cbb2b8de420dd23cf35164b6af8d72dd55a2",
+		"automatic.hq-suite.xml": "eac2e09bd6ad98e5d984c137965636d30d85012df2ec7b46fefbe303c19476a6",
+		"browse.hq-suite.xml": "61bffbfa9a081050518e281a5026f022907a6a4ec7ed1629b21fa2f9d882eb1e",
+		"hidden-link.hq-suite.xml": "02c1f8e15a9407095abd80ea1fafdc84a1e10fe4377df364606e86486ea54fec",
+		"hidden.hq-suite.xml": "54255855a690b3a94236baefa9f68b54264167f944878f0e830a7646844a75c0",
+		"inline.hq-suite.xml": "6e9f3573ac5780cd04c5bfe43de2433361a90c75eca73f51f26b1aac329a66fc",
+		"multiple.hq-suite.xml": "9e04ca9852f8b6c427156f10b88bfad26d0429a03e87549bca5e3fb841810472",
+		"parent.hq-suite.xml": "749418b2c882ba9477214800beb1914acaa35ce560306b381b80691576779389",
+		"registration-link.hq-suite.xml": "873b50647c02ca2b36c4c4ebe2f276338a6a35b047e618e598a0967736b3121c",
+		"remote-defaults.hq-suite.xml": "89fe98e3c01380f24a18dba6f0eed3577f8334dcbc71f66f6eeeb37fbcd3ff55",
+		"remote-multiple.hq-suite.xml": "b24835c11fee82b0d92bffad8d392302046067baabb189d9f8ca9a985fc5a0c8",
+		"remote.hq-suite.xml": "f22e96053a8ee0bea8a74169cfb426b7119f38e4837836ce7fff95f12fb92f21"
+	},
+	"negativeControls": {
+		"before-manual-search-link.hq-suite.xml": "1f5d2328de905132e4f0cf1f79e2680e3679ad5a7945738070fc95f996cd68bb",
+		"before-manual-search-link.suite.xml": "cbed8034d155390a806933f2d3d1a2a8521ab0199c81fb56ec4bfa4a2413a072"
+	},
+	"limits": [
+		"Native SuiteParser with resource installation disabled; no Android or Web Apps renderer",
+		"Actual query manager supplies virtual inputs; actual case nodes and PostRequest evaluate request relevance and parameters; no HTTP claim or database transaction",
+		"Actual old local and HQ manual frames both fail to read the future selected datum; fixed projections bind source new-case identity",
+		"Actual detail templates evaluate related case type constraints in both inline and remote Search on both export paths"
+	]
+}

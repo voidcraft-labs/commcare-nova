@@ -1591,3 +1591,44 @@ a proof of absent-node runtime semantics; native navigation evidence owns the
 existing runtime checks.
 
 Validation: 42 focused session, condition, compiler and repeat cases pass.
+
+## Search tests now exercise the consuming engines
+
+The inline, claim and remote-request suites used partial HQ objects, invalid
+case-type fixtures, serialized fragment goldens and a comparator that erased
+all text and namespaces. They could pass without a deliverable app, and did not
+prove that a claim or query evaluated correctly. They are replaced by twelve
+complete admitted apps, artifact joins and actual native HQ regeneration of
+entry/remote-request trees. The platform unit tests now cover the authored
+Search-first choice and all visible/hidden/no-input combinations across both
+platforms. The related-expression classifier remains a small private projection
+test; native detail execution separately proves the consumer behavior.
+
+The consumer proof found a production defect in an accepted explicit form link
+from registration into Search. Both old exports emitted a hydration query that
+read the destination's selected-case datum before the subsequent manual frame
+assignment. Core evaluates every step against the source context, so both old
+artifacts raise `XPathTypeMismatchException`. The projection now selects HQ's
+automatic matching path when every non-query step is identical to the author's
+explicit mapping. The authored document is unchanged, and both outputs fetch
+the newly created case. A manual mapping that cannot hydrate that same intended
+case is refused by both shared mutation gates with
+`FORM_LINK_SEARCH_CASE_UNREPRESENTABLE`; ordinary list destinations still accept
+manual selections. Public form-link guidance explains the supported paths.
+
+Seven native Core methods now evaluate actual entity nodesets, supporting-parent
+detail templates, case-claim parameter exclusion/relevance, query defaults,
+answer changes/clearing and automatic/hidden searches on both exports. The query
+manager itself creates virtual inputs. Parent and multiple claims include only
+missing cases; inline selection excludes closed cases while remote Search
+preserves HQ's different status behavior. Retained pre-fix suites are failing
+native negative controls. The proof does not send HTTP requests, install app
+resources, render Android/Web Apps or establish transaction rollback.
+
+The full native HQ comparison passes for twelve scenarios. It records two exact
+differences rather than hiding them: an explicit HQ unfiltered `match-all()` and
+an unused Nova collection-instance declaration. Core consumes both original
+versions. Reproduction commands and hashed records accompany the proof.
+
+Validation: 89 focused checks across eight files, twelve native HQ comparisons
+and seven native Core methods pass. Full typecheck and strict Biome checks pass.

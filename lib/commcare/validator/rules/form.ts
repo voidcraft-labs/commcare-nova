@@ -838,6 +838,17 @@ function formLinkValidation(
 				),
 			);
 		}
+		if (link.unrepresentableQueryDatums?.length) {
+			errors.push(
+				validationError(
+					"FORM_LINK_SEARCH_CASE_UNREPRESENTABLE",
+					"form",
+					`"${ctx.formName}" ${label} assigns a different case to a destination that opens on Search. CommCare would fetch the previous case before applying this assignment. Automatic case matching can carry the case this form selected or created; removing the manual assignment lets Nova check that match. Another option is a destination that opens on its case list.`,
+					loc,
+					{ ...details, datumIds: link.unrepresentableQueryDatums.join(", ") },
+				),
+			);
+		}
 		for (const datumName of link.unused) {
 			errors.push(
 				validationError(
