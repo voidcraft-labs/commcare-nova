@@ -1963,3 +1963,60 @@ peer edits, archive, ownership, persistence, focus and layout. Its server log
 nevertheless records a reconciler reload GET failing as a document reload
 starts. That report was missed by the browser event guard and remains an
 explicit next investigation, not an error-free browser result.
+
+### Document teardown, browser evidence, and reconciler response ownership
+
+The organization journey's previously recorded reload error came from native
+navigation: `pagehide` preceded rejection of an in-flight GET, while React effect
+cleanup did not run. The resulting beacon reached the HTTP server but not
+Playwright page/context request events, console events, or a separate CDP network
+observer. A live-document routed beacon had therefore left a real guard gap.
+
+Replaced that guard method with live-event detail plus a synchronous per-page
+transport marker that survives document teardown. The observer forwards the
+original native beacon/fetch call and preserves delivery. Assertions read the
+context after page close and before context close. Multiplayer teardown now
+settles every page guard and closes every context, including the revoked member.
+Five native Chromium/local-HTTP tests prove beacon and keepalive-fetch delivery
+and detection across reload/close, live exception/console/report/5xx channels,
+origin scope, and isolation between pages sharing localStorage. The old guard,
+with only its assertion signature adapted to async, fails all four teardown
+negative controls while retaining the live-error test.
+
+The runtime now cancels its owned reload on suspension, classifies only that
+controller's cancellation as `interrupted`, and preserves the reload barrier and
+queued edits. Restart waits for outstanding authorization before reopening the
+stream. Native `pagehide` owns full-document suspension; a persisted `pageshow`
+requests fresh authorization. An unrelated exception named `AbortError` remains
+an observed failure. Browser/history effects are explicit adapters, so the whole
+runtime suite now runs in Node without happy-dom; manifests, presence rows and
+persisted documents are schema admitted instead of cast into existence.
+
+Real loopback GET tests interrupt headers and partial bodies, restart both before
+and after the rejection, retain the actual admitted edit queue through viewer
+reauthorization, and open exactly one replacement stream at the new cursor.
+They use the existing owned socket peer. A separate minimal native Node PUT
+experiment showed an unresolved internal `ReadableStream.tee` promise even after
+response consumption, dispatcher destruction, server closure, and a subsequent
+event-loop turn. That was not an open connection; the retained Node transport
+checks focus on GET lifetime, while production-browser journeys cover saves.
+
+Whole-runtime review also reproduced two protocol defects. A 200 with a zero,
+negative, fractional or unsafe cursor could be accepted as saved; low cursors
+could retire an unsaved human batch. The adapter now requires a positive safe
+integer and retains the batch for retry otherwise. A retired presence request's
+404 could start a new reload after a Project handoff; every outcome now checks
+its ownership generation and epoch before changing current state. Both defects
+failed their state-based negative controls before the production corrections.
+
+The focused state/transport run passes 97 tests with no reported async leaks.
+The production organization journey plus both multiplayer suites and the five
+native guard contracts pass 18 browser checks without retries or client error
+reports. Full Chromium could retain a simple page, but the actual Builder
+reported `MainResourceHasCacheControlNoStore`,
+`JsNetworkRequestReceivedCacheControlNoStoreResource` and
+`CacheControlNoStoreHTTPOnlyCookieModified`; it performed a fresh Back navigation.
+No cache policy was changed to manufacture a retained-Builder proof. A native
+Back-navigation role journey also passes in 2.1 seconds; actual Builder BFCache restoration
+remains unproven for this artifact, distinct from the programmatic resumable-state
+proof. Ordinary CI continues to use headless shell.

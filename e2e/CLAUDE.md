@@ -32,9 +32,13 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   `console.error` / `pageerror` / same-origin 5xx or client error report
   (`e2e/lib/fixtures.ts`, no benign-error
   allowlist). To provoke an error on purpose, scope a local handler in that test.
-  The guard watches `/api/log/error` requests too: native ErrorEvents and handled
-  failures can reach Nova's reporter without Playwright emitting `pageerror`.
-  `error-guard.spec.ts` proves that channel through an actual browser beacon.
+  Await `attachErrorGuard` before navigation. The fixture closes its page before
+  the final async assertion; explicit contexts assert after page close and before
+  context close. Live `/api/log/error` requests provide details, and a forwarding
+  beacon/fetch observer records attempts synchronously in per-page localStorage
+  because Chromium can deliver teardown reports without emitting network events.
+  `error-guard.spec.ts` proves native delivery and detection with a real local HTTP
+  receiver across reload/close, plus origin scope and page isolation.
 - **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes the `auth_user`
   + `auth_session` rows into the local **Postgres** (auth and app state both live
   there); `lib/auth/sessionCookie.ts` signs the cookie exactly like
@@ -157,8 +161,9 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   - The project has NO project-level `storageState` (the spec opens its own two
     contexts) and applies the strict error guard per-page via `attachErrorGuard`
     (`e2e/lib/errorGuard.ts`) — the single-`page` fixture can't cover two users. The
-    revocation test does NOT guard Grace's page (a revoked stream + 404 presence
-    POSTs are the expected consequence of losing access).
+    revocation test guards both pages through teardown. Expected revocation and
+    404 presence responses do not emit application errors. Teardown settles every
+    page's guard and closes every context even when one reports a failure.
   - **Human-viewable modes** ride the same stack + seed: `npm run mp:watch` runs
     this suite headed with windows CDP-tiled (`MP_TILE=1` → `e2e/lib/windowTiling.ts`,
     best-effort so it can't fail a run) — halves for the two-user block, screen
@@ -213,3 +218,9 @@ For whole-pixel layout contracts, round browser geometry before comparing it
 with an integer pixel boundary: a 44px target can be reported as 43.999969px
 after transforms. Keep exact fractional comparisons only when the fraction
 itself is the behavior being tested.
+
+`reconciler-lifetime.spec.ts` changes the seeded multiplayer editor's role while
+away from the Builder, returns with native Back navigation, and verifies the
+visible title is read-only. It restores the exact prior membership role in
+`finally`. This proves permission refresh on return; it does not claim the
+current no-store Builder document was retained in BFCache.

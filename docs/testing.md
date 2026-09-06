@@ -42,6 +42,25 @@ tests is preferable to preserving the shape or count of the previous suite.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
 
+Browser error assertions include document teardown. `attachErrorGuard` is
+awaited before navigation, and its final assertion runs after page close but
+before context close. Chromium can deliver a teardown beacon without emitting
+Playwright page/context requests, console events, or CDP network events. A
+forwarding observer of the native beacon/fetch transports records report
+attempts synchronously under a private per-page localStorage key. It preserves
+native request delivery; the guard reads that evidence from the context after
+the document is gone. `error-guard.spec.ts` uses a real local HTTP receiver for
+both transports, reload and close, and proves same-origin scope and page
+isolation. An active-document routed beacon alone cannot prove this boundary.
+
+Reconciler protocol tests run in Node with schema-admitted inputs and explicit
+browser effects. Their controlled EventSource owns only protocol callbacks;
+it does not claim to exercise a browser connection. Cancellation tests keep
+native Node fetch and a real loopback HTTP peer, interrupt headers and partial
+bodies, preserve actual queued edits, restart before/after rejection, and verify
+fresh authorization precedes the replacement stream. Browser acceptance covers
+the React/document lifecycle binding.
+
 Place draft tests use `createPlaceDraft` with the real organization client
 queue. Deferred action receipts preserve feasible write order; they never make
 a second write finish before the first queued write. Browser acceptance holds

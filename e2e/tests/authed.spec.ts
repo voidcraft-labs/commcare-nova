@@ -996,7 +996,7 @@ test.describe("authenticated builder", () => {
 		await draftName.fill("Coast draft kept locally");
 
 		const peerPage = await page.context().newPage();
-		const peerGuard = attachErrorGuard(peerPage, baseURL);
+		const peerGuard = await attachErrorGuard(peerPage, baseURL);
 		try {
 			await peerPage.goto(`/build/${appId}/setup/organization`);
 			const peerPlaces = peerPage.getByRole("region", { name: "Places" });
@@ -1028,7 +1028,8 @@ test.describe("authenticated builder", () => {
 					name: /Coast draft kept locally/,
 				}),
 			).toBeVisible();
-			peerGuard.assertNoErrors();
+			await peerPage.close();
+			await peerGuard.assertNoErrors();
 		} finally {
 			await peerPage.close();
 		}
@@ -3691,7 +3692,7 @@ test.describe("authenticated builder", () => {
 				storageState: caseChanges.viewerStateFile,
 			});
 			const viewerPage = await viewerContext.newPage();
-			const viewerGuard = attachErrorGuard(viewerPage, baseURL);
+			const viewerGuard = await attachErrorGuard(viewerPage, baseURL);
 			try {
 				await viewerPage.goto(caseChanges.route);
 				await expect(
@@ -3733,7 +3734,8 @@ test.describe("authenticated builder", () => {
 				await expect(
 					viewerPage.getByText("Work out the id of the case at the other end."),
 				).toBeVisible();
-				viewerGuard.assertNoErrors();
+				await viewerPage.close();
+				await viewerGuard.assertNoErrors();
 			} finally {
 				await viewerContext.close();
 			}
@@ -4750,7 +4752,7 @@ test.describe("authenticated builder", () => {
 			route.abort("blockedbyclient"),
 		);
 		const recoveryPage = await recoveryContext.newPage();
-		const recoveryGuard = attachErrorGuard(recoveryPage, baseURL);
+		const recoveryGuard = await attachErrorGuard(recoveryPage, baseURL);
 		await recoveryPage.goto(seed.caseWorkspace.routes.projectData);
 		const temporalTableName = `Smoke temporal recovery ${Date.now()}`;
 		await recoveryPage.getByRole("button", { name: "New data table" }).click();
@@ -4822,7 +4824,7 @@ test.describe("authenticated builder", () => {
 			storageState: await recoveryContext.storageState(),
 		});
 		const peerPage = await peerContext.newPage();
-		const peerGuard = attachErrorGuard(peerPage, baseURL);
+		const peerGuard = await attachErrorGuard(peerPage, baseURL);
 		await peerPage.goto(temporalTablePath);
 		await expect(
 			peerPage.getByRole("heading", {
@@ -4930,7 +4932,8 @@ test.describe("authenticated builder", () => {
 		await expect(
 			peerPage.getByRole("heading", { name: "Data tables", level: 1 }),
 		).toBeVisible();
-		peerGuard.assertNoErrors();
+		await peerPage.close();
+		await peerGuard.assertNoErrors();
 		await peerContext.close();
 
 		await recoveryPage.getByRole("button", { name: "All data tables" }).click();
@@ -5030,7 +5033,8 @@ test.describe("authenticated builder", () => {
 		await expect(
 			recoveryPage.getByRole("region", { name: "Row work to review" }),
 		).toBeHidden();
-		recoveryGuard.assertNoErrors();
+		await recoveryPage.close();
+		await recoveryGuard.assertNoErrors();
 		await recoveryContext.close();
 	});
 });

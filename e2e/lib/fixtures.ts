@@ -24,9 +24,10 @@ import { attachErrorGuard } from "./errorGuard";
  */
 export const test = base.extend({
 	page: async ({ page, baseURL }, use) => {
-		const guard = attachErrorGuard(page, baseURL);
+		const guard = await attachErrorGuard(page, baseURL);
 		await use(page);
-		guard.assertNoErrors();
+		await page.close();
+		await guard.assertNoErrors();
 	},
 });
 

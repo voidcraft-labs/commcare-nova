@@ -152,7 +152,7 @@ test("language edits preserve source content and the URL lens across Builder, re
 	await page.getByRole("button", { name: "Worker language: Spanish" }).click();
 	await page.getByRole("menuitem", { name: "Manage languages" }).click();
 	const peer = await page.context().newPage();
-	const peerGuard = attachErrorGuard(peer, baseURL);
+	const peerGuard = await attachErrorGuard(peer, baseURL);
 	try {
 		await peer.goto(`${setupPath}?lang=spa`);
 		await draft.fill("Borrador [[NOVA_REF_1]]");
@@ -191,7 +191,8 @@ test("language edits preserve source content and the URL lens across Builder, re
 		await expect(
 			page.getByRole("button", { name: "Worker language: English" }),
 		).toBeVisible();
-		peerGuard.assertNoErrors();
+		await peer.close();
+		await peerGuard.assertNoErrors();
 	} finally {
 		await peer.close();
 	}

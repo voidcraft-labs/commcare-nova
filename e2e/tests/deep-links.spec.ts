@@ -106,7 +106,7 @@ test("deep links are authored, renamed, launched on the selected real case, and 
 			storageState: path.resolve("e2e/.auth/state-viewer.json"),
 		});
 		const viewerPage = await viewerContext.newPage();
-		const guard = attachErrorGuard(viewerPage, baseURL);
+		const guard = await attachErrorGuard(viewerPage, baseURL);
 		try {
 			await viewerPage.goto(detailRoute);
 			await expect(
@@ -127,7 +127,8 @@ test("deep links are authored, renamed, launched on the selected real case, and 
 			await expect(
 				viewerPage.getByRole("button", { name: "Add deep link", exact: true }),
 			).toHaveCount(0);
-			guard.assertNoErrors();
+			await viewerPage.close();
+			await guard.assertNoErrors();
 		} finally {
 			await viewerContext.close();
 		}

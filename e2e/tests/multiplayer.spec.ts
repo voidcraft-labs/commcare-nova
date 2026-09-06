@@ -86,8 +86,17 @@ const SHOTS_DIR = path.join(process.cwd(), "e2e", "multiplayer-screenshots");
 interface UserPage {
 	page: Page;
 	context: BrowserContext;
-	assertNoErrors: () => void;
 	close: () => Promise<void>;
+}
+
+/** Settle every page's teardown even if one guard finds an error. */
+async function closePages(pages: readonly UserPage[]): Promise<void> {
+	const results = await Promise.allSettled(pages.map((user) => user.close()));
+	const failures = results.flatMap((result) =>
+		result.status === "rejected" ? [result.reason] : [],
+	);
+	if (failures.length > 0)
+		throw new AggregateError(failures, "Browser teardown failed");
 }
 
 /**
@@ -130,13 +139,19 @@ async function openBuilder(
 			if (zoom < 1) await applyPageZoom(page, zoom);
 		}
 	}
-	const guard = attachErrorGuard(page, mp.baseUrl);
+	const guard = await attachErrorGuard(page, mp.baseUrl);
 	await page.goto(`/build/${mp.appId}${subPath}`);
 	return {
 		page,
 		context,
-		assertNoErrors: guard.assertNoErrors,
-		close: () => context.close(),
+		close: async () => {
+			try {
+				await page.close();
+				await guard.assertNoErrors();
+			} finally {
+				await context.close();
+			}
+		},
 	};
 }
 
@@ -258,12 +273,8 @@ test.describe("two-user multiplayer builder", () => {
 			await grace.page.screenshot({
 				path: path.join(SHOTS_DIR, "02-live-coedit-grace-sees-rename.png"),
 			});
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
 		} finally {
-			await ada.close();
-			await grace.close();
+			await closePages([ada, grace]);
 		}
 	});
 
@@ -314,12 +325,8 @@ test.describe("two-user multiplayer builder", () => {
 			await ada.page.screenshot({
 				path: path.join(SHOTS_DIR, "03-disjoint-merge-ada-view.png"),
 			});
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
 		} finally {
-			await ada.close();
-			await grace.close();
+			await closePages([ada, grace]);
 		}
 	});
 
@@ -356,12 +363,8 @@ test.describe("two-user multiplayer builder", () => {
 					"04-live-highlight-grace-sees-ada-field.png",
 				),
 			});
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
 		} finally {
-			await ada.close();
-			await grace.close();
+			await closePages([ada, grace]);
 		}
 	});
 
@@ -407,12 +410,8 @@ test.describe("two-user multiplayer builder", () => {
 			await grace.page.screenshot({
 				path: path.join(SHOTS_DIR, "05-follow-grace-lands-on-ada-screen.png"),
 			});
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
 		} finally {
-			await ada.close();
-			await grace.close();
+			await closePages([ada, grace]);
 		}
 	});
 
@@ -455,12 +454,8 @@ test.describe("two-user multiplayer builder", () => {
 			await grace.page.screenshot({
 				path: path.join(SHOTS_DIR, "06-reconnect-grace-catches-up.png"),
 			});
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
 		} finally {
-			await ada.close();
-			await grace.close();
+			await closePages([ada, grace]);
 		}
 	});
 
@@ -517,12 +512,8 @@ test.describe("two-user multiplayer builder", () => {
 				path: path.join(SHOTS_DIR, "07-reorder-grace-sees-new-order.png"),
 			});
 			await grace.page.keyboard.press("Escape");
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
 		} finally {
-			await ada.close();
-			await grace.close();
+			await closePages([ada, grace]);
 		}
 	});
 
@@ -584,12 +575,8 @@ test.describe("two-user multiplayer builder", () => {
 			await ada.page.screenshot({
 				path: path.join(SHOTS_DIR, "09-undo-keeps-peer-edit.png"),
 			});
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
 		} finally {
-			await ada.close();
-			await grace.close();
+			await closePages([ada, grace]);
 		}
 	});
 
@@ -627,10 +614,8 @@ test.describe("two-user multiplayer builder", () => {
 				path: path.join(SHOTS_DIR, "08-revoked-ada-roster-drops-grace.png"),
 			});
 
-			// Ada — an unaffected member — still sees no app errors. Grace's context
-			// legitimately gets a revoked stream + 404 presence POSTs (an expected
-			// consequence of losing access), so her page is NOT error-guarded here.
-			ada.assertNoErrors();
+			// Both pages retain the strict guard through teardown. Expected access
+			// revocation and 404 responses do not emit application errors.
 		} finally {
 			// Restore Grace's membership so a retry / later run starts clean. The
 			// shared Project's slug is fixed by the seed (`mp-shared-<userA.id>`).
@@ -644,8 +629,7 @@ test.describe("two-user multiplayer builder", () => {
 				)
 				.catch(() => {});
 			await pool.end().catch(() => {});
-			await ada.close();
-			await grace.close();
+			await closePages([ada, grace]);
 		}
 	});
 });
@@ -749,15 +733,8 @@ test.describe("four-user co-editing storm", () => {
 			await alan.page.screenshot({
 				path: path.join(SHOTS_DIR, "10-four-storm-alan-view.png"),
 			});
-
-			for (const { up } of crew) up.assertNoErrors();
 		} finally {
-			await Promise.all([
-				ada.close(),
-				grace.close(),
-				kat.close(),
-				alan.close(),
-			]);
+			await closePages([ada, grace, kat, alan]);
 		}
 	});
 
@@ -820,18 +797,8 @@ test.describe("four-user co-editing storm", () => {
 			await ada.page.screenshot({
 				path: path.join(SHOTS_DIR, "11-contention-converged.png"),
 			});
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
-			kat.assertNoErrors();
-			alan.assertNoErrors();
 		} finally {
-			await Promise.all([
-				ada.close(),
-				grace.close(),
-				kat.close(),
-				alan.close(),
-			]);
+			await closePages([ada, grace, kat, alan]);
 		}
 	});
 
@@ -899,18 +866,8 @@ test.describe("four-user co-editing storm", () => {
 			await alan.page.screenshot({
 				path: path.join(SHOTS_DIR, "12-crowd-undo-alan.png"),
 			});
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
-			kat.assertNoErrors();
-			alan.assertNoErrors();
 		} finally {
-			await Promise.all([
-				ada.close(),
-				grace.close(),
-				kat.close(),
-				alan.close(),
-			]);
+			await closePages([ada, grace, kat, alan]);
 		}
 	});
 
@@ -963,18 +920,8 @@ test.describe("four-user co-editing storm", () => {
 			await kat.page.screenshot({
 				path: path.join(SHOTS_DIR, "13-burst-catchup-katherine.png"),
 			});
-
-			ada.assertNoErrors();
-			grace.assertNoErrors();
-			kat.assertNoErrors();
-			alan.assertNoErrors();
 		} finally {
-			await Promise.all([
-				ada.close(),
-				grace.close(),
-				kat.close(),
-				alan.close(),
-			]);
+			await closePages([ada, grace, kat, alan]);
 		}
 	});
 });

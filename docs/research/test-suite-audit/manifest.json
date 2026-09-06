@@ -3498,7 +3498,10 @@
 			"file": "lib/collab/__tests__/ReconcilerProvider.test.ts",
 			"lines": 989,
 			"ciMs": 4575,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read the whole runtime suite, network owner, recovery boundary and actual browser guard/lifecycle consumers. Remove happy-dom through explicit production browser effects; admit manifest/presence/document fixtures with their schemas, retire a dead sessionStorage latch and own runtime cleanup. Retain protocol ownership/fan-out/privacy tests; add native loopback header/body cancellation with real queued edits and viewer reauthorization, restart-before/after-rejection stream ordering, active AbortError reporting, seven invalid save-cursor controls and a late presence-404 Project handoff. Reproduced and fixed cursor acceptance, stale-404 recovery and navigation-aborted reload reporting. Native error guard rewritten around actual teardown delivery; nineteen production-browser checks pass across targeted runs. The Builder was not BFCache-retained under this artifact; record that limit rather than manufacturing acceptance.",
+			"baselineSha256": "d130041454d158c9821c1b4dcf7afd2435f2512896cfb6b8c532518b71577a89",
+			"reviewedSha256": "2c331ddce53be8e6912b23b96cf454a969fe0eeae7badb88d1545747b8c498c2"
 		},
 		{
 			"file": "lib/collab/__tests__/appReadSnapshot.test.ts",
