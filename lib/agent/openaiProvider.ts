@@ -28,18 +28,10 @@ import { Agent, type Dispatcher, fetch as undiciFetch } from "undici";
  *  call survives. */
 export const MODEL_CALL_TIMEOUT_MS = 20 * 60_000;
 
-/** Exported for the transport pin test's identity assertion only. */
-export const modelCallDispatcher = new Agent({
-	headersTimeout: MODEL_CALL_TIMEOUT_MS,
-	bodyTimeout: MODEL_CALL_TIMEOUT_MS,
-});
-
 /** The fetch every production provider instance uses. The AI SDK's fetch
  *  contract is the DOM signature; Undici's equivalent structural types are
  *  declared separately, so the cast is isolated at this one transport seam. */
-export function createModelCallFetch(
-	dispatcher: Dispatcher,
-): typeof globalThis.fetch {
+function createModelCallFetch(dispatcher: Dispatcher): typeof globalThis.fetch {
 	return (input, init) =>
 		undiciFetch(
 			input as Parameters<typeof undiciFetch>[0],
@@ -50,7 +42,21 @@ export function createModelCallFetch(
 		) as unknown as Promise<Response>;
 }
 
-export const modelCallFetch = createModelCallFetch(modelCallDispatcher);
+/** Own one package-native dispatcher and the fetch bound to it. Scripts and
+ * integration probes can destroy their transport when their work is complete;
+ * the serving process keeps its default transport for its entire lifetime. */
+export function createModelCallTransport(timeoutMs = MODEL_CALL_TIMEOUT_MS) {
+	const dispatcher = new Agent({
+		headersTimeout: timeoutMs,
+		bodyTimeout: timeoutMs,
+	});
+	return {
+		fetch: createModelCallFetch(dispatcher),
+		destroy: () => dispatcher.destroy(),
+	};
+}
+
+export const modelCallFetch = createModelCallTransport().fetch;
 
 export function createNovaOpenAI(
 	apiKey: string,

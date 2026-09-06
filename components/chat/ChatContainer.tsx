@@ -82,14 +82,12 @@ import {
 import {
 	deriveChatAppReady,
 	useAccessPhase,
+	useBuildUnfinished,
 	useProjectCanEdit,
 	useProjectScopeEpoch,
 } from "@/lib/session/hooks";
 import type { BuilderSessionStoreApi } from "@/lib/session/provider";
-import {
-	BuilderSessionContext,
-	useBuilderSession,
-} from "@/lib/session/provider";
+import { BuilderSessionContext } from "@/lib/session/provider";
 import { markAppListStale } from "@/lib/ui/appListFreshness";
 import type { ToastOptions, ToastSeverity } from "@/lib/ui/toastStore";
 import { canonicalJsonText } from "@/lib/utils/canonicalJsonText";
@@ -1303,7 +1301,7 @@ export function ChatContainer({
 	 * SA is the edit mechanism, so the composer hides. The write paths reject
 	 * their edits server-side regardless. */
 	const canEdit = useProjectCanEdit();
-	const buildUnfinished = useBuilderSession((state) => state.buildUnfinished);
+	const buildUnfinished = useBuildUnfinished();
 
 	// ── Stable refs so Chat callbacks always read the latest stores ──────
 	const docStoreRef = useRef(docStore);

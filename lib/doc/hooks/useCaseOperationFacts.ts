@@ -11,9 +11,13 @@
 
 "use client";
 
-import { CASE_LOADING_FORM_TYPES, type CaseOperation } from "@/lib/domain";
+import {
+	type BlueprintDoc,
+	CASE_LOADING_FORM_TYPES,
+	type CaseOperation,
+} from "@/lib/domain";
 import type { Uuid } from "../types";
-import { useBlueprintDoc } from "./useBlueprintDoc";
+import { useBlueprintDoc, useBlueprintDocShallow } from "./useBlueprintDoc";
 
 /** How many case changes this form makes on submission. */
 export function useCaseOperationCount(formUuid: Uuid): number {
@@ -62,4 +66,23 @@ export function useFormHasSessionCase(
 /** The case type a module hands its forms, if it has one. */
 export function useModuleCaseType(moduleUuid: Uuid): string | undefined {
 	return useBlueprintDoc((state) => state.modules[moduleUuid]?.caseType);
+}
+
+const NO_FIELDS: BlueprintDoc["fields"] = {};
+const NO_FIELD_ORDER: BlueprintDoc["fieldOrder"] = {};
+const NO_FIELD_PARENT: BlueprintDoc["fieldParent"] = {};
+
+/** UUID label projection needs field and worker identities only while a form
+ * exists. The persistent rail's idle call must not subscribe to field edits. */
+export function useOperationLabelInputs(formUuid: Uuid | undefined) {
+	return useBlueprintDocShallow((state) => {
+		const form = formUuid === undefined ? undefined : state.forms[formUuid];
+		return {
+			form,
+			fields: form === undefined ? NO_FIELDS : state.fields,
+			fieldOrder: form === undefined ? NO_FIELD_ORDER : state.fieldOrder,
+			fieldParent: form === undefined ? NO_FIELD_PARENT : state.fieldParent,
+			userProperties: form === undefined ? undefined : state.userProperties,
+		};
+	});
 }

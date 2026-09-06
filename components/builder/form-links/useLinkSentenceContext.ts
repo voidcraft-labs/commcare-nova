@@ -6,28 +6,9 @@
 
 "use client";
 
-import { useMemo } from "react";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
-import {
-	type FormLink,
-	type FormLinkTarget,
-	formLinkDestination,
-	projectXPath,
-	xpathPrintContext,
-} from "@/lib/domain";
+import { useFormLinkProjection } from "@/lib/doc/hooks/useFormLinkChoices";
 import type { LinkSentenceContext } from "./linkSentence";
 
 export function useLinkSentenceContext(): LinkSentenceContext {
-	const doc = useBlueprintDoc((state) => state);
-	return useMemo<LinkSentenceContext>(
-		() => ({
-			destinationOf: (target: FormLinkTarget) =>
-				formLinkDestination(doc, target),
-			conditionText: (link: FormLink) =>
-				link.condition === undefined
-					? ""
-					: projectXPath(link.condition, xpathPrintContext(doc)).text,
-		}),
-		[doc],
-	);
+	return useFormLinkProjection();
 }

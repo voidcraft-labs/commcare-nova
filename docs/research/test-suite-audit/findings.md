@@ -79,3 +79,57 @@ even after the corresponding map was deleted. The new real CLI scenario failed
 on that content. The cleanup expression now accepts terminal line endings;
 JS, MJS, CJS, and CSS pass while code containing a literal sourceMappingURL and
 compiler-cache/dependency maps remain intact.
+
+## Language editing and browser evidence
+
+The language suites now exercise the production protected-prose draft, immutable
+translation workspace and selector-row derivation directly. A real browser
+journey uses the full registry and persisted app: add/copy, invalid-token refusal
+and recovery, target edits, reload, Preview language switching with an existing
+answer, and another tab changing an open draft and removing the selected copy
+source. Three old fake-DOM suites and their registry/provider mocks were removed.
+
+Two production defects emerged from these boundaries:
+
+- Protected case references were matched by JSON insertion order. A target with
+  the same identity but reordered object keys silently lost its displayed token.
+  The regression failed before switching to canonical reference equality.
+- Translation projection compared every edit with the pre-batch overlay. A
+  second edit restoring the original value left the first edit in place; a
+  clear after creating a missing target also retained the new value. Both
+  regressions failed against the old projector. It now compares with preceding
+  batch writes and honors clears of staged entries.
+
+The browser guard also missed handled/native errors that Nova reported through
+`/api/log/error` without a Playwright `pageerror` or console error. It now watches
+that actual reporting channel; a real browser beacon proves the guard rejects
+such a report even when the endpoint returns 204.
+
+An intermittent native ResizeObserver undelivered-notifications event exposed
+that gap during the language and inline-editing journeys. Subsequent instrumented
+and ordinary runs did not reproduce it. No observer or reporter suppression was
+added. The layout cause remains an open investigation, now covered by the guard
+when Nova reports it.
+
+## Static boundaries and model transport
+
+A regex walk for OpenAI constructors has been replaced by Biome import rules,
+exercised through the real CLI with aliased, default, namespace and re-exported
+imports. This uncovered that later Biome overrides replace a rule's options:
+the existing wire-boundary override had erased the component doc-store boundary.
+The intersecting rules now preserve both restrictions. Existing violations were
+moved behind named domain hooks with actual dependency sets; no waiver was added.
+
+The transport tests use the production dispatcher/fetch factory against real
+local sockets. They distinguish header and inter-chunk timeouts by Undici error
+code and prove caller cancellation before and after response headers, including
+server-observed disconnection. The delayed server fixture and constructor-shape
+assertions are gone.
+
+## Local calendar state
+
+The midnight rule now belongs to a production clock with a stable day snapshot
+and one timer while subscribed. Direct tests cover 23/25-hour days, forward and
+backward clock changes, same-day stability, and subscription cleanup/resumption.
+The React adapter retains focus/visible resync. The old fake calendar screen and
+fake matchMedia suite were removed; responsive layout remains a browser claim.

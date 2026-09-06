@@ -27,8 +27,12 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   so the production artifact remains reachable at `localhost:3000` without making an
   arbitrary external Host trusted. Cloud Run must never receive this variable.
 - **The `test` fixture is a strict error guard.** Every page test fails on a browser
-  `console.error` / `pageerror` / same-origin 5xx (`e2e/lib/fixtures.ts`, no benign-error
+  `console.error` / `pageerror` / same-origin 5xx or client error report
+  (`e2e/lib/fixtures.ts`, no benign-error
   allowlist). To provoke an error on purpose, scope a local handler in that test.
+  The guard watches `/api/log/error` requests too: native ErrorEvents and handled
+  failures can reach Nova's reporter without Playwright emitting `pageerror`.
+  `error-guard.spec.ts` proves that channel through an actual browser beacon.
 - **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes the `auth_user`
   + `auth_session` rows into the local **Postgres** (auth and app state both live
   there); `lib/auth/sessionCookie.ts` signs the cookie exactly like

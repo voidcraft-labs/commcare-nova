@@ -4,7 +4,7 @@
  * two-user `multiplayer.spec.ts`, which the single-`page` fixture can't cover).
  *
  * Attaches to a `Page` and collects every app `console.error`, uncaught
- * `pageerror`, and same-origin 5xx into an array; `assertNoErrors()` fails the
+ * `pageerror`, same-origin 5xx, and Nova client-error reports into an array; `assertNoErrors()` fails the
  * test if any were seen. No benign-error allowlist by design — the one
  * structural exclusion (Chromium's "Failed to load resource" network noise) is
  * not app JS, and a same-origin server 5xx is caught separately by the response
@@ -51,6 +51,18 @@ export function attachErrorGuard(
 		if (res.status() < 500) return;
 		if (baseOrigin && urlOrigin(res.url()) === baseOrigin) {
 			errors.push(`HTTP ${res.status()} ${new URL(res.url()).pathname}`);
+		}
+	});
+	// Native ErrorEvents and handled/manual errors can reach Nova's reporter
+	// without Playwright emitting pageerror or the application logging to console.
+	page.on("request", (request) => {
+		const url = new URL(request.url());
+		if (
+			request.method() === "POST" &&
+			url.origin === baseOrigin &&
+			url.pathname === "/api/log/error"
+		) {
+			errors.push(`client report: ${request.postData() ?? "empty payload"}`);
 		}
 	});
 

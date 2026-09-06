@@ -555,6 +555,11 @@ export function useAccessPhase(): AccessPhase {
 	return useStore(store, (s) => s.accessPhase);
 }
 
+/** Whether the app still has an unfinished build, across thread changes. */
+export function useBuildUnfinished(): boolean {
+	return useBuilderSession((state) => state.buildUnfinished);
+}
+
 /** Monotonic Project-scope generation. Consumers should normally subscribe to
  *  the reconciler reset registry instead; this hook is for status/debug UI. */
 export function useProjectScopeEpoch(): number {

@@ -8,6 +8,11 @@ The store is private. Consumers must go through the named domain hooks in `hooks
 
 Consumers get narrow, memoized hooks with predictable selector shapes; no component passes a raw selector function to a Zustand hook for this store. This boundary keeps undo/redo semantics sane and lets the internal store shape evolve without touching call sites.
 
+Use the actual dependency set: organization verdicts consume the named
+`OrganizationRuleInputs`, while graph-wide removal/link planners legitimately
+need the whole document. Localization projection caches and the immutable
+`localizationWorkspace` likewise belong here, behind named hooks.
+
 ## The write surface
 
 `applyMany(mutations: Mutation[]): MutationResult[]` is the mutation-applying write action on the store. Every result entry is `undefined`; reducers expose no side-channel metadata. There is no `apply` / `applyWithResult` — single-mutation dispatches wrap as `applyMany([m])`. A field ID has exactly one mutation representation: `updateField { uuid, targetKind, patch: { id } }`. The builder hook may expose a user-gesture method named `renameField`, but it only runs the shared form-local sibling verdict and dispatches that canonical update command. Moving a field preserves its id; destination sibling collisions reject before reduction instead of auto-renaming.

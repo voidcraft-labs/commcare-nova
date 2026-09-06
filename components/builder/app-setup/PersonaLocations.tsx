@@ -19,9 +19,11 @@ import tablerX from "@iconify-icons/tabler/x";
 import { useEffect, useMemo, useState } from "react";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
-import { useOrganizationLevelRecord } from "@/lib/doc/hooks/useOrganizationCollections";
+import {
+	useOrganizationLevelRecord,
+	useOrganizationRuleInputs,
+} from "@/lib/doc/hooks/useOrganizationCollections";
 import {
 	assignedLocationUuids,
 	levelHoldsWorkers,
@@ -60,7 +62,7 @@ export function PersonaLocations({
 }) {
 	const canEdit = useCanEdit();
 	const mutations = useBlueprintMutations();
-	const doc = useBlueprintDoc((state) => state);
+	const doc = useOrganizationRuleInputs();
 	const levels = useOrganizationLevelRecord();
 	const assigned = useMemo(
 		() => assignedLocationUuids(persona.locations),

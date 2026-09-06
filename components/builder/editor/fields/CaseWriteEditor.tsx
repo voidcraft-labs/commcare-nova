@@ -50,13 +50,13 @@ import {
 } from "@/components/shadcn/select";
 import type { CaseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import type { CaseWriteVerdictCandidate } from "@/lib/doc/caseWriteVerdictWorkerProtocol";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useCaseWriteChoiceVerdicts } from "@/lib/doc/hooks/useCaseWriteChoices";
 import {
 	type ProseProjector,
 	useProseProjection,
 } from "@/lib/doc/hooks/useProseProjection";
+import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import {
 	type AuthoredCasePropertyName,
 	authoredCasePropertyNameSchema,
@@ -70,7 +70,6 @@ import {
 	getModuleCaseTypes,
 	humanizeId,
 	isCaptureField,
-	orderedUserProperties,
 	USERCASE_CASE_TYPE,
 } from "@/lib/domain";
 
@@ -190,14 +189,8 @@ export function CaseWriteEditor<F extends Field>(
 	const context = useSelectedFormContext();
 	const projectProse = useProseProjection();
 	const effectiveCaseTypes = useEffectiveCaseTypes();
-	// Selected as the two raw slices and ordered here, so the subscription
-	// compares stable store references rather than a fresh array every render.
-	const userProperties = useBlueprintDoc((state) => state.userProperties);
-	const userPropertyOrder = useBlueprintDoc((state) => state.userPropertyOrder);
-	const workerProperties = useMemo(
-		() => orderedUserProperties({ userProperties, userPropertyOrder }),
-		[userProperties, userPropertyOrder],
-	);
+	const workerProperties = useUserProperties();
+
 	const triggerId = useId();
 	const newNameId = useId();
 	const newTypeId = useId();

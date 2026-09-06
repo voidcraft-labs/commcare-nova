@@ -11,7 +11,7 @@ import {
 	type InstancePathProjection,
 	projectInstancePath,
 } from "@/lib/preview/engine/instancePaths";
-import type { AccessPhase } from "@/lib/session/store";
+import type { AccessPhase } from "@/lib/session/hooks";
 
 /** What a staged attachment gives the form: the answer, plus what to show. */
 export interface StagedAttachment {

@@ -387,6 +387,11 @@ removed locally or by a peer, the same store notification falls back to that
 snapshot's default language; no descendant can project or write through a
 stale locale between the store update and the provider re-render.
 
+Within one Builder batch, translation projection follows the preceding edits
+and clears in that batch. A later edit that restores the original value still
+wins over an earlier change; a later clear also removes a target created in the
+same batch. These ordering rules are exercised through the production projector.
+
 A language renders only through the derivation helpers: the switcher and the
 per-language cards show the endonym, the English qualified name where it
 differs, and the direction word. No ISO code appears in any Builder surface;
@@ -797,6 +802,10 @@ The capability holds only while all of the following remain true:
   collision suffixing, and the `eng`-only byte pin;
 - Builder and Preview tests cover URL-owned language selection, responsive
   layouts, keyboard/touch interaction, focus, and target-language editing;
+- production state tests exercise protected prose, translation inventories,
+  label derivation and mutation projection without a simulated DOM. The
+  language browser journey uses the real registry, persisted target writes,
+  reload and Preview, plus another tab's draft edit and language removal;
 - `nova-plugin` source tests and contract checks pass against the final MCP
   names and behavior;
 - provider schema validation and live translation-quality evaluation run only

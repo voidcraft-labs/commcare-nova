@@ -69,6 +69,7 @@ import {
 	DEEP_LINKS_FIXTURE_COUNT,
 	DELETE_APP_COUNT,
 	FORM_LINKS_FIXTURE_COUNT,
+	LOCALIZATION_FIXTURE_COUNT,
 	MOVE_APP_COUNT,
 	ORGANIZATION_FIXTURE_COUNT,
 	SEARCH_FIRST_FIXTURE_COUNT,
@@ -88,6 +89,10 @@ import {
 	FORM_SECTIONS_SEED,
 	formSectionsRoute,
 } from "./lib/formSectionsSeed";
+import {
+	buildLocalizationBlueprint,
+	LOCALIZATION_SEED,
+} from "./lib/localizationSeed";
 import { MP_SEED, seedMultiplayerFixture } from "./lib/multiplayerSeed";
 import {
 	buildReactProfileBlueprint,
@@ -893,6 +898,26 @@ async function main(): Promise<void> {
 		});
 	}
 
+	const localizationAppIds: string[] = [];
+	for (let attempt = 0; attempt < LOCALIZATION_FIXTURE_COUNT; attempt += 1) {
+		const { appId, baseSeq } = await createExplicitBlankApp(
+			SEED.userId,
+			seedProjectId,
+			randomUUID(),
+			{
+				name: LOCALIZATION_SEED.appName,
+				status: "complete",
+			},
+		);
+		await appendSyntheticBatch({
+			appId,
+			expectedBaseSeq: baseSeq,
+			targetDoc: toPersistableDoc(buildLocalizationBlueprint(appId)),
+			authority: { kind: "user", actorUserId: SEED.userId },
+		});
+		localizationAppIds.push(appId);
+	}
+
 	/* The sections journey runs a form split into two pages in Preview and
 	 * changes nothing durable, so one app serves every attempt. */
 	const { appId: formSectionsAppId, baseSeq: formSectionsGenesisSeq } =
@@ -1231,6 +1256,7 @@ async function main(): Promise<void> {
 				deepLinks,
 				searchFirst,
 				formSections,
+				localizationAppIds,
 				deleteAppIds,
 				threadsAppId,
 				olderThreadId,

@@ -423,7 +423,10 @@
 			"file": "components/builder/app-setup/__tests__/LanguagesSection.test.tsx",
 			"lines": 629,
 			"ciMs": 3893,
-			"status": "pending"
+			"status": "removed",
+			"review": "Remove the whole fake DOM suite and hand-maintained registry mock. Production protectedProseDraft, localizationWorkspace and languageSelectorRows provide direct state/value tests; the real picker/browser journey covers add/copy, invalid token refusal and recovery, target saves, reload, remote draft reconciliation and selected-copy-source removal in an open dialog. Domain mutations retain source/default/catalog rules. Replacement exposed reference key-order loss and fixes it through canonical identity equality.",
+			"baselineSha256": "05efbcefb5cee8ca3dd7f357bfcbf0cc87fb36c6d5fc88329fb754c649509d35",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/app-setup/__tests__/PersonaLocations.test.tsx",
@@ -1011,13 +1014,19 @@
 			"file": "components/builder/localization/__tests__/BuilderLocalizationProvider.test.tsx",
 			"lines": 231,
 			"ciMs": 1454,
-			"status": "pending"
+			"status": "removed",
+			"review": "Remove the synthetic Probe. The real browser authors a target label, verifies persisted canonical source and human target entries, reloads the URL lens, changes Preview languages without losing answers, and receives language removal from another real tab. Existing projectBuilderLanguageMutations directly covers app/module/form/field lowering.",
+			"baselineSha256": "1550ed091e9e5de294cf1446df45a2f27221ec0015bb035ca10112145cd2afc6",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/localization/__tests__/LanguageSelector.test.tsx",
 			"lines": 117,
 			"ciMs": 1148,
-			"status": "pending"
+			"status": "removed",
+			"review": "Remove the entire provider/router-mocked fake DOM suite. Production languageSelectorRows now has direct coverage for ordering, qualified siblings, script direction and actual lazy-registry resolution. The production-browser language journey exercises real radio selection and Preview answer preservation.",
+			"baselineSha256": "d6947842b25df95c5501f2b0830719ea85404962ea744125a51535fd977771a5",
+			"reviewedSha256": null
 		},
 		{
 			"file": "components/builder/media/__tests__/AssetPreviewDialog.test.tsx",
@@ -1968,7 +1977,10 @@
 			"file": "lib/agent/__tests__/openaiProviderTransport.test.ts",
 			"lines": 120,
 			"ciMs": 1477,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replace exported dispatcher shape and recursive constructor regex scan with production transport factory plus real local HTTP: method/header/body success, exact header/body timeout causes, caller cancellation before and after response headers and server-observed disconnect. Explicit dispatcher/server cleanup; no artificial delayed server. Provider uniqueness now belongs to the real Biome import rule, separately probed with static/dynamic/require/aliased/default/namespace/re-export cases and overlapping boundary preservation.",
+			"baselineSha256": "030d484bcf4e200f33da295b0bacca6df2c7571d0ef670618eca197b35da2074",
+			"reviewedSha256": "d626f0fad03dbee8080ddbb46b62f4d0b96b126ac2c60b2660258bc5aa61e38d"
 		},
 		{
 			"file": "lib/agent/__tests__/planningSchemas.test.ts",
@@ -5802,7 +5814,10 @@
 			"file": "lib/doc/__tests__/projectBuilderLanguageMutations.test.ts",
 			"lines": 681,
 			"ciMs": 728,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read the complete production projector and suite. Retain direct programmatic projection/reduction for canonical-versus-target ownership, structural option changes, optional-source refusals and Search content. Replace a mutation-kind sequence pin with actual app/module/form/field target entries. Add independently expected ordered-batch edit/restore and write/clear regressions; both exposed pre-batch comparison bugs and now pass with staged-write-aware projection.",
+			"baselineSha256": "b102098a00f823955b29da876dd79cc4d42e63f631f16931dc10445deb4086a6",
+			"reviewedSha256": "58226239f2a4ea33adc6164c79f13c0285128ead5d8562d368e29958d3f6eb83"
 		},
 		{
 			"file": "lib/doc/__tests__/prototypeSafeRecords.test.ts",
@@ -7512,13 +7527,19 @@
 			"file": "lib/ui/hooks/__tests__/useIsBreakpoint.test.tsx",
 			"lines": 57,
 			"ciMs": 463,
-			"status": "pending"
+			"status": "removed",
+			"review": "Remove fake matchMedia and synthetic hook render: it only copies supplied booleans and query strings and cannot prove responsive layout. Existing real organization/header browser journeys exercise viewport-driven layout. This thin browser adapter needs no invented state model solely to preserve a unit test.",
+			"baselineSha256": "504f0b5a6a2f9c2bf3b2e272384b2a2e0209b5a1d11a859c0451664e1a193a13",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/ui/hooks/__tests__/useLocalCalendarDay.test.tsx",
 			"lines": 34,
 			"ciMs": 497,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replace the fake React screen with the production localCalendarClock and node tests for midnight, 23/25-hour local days, same-day identity, forward/backward device-clock changes, shared timer ownership, unsubscribe and resubscribe. Existing hook test passed against the new adapter before removal; browser binding retains focus and visible-event resync.",
+			"baselineSha256": "163ae7c14c76208748a063c06c9c043d8c43099303275f21cb6806ce5f9332c2",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/utils/__tests__/concurrency.test.ts",

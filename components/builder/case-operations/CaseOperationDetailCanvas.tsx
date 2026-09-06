@@ -49,7 +49,6 @@ import {
 	caseOperationTargetTypeAfter,
 	retargetCaseOperation,
 } from "@/lib/doc/caseOperationIntents";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	useFormHasSessionCase,
 	useModuleCaseType,
@@ -57,7 +56,10 @@ import {
 import { useCaseOperations } from "@/lib/doc/hooks/useCaseOperations";
 import { useEffectiveCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
 import { useFormFieldEntries } from "@/lib/doc/hooks/useFormFieldEntries";
-import { useOrganizationLevels } from "@/lib/doc/hooks/useOrganizationCollections";
+import {
+	useOrganizationLevels,
+	useOrganizationRuleInputs,
+} from "@/lib/doc/hooks/useOrganizationCollections";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import type { Uuid } from "@/lib/doc/types";
 import {
@@ -621,7 +623,7 @@ export function CaseOwnerSection({
 	const organization = useOrganization(appId ?? "");
 	const organizationIssue = organizationOwnerModeIssue(organization);
 	const organizationReady = organizationIssue === undefined;
-	const doc = useBlueprintDoc((state) => state);
+	const doc = useOrganizationRuleInputs();
 	const levels = useOrganizationLevels();
 	const levelRecord = useMemo(
 		() => Object.fromEntries(levels.map((level) => [level.uuid, level])),

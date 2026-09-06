@@ -27,16 +27,13 @@ import { useScrollIntoView } from "@/components/builder/contexts/ScrollRegistryC
 import { InspectorSection } from "@/components/builder/inspector/inspectorChrome";
 import { sectionKicker } from "@/components/preview/form/sections/SectionHeading";
 import { Button } from "@/components/shadcn/button";
-import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import {
 	mergeWithPrevious,
 	removeSectionKeepingQuestions,
 } from "@/lib/doc/formSectionMutations";
-import {
-	useBlueprintDocApi,
-	useBlueprintDocEq,
-} from "@/lib/doc/hooks/useBlueprintDoc";
+import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useSubtreeFieldCount } from "@/lib/doc/hooks/useFieldKind";
 import { useFieldsAndOrder } from "@/lib/doc/hooks/useFieldsAndOrder";
 import type { SectionField, Uuid } from "@/lib/domain";
 import { useDeleteSelectedField } from "@/lib/routing/builderActions";
@@ -214,10 +211,7 @@ function DeleteSectionRow({ sectionUuid }: { readonly sectionUuid: Uuid }) {
 	/* Everything the delete takes with it, counted through containers (a
 	 * group of ten is eleven fields) and SUBSCRIBED while the confirm is
 	 * open, so a co-editor's change updates the number the person reads. */
-	const fieldCount = useBlueprintDocEq(
-		(s) => countFieldsUnder(s, sectionUuid),
-		(a, b) => a === b,
-	);
+	const fieldCount = useSubtreeFieldCount(sectionUuid);
 
 	if (confirming) {
 		return (

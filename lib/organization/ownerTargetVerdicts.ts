@@ -10,6 +10,12 @@ import {
 	personasOf,
 } from "@/lib/domain";
 
+/** The authored inputs shared by owner, assignment, and topology preflights. */
+export type OrganizationRuleInputs = Pick<
+	BlueprintDoc,
+	"forms" | "personas" | "organizationLevels" | "organizationLevelOrder"
+>;
+
 /** The topology fields shared by stored rows and the browser projection. */
 export interface OwnerVerdictLocation {
 	readonly id: string;
@@ -181,7 +187,7 @@ export function assignmentFootprintIncludes(
 }
 
 function liveAssignments(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	byId: ReadonlyMap<string, OwnerVerdictLocation>,
 ) {
 	return Object.values(personasOf(doc)).map((persona) => ({
@@ -225,7 +231,7 @@ export function assignmentReceivesCasesFrom(
 
 /** The exact fixed-owner admission verdict, also used to filter its picker. */
 export function fixedLocationOwnerIssue(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	rows: readonly OwnerVerdictLocation[],
 	targetId: string,
 ): string | undefined {
@@ -261,7 +267,7 @@ export function fixedLocationOwnerIssue(
 
 /** The exact reverse-hop scalar/footprint verdict for one destination level. */
 export function reverseLocationOwnerIssue(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	rows: readonly OwnerVerdictLocation[],
 	destinationLevelUuid: string,
 ): string | undefined {
@@ -316,7 +322,7 @@ export function reverseLocationOwnerIssue(
 }
 
 function authoredLocationReferenceIssue(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	rows: readonly OwnerVerdictLocation[],
 ): string | undefined {
 	const byId = new Map(rows.map((row) => [row.id, row]));
@@ -362,7 +368,7 @@ function authoredLocationReferenceIssue(
 
 /** Pure Builder preflight for replacing one persona's complete assignment. */
 export function personaAssignmentIssue(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	rows: readonly OwnerVerdictLocation[],
 	personaUuid: string,
 	locationIds: readonly string[],
@@ -384,7 +390,7 @@ export function personaAssignmentIssue(
 					},
 				}),
 	};
-	const candidate: BlueprintDoc = {
+	const candidate: OrganizationRuleInputs = {
 		...doc,
 		personas: { ...personasOf(doc), [personaUuid]: candidatePersona },
 	};
@@ -402,7 +408,7 @@ export function personaAssignmentIssue(
  * candidate checks only that delta.
  */
 export function personaAssignmentRemovalIssues(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	rows: readonly OwnerVerdictLocation[],
 	personaUuid: string,
 	locationIds: readonly string[],
@@ -520,7 +526,7 @@ export function personaAssignmentRemovalIssues(
 
 /** Pure Builder preflight for a move/retype before its Server Action. */
 export function locationTopologyChangeIssue(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	rows: readonly OwnerVerdictLocation[],
 	locationId: string,
 	patch: { readonly levelUuid?: string; readonly parentId?: string | null },

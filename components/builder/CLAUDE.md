@@ -135,7 +135,10 @@ canonical source document to the selected worker language. The selection is
 owned by the `lang` URL query parameter, falls back to the app default, and is
 preserved by every History-API navigation. Structure rows, canvases, case-list
 authoring, and running Preview consume the provider's localized projections;
-they never walk `doc.localization` or implement fallback independently.
+they never walk `doc.localization` or implement fallback independently. The
+provider owns URL/context selection; document projections and snapshot caches
+live behind the named hooks in `lib/doc/hooks/useLocalization`. The Languages
+workspace consumes `useLocalizationWorkspace` for its immutable inventory.
 
 A language renders only through the registry derivation helpers (endonym,
 English qualified name, direction); no ISO code appears in any Builder
@@ -164,6 +167,12 @@ The Languages editor disables Save against the currently visible invalid
 protected-token text, and Missing units may save an explicit source-identical
 reviewed value. Inline target editors return the commit outcome: a refusal keeps
 the draft mounted and shows the finding instead of closing and losing the edit.
+`protectedProse.ts` owns token serialization and draft validity, with reference
+equality based on canonical identity rather than object-key order. Its tests
+exercise that production model without a DOM. `languageSelectorRows.ts` owns
+label/qualifier derivation. The real language journey in
+`e2e/tests/localization.spec.ts` covers the picker, saves, URL/reload lens,
+Preview answer preservation, and draft/copy-source reconciliation across tabs.
 
 ## View-only members (read-only builder)
 

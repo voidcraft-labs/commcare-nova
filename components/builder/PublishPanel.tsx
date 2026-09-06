@@ -13,7 +13,6 @@
  */
 "use client";
 import dynamic from "next/dynamic";
-import { useRouter } from "next/navigation";
 import {
 	memo,
 	useCallback,
@@ -42,6 +41,7 @@ import {
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 	type ProjectSpaceCompatibilityReport,
 } from "@/lib/publish/projectSpaceCompatibility";
+import { useExternalNavigate } from "@/lib/routing/hooks";
 import { buildUrl } from "@/lib/routing/location";
 import { pushBuilderHistory } from "@/lib/routing/useClientPath";
 import {
@@ -173,7 +173,7 @@ async function downloadArtifact(opts: {
  * 16ms wasted).
  */
 export const PublishPanel = memo(function PublishPanel() {
-	const router = useRouter();
+	const router = useExternalNavigate();
 	const docStore = useContext(BlueprintDocContext);
 	const session = useBuilderSessionApi();
 	const canEdit = useCanEdit();

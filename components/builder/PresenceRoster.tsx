@@ -40,7 +40,7 @@ import {
 } from "@/components/shadcn/tooltip";
 import { usePresenceRoster } from "@/lib/collab/PresenceProvider";
 import type { Peer } from "@/lib/collab/presence";
-import { useBlueprintDocShallow } from "@/lib/doc/hooks/useBlueprintDoc";
+import { useLocationEntities } from "@/lib/doc/hooks/useLocationEntities";
 import { useNavigate } from "@/lib/routing/hooks";
 import { recoverLocation } from "@/lib/routing/location";
 import { APP_SETUP_SECTION_LABELS, type Location } from "@/lib/routing/types";
@@ -87,11 +87,7 @@ export function PresenceRoster({ compact = false }: { compact?: boolean }) {
 	// Only the entity maps `recoverLocation` reads: a peer moving between
 	// screens re-renders the roster (its `location` changed), but an unrelated
 	// property edit does not.
-	const doc = useBlueprintDocShallow((s) => ({
-		modules: s.modules,
-		forms: s.forms,
-		fields: s.fields,
-	}));
+	const doc = useLocationEntities();
 
 	if (peers.length === 0) return null;
 

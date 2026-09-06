@@ -23,7 +23,7 @@
 import { useCallback, useContext } from "react";
 import { buildLintContext } from "@/lib/codemirror/buildLintContext";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import type { BlueprintDocState } from "@/lib/doc/store";
+import type { BlueprintDoc } from "@/lib/domain";
 import { asUuid } from "@/lib/domain";
 import { ReferenceProviderWrapper } from "@/lib/references/ReferenceContext";
 import { useSelectedFormUuid } from "@/lib/routing/hooks";
@@ -36,8 +36,8 @@ interface BuilderReferenceProviderProps {
  * storage, validation, defaults, media, or choice configuration cannot change
  * a reference's path, display label, or value-producing kind. */
 function referenceFieldsChanged(
-	current: BlueprintDocState["fields"],
-	previous: BlueprintDocState["fields"],
+	current: BlueprintDoc["fields"],
+	previous: BlueprintDoc["fields"],
 ): boolean {
 	if (current === previous) return false;
 	const currentEntries = Object.entries(current);
@@ -58,8 +58,8 @@ function referenceFieldsChanged(
 }
 
 function referenceFormsChanged(
-	current: BlueprintDocState["forms"],
-	previous: BlueprintDocState["forms"],
+	current: BlueprintDoc["forms"],
+	previous: BlueprintDoc["forms"],
 ): boolean {
 	if (current === previous) return false;
 	const currentEntries = Object.entries(current);
@@ -70,8 +70,8 @@ function referenceFormsChanged(
 }
 
 function referenceModulesChanged(
-	current: BlueprintDocState["modules"],
-	previous: BlueprintDocState["modules"],
+	current: BlueprintDoc["modules"],
+	previous: BlueprintDoc["modules"],
 ): boolean {
 	if (current === previous) return false;
 	const currentEntries = Object.entries(current);

@@ -1,6 +1,5 @@
 import {
 	ancestorLevels,
-	type BlueprintDoc,
 	LEVEL_CODE_MAX_LENGTH,
 	type LocationProperty,
 	levelOwnsCases,
@@ -8,6 +7,8 @@ import {
 	orderedOrganizationLevels,
 	organizationLevelsOf,
 } from "@/lib/domain";
+
+import type { OrganizationRuleInputs } from "@/lib/organization/ownerTargetVerdicts";
 
 export const PERSONA_LOCATION_PAGE_SIZE = 50;
 
@@ -196,7 +197,7 @@ export interface RequiredReverseHopDescendant {
  * be the source for a deeper rule, so this is a tree rather than one flat row.
  */
 export function requiredReverseHopDescendants(
-	doc: BlueprintDoc,
+	doc: OrganizationRuleInputs,
 	rootLevelUuid: string,
 ): readonly RequiredReverseHopDescendant[] {
 	const levels = organizationLevelsOf(doc);

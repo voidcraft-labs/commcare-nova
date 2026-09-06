@@ -38,18 +38,18 @@ import {
 	SelectValue,
 } from "@/components/shadcn/select";
 import { Spinner } from "@/components/shadcn/spinner";
-import { useBlueprintDoc } from "@/lib/doc/hooks/useBlueprintDoc";
 import {
 	useLocationProperties,
 	useOrganizationLevels,
+	useOrganizationRuleInputs,
 } from "@/lib/doc/hooks/useOrganizationCollections";
 import {
-	type BlueprintDoc,
 	type LocationProperty,
 	levelMayNestUnder,
 	type OrganizationLevel,
 } from "@/lib/domain";
 import { locationChoiceLabel } from "@/lib/organization/locationLabels";
+import type { OrganizationRuleInputs } from "@/lib/organization/ownerTargetVerdicts";
 import { locationTopologyChangeIssue } from "@/lib/organization/ownerTargetVerdicts";
 import type { ArchiveImpact, StoredLocation } from "@/lib/organization/types";
 import type { useOrganization } from "@/lib/organization/useOrganization";
@@ -116,7 +116,7 @@ export function PlacesSubsection({
 	const properties = useLocationProperties();
 	const canEdit = useCanEdit();
 	const accessPhase = useAccessPhase();
-	const doc = useBlueprintDoc((state) => state);
+	const doc = useOrganizationRuleInputs();
 	const [openId, setOpenId] = useState<string | undefined>(undefined);
 	const [adding, setAdding] = useState(false);
 	const [page, setPage] = useState(0);
@@ -424,7 +424,7 @@ function PlaceRow({
 }: {
 	location: StoredLocation;
 	depth: number;
-	doc: BlueprintDoc;
+	doc: OrganizationRuleInputs;
 	levels: readonly OrganizationLevel[];
 	properties: readonly LocationProperty[];
 	tree: PlaceTree;
@@ -2065,7 +2065,7 @@ function AddPlaceForm({
 	onCancel,
 	onSubmit,
 }: {
-	doc: BlueprintDoc;
+	doc: OrganizationRuleInputs;
 	levels: readonly OrganizationLevel[];
 	properties: readonly LocationProperty[];
 	locations: readonly StoredLocation[];

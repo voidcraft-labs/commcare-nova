@@ -30,6 +30,35 @@
 	},
 	"overrides": [
 		{
+			"includes": [
+				"lib/**",
+				"app/**",
+				"components/**",
+				"!lib/agent/openaiProvider.ts",
+				"!**/__tests__/**"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"@ai-sdk/openai": {
+										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
+										"allowImportNames": [
+											"OpenAIProvider",
+											"OpenAIResponsesProviderOptions"
+										]
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+		},
+		{
 			"includes": ["components/**", "app/**", "!**/__tests__/**"],
 			"linter": {
 				"rules": {
@@ -38,8 +67,8 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@/lib/doc/store": "Import from @/lib/doc/hooks/ — the store is a private module.",
-									"@/lib/session/store": "Import from @/lib/session/provider or @/lib/session/hooks — the store is a private module.",
+									"@/lib/doc/store": "Import from @/lib/doc/hooks/ \u2014 the store is a private module.",
+									"@/lib/session/store": "Import from @/lib/session/provider or @/lib/session/hooks \u2014 the store is a private module.",
 									"@/lib/doc/hooks/useBlueprintDoc": {
 										"message": "Pass-through selector hooks are lib-private. Use a named hook from @/lib/doc/hooks/*; useBlueprintDocApi stays allowed for imperative, non-subscribing access.",
 										"importNames": [
@@ -60,7 +89,14 @@
 										"message": "Use useExternalNavigate from @/lib/routing/hooks for router.push/replace/refresh. notFound, redirect, usePathname stay allowed.",
 										"importNames": ["useRouter"]
 									},
-									"@/hooks/useBuilder": "Deleted. Use @/components/builder/BuilderProvider for the provider, @/lib/doc/hooks/* for doc state, @/lib/session/hooks for session state."
+									"@/hooks/useBuilder": "Deleted. Use @/components/builder/BuilderProvider for the provider, @/lib/doc/hooks/* for doc state, @/lib/session/hooks for session state.",
+									"@ai-sdk/openai": {
+										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
+										"allowImportNames": [
+											"OpenAIProvider",
+											"OpenAIResponsesProviderOptions"
+										]
+									}
 								}
 							}
 						}
@@ -112,7 +148,101 @@
 							"level": "error",
 							"options": {
 								"paths": {
-									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}.",
+									"@ai-sdk/openai": {
+										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
+										"allowImportNames": [
+											"OpenAIProvider",
+											"OpenAIResponsesProviderOptions"
+										]
+									}
+								},
+								"patterns": [
+									{
+										"group": ["@/lib/commcare/*", "@/lib/commcare/**/*"],
+										"message": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}."
+									}
+								]
+							}
+						}
+					}
+				}
+			}
+		},
+		{
+			"includes": [
+				"components/**",
+				"app/**",
+				"!**/__tests__/**",
+				"!app/api/commcare/**",
+				"!app/api/compile/**",
+				"!app/api/mcp/**",
+				"!app/(app)/(site)/settings/**",
+				"!components/builder/XPathField.tsx",
+				"!components/builder/detail/formSettings/**",
+				"!lib/agent/**",
+				"!lib/agent/tools/**",
+				"!lib/codemirror/**",
+				"!lib/commcare/**",
+				"!lib/db/settings.ts",
+				"!lib/db/types.ts",
+				"!lib/db/canonicalMutationFold.ts",
+				"!lib/deployment/**",
+				"!lib/doc/caseTypeRetirement.ts",
+				"!lib/doc/commitVerdicts.ts",
+				"!lib/doc/connectConfig.ts",
+				"!lib/doc/expressionText.ts",
+				"!lib/doc/entryPointProjection.ts",
+				"!lib/doc/formLinkReview.ts",
+				"!lib/doc/identifierVerdicts.ts",
+				"!lib/doc/mutations/pathRewrite.ts",
+				"!lib/doc/referenceIndex.ts",
+				"!lib/doc/userFacingErrors.ts",
+				"!lib/export/boundaryValidation.ts",
+				"!lib/mcp/**",
+				"!lib/media/manifest.ts",
+				"!lib/media/builtinIconAssets.ts",
+				"!lib/preview/engine/**",
+				"!lib/preview/xpath/**"
+			],
+			"linter": {
+				"rules": {
+					"style": {
+						"noRestrictedImports": {
+							"level": "error",
+							"options": {
+								"paths": {
+									"@/lib/commcare": "lib/commcare is the one-way CommCare emission boundary. Allowed consumers: app/api/commcare, app/api/compile, app/api/mcp, app/(app)/(site)/settings, lib/agent, lib/agent/tools, lib/codemirror, lib/db/canonicalMutationFold, lib/db/settings, lib/db/types, lib/doc/caseTypeRetirement, lib/doc/commitVerdicts, lib/doc/connectConfig, lib/doc/expressionText, lib/doc/entryPointProjection, lib/doc/formLinkReview, lib/doc/identifierVerdicts, lib/doc/mutations/pathRewrite, lib/doc/referenceIndex, lib/deployment, lib/doc/userFacingErrors, lib/export/boundaryValidation, lib/mcp, lib/media/builtinIconAssets, lib/media/manifest, lib/preview/engine, lib/preview/xpath, and components/builder/{XPathField,detail/formSettings}.",
+									"@ai-sdk/openai": {
+										"message": "Construct providers through @/lib/agent/openaiProvider so model requests retain timeout and cancellation policy.",
+										"allowImportNames": [
+											"OpenAIProvider",
+											"OpenAIResponsesProviderOptions"
+										]
+									},
+									"@/lib/doc/store": "Import from @/lib/doc/hooks/ \u2014 the store is a private module.",
+									"@/lib/session/store": "Import from @/lib/session/provider or @/lib/session/hooks \u2014 the store is a private module.",
+									"@/lib/doc/hooks/useBlueprintDoc": {
+										"message": "Pass-through selector hooks are lib-private. Use a named hook from @/lib/doc/hooks/*; useBlueprintDocApi stays allowed for imperative, non-subscribing access.",
+										"importNames": [
+											"useBlueprintDoc",
+											"useBlueprintDocShallow",
+											"useBlueprintDocEq",
+											"useBlueprintDocTemporal"
+										]
+									},
+									"@/lib/session/provider": {
+										"message": "Pass-through selector hooks are lib-private. Use a named hook from @/lib/session/hooks; useBuilderSessionApi and BuilderSessionStoreApi stay allowed.",
+										"importNames": [
+											"useBuilderSession",
+											"useBuilderSessionShallow"
+										]
+									},
+									"next/navigation": {
+										"message": "Use useExternalNavigate from @/lib/routing/hooks for router.push/replace/refresh. notFound, redirect, usePathname stay allowed.",
+										"importNames": ["useRouter"]
+									},
+									"@/hooks/useBuilder": "Deleted. Use @/components/builder/BuilderProvider for the provider, @/lib/doc/hooks/* for doc state, @/lib/session/hooks for session state."
 								},
 								"patterns": [
 									{
