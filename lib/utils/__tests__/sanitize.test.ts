@@ -40,8 +40,7 @@ describe("sanitizeFilename", () => {
 		// The real failure mode: an unsanitized CR/LF makes the `Headers`
 		// constructor throw, which the export route surfaces as a 500. Build
 		// `Headers` directly (not a `Response`) — that's where the validation
-		// throw originates, and it leaves no unconsumed response body stream open
-		// for the async-leak gate to flag.
+		// throw originates, and needs no response body stream.
 		expect(
 			() =>
 				new Headers({
@@ -61,7 +60,7 @@ describe("sanitizeArchiveMemberName", () => {
 	// NUL built by code point so no literal control byte sits in this source file.
 	const NUL = String.fromCharCode(0);
 
-	it("PRESERVES non-Latin / accented names (a ZIP member is UTF-8)", () => {
+	it("preserves non-Latin / accented names (a ZIP member is UTF-8)", () => {
 		expect(sanitizeArchiveMemberName("调查表")).toBe("调查表");
 		expect(sanitizeArchiveMemberName("Café Survey")).toBe("Café Survey");
 	});
@@ -72,7 +71,6 @@ describe("sanitizeArchiveMemberName", () => {
 		expect(sanitizeArchiveMemberName(`a${NUL}b`)).toBe("ab");
 		expect(sanitizeArchiveMemberName(`report${NUL}A`)).toBe("reportA");
 		expect(sanitizeArchiveMemberName(`report${NUL}B`)).toBe("reportB");
-		expect(sanitizeArchiveMemberName(`x${NUL}y`)).not.toContain(NUL);
 	});
 
 	it("strips path separators + the reserved set so the result is a safe leaf", () => {
@@ -81,6 +79,29 @@ describe("sanitizeArchiveMemberName", () => {
 		expect(sanitizeArchiveMemberName("a\\b/c:d")).toBe("abcd");
 		expect(sanitizeArchiveMemberName("..")).toBe("app");
 	});
+
+	it("removes every C0 control and DEL while preserving surrounding text", () => {
+		const controls = [
+			...Array.from({ length: 32 }, (_, index) => String.fromCodePoint(index)),
+			String.fromCodePoint(127),
+		].join("");
+		expect(sanitizeArchiveMemberName(`Café${controls}调查表`)).toBe(
+			"Café调查表",
+		);
+	});
+
+	it.each([
+		["  .. ", "app"],
+		[" . . ", "app"],
+		["  ../../etc/passwd", "etcpasswd"],
+		[" . ../report", "report"],
+		["\u00a0..\u00a0.report", "report"],
+	])(
+		"removes a leading dot run even through whitespace in %j",
+		(input, expected) => {
+			expect(sanitizeArchiveMemberName(input)).toBe(expected);
+		},
+	);
 
 	it("falls back to 'app' when nothing survives", () => {
 		expect(sanitizeArchiveMemberName("")).toBe("app");

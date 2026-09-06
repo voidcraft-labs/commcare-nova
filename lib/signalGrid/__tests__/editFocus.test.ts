@@ -55,7 +55,7 @@ describe("computeEditFocus", () => {
 		expect(computeEditFocus(data, { moduleUuid: "m0" })).toBeNull();
 	});
 
-	it("returns null when the targeted module has no forms", () => {
+	it("returns null when the targeted module is missing", () => {
 		/* Module 0 has forms, but scope targets a UUID which doesn't exist. */
 		const data = fixture([[5]]);
 		expect(computeEditFocus(data, { moduleUuid: "missing" })).toBeNull();
@@ -181,33 +181,39 @@ describe("computeEditFocus", () => {
 		const data = fixture([[1], [99]]);
 		const focus = computeEditFocus(data, { moduleUuid: "m0" });
 		assert(focus);
-		expect(focus.end - focus.start).toBeGreaterThanOrEqual(0.15 - 1e-10);
-		expect(focus.start).toBeGreaterThanOrEqual(0);
-		expect(focus.end).toBeLessThanOrEqual(1);
+		expect(focus.start).toBe(0);
+		expect(focus.end).toBeCloseTo(0.15, 5);
 	});
 
 	// ── Nested fields (groups/repeats) ───────────────────────────────────
 
 	it("counts nested fields (group children) toward total", () => {
-		/* Build a fixture with groups manually: form has 2 top-level fields,
-		 * one of which is a group with 3 children → total = 5 (2 top + 3 nested). */
+		// Six fields in the nested form and four in a second form. A lone
+		// form would span the full range even if every child were ignored.
 		const data: EditFocusData = {
 			moduleOrder: ["m0"],
-			formOrder: { m0: ["f0"] },
+			formOrder: { m0: ["nested", "other"] },
 			fieldOrder: {
-				f0: ["q_plain", "q_group"],
-				q_group: ["q_child1", "q_child2", "q_child3"],
+				nested: ["plain", "group"],
+				group: ["child1", "child2", "child3"],
+				child2: ["grandchild"],
+				other: ["a", "b", "c", "d"],
 			},
 		};
-		const focus = computeEditFocus(data, {
+		const form = computeEditFocus(data, {
 			moduleUuid: "m0",
-			formUuid: "f0",
+			formUuid: "nested",
 		});
-		assert(focus);
-
-		/* Total = 2 (top-level) + 3 (group children) = 5.
-		 * Form spans [0, 5/5] = [0, 1]. Already full width. */
-		expect(focus.start).toBeCloseTo(0, 5);
-		expect(focus.end).toBeCloseTo(1.0, 5);
+		assert(form);
+		expect(form.start).toBe(0);
+		expect(form.end).toBeCloseTo(0.6, 5);
+		const field = computeEditFocus(data, {
+			moduleUuid: "m0",
+			formUuid: "nested",
+			fieldUuid: "grandchild",
+		});
+		assert(field);
+		expect(field.start).toBeCloseTo(0.22, 5);
+		expect(field.end).toBeCloseTo(0.58, 5);
 	});
 });

@@ -85,13 +85,16 @@ describe("automatic translation launch policy", () => {
 		).toBe(true);
 	});
 
-	it("keeps every unlisted language manual and copy only", () => {
+	it("keeps unlisted source or target languages manual and copy only", () => {
 		expect(automaticTranslationLaunchLanguage(identity("zul"))).toBeUndefined();
 		expect(
 			automaticTranslationCapability(identity("eng"), identity("zul")),
 		).toMatchObject({ status: "not-evaluated" });
 		expect(
 			automaticTranslationAvailable(identity("eng"), identity("zul")),
+		).toBe(false);
+		expect(
+			automaticTranslationAvailable(identity("zul"), identity("eng")),
 		).toBe(false);
 		expect(
 			automaticTranslationAvailable(identity("zul"), identity("xho")),

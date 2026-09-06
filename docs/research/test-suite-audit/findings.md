@@ -40,3 +40,12 @@ The literal/grouping fixes preserve the current Nova type contract. Changing
 that contract needs a decision covering existing integer destinations and
 saved expressions, followed by validation across SQL and wire consumers. This
 is an open finding, not a claim of arithmetic parity across targets.
+
+## Archive member normalization corrected during review
+
+`sanitizeArchiveMemberName` removed leading dots before trimming whitespace.
+Inputs such as `"  .. "` therefore survived as `".."`, violating the safe leaf
+contract. It now removes the complete leading run of dots and whitespace
+before the final trim and fallback. Five whitespace/dot cases failed before
+the correction and pass afterward; Unicode names and all C0/DEL stripping
+remain covered.

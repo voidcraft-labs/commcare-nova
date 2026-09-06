@@ -6654,13 +6654,19 @@
 			"file": "lib/oauth/__tests__/capabilities.test.ts",
 			"lines": 16,
 			"ciMs": 154,
-			"status": "pending"
+			"status": "revised",
+			"review": "Extend real capability projection beyond one prose sample: duplicated and reordered scopes, overlapping identity claims, hidden protocol-only grants, distinct HQ/Project keys, and once-only unknown-scope disclosure. No icon implementation assertions.",
+			"baselineSha256": "7c063ce35ed90799f9b2386ab7367e2834bcf69ab2f3956ce0a120dcb6b8a7ca",
+			"reviewedSha256": "1e18478932a986a005018db318268407a39f60d3bd56ccfa120be89bbdb81840"
 		},
 		{
 			"file": "lib/oauth/__tests__/client-display.test.ts",
 			"lines": 97,
 			"ciMs": 40,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain client-controlled disclosure and trusted/untrusted states. Use different plugin publisher and server names so parser chooses the real server segment. Independently check each reserved brand and actual localhost/IPv4/IPv6 versus deceptive host/userinfo/custom-scheme/malformed redirects.",
+			"baselineSha256": "745fe528556c2e48bb2e32e958b49f8e4e91a0284ceb3877e69e2a145cc0877c",
+			"reviewedSha256": "fde9dd7cf5af5c4127fb2017b71652be8126051a356bbfa13607cd5ae3e3d8f5"
 		},
 		{
 			"file": "lib/organization/__tests__/levelUpdateVerdicts.test.ts",
@@ -7338,13 +7344,19 @@
 			"file": "lib/signalGrid/__tests__/editFocus.test.ts",
 			"lines": 213,
 			"ciMs": 58,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain normalized positions and boundary clamps. Correct missing-module title. Require exact minimum-width output instead of any full-range result. Replace vacuous nested-only full-range fixture with nested and ordinary forms plus a grandchild target, so omitted children or wrong deep ordering change expected results.",
+			"baselineSha256": "94b958fce2533337bbcab9d8ad92383900f8a0a18f1b552616a8ea64536a05a8",
+			"reviewedSha256": "487c3556e953be572d96002a9dc9971e0dbac1c38ebf563926d5483214f789e1"
 		},
 		{
 			"file": "lib/signalGrid/__tests__/store.test.ts",
 			"lines": 41,
 			"ciMs": 42,
-			"status": "pending"
+			"status": "revised",
+			"review": "Remove duplicate reset test. Replace single-injection accumulation claim with multiple calls and summed energy, and assert think-energy drain clears independently. Retain real singleton reset teardown.",
+			"baselineSha256": "09700948521ea9f2f48b2eec442c01009f38a28d1e68e57b4e83ff5c919a6e2e",
+			"reviewedSha256": "16a645e60245d57f058fd05176fc65274cf7e33880a17b6031c4190a9de8424b"
 		},
 		{
 			"file": "lib/storage/__tests__/captureObjectGeneration.test.ts",
@@ -7386,13 +7398,19 @@
 			"file": "lib/tiptap/__tests__/proseTemplateCodec.test.ts",
 			"lines": 33,
 			"ciMs": 572,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain real codec regression for reordered case-reference keys and noncanonical adjacent text parts. Remove unnecessary type assertion and correct lossiness title to canonicalization; no renderer or editor mount needed.",
+			"baselineSha256": "0aa55261f5ff32572e6677dfd471876790a0ab7a1498be2ba4795abfc80fcb0f",
+			"reviewedSha256": "f130d66cfdcbca2f23226e62f86f47f8da2a0f04777ce4b8b713e5e8a1ddda2b"
 		},
 		{
 			"file": "lib/translation/__tests__/capabilityPolicy.test.ts",
 			"lines": 100,
 			"ciMs": 499,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain lightweight exhaustive 57-language directional launch policy, distinct varieties, regional/script behavior and explanatory state checks. Correct unlisted scope claim and explicitly deny unlisted-source to listed-target direction as well as inverse and two-unlisted cases.",
+			"baselineSha256": "756fde2ecc7a9a15bbfc88938819c41f45d79e2cd92fbd40ac901eace138d743",
+			"reviewedSha256": "5b567d9357827db02746968a4779e08e5d6b7cd44f78c89e0d94c428a9db51e7"
 		},
 		{
 			"file": "lib/ui/__tests__/apiFailure.test.ts",
@@ -7458,13 +7476,19 @@
 			"file": "lib/utils/__tests__/concurrency.test.ts",
 			"lines": 58,
 			"ciMs": 39,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain bounded parallel mapping, empty input and rejection checks. Verify actual reverse completion order and supplied callback indices, plus exact peak occupancy rather than allowing underutilization; remove stale leak-gate wording. No wall-clock waits.",
+			"baselineSha256": "dcbd9ee41a9a4b5e340d4b8998006bed6e952c330279d3a01cd25dd1bef80eb6",
+			"reviewedSha256": "8b9854de59a6f460b574b7b2ec073b08baa26c7419927de5c02d0de310f37fbb"
 		},
 		{
 			"file": "lib/utils/__tests__/sanitize.test.ts",
 			"lines": 90,
 			"ciMs": 80,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain HTTP header and UTF-8 archive-name contracts. Add complete C0/DEL stripping and five interleaved whitespace/dot cases; all five exposed production leading-dot-before-trim bug and now pass with corrected normalization. Remove redundant NUL negative and stale async-leak comments.",
+			"baselineSha256": "c9608f0498c8986bbe4e7b79a532839d06d399407c9601054ade0779256c3841",
+			"reviewedSha256": "a0a8bff71e7f03b92d2a90bec77854a395d0fa417c92aa43657729ec0b1a8b40"
 		},
 		{
 			"file": "scripts/__tests__/betterAuthAccountIdentity.postgres.test.ts",
