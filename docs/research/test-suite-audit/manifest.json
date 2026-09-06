@@ -6458,7 +6458,9 @@
 			"file": "lib/mcp/__tests__/checkProjectSpaceCompatibility.test.ts",
 			"lines": 276,
 			"ciMs": 1591,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "df7b386946c5704ef4e27dc21cc66be192caa35046e44dcc6a76cc798f1648b9",
+			"review": "Replaced fake SDK capture and settings/load/probe mocks with actual SDK and Postgres connection/compatibility suites. Native fetch uses controlled HTTP responses at the transport only; stored ciphertext selection and actual authorization header are proved with KMS as the sole credential-service substitute. Covers current/legacy projection, membership and scope admission, incomplete connection state, missing versus unverified support, malformed responses, revoked live access, search runtime permission versus advisory, and no-probe credential avoidance. Native-fetch helper regression proves unmatched requests reject at the mock transport rather than DNS."
 		},
 		{
 			"file": "lib/mcp/__tests__/compileApp.test.ts",
@@ -6538,7 +6540,9 @@
 			"file": "lib/mcp/__tests__/getAppHqFeatureFlagsCompatibility.test.ts",
 			"lines": 122,
 			"ciMs": 1436,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "8efd2fad51852c9e1fbb9842080ad95a5fc8ec7584f20615598507986a328d3f",
+			"review": "Replaced fake SDK capture and settings/load/probe mocks with actual SDK and Postgres connection/compatibility suites. Native fetch uses controlled HTTP responses at the transport only; stored ciphertext selection and actual authorization header are proved with KMS as the sole credential-service substitute. Covers current/legacy projection, membership and scope admission, incomplete connection state, missing versus unverified support, malformed responses, revoked live access, search runtime permission versus advisory, and no-probe credential avoidance. Native-fetch helper regression proves unmatched requests reject at the mock transport rather than DNS."
 		},
 		{
 			"file": "lib/mcp/__tests__/getEntryPointLink.test.ts",
@@ -6550,7 +6554,9 @@
 			"file": "lib/mcp/__tests__/getHqConnection.test.ts",
 			"lines": 183,
 			"ciMs": 1351,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "cf4c291c67223c5497512843899d27251b791ab2c6ccac1dd0ff0055a4c3676b",
+			"review": "Replaced fake SDK capture and settings/load/probe mocks with actual SDK and Postgres connection/compatibility suites. Native fetch uses controlled HTTP responses at the transport only; stored ciphertext selection and actual authorization header are proved with KMS as the sole credential-service substitute. Covers current/legacy projection, membership and scope admission, incomplete connection state, missing versus unverified support, malformed responses, revoked live access, search runtime permission versus advisory, and no-probe credential avoidance. Native-fetch helper regression proves unmatched requests reject at the mock transport rather than DNS."
 		},
 		{
 			"file": "lib/mcp/__tests__/inviteMember.test.ts",

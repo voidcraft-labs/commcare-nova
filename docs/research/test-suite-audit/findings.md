@@ -645,3 +645,35 @@ before the change and passes after it.
 The complete MCP run plus the existing atomic-move and Server Action consumers
 passed 237 tests across 28 files in 15.33 seconds; type checking passed. Those
 consumer runs do not mark their remaining testing-method review complete.
+
+### HQ reads: prove the service boundary and the test transport
+
+Three MCP suites replaced SDK dispatch, ownership, stored settings, or the HQ
+probe result. They now run through actual SDK clients and Postgres. Connection
+metadata tests prove the complete caller-specific response, all server URLs,
+incomplete settings, scope precedence over a native database failure, and safe
+failure output. Compatibility tests use the real HQ HTTP client and public
+projection; only the KMS service is substituted. The requests prove the selected
+server, exact domain, authentication header, and private prerequisite URLs.
+Results distinguish disabled support from malformed or failed probes, revoked
+live membership, legacy discovery, Case Search account permissions, and a
+missing performance optimization that must never become a blocker.
+
+The native-fetch boundary initially exposed an Undici MockAgent problem:
+`disableNetConnect()` did not cover the cache key used by Node's legacy fetch
+wrapper. A documented Agent factory now supplies a mock transport for every
+connection key. A dedicated test proves interception and an unmatched-request
+error from the mock transport, rather than a DNS error. This matches the
+[upstream report](https://github.com/nodejs/undici/issues/5036). Tests assert
+pending replies and complete request history, because production may catch an
+unmatched request and return a normal refusal.
+
+The real path also exposed unnecessary KMS use for apps without capability
+requirements. The handler now resolves the stored target first and decrypts the
+key only when it will actually send a probe. The new no-probe test failed before
+the change and passes after it. Search fixtures must pass the actual commit
+gate, including a display column using Nova's canonical `case_name` property.
+
+All 232 MCP and settings consumer tests passed across 27 files in 17.26 seconds;
+type checking and strict formatting passed. This run does not claim a completed
+method review of the remaining settings or HQ client suites.

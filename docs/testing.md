@@ -42,6 +42,13 @@ tests is preferable to preserving the shape or count of the previous suite.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
 
+For native Node `fetch`, the controlled peer must cover the dispatch path that
+Node actually uses. `lib/mcp/__tests__/http.ts` supplies an Undici Agent factory
+that resolves every connection key to a mock transport. Its regression test
+proves both interception and refusal of unmatched destinations without DNS.
+Assert consumed replies and request history, since a production client may
+catch an unexpected request failure and turn it into a normal refusal result.
+
 Do not pin incidental strings, source formatting, CSS class lists, or mock call
 sequences unless that exact value or order is the external contract. A test that
 restates its fixture, snapshots an implementation, or mocks away the behavior
