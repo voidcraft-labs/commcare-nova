@@ -602,3 +602,22 @@ pool before dropping the database, including on failure.
 
 The final MCP and shared-error consumer run passed 271 tests across 33 files in
 14.62 seconds. Type checking passed. The full audit remains in progress.
+
+### Project tools: membership and session interoperability
+
+Six suites were consolidated into ten actual SDK/database journeys. Five used
+captured callbacks and replaced membership checks and writes with mocks; the
+sixth independently migrated a partial auth schema. The replacement uses the
+production-migrated template and exercises actual Better Auth invitation
+acceptance with Nova's organization configuration.
+
+The tests prove atomic Project/owner creation with a native rejecting trigger,
+current membership enumeration, complete member and invitation projections,
+48-hour stored expiry, discoverability and acceptance, cancellation releasing
+one of 100 live invitation slots, scope and role refusals, owner protection,
+foreign member handles, and matching session/MCP privacy and domain policy.
+A native UPDATE-rejecting trigger proves repeating a role assignment performs
+no write. A membership transaction demoting the actor blocks an MCP role change;
+after commit, the waiting request must refuse. Removing the explicit membership
+lock temporarily made that test fail with a successful unauthorized response.
+The production lock is restored. No Project runtime behavior changed.

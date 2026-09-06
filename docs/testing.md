@@ -207,3 +207,9 @@ closes both before dropping the database. Database contention probes use a
 separate controller connection, observe `pg_blocking_pids`, and release the
 lock and drain the operation in `finally`. Observing through a blocked
 single-connection application pool would deadlock the test itself.
+
+Project management is tested through real MCP SDK requests and the migrated auth
+tables in `lib/mcp/__tests__/projects.postgres.test.ts`. Invitation acceptance
+uses Better Auth with Nova's actual organization configuration. Native database
+triggers prove creation rollback and write-free repeated role assignments;
+concurrent membership DML proves authorization is read after acquiring the gate.

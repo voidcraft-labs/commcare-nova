@@ -6489,7 +6489,9 @@
 			"file": "lib/mcp/__tests__/createProject.test.ts",
 			"lines": 120,
 			"ciMs": 1341,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced fake SDK callbacks and service/authorization mocks (and the separately migrated manage suite) with projects.postgres.test.ts: real SDK and production-migrated database plus actual Better Auth acceptance. Proves owner atomicity via native rejection, membership-scoped listing, live invitation expiry/cap, full wire receipts, no-op role writes via native trigger, scopes and actual role/foreign/owner refusals. Native membership demotion tests post-lock authorization; temporarily removing the explicit lock makes it fail. Session and MCP privacy/domain policies are independently checked against expected messages and unchanged storage.",
+			"baselineSha256": "cd0251a20e3f5f3c5f88667ff0aa3d929a59d260113a7d337c6beb1e461e83bd"
 		},
 		{
 			"file": "lib/mcp/__tests__/deleteApp.test.ts",
@@ -6555,7 +6557,9 @@
 			"file": "lib/mcp/__tests__/inviteMember.test.ts",
 			"lines": 212,
 			"ciMs": 1457,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced fake SDK callbacks and service/authorization mocks (and the separately migrated manage suite) with projects.postgres.test.ts: real SDK and production-migrated database plus actual Better Auth acceptance. Proves owner atomicity via native rejection, membership-scoped listing, live invitation expiry/cap, full wire receipts, no-op role writes via native trigger, scopes and actual role/foreign/owner refusals. Native membership demotion tests post-lock authorization; temporarily removing the explicit lock makes it fail. Session and MCP privacy/domain policies are independently checked against expected messages and unchanged storage.",
+			"baselineSha256": "51765d7062bb9201e677c13d8452649a7bf677b04366d63e0b5b9320b51ac614"
 		},
 		{
 			"file": "lib/mcp/__tests__/listApps.test.ts",
@@ -6570,13 +6574,17 @@
 			"file": "lib/mcp/__tests__/listMembers.test.ts",
 			"lines": 191,
 			"ciMs": 1493,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced fake SDK callbacks and service/authorization mocks (and the separately migrated manage suite) with projects.postgres.test.ts: real SDK and production-migrated database plus actual Better Auth acceptance. Proves owner atomicity via native rejection, membership-scoped listing, live invitation expiry/cap, full wire receipts, no-op role writes via native trigger, scopes and actual role/foreign/owner refusals. Native membership demotion tests post-lock authorization; temporarily removing the explicit lock makes it fail. Session and MCP privacy/domain policies are independently checked against expected messages and unchanged storage.",
+			"baselineSha256": "14d386bfe6648afef83ea5922660d01a6399160620d259b29bcdbc03f1d27bb3"
 		},
 		{
 			"file": "lib/mcp/__tests__/listProjects.test.ts",
 			"lines": 116,
 			"ciMs": 1478,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced fake SDK callbacks and service/authorization mocks (and the separately migrated manage suite) with projects.postgres.test.ts: real SDK and production-migrated database plus actual Better Auth acceptance. Proves owner atomicity via native rejection, membership-scoped listing, live invitation expiry/cap, full wire receipts, no-op role writes via native trigger, scopes and actual role/foreign/owner refusals. Native membership demotion tests post-lock authorization; temporarily removing the explicit lock makes it fail. Session and MCP privacy/domain policies are independently checked against expected messages and unchanged storage.",
+			"baselineSha256": "615bc397252e2756630ab76580076c278d34a5ae016c3ba4edcdec3f914bf55c"
 		},
 		{
 			"file": "lib/mcp/__tests__/moveApp.test.ts",
@@ -6678,7 +6686,9 @@
 			"file": "lib/mcp/__tests__/updateMemberRole.test.ts",
 			"lines": 156,
 			"ciMs": 1393,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced fake SDK callbacks and service/authorization mocks (and the separately migrated manage suite) with projects.postgres.test.ts: real SDK and production-migrated database plus actual Better Auth acceptance. Proves owner atomicity via native rejection, membership-scoped listing, live invitation expiry/cap, full wire receipts, no-op role writes via native trigger, scopes and actual role/foreign/owner refusals. Native membership demotion tests post-lock authorization; temporarily removing the explicit lock makes it fail. Session and MCP privacy/domain policies are independently checked against expected messages and unchanged storage.",
+			"baselineSha256": "424bee8f32ae922579a8b13e186c4f106f90cdbc3b3e0c63f6905cd0d7c97ce4"
 		},
 		{
 			"file": "lib/mcp/__tests__/uploadAppToHq.test.ts",
@@ -7239,7 +7249,9 @@
 			"file": "lib/projects/__tests__/manage.postgres.test.ts",
 			"lines": 554,
 			"ciMs": 8024,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced fake SDK callbacks and service/authorization mocks (and the separately migrated manage suite) with projects.postgres.test.ts: real SDK and production-migrated database plus actual Better Auth acceptance. Proves owner atomicity via native rejection, membership-scoped listing, live invitation expiry/cap, full wire receipts, no-op role writes via native trigger, scopes and actual role/foreign/owner refusals. Native membership demotion tests post-lock authorization; temporarily removing the explicit lock makes it fail. Session and MCP privacy/domain policies are independently checked against expected messages and unchanged storage.",
+			"baselineSha256": "ae05bbb638faa932473cc1169904df2ce173f6218db14e7de70afc7c3b3b4079"
 		},
 		{
 			"file": "lib/projects/__tests__/moveTargets.test.ts",
