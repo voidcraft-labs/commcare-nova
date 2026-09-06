@@ -75,19 +75,31 @@ describe("ReferenceProvider — form-entry cache is keyed per form", () => {
 		expect(provider.resolve("#form/visit_grp/edd_final", "formB")).toBeNull();
 	});
 
-	it("rebuilds a form's cache when invalidate() fires (mutation)", () => {
+	it("invalidates the cached scope before notifying subscribers and stops after unsubscribe", () => {
 		let entries: Array<[string, string]> = [["g/a", "A"]];
 		const provider = new ReferenceProvider(() => formCtx("formA", entries));
 		expect(provider.resolve("#form/g/a", "formA")?.path).toBe("g/a");
-
-		// A field added by a mutation. Same form → invalidate is what surfaces it.
-		entries = [
-			["g/a", "A"],
-			["g/b", "B"],
-		];
-		expect(provider.resolve("#form/g/b", "formA")).toBeNull(); // stale until invalidate
+		const observed: string[][] = [];
+		const unsubscribe = provider.subscribeInvalidation(() => {
+			observed.push(
+				provider.search("form", "", "formA").map((ref) => ref.path),
+			);
+		});
+		try {
+			entries = [
+				["g/a", "A"],
+				["g/b", "B"],
+			];
+			expect(provider.resolve("#form/g/b", "formA")).toBeNull();
+			provider.invalidate();
+			expect(observed).toEqual([["g/a", "g/b"]]);
+		} finally {
+			unsubscribe();
+		}
+		entries = [["g/b", "B"]];
 		provider.invalidate();
-		expect(provider.resolve("#form/g/b", "formA")?.path).toBe("g/b");
+		expect(observed).toEqual([["g/a", "g/b"]]);
+		expect(provider.resolve("#form/g/a", "formA")).toBeNull();
 	});
 
 	it("reprojects field paths and worker-information names after invalidation", () => {

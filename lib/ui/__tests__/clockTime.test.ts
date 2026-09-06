@@ -13,6 +13,7 @@ describe("parseClockTime", () => {
 	it("still reads the bare 24-hour spelling", () => {
 		expect(parseClockTime("14:30")).toBe("14:30:00");
 		expect(parseClockTime("14:30:05")).toBe("14:30:05");
+		expect(parseClockTime("14:30:05.125")).toBe("14:30:05.125");
 	});
 
 	it("rejects text that is not a clock time", () => {
@@ -20,6 +21,8 @@ describe("parseClockTime", () => {
 		expect(parseClockTime("25:00")).toBeNull();
 		expect(parseClockTime("14:60")).toBeNull();
 		expect(parseClockTime("13:00 PM")).toBeNull();
+		expect(parseClockTime("00:30 AM")).toBeNull();
+		expect(parseClockTime("14:30:60")).toBeNull();
 		expect(parseClockTime("")).toBeNull();
 	});
 });
@@ -43,7 +46,7 @@ describe("formatClockTime", () => {
 		expect(formatClockTime("14:30:00.000-05:00")).toBe("2:30 PM");
 	});
 
-	it("is the inverse of parseClockTime for every value it formats", () => {
+	it("round-trips representative canonical times without changing the stored clock", () => {
 		// The round trip is what lets a field show friendly text and still
 		// commit the stored value after a focus and blur that changed
 		// nothing. A projection that lost information would rewrite the
@@ -57,10 +60,10 @@ describe("formatClockTime", () => {
 			"14:30:07.000Z",
 		]) {
 			const shown = formatClockTime(stored);
-			expect(shown).not.toBeNull();
-			expect(storageTimeValue(parseClockTime(shown as string) as string)).toBe(
-				stored,
-			);
+			if (shown === null) throw new Error(`Could not format ${stored}`);
+			const parsed = parseClockTime(shown);
+			if (parsed === null) throw new Error(`Could not parse ${shown}`);
+			expect(storageTimeValue(parsed)).toBe(stored);
 		}
 	});
 

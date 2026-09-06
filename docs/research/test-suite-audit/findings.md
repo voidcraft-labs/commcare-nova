@@ -49,3 +49,18 @@ contract. It now removes the complete leading run of dots and whitespace
 before the final trim and fallback. Five whitespace/dot cases failed before
 the correction and pass afterward; Unicode names and all C0/DEL stripping
 remain covered.
+
+## Inline editing separates state from browser behavior
+
+The editing rules formerly lived entirely in a React hook and were exercised
+through synthetic hook renders and partial keyboard events. `commitField.ts`
+now owns the actual production draft, commit/refusal, cancellation, and feedback
+lifecycle; its tests drive that model directly. The hook binds it to React and
+the real input. Shortcut routing likewise moved to a programmatic registry,
+with the real document adapter retaining focus and event cancellation.
+
+A second successful save during the existing checkmark window did not restart
+that window because the hook's effect depended on the already-true `saved`
+boolean. A focused reproduction against the previous hook failed after two
+saves one second apart. The model restarts its sole timer on each successful
+save and cancels it when the editor is disposed.

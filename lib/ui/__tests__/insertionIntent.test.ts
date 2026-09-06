@@ -83,36 +83,60 @@ function openB(m: InsertionIntentModel, t0: number): number {
 	return t;
 }
 
+/** Observe every transition, including an unwanted open that closes before arrival. */
+function expectClosedThroughout(
+	model: InsertionIntentModel,
+	gesture: () => void,
+) {
+	const opened: string[] = [];
+	const unsubscribe = model.subscribe(() => {
+		const { openId } = model.getSnapshot();
+		if (openId !== null) opened.push(openId);
+	});
+	try {
+		gesture();
+		expect(opened).toEqual([]);
+	} finally {
+		unsubscribe();
+	}
+}
+
 describe("insertion intent model", () => {
 	it("a fast swipe across every gap opens nothing and shows nothing", () => {
 		const m = makeModel();
-		// 500px of vertical travel in 180ms (~2800 px/s) straight through A, B, C.
-		glide(m, 0, { x: 200, y: 0 }, { x: 200, y: 500 }, 180);
-		expect(m.getSnapshot().openId).toBeNull();
-		expect(m.getSnapshot().progress).toBeLessThan(0.3);
+		expectClosedThroughout(m, () => {
+			// 500px of vertical travel in 180ms (~2800 px/s) straight through A, B, C.
+			glide(m, 0, { x: 200, y: 0 }, { x: 200, y: 500 }, 180);
+			expect(m.getSnapshot().openId).toBeNull();
+			expect(m.getSnapshot().progress).toBeLessThan(0.3);
+		});
 	});
 
 	it("a swipe with human accel/decel endpoints still opens nothing", () => {
 		const m = makeModel();
-		// Ease-out swipe: launches fast, decelerates to a stop past C on a
-		// field row — the endpoint gaps see the slow phases.
-		approach(m, 0, { x: 200, y: 60 }, { x: 200, y: 420 }, 250);
-		dwell(m, 250, 500);
-		expect(m.getSnapshot().openId).toBeNull();
+		expectClosedThroughout(m, () => {
+			// Ease-out swipe: launches fast, decelerates to a stop past C on a
+			// field row — the endpoint gaps see the slow phases.
+			approach(m, 0, { x: 200, y: 60 }, { x: 200, y: 420 }, 250);
+			dwell(m, 250, 500);
+			expect(m.getSnapshot().openId).toBeNull();
+		});
 	});
 
 	it("a swipe that turns around on a gap never opens it (reversal)", () => {
 		const m = makeModel();
-		// Ease-out down-swipe bottoming on C…
-		let t = approach(m, 0, { x: 200, y: 60 }, { x: 200, y: 358 }, 320);
-		// …a brief human hesitation at the bottom of the swing…
-		t = glide(m, t, { x: 200, y: 358 }, { x: 200, y: 362 }, 60);
-		expect(m.getSnapshot().openId).toBeNull(); // commit window holds
-		// …then straight back up. The reversal pin drains the evidence.
-		t = glide(m, t, { x: 200, y: 362 }, { x: 200, y: 80 }, 160);
-		expect(m.getSnapshot().openId).toBeNull();
-		dwell(m, t, 400);
-		expect(m.getSnapshot().openId).toBeNull();
+		expectClosedThroughout(m, () => {
+			// Ease-out down-swipe bottoming on C…
+			let t = approach(m, 0, { x: 200, y: 60 }, { x: 200, y: 358 }, 320);
+			// …a brief human hesitation at the bottom of the swing…
+			t = glide(m, t, { x: 200, y: 358 }, { x: 200, y: 362 }, 60);
+			expect(m.getSnapshot().openId).toBeNull(); // commit window holds
+			// …then straight back up. The reversal pin drains the evidence.
+			t = glide(m, t, { x: 200, y: 362 }, { x: 200, y: 80 }, 160);
+			expect(m.getSnapshot().openId).toBeNull();
+			dwell(m, t, 400);
+			expect(m.getSnapshot().openId).toBeNull();
+		});
 	});
 
 	it("an overshoot correction — reverse and STOP on the gap — still opens", () => {
@@ -127,10 +151,12 @@ describe("insertion intent model", () => {
 
 	it("a constant slow drift across gaps opens nothing (passing through)", () => {
 		const m = makeModel();
-		// 200 px/s straight through all three zones — sub-traversal speed but
-		// no deceleration signature.
-		glide(m, 0, { x: 200, y: 60 }, { x: 200, y: 420 }, 1800);
-		expect(m.getSnapshot().openId).toBeNull();
+		expectClosedThroughout(m, () => {
+			// 200 px/s straight through all three zones — sub-traversal speed but
+			// no deceleration signature.
+			glide(m, 0, { x: 200, y: 60 }, { x: 200, y: 420 }, 1800);
+			expect(m.getSnapshot().openId).toBeNull();
+		});
 	});
 
 	it("a deliberate approach opens as the pointer arrives", () => {
@@ -221,13 +247,15 @@ describe("insertion intent model", () => {
 
 	it("brushing in and out at speed never accumulates to an open", () => {
 		const m = makeModel();
-		let t = 0;
-		// Zig-zag over B's boundary at ~1200 px/s, five times.
-		for (let i = 0; i < 5; i++) {
-			t = glide(m, t, { x: 200, y: 190 }, { x: 200, y: 250 }, 50);
-			t = glide(m, t, { x: 200, y: 250 }, { x: 200, y: 190 }, 50);
-		}
-		expect(m.getSnapshot().openId).toBeNull();
+		expectClosedThroughout(m, () => {
+			let t = 0;
+			// Zig-zag over B's boundary at ~1200 px/s, five times.
+			for (let i = 0; i < 5; i++) {
+				t = glide(m, t, { x: 200, y: 190 }, { x: 200, y: 250 }, 50);
+				t = glide(m, t, { x: 200, y: 250 }, { x: 200, y: 190 }, 50);
+			}
+			expect(m.getSnapshot().openId).toBeNull();
+		});
 	});
 
 	it("a hold pins the zone open with the pointer long gone; unhold releases", () => {
@@ -267,16 +295,23 @@ describe("insertion intent model", () => {
 		expect(m.getSnapshot().openId).toBeNull();
 	});
 
-	it("re-approaching within the warm window opens faster than cold", () => {
-		const m = makeModel();
-		let t = openB(m, 0);
-		t = glide(m, t, { x: 200, y: 236 }, { x: 200, y: 320 }, 100);
-		t = dwell(m, t, 200); // grace elapses → closed, warm window running
-		expect(m.getSnapshot().openId).toBeNull();
-		t = approach(m, t, { x: 200, y: 320 }, { x: 200, y: 236 }, 150);
-		// Opens within ~200ms of arrival — a cold flick-stop needs 2-3× that.
-		t = dwell(m, t, 200);
-		expect(m.getSnapshot().openId).toBe("B");
+	it("re-entry during the warm window opens before the same cold dwell", () => {
+		const warm = makeModel();
+		const cold = makeModel();
+		for (const model of [warm, cold]) {
+			model.setHold("B", true, 0);
+			model.setHold("B", false, 10);
+			model.tick(200);
+			expect(model.getSnapshot().openId).toBeNull();
+		}
+		warm.pointerMove(200, 236, 300);
+		cold.pointerMove(200, 236, 1300);
+		warm.tick(320);
+		cold.tick(1320);
+		expect(warm.getSnapshot().openId).toBe("B");
+		expect(cold.getSnapshot().openId).toBeNull();
+		cold.tick(1360);
+		expect(cold.getSnapshot().openId).toBe("B");
 	});
 
 	it("progress rises while arming and is quantized", () => {
@@ -285,10 +320,10 @@ describe("insertion intent model", () => {
 		m.pointerMove(200, 236, 0);
 		m.tick(16);
 		const snap = m.getSnapshot();
-		if (snap.openId === null) {
-			expect(snap.armingId).toBe("B");
-			expect(snap.progress).toBeGreaterThan(0);
-		}
+		expect(snap.openId).toBeNull();
+		expect(snap.armingId).toBe("B");
+		expect(snap.progress).toBeGreaterThan(0);
+		expect(snap.progress).toBeLessThan(1);
 		// Quantization: progress is always a multiple of 1/24.
 		expect(Math.round(snap.progress * 24)).toBeCloseTo(snap.progress * 24, 10);
 	});

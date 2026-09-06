@@ -7143,28 +7143,28 @@
 			"file": "lib/references/__tests__/LabelContent.test.tsx",
 			"lines": 55,
 			"ciMs": 577,
-			"status": "revised",
-			"review": "Parse real server-rendered chip markup and assert visible combined text and accessible repair label, preventing data attributes alone from satisfying visible-label assertions; retain identity non-disclosure checks.",
+			"status": "removed",
+			"review": "Discard isolated server markup/fake-DOM chip rendering. Identity projection and structured repair are programmatic provider contracts; browser presentation belongs to the production app acceptance journeys.",
 			"baselineSha256": "71fdfdde62f847b30e5cb583347b129d167ca214cc5bf41470479b9398fafabb",
-			"reviewedSha256": "2a3f7430bda4bfe36fae24902d0ed1b514659ab890eee0a336ec19575360629c"
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/references/__tests__/ReferenceContext.test.tsx",
 			"lines": 87,
 			"ciMs": 1026,
-			"status": "revised",
-			"review": "Retain actual selective React subscription/render behavior for unrelated versus referenced mutations; remove unused first-projection markup and require mutation subscription release on unmount.",
+			"status": "removed",
+			"review": "Discard synthetic projection component and React render-count test. Provider subscription lifecycle now tests real invalidation-before-notification and unsubscribe with changed underlying reference data; actual interaction belongs to browser acceptance.",
 			"baselineSha256": "1cbaa14b4586c9c965abdd544352c321db1c0932a6d83555ffacac115cf7a77b",
-			"reviewedSha256": "c571ecad38b261b210d1f47497a778242bb3c79f166930f2eb420f9503078c30"
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/references/__tests__/provider.test.ts",
 			"lines": 428,
 			"ciMs": 576,
 			"status": "revised",
-			"review": "Read provider implementation and every test; verify per-form cache reuse across resolve/search with counted context access, fresh scoped provider per test, remove duplicate child-ref and redundant serialized identity checks; retain identity rename, live user namespace and registration gates.",
+			"review": "Programmatic identity projection, per-form caching, live mutable worker names and registration scopes. Actual invalidation callback queries updated scope before returning, and unsubscribe excludes later observations. Remove redundant child and identity assertions; no DOM renderer.",
 			"baselineSha256": "82a4c3bb2ed4fbcc8eb6c86849dfd5a41bb75670a722214f91a9ab86c683c4ef",
-			"reviewedSha256": "3aad534150fccad9c836a6c97c9e28913494fa2ea8ef43919fdb317bc88ee4d1"
+			"reviewedSha256": "e148499887832bf3336741a76d5f9d544ff844f6a9f06dd8d8e49810d80b107c"
 		},
 		{
 			"file": "lib/routing/__tests__/LocationRecoveryEffect.test.tsx",
@@ -7440,49 +7440,73 @@
 			"file": "lib/ui/__tests__/apiFailure.test.ts",
 			"lines": 75,
 			"ciMs": 50,
-			"status": "pending"
+			"status": "revised",
+			"review": "Programmatic unknown-body boundary with exact preservation of all supplied findings and malformed error/details controls. Remove partial-prose checks and fixtures pretending to be a live validator integration.",
+			"baselineSha256": "4f42fe4f3e9f74f9b22d5a3488b842d231a0a41e515e149c30fa3c683d4f7862",
+			"reviewedSha256": "5aeaf6e0b65a3c64c88fe439582f5ab059151253245b5b9c8c0ab277312fb92e"
 		},
 		{
 			"file": "lib/ui/__tests__/chatScroll.test.ts",
 			"lines": 66,
 			"ciMs": 58,
-			"status": "pending"
+			"status": "revised",
+			"review": "Keep actual pure geometry and mode decisions; remove duplicate stateless near-bottom tests claiming opposite movement histories. Browser controller and layout evidence remain separate.",
+			"baselineSha256": "d158ef011c827e671e4ab3693ebb4cc91479a9c0b2a7241a52460f0ec6de8921",
+			"reviewedSha256": "6ea3dbcee9e5c50bbbfca36ca184888912ab6e6e52ce339c9804e16812c84ea2"
 		},
 		{
 			"file": "lib/ui/__tests__/clockTime.test.ts",
 			"lines": 97,
 			"ciMs": 47,
-			"status": "pending"
+			"status": "revised",
+			"review": "Keep real parse/format storage semantics, midnight/noon and fractional preservation refusal. Add independent seconds/12-hour lower-bound invalid cases and typed round trip; limit round-trip claim to representative canonical clocks.",
+			"baselineSha256": "bb978b680a4208e7bcc6003fe80b86b2b73bd08509bd7bec9e225c20424eea3f",
+			"reviewedSha256": "c80790d7298bbffda733badb736ef8c509f4f4bb6545d3c99377c42ce20c817a"
 		},
 		{
 			"file": "lib/ui/__tests__/insertionIntent.test.ts",
 			"lines": 367,
 			"ciMs": 93,
-			"status": "pending"
+			"status": "revised",
+			"review": "Real clock-injected gesture model. Observe the complete transition history for negative swipes/reversals/drift so transient opens cannot hide behind a final closed state; compare identical warm and cold dwell with acceptance control; require partial arming instead of conditional assertions. Retain geometry, holds, obstruction and motion contracts.",
+			"baselineSha256": "bd6cc2d60d42242535bafa73e651621384b9180e8bc4d45b8fd755aa864a8f90",
+			"reviewedSha256": "331562889cc403cf6b3efa78da9fd70e31b5dd0a7c3fcf057c730aaa86b5b1ca"
 		},
 		{
 			"file": "lib/ui/__tests__/keyboardManager.test.ts",
 			"lines": 149,
 			"ciMs": 367,
-			"status": "pending"
+			"status": "removed",
+			"review": "Extract actual production ShortcutRegistry and replace the entire fake-DOM keyboard suite with keyboardShortcuts.test.ts. Programmatic routing covers precedence, decline, modifier combinations, editing, replacement and unregister; production browser journey verifies typing P versus Builder P toggle and Escape cancellation.",
+			"baselineSha256": "68dcdb6938ef3fe871aae67ad66955dbe7f3b54a2b71fdf15eecc0670c33ef74",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/ui/__tests__/menuSearchInput.test.ts",
 			"lines": 29,
 			"ciMs": 43,
-			"status": "pending"
+			"status": "retained",
+			"review": "Small programmatic handler decision across editing versus menu-owned keys. No rendered component or simulated DOM interaction; full text insertion and menu navigation remain browser contracts.",
+			"baselineSha256": "9708cb97e1b3db2c3839fca52610fab786f85a82c5a4452c27866cf2020ad62f",
+			"reviewedSha256": "9708cb97e1b3db2c3839fca52610fab786f85a82c5a4452c27866cf2020ad62f"
 		},
 		{
 			"file": "lib/ui/__tests__/toastStore.test.ts",
 			"lines": 65,
 			"ciMs": 34,
-			"status": "pending"
+			"status": "revised",
+			"review": "Actual singleton state across generation and independently different builder identity, late source completion, global notice preservation and action retirement. Explicit scope deactivation and toast cleanup own test lifetime.",
+			"baselineSha256": "d6e70dc84bd4ac0cddcf7f6892a909515f97225a8e4d091ef88bd162e2bcaf59",
+			"reviewedSha256": "2e825684945ef80fba058b40a84fa3dce29ecc6933655b02e07893159d7afcaf"
 		},
 		{
 			"file": "lib/ui/__tests__/useCommitField.test.tsx",
 			"lines": 410,
 			"ciMs": 677,
-			"status": "pending"
+			"status": "removed",
+			"review": "Move editing rules and owned timer to actual production commitField model, replace synthetic hook events and select spies with commitField.test.ts, verify adapters through real Builder keyboard/refusal/retry journey. Reproduced and corrected second-save feedback expiry; timer disposal includes synchronous owner removal.",
+			"baselineSha256": "c073b89157b6a1d027c88e768402365fe54c3a60431e89f7fcfe161d39df8fa4",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/ui/hooks/__tests__/useIsBreakpoint.test.tsx",

@@ -12,21 +12,17 @@ import { apiFailureToastBody, describeApiFailure } from "../apiFailure";
 
 describe("describeApiFailure", () => {
 	it("passes a gate rejection's headline + detail lines through", () => {
-		const failure = describeApiFailure(
-			{
-				error:
-					"This app isn't ready to export — fix the issues below, then try again.",
-				details: [
-					'"Reg" in "Patients" has no fields. CommCare can\'t build an empty form — add at least one field.',
-					'Module "Patients" has registration, followup, or close forms but no case_type.',
-				],
-			},
-			"Could not generate the JSON file.",
-		);
-
-		expect(failure.message).toContain("isn't ready to export");
-		expect(failure.details).toHaveLength(2);
-		expect(failure.details[0]).toContain("has no fields");
+		const body = {
+			error: "The app could not be exported.",
+			details: [
+				"The registration form has no fields.",
+				"The Patients workflow has no case type.",
+			],
+		};
+		expect(describeApiFailure(body, "Export failed.")).toEqual({
+			message: body.error,
+			details: body.details,
+		});
 	});
 
 	it("degrades to the fallback for a non-JSON / null body", () => {
@@ -53,9 +49,12 @@ describe("describeApiFailure", () => {
 		expect(describeApiFailure({ details: ["x"] }, "fallback").message).toBe(
 			"fallback",
 		);
-		expect(describeApiFailure({ error: "" }, "fallback").message).toBe(
-			"fallback",
-		);
+		expect(
+			describeApiFailure({ error: "", details: "not an array" }, "fallback"),
+		).toEqual({ message: "fallback", details: [] });
+		expect(
+			describeApiFailure({ error: 42, details: ["retained"] }, "fallback"),
+		).toEqual({ message: "fallback", details: ["retained"] });
 	});
 });
 

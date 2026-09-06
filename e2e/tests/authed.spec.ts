@@ -2692,6 +2692,45 @@ test.describe("authenticated builder", () => {
 			);
 			const idInput = page.locator('[data-field-id="id"] input:visible');
 			await expect(idInput).toHaveValue("first_name", { timeout: 20_000 });
+			// Editing owns printable keys and Escape. The same P key belongs to
+			// the Builder only after the input releases focus.
+			const selectedUrl = page.url();
+			await idInput.focus();
+			await idInput.press("End");
+			await idInput.press("p");
+			await expect(idInput).toHaveValue("first_namep");
+			await expect(
+				page.getByRole("button", { name: "Preview", exact: true }),
+			).toBeVisible();
+			await idInput.press("Escape");
+			await expect(idInput).toHaveValue("first_name");
+			await expect(idInput).not.toBeFocused();
+			await expect(page).toHaveURL(selectedUrl);
+			await page.keyboard.press("p");
+			await expect(
+				page.getByRole("button", { name: "Back to edit" }),
+			).toBeVisible();
+			await expect(
+				page.getByRole("textbox", { name: /First name$/ }),
+			).toBeVisible();
+			// The button's tooltip owns Escape while focused. P remains the
+			// Builder toggle, including when keyboard focus is on this button.
+			await page.getByRole("button", { name: "Back to edit" }).press("p");
+			await expect(
+				page.getByRole("button", { name: "Preview", exact: true }),
+			).toBeVisible();
+			await expect(idInput).toBeVisible();
+			await expect(idInput).toHaveValue("first_name");
+
+			// A real sibling collision must preserve the draft and restore focus
+			// through the actual blur/refocus event sequence before a valid retry.
+			await idInput.fill("note");
+			await idInput.press("Enter");
+			await expect(idInput).toHaveValue("note");
+			await expect(idInput).toBeFocused();
+			await expect(
+				page.getByRole("alert").filter({ hasText: "note" }),
+			).toBeVisible();
 			/* A field id rename is `updateField` with `patch.id` — `newId` belongs
 			 * to renameModule/renameForm, which name a different entity. */
 			await waitForSavedMutation('"id":"given_name"', async () => {

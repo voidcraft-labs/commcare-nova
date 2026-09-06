@@ -1,26 +1,8 @@
 import { IS_MAC } from "@/lib/platform";
 
-export interface Shortcut {
-	key: string;
-	meta?: boolean;
-	shift?: boolean;
-	/** Return `false` to DECLINE the key: the manager leaves the event
-	 *  untouched and keeps scanning earlier registrations, so a
-	 *  broadly-registered key (layout-level Escape) doesn't eat events
-	 *  it has nothing to do with. Any other return means handled, including
-	 *  an implicit `undefined`, so every conditional handler must explicitly
-	 *  return `false` on paths where it took no action and native behavior
-	 *  should continue. */
-	// biome-ignore lint/suspicious/noConfusingVoidType: `void` is the point — existing handlers return nothing (= handled); only an explicit `false` declines.
-	handler: (e: KeyboardEvent) => boolean | void;
-	/** If true, fires even when focus is inside text inputs */
-	global?: boolean;
-}
+import { ShortcutRegistry, type ShortcutRule } from "./keyboardShortcuts";
 
-interface Registration {
-	id: string;
-	shortcuts: Shortcut[];
-}
+export type Shortcut = ShortcutRule<KeyboardEvent>;
 
 const INPUT_TAGS = new Set(["INPUT", "TEXTAREA", "SELECT"]);
 
@@ -34,37 +16,23 @@ function isInputFocused(): boolean {
 }
 
 class KeyboardManager {
-	private registrations: Registration[] = [];
+	private registry = new ShortcutRegistry<KeyboardEvent>();
 	private listening = false;
 
 	private handleKeyDown = (e: KeyboardEvent) => {
-		const inInput = isInputFocused();
-		const metaDown = IS_MAC ? e.metaKey : e.ctrlKey;
-
-		for (let i = this.registrations.length - 1; i >= 0; i--) {
-			for (const shortcut of this.registrations[i].shortcuts) {
-				if (shortcut.key !== e.key) continue;
-				if (!!shortcut.meta !== metaDown) continue;
-				if (!!shortcut.shift !== e.shiftKey) continue;
-				if (inInput && !shortcut.global) continue;
-
-				/* A `false` return declines the key — keep scanning so an
-				 * earlier registration gets its shot. Registration order is
-				 * recency-of-(re)registration, not component depth, so a
-				 * match alone can't mean "mine": a layout-level handler that
-				 * re-registers on unrelated state would otherwise eat keys
-				 * meant for a longer-lived, more specific registration. */
-				if (shortcut.handler(e) === false) continue;
-				e.preventDefault();
-				return;
-			}
-		}
+		if (
+			this.registry.dispatch(e, {
+				key: e.key,
+				modifier: IS_MAC ? e.metaKey : e.ctrlKey,
+				shift: e.shiftKey,
+				editing: isInputFocused(),
+			})
+		)
+			e.preventDefault();
 	};
 
 	register(id: string, shortcuts: Shortcut[]) {
-		// Remove existing registration with same id
-		this.registrations = this.registrations.filter((r) => r.id !== id);
-		this.registrations.push({ id, shortcuts });
+		this.registry.register(id, shortcuts);
 		if (!this.listening && typeof document !== "undefined") {
 			document.addEventListener("keydown", this.handleKeyDown);
 			this.listening = true;
@@ -72,8 +40,8 @@ class KeyboardManager {
 	}
 
 	unregister(id: string) {
-		this.registrations = this.registrations.filter((r) => r.id !== id);
-		if (this.registrations.length === 0 && this.listening) {
+		this.registry.unregister(id);
+		if (this.registry.empty && this.listening) {
 			document.removeEventListener("keydown", this.handleKeyDown);
 			this.listening = false;
 		}

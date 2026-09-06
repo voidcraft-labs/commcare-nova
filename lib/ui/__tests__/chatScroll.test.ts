@@ -23,17 +23,12 @@ describe("distanceFromBottom", () => {
 });
 
 describe("modeAfterUserScroll", () => {
-	it("stays pinned through small upward movement near the bottom", () => {
+	it("selects pinned mode throughout the near-bottom range", () => {
+		expect(modeAfterUserScroll(metrics(1400))).toBe("pinned");
 		expect(modeAfterUserScroll(metrics(1399))).toBe("pinned");
 		expect(modeAfterUserScroll(metrics(1400 - PIN_BOTTOM_SLOP_PX))).toBe(
 			"pinned",
 		);
-	});
-
-	it("re-enters pinned mode anywhere inside the bottom range", () => {
-		const nearBottom = 1400 - PIN_BOTTOM_SLOP_PX;
-		expect(modeAfterUserScroll(metrics(nearBottom))).toBe("pinned");
-		expect(modeAfterUserScroll(metrics(1400))).toBe("pinned");
 	});
 
 	it("releases pinning only after moving beyond the bottom range", () => {

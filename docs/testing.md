@@ -4,6 +4,29 @@ A test earns its cost by catching a plausible defect. Name the behavior and the
 failure it prevents before writing it. Existing tests are examples to evaluate,
 not templates to copy blindly.
 
+## Design the evidence before the test
+
+Start from the production contract and a plausible failure, not from an existing
+test file. Decide which observation would distinguish correct behavior from that
+failure, then choose the smallest boundary that can provide it. A passing mock,
+a title that matches its assertions, and a coverage percentage do not establish
+that the chosen boundary proves anything useful.
+
+Apply that reasoning to every testing method. Database isolation needs competing
+transactions and committed rows in Postgres; emitted wire needs independent
+consumers or format oracles; service integration needs the real adapter reading
+a controlled external response; state transitions need actual production state
+logic; browser interaction needs the application running in a browser. A test
+must not supply the implementation's answer through its own fixture or mock.
+
+Reconsider the surrounding test design as well: repeated scenarios, shared
+fixtures, setup cost, dependency substitution, missing failure paths, and cleanup.
+Remove an entire suite when it has no independent purpose. Replace a helper or
+library when it forces misleading tests. Extract production state logic when
+rendering a component is currently the only way to exercise a domain rule; do not
+build a separate test-only imitation of that logic. Retaining fewer, decisive
+tests is preferable to preserving the shape or count of the previous suite.
+
 ## Choose the boundary
 
 - Pure domain rules, reducers, parsers, and state transitions: call the real
@@ -11,7 +34,7 @@ not templates to copy blindly.
 - SQL semantics, tenancy, transactions, locks, constraints, migrations: use real
   Postgres. Mocking the query builder cannot prove these contracts.
 - User interactions, focus, layout, browser APIs, and hydration: use Playwright
-  against the production build. Prefer focused state tests for component logic.
+  against the production build. Test component logic through its production state model.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
 
