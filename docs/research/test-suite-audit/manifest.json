@@ -4253,7 +4253,10 @@
 			"file": "lib/commcare/predicate/__tests__/instances.test.ts",
 			"lines": 166,
 			"ciMs": 626,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete test, collector and all call sites. Replace repeated lookup-only checks and forced branded values with leaf/source maps, cross-family scoped union, property-free relation and self-only controls using real identity/revision parsers. A fully admitted isolated form exposed a native missing-casedb initialization failure; collector now includes relation nodes. Four isolated consumers execute and submit on both native form paths with zero/two matching children plus unrelated/wrong-type rows; retained pre-fix artifact is a negative control.",
+			"baselineSha256": "287d5c02a3c4dc24ac8ffe51b87b21914c2a626b2189e316cba71919c190aa09",
+			"reviewedSha256": "e37d46b881b3dc183ec98b45152f5eb2b806fd2fdc10ed1da21dd72970df3b51"
 		},
 		{
 			"file": "lib/commcare/predicate/__tests__/runtimeCsqlQuoteSafety.test.ts",

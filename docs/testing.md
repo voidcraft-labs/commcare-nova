@@ -455,3 +455,12 @@ on both export paths. The ordinary test checks the full admission findings and
 their authored paths. Private representability tests assert complete diagnostic
 sequences and recursive normalization, without presenting a context-free check
 as proof of document admission or native execution.
+
+Instance collection is checked against isolated consumers, not merely its own
+current set of leaves. Four admitted forms independently use a related count,
+a count condition, existence, or absence inside a value. Native Core opens and
+submits each local and HQ-regenerated form with zero or two matching children,
+plus unrelated rows and a wrong-type row. The retained pre-fix form raises the
+actual missing-instance exception during initialization. Ordinary CI checks the
+complete declared instance set; structural collector tests cover union across
+both AST families, scoped naming and source refusal without claiming execution.

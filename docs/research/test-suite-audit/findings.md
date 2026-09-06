@@ -1796,3 +1796,38 @@ Validation: the new admission regression fails against the previous production
 source, which returns no findings. All 116 related tests pass with the fix, as
 does full typecheck. Two native Core methods and the complete native HQ comparison
 pass; `native-{core,hq}-static-quotes.json` records sources and exact artifacts.
+
+## Relation operators require instances even without property leaves
+
+The dependency collector walked leaves and lookup nodes, so an unfiltered
+related count or existence test contributed no `casedb` dependency. A fully
+schema-valid, admitted followup form at `bffd10f7` wrote a related visit count
+but declared only the session instance. Native Core raised
+`XPathMissingInstanceException` for `casedb` during form initialization.
+
+The collector now includes non-self count, exists and missing nodes through
+both AST families, including predicates inside calculated values. Self-only
+constant relations add no external instance. Lookup diagnostics also describe
+all compile boundaries; their old text incorrectly claimed only CCZ could
+carry tables. Four independently admitted forms each have one relation consumer,
+so another property read cannot mask a missing dependency. Their complete
+instance declarations are checked in source and local forms. Native HQ
+regenerates them, and Core opens and submits all four on both carriers with
+zero and two matching children, unrelated children and a wrong-type row. The
+resulting case values agree; the retained pre-fix form still fails on opening.
+This establishes native case processing, not server rollback or Android UI.
+
+The whole collector test method is replaced with structural union contracts,
+scoped lookup names, nested cross-family traversal, every term dependency,
+property-free relation dependencies, self-only controls, and exact known/refused
+source mappings. Branded identities and revisions go through their real parsers.
+The suite explicitly separates structural collection from full admission and
+native execution, recorded in `native-{core,hq}-relation-instances.json`.
+
+Validation: 59 focused tests and full typecheck pass. Five native relation
+methods pass, including 16 complete current form submissions. The existing
+25-scenario HQ corpus and 34 Core capture/operation methods also pass on fresh
+exports. The wider unit import graph completes 493 files in 176 seconds: 490
+pass; 19 tests in three pending simulated-DOM suites fail because their
+organization-hook mock lacks `useOrganizationRuleInputs`. Those suites remain
+part of the method redesign; the broader run is not recorded as green.

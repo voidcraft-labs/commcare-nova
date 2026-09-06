@@ -232,3 +232,14 @@ For static branch reachability, produce the admitted counterpart with
 and run `search-emission-proof.py` with `--exports /tmp/nova-static-quote-after
 --corpus static-quotes` and the same HQ root/dependency overlay. This requires
 exactly one app and compares its complete entry and remote-request trees.
+
+## Relation instance consumers
+
+Produce four independent admitted forms with
+`mise exec -- npx tsx scripts/fixtures/hq/emit-relation-instance-evidence.ts /tmp/nova-relation-instance-evidence`.
+Run `case-emission-proof.py` with the same HQ root/dependency overlay plus
+`--exports /tmp/nova-relation-instance-evidence --corpus relation-instances`.
+The corpus requires exactly four apps. Native HQ imports their XForm sources,
+adds case/meta lowering, removes editor attributes and writes the forms consumed
+by `RelationInstanceRuntimeTest`. The source and output hashes are recorded;
+native Core owns the resulting case-value assertions.

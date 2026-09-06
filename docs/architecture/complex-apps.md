@@ -761,6 +761,13 @@ retypes, and owner assignment — validated by
 `lib/commcare/validator/rules/caseOperations.ts` and emitted by
 `lib/commcare/xform/caseOps.ts`.
 
+Relation operators carry their own case-instance dependency. An unfiltered
+count, exists or missing condition still reads related rows, even when its AST
+contains no property leaf. The shared instance collector includes these nodes
+through both predicate and expression nesting; self-only constant relations add
+no external dependency. Native Core opens and submits independent forms for
+each consumer so an unrelated property read cannot mask a missing declaration.
+
 Facet legality by action is closed in the stored action-discriminated schema:
 `create` requires a new target and a name and forbids rename/retype; `update`
 forbids a new target and a name; `close` forbids a new target, name, owner,

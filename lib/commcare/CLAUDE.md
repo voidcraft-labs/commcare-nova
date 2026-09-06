@@ -238,6 +238,15 @@ All itext entries (labels, hints, option labels) emit both `<value>` and `<value
 
 ### Secondary instances
 
+The typed predicate/expression collector includes relation operators as well as
+leaves and table-lookup nodes. Non-self `count`, `exists`, and `missing` require
+`casedb` even without a `where` property; both AST families cross into nested
+conditions and values. Case operations then add the session instance needed by
+their selected-case anchor. Each compile mode supplies lookup naming, including
+HQ XForm sources. `RelationInstanceRuntimeTest` opens and submits isolated
+consumers on both form paths and retains the formerly missing-declaration form
+as a native negative control.
+
 `casedb`, `commcaresession`, and lookup fixtures are accumulated at the point of use through the structural `instance()` scanner — XPath field + label scans and Connect expression scans. A lookup id must be an XForm tag in the exact `LookupWireNaming` snapshot and declares that tag with the matching `jr://fixture/item-list:<tag>` source; an unknown literal fails closed. `casedb` implies `commcaresession`. One declaration happens outside `buildXForm`'s scan: `xform/caseBlocks.ts::addCaseBlocks` splices case-preload setvalues that read from `casedb` after the scan has run, so it declares `casedb` itself (idempotently) when it emits a preload.
 
 `sessionContext.ts` owns Core's complete closed context-child namespace:

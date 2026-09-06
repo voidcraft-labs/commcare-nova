@@ -38,8 +38,10 @@ import {
 	type Term,
 	type ValueExpression,
 	walkExpressionNodes,
+	walkExpressionPredicateNodes,
 	walkExpressionTerms,
 	walkPredicateExpressionNodes,
+	walkPredicateNodes,
 	walkTerms,
 } from "@/lib/domain/predicate";
 import type { SearchInputInstanceId } from "@/lib/domain/predicate/typeChecker";
@@ -119,13 +121,12 @@ export function instanceSourceFor(
 
 /**
  * Collect every CCHQ wire instance id reachable from a Predicate.
- * The returned set is the union of per-Term instance refs plus one scoped
- * lookup instance id per referenced table; an empty
+ * The returned set is the union of per-Term instance refs, related-case
+ * operators and one scoped lookup instance id per referenced table; an empty
  * predicate (or one composed entirely of literals) returns the empty
  * set. Lookup carriers resolve through `lookup` naming — a carrier
- * reaching a surface with no naming is a wiring bug, because only the
- * local-CCZ compile path emits carriers and it always supplies the
- * validated snapshot's naming.
+ * reaching a surface with no naming is a wiring bug. Every compile path
+ * that admits lookup carriers supplies the validated snapshot's naming.
  */
 export function collectPredicateInstances(
 	predicate: Predicate,
@@ -135,8 +136,9 @@ export function collectPredicateInstances(
 ): Set<string> {
 	const instances = new Set<string>();
 	walkPredicateExpressionNodes(predicate, (node) =>
-		addTableLookupInstance(node, instances, lookup, instanceScope),
+		addExpressionInstance(node, instances, lookup, instanceScope),
 	);
+	walkPredicateNodes(predicate, (node) => addRelationInstance(node, instances));
 	walkTerms(predicate, (term) =>
 		addTermInstance(
 			term,
@@ -162,7 +164,10 @@ export function collectExpressionInstances(
 ): Set<string> {
 	const instances = new Set<string>();
 	walkExpressionNodes(expression, (node) =>
-		addTableLookupInstance(node, instances, lookup, instanceScope),
+		addExpressionInstance(node, instances, lookup, instanceScope),
+	);
+	walkExpressionPredicateNodes(expression, (node) =>
+		addRelationInstance(node, instances),
 	);
 	walkExpressionTerms(expression, (term) =>
 		addTermInstance(
@@ -183,21 +188,37 @@ function lookupInstanceId(
 ): string {
 	if (lookup === undefined) {
 		throw new Error(
-			"collectAstInstances: a lookup carrier reached suite instance collection with no lookup wire naming. The local-CCZ compile boundary supplies naming; every other surface should reject lookup carriers before instance collection.",
+			"collectAstInstances: a lookup carrier reached instance collection with no lookup wire naming. Every compile boundary that admits lookup carriers must supply the validated Project lookup catalog.",
 		);
 	}
 	const table = lookup.tableFor(tableId);
 	return instanceScope === "xform" ? table.xformInstanceId : table.fixtureId;
 }
 
-function addTableLookupInstance(
+function addExpressionInstance(
 	expression: ValueExpression,
 	instances: Set<string>,
 	lookup: LookupWireNaming | undefined,
 	instanceScope: "xform" | "suite",
 ): void {
-	if (expression.kind !== "table-lookup") return;
-	instances.add(lookupInstanceId(expression.tableId, lookup, instanceScope));
+	if (expression.kind === "table-lookup") {
+		instances.add(lookupInstanceId(expression.tableId, lookup, instanceScope));
+	} else if (expression.kind === "count" && expression.via.kind !== "self") {
+		instances.add("casedb");
+	}
+}
+
+function addRelationInstance(
+	predicate: Predicate,
+	instances: Set<string>,
+): void {
+	if (
+		(predicate.kind === "exists" || predicate.kind === "missing") &&
+		predicate.via.kind !== "self"
+	) {
+		// An unfiltered relation has no property Term for the leaf walk to find.
+		instances.add("casedb");
+	}
 }
 
 function addTermInstance(
