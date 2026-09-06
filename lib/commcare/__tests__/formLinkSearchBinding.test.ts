@@ -7,6 +7,7 @@ import {
 } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import { blueprintDocSchema } from "@/lib/domain";
 import { compileCcz } from "../compiler";
 import { expandDoc } from "../expander";
@@ -76,6 +77,9 @@ it.each(["'other-patient'", "concat('patient-', '2')"])(
 			);
 			expect(verdict.ok).toBe(false);
 			if (verdict.ok) throw new Error("Unsafe Search handover committed");
+			expect(userFacingErrors(verdict.findings)).toEqual([
+				'In "Untitled Form", the link to "Untitled Form" assigns a different case to a destination that opens on Search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination that opens on its case list.',
+			]);
 			expect(
 				verdict.findings.map((finding) => [
 					finding.code,

@@ -233,3 +233,9 @@ direct-name authoring, or second starter reconstruction.
   refuse rather than becoming successful no-ops. The canonical validator owns
   the complete destination eligibility and app-wide ID invariants. Doc diff
   emits these same mutations, including inverse edits for undo.
+
+- `userFacingErrors.ts` renders every reachable validator finding in Builder
+  vocabulary. The message table requires every non-oracle code at compile time,
+  derived from the validator classification. Internal oracle findings use the
+  generic Nova-side error. Text findings carry display labels so repair messages
+  identify the affected app content or Project data table and column.

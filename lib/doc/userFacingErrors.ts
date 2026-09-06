@@ -44,9 +44,8 @@
  * or at the export boundary) MUST have an entry. `oracle` codes are
  * generator-bug tripwires `runValidation` never produces; if one somehow
  * reaches a user it's a Nova bug, and the generic fallback says so rather
- * than leaking wire detail. The exhaustiveness test
- * (`__tests__/userFacingErrors.test.ts`) pins this against
- * `VALIDITY_CLASS_BY_CODE`.
+ * than leaking wire detail. The table requires every non-oracle code at
+ * compile time, derived from `VALIDITY_CLASS_BY_CODE`.
  */
 
 import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
@@ -54,6 +53,7 @@ import type {
 	ValidationError,
 	ValidationErrorCode,
 } from "@/lib/commcare/validator/errors";
+import type { UserFacingValidationCode } from "@/lib/commcare/validator/gate";
 
 // ── Interpolation helpers ──────────────────────────────────────────
 //
@@ -160,12 +160,6 @@ type UserMessageBuilder = (err: ValidationError) => string;
 
 // ── The code → builder table ───────────────────────────────────────
 
-/**
- * One concise builder per user-reachable code. `Partial` over the full
- * code union: oracle codes intentionally have no entry and fall through
- * to the generic line. The exhaustiveness test guarantees every
- * shape/soundness/completeness/environment code IS present.
- */
 /** The field a misplaced section sits in, from `parentKind` / `parentId`. */
 const sectionParentPhrase = (e: ValidationError): string => {
 	const id = e.details?.parentId;
@@ -180,15 +174,21 @@ const looseFieldsPhrase = (e: ValidationError): string => {
 	return `${present(count, "some")} fields sit`;
 };
 
-const USER_MESSAGE_BY_CODE: Partial<
-	Record<ValidationErrorCode, UserMessageBuilder>
-> = {
+const USER_MESSAGE_BY_CODE: Record<
+	UserFacingValidationCode,
+	UserMessageBuilder
+> &
+	Partial<
+		Record<Exclude<ValidationErrorCode, UserFacingValidationCode>, never>
+	> = {
 	// ── App-level ────────────────────────────────────────────────────
 	// Reached in the builder only by trying to remove the app's last module, so
 	// "add one" reads backwards — you'd add another BEFORE removing this one.
 	NO_MODULES: () =>
 		"An app needs at least one module, so you can't remove your last one. Add another first if you want to replace it.",
 	EMPTY_APP_NAME: () => "Your app needs a name. Add one to get started.",
+	APP_TEXT_UNREPRESENTABLE: (e) =>
+		`${det(e, "label", "Some app text")} contains a character Nova can't preserve. You can remove ${det(e, "character", "that character")} or retype the affected text.`,
 	RESERVED_CASE_TYPE_NAME: (e) => {
 		const ct = det(e, "caseType", "");
 		return ct
@@ -645,6 +645,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can never be used: an earlier link has no condition, so it always wins. Move this link above it, or give that link a condition.`,
 	FORM_LINK_DATUMS_INCOMPLETE: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} can't hand over the case that form needs. Choose a destination this form can pass its case to, or set the value to carry by hand.`,
+	FORM_LINK_SEARCH_CASE_UNREPRESENTABLE: (e) =>
+		`In ${q(formName(e))}, ${formLinkPhrase(e)} assigns a different case to a destination that opens on Search. You can remove the manual assignment so Nova can match the case automatically, or choose a destination that opens on its case list.`,
 	FORM_LINK_DATUM_UNUSED: (e) =>
 		`In ${q(formName(e))}, ${formLinkPhrase(e)} carries a value named ${q(det(e, "datumName", ""))} that its destination never reads. Remove it, or rename it to one the destination needs.`,
 	FORM_LINK_SELECTION_CARDINALITY: (e) =>
@@ -821,6 +823,8 @@ const USER_MESSAGE_BY_CODE: Partial<
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
 		`This setting needs ${det(e, "acceptedColumnTypes", "a different kind of")} data, but the selected lookup column contains ${det(e, "actualColumnType", "incompatible")} data. Choose a compatible column.`,
+	LOOKUP_CELL_TEXT_UNREPRESENTABLE: (e) =>
+		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. You can remove them or retype the affected values in Project data.`,
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
 		`A lookup-powered choice list uses ${det(e, "columnLabel", "a column")} for its saved values, but ${det(e, "offendingRowCount", "some")} row(s) in ${det(e, "tableName", "the lookup table")} leave it blank. Fill in those rows or choose another value column.`,
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: (e) =>
@@ -896,8 +900,3 @@ export function offeredChoiceRefusal(
 		? "This choice isn't available here."
 		: userFacingError(first);
 }
-
-/** Exposed for the exhaustiveness test only. */
-export const USER_MESSAGE_CODES = new Set(
-	Object.keys(USER_MESSAGE_BY_CODE) as ValidationErrorCode[],
-);

@@ -4,6 +4,7 @@ import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { expandDoc } from "@/lib/commcare/expander";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
+import { userFacingErrors } from "@/lib/doc/userFacingErrors";
 import type { LookupOptionsSource, OrganizationLevel } from "@/lib/domain";
 import {
 	lookupColumnIdSchema,
@@ -921,6 +922,9 @@ it.each(["ccz", "hq-json", "hq-upload"] as const)(
 		});
 		expect(result.ok).toBe(false);
 		if (result.ok) throw new Error("Unsupported text exported");
+		expect(userFacingErrors(result.violations)).toEqual([
+			'The "Note" column in "Statuses" contains characters Nova can\'t preserve. You can remove them or retype the affected values in Project data.',
+		]);
 		expect(
 			result.violations.map((finding) => ({
 				code: finding.code,
@@ -931,7 +935,9 @@ it.each(["ccz", "hq-json", "hq-upload"] as const)(
 				code: "LOOKUP_CELL_TEXT_UNREPRESENTABLE",
 				details: {
 					tableId: CARRIER_TABLE,
+					tableName: "Statuses",
 					columnId: extraColumn,
+					columnLabel: "Note",
 					offendingRowCount: "6",
 					offendingRowPositions: "1,2,3,4,5",
 					offendingRowIds: rows

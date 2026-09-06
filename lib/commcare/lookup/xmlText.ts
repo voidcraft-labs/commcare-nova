@@ -33,7 +33,9 @@ export function lookupXmlTextFindings(
 					{},
 					{
 						tableId: table.id,
+						tableName: table.name,
 						columnId: column.id,
+						columnLabel: column.label,
 						offendingRowCount: String(count),
 						offendingRowPositions: examples.map((item) => item.row).join(","),
 						offendingRowIds: examples.map((item) => item.id).join(","),

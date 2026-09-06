@@ -11,6 +11,7 @@ import {
 } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
 	blueprintDocSchema,
 	collectTranslationUnits,
@@ -134,8 +135,16 @@ describe("XML admission and consumer boundaries", () => {
 					const verdict = gate(doc, [mutation], LOOKUP_CONTEXT_UNAVAILABLE);
 					expect(verdict.ok).toBe(false);
 					if (verdict.ok) throw new Error("Unsupported text committed");
-					expect(verdict.findings.map((finding) => finding.code)).toContain(
-						"APP_TEXT_UNREPRESENTABLE",
+					const finding = verdict.findings.find(
+						(finding) => finding.code === "APP_TEXT_UNREPRESENTABLE",
+					);
+					if (!finding) throw new Error("Missing text finding");
+					const label =
+						mutation.kind === "setAppName"
+							? "The app name"
+							: `The question "${field.id}"`;
+					expect(userFacingError(finding)).toBe(
+						`${label} contains a character Nova can't preserve. You can remove ${finding.details?.character} or retype the affected text.`,
 					);
 				}
 			}
@@ -179,6 +188,7 @@ describe("XML admission and consumer boundaries", () => {
 				details: {
 					path: `localization.translations.spa.${unit.id}.value`,
 					character: "U+0001",
+					label: "The translated text",
 				},
 			},
 		]);

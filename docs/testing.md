@@ -433,3 +433,9 @@ functions and typed relation chains; they do not execute relation queries.
 The pre-grouping quantity is a negative parser control. Private emitter tests
 cover composition and admission without claiming that a string assertion or
 Nova's own XPath parser proves native CSQL acceptance.
+
+Validator message coverage is a TypeScript obligation: every classified
+user-reachable code needs a renderer. Copy tests cover missing and populated
+details, internal fallbacks, ordered collections, choice refusals and specific
+repair reasons. Boundary tests carry real findings through that renderer so
+missing location details cannot be hidden by a synthetic rich finding.

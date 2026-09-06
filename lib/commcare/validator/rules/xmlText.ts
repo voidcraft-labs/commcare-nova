@@ -21,7 +21,7 @@ export function authoredXmlText(doc: BlueprintDoc): ValidationError[] {
 						"app",
 						`${label} contains an unsupported character (${character}). Remove that character so CommCare can preserve the text.`,
 						{},
-						{ path, character },
+						{ path, character, label },
 					),
 				);
 			}

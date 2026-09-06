@@ -1721,3 +1721,19 @@ The broader related unit run passed 6,058 checks across 484 files and failed 20
 checks in four pending suites: 19 use stale organization-hook mocks, and one
 finds three validator codes missing user-facing messages. These remain audit
 work; this batch does not claim a passing full suite.
+
+## Validator findings must carry their repair into the Builder
+
+The wider compiler dependency check found three findings added during this audit
+without Builder messages. The optional renderer table let them reach its generic
+internal-failure fallback. Classification now retains literal types and the
+renderer requires every non-oracle code at compile time, forbidding oracle copy.
+The test-only message-key export and its introspection tests are removed.
+
+Text findings also lacked the display metadata their repair needs. App text now
+carries its content label; lookup cells carry table and column labels. Existing
+real gate/export tests render those findings and the refused Search handover,
+while the copy suite exercises every code with missing and populated details,
+internal fallbacks, ordered lists and withheld choices. All 130 checks across
+four files and full typecheck pass. The 19 stale organization UI-mock failures
+from the broader run remain part of the pending method redesign.

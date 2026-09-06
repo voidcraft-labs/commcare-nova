@@ -109,9 +109,7 @@ export type ValidityClass =
  *     LOOKUP_HQ_PUSH_TOO_LARGE, whose budget is CommCare HQ's and nobody
  *     else's.
  */
-export const VALIDITY_CLASS_BY_CODE: Readonly<
-	Record<ValidationErrorCode, ValidityClass>
-> = {
+export const VALIDITY_CLASS_BY_CODE = {
 	// ── App-level ────────────────────────────────────────────────────
 	ENTRY_POINT_INVALID: "soundness",
 	SUITE_ENDPOINT_INVALID: "oracle",
@@ -511,7 +509,13 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	PROSE_EDITOR_ROUND_TRIP_LOSS: "soundness",
 	CYCLE: "soundness",
 	TYPE_ERROR: "soundness",
-};
+} as const satisfies Readonly<Record<ValidationErrorCode, ValidityClass>>;
+
+export type UserFacingValidationCode = {
+	[Code in ValidationErrorCode]: (typeof VALIDITY_CLASS_BY_CODE)[Code] extends "oracle"
+		? never
+		: Code;
+}[ValidationErrorCode];
 
 /** Classify a validation code through the typed-total current table. */
 export function classifyError(code: ValidationErrorCode): ValidityClass {
