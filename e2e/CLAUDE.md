@@ -18,6 +18,8 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   validates the canonical generated `server.js` and XPath worker, places public +
   static assets, overlays sharp's dlopen-only `@img`
   runtime exactly like Docker, and launches that server with signal forwarding.
+  Launcher tests use real temporary assets and OS child processes, including
+  signal forwarding and parent-listener cleanup.
   The gate therefore exercises the deployed artifact, and `next dev`'s
   server→browser log forwarding can't trip the error guard. `next start` is not a
   supported runner for `output: "standalone"`. Costs ~2 min of build; don't

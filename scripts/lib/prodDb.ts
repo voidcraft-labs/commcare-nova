@@ -83,5 +83,7 @@ export function targetProdDb(): void {
 	defaultEnv("NOVA_DB_IP_TYPE", "PUBLIC");
 	defaultEnv("NOVA_DB_NAME", PROD_DB_NAME);
 	defaultEnv("NOVA_DB_INSTANCE_CONNECTION_NAME", PROD_INSTANCE_CONNECTION_NAME);
-	defaultEnv("NOVA_DB_USER", gcloudAccount());
+	if (!process.env.NOVA_DB_USER) {
+		process.env.NOVA_DB_USER = gcloudAccount();
+	}
 }

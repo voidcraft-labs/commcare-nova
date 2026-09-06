@@ -6165,7 +6165,10 @@
 			"file": "lib/domain/languageRegistry/__tests__/languageRegistry.test.ts",
 			"lines": 319,
 			"ciMs": 268,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full registry classification/identity/display/name/Classic functions and lazy loader. Retained direct semantic cases; deleted source substring and recursive test-file scans. New actual esbuild output graph proves main domain entry has no registry, synchronous registry/load have no name catalog, and dynamic search really contains it.",
+			"baselineSha256": "8cd8037ccdf35d0f44a1d83e271c823aacf740ea14c8ed842a022119c56cc16f",
+			"reviewedSha256": "5309e996f5c0c8148efd5c2c13302a08871240b34b828b04ca2b2a0902b905f0"
 		},
 		{
 			"file": "lib/domain/predicate/__tests__/builders.test.ts",
@@ -7623,7 +7626,10 @@
 			"file": "scripts/__tests__/standaloneLauncher.test.ts",
 			"lines": 244,
 			"ciMs": 63,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete launcher and actual start CLI. Replaced plan-seeded fake filesystem and fake child/signal emitter with temporary native assets, real Node children, OS SIGINT/SIGTERM forwarding, real spawn errors, bounded process-group cleanup, and listener ownership checks. Removed unused production test interfaces and internal exports.",
+			"baselineSha256": "e5067a5e64a400eb396f32f75424601485e6c460c25a0fe311dee7d60d86536b",
+			"reviewedSha256": "f094047e1a7172d7860282da416557341696c923001dd584a2eda4783db5484a"
 		},
 		{
 			"file": "scripts/__tests__/translationEvaluationFixtures.test.ts",
@@ -7749,7 +7755,10 @@
 			"file": "scripts/lib/__tests__/prodDb.test.ts",
 			"lines": 63,
 			"ciMs": 61,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read entire target resolver; replaced mocked child_process with actual script process and controlled gcloud executable. Positive account lookup, all explicit target overrides, missing/unset/failed account refusal. Reproduced explicit NOVA_DB_USER still eagerly requiring gcloud; fixed lazy fallback.",
+			"baselineSha256": "56dfc5e6d8e7a86cf9d9fe3aad36083adab3eb7b34890d06b5ba422db41c762d",
+			"reviewedSha256": "5267b59772aefeee3d626d521fc7c9eff928194384a63a7f3cc9ae950f0b3d4a"
 		},
 		{
 			"file": "scripts/lib/__tests__/schemaDrift.test.ts",

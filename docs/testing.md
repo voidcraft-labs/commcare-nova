@@ -60,6 +60,11 @@ Google IAM-specific `extract` extension against Google's published examples.
 A hand-written predicate beside an emitter does not prove the emitted policy.
 Role-admission tests must query real PostgreSQL catalogs: fabricated booleans
 can exercise a refusal rule while hiding a broken membership query.
+For asset placement and process supervision, use temporary files and actual
+children. Signal tests run in an isolated process group with bounded cleanup;
+they must join children and prove parent listeners are removed. For lazy
+dependencies, inspect a real bundler's static and dynamic output graph instead
+of searching import text.
 
 A rejection test must begin with an otherwise admissible input. Prove the valid
 case succeeds before introducing the fault, or pair it with an accepted case

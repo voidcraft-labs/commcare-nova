@@ -1,244 +1,257 @@
-import path from "node:path";
-import { describe, expect, it, vi } from "vitest";
+import { spawn, spawnSync } from "node:child_process";
+import { once } from "node:events";
 import {
-	childExitStatus,
+	mkdir,
+	mkdtemp,
+	readFile,
+	realpath,
+	rm,
+	writeFile,
+} from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import { pathToFileURL } from "node:url";
+import { afterEach, beforeEach, expect, test } from "vitest";
+import {
 	prepareStandalone,
-	type StandaloneFileSystem,
-	type StandaloneSignalSource,
-	type SupervisedChild,
-	standalonePaths,
-	standalonePreparationPlan,
-	standaloneServerInvocation,
 	superviseStandaloneChild,
 } from "../lib/standaloneLauncher.mts";
 
-const ROOT = path.resolve("/workspace/commcare-nova");
+let root: string;
+const assets = {
+	"public/xpath-worker/xpath-worker.js": "worker bytes",
+	"public/favicon.ico": "icon bytes",
+	".next/static/chunks/app.js": "chunk bytes",
+	"node_modules/@img/sharp-libvips/lib/libvips.so": "native library bytes",
+};
+async function put(relative: string, contents: string) {
+	const target = path.join(root, relative);
+	await mkdir(path.dirname(target), { recursive: true });
+	await writeFile(target, contents);
+}
+beforeEach(async () => {
+	root = await realpath(await mkdtemp(path.join(tmpdir(), "nova-standalone-")));
+	for (const [name, bytes] of Object.entries(assets)) await put(name, bytes);
+	await put(".next/standalone/server.js", "process.exit(0)");
+});
+afterEach(async () => rm(root, { recursive: true, force: true }));
 
-function fakeFileSystem(
-	plan: ReturnType<typeof standalonePreparationPlan>,
-	missing?: string,
-) {
-	const kinds = new Map(
-		plan.requirements.map((artifact) => [artifact.target, artifact.kind]),
+test("prepares real runtime assets, replaces traced copies, and preserves sources and unrelated output", async () => {
+	await put(".next/standalone/public/favicon.ico", "stale icon");
+	await put(
+		".next/standalone/node_modules/@img/sharp-libvips/lib/libvips.so",
+		"stale native library",
 	);
-	const fileSystem: StandaloneFileSystem = {
-		stat: vi.fn(async (target) => {
-			if (target === missing || !kinds.has(target)) {
-				throw new Error("ENOENT");
-			}
-			const kind = kinds.get(target);
-			return {
-				isDirectory: () => kind === "directory",
-				isFile: () => kind === "file",
-			};
-		}),
-		mkdir: vi.fn(async () => undefined),
-		cp: vi.fn(async () => undefined),
-	};
-	return fileSystem;
-}
-
-function supervisedFixture() {
-	const state: {
-		exitCode: number | null;
-		signalCode: NodeJS.Signals | null;
-	} = { exitCode: null, signalCode: null };
-	let onError: ((error: Error) => void) | undefined;
-	let onExit:
-		| ((code: number | null, signal: NodeJS.Signals | null) => void)
-		| undefined;
-	const child = {
-		get exitCode() {
-			return state.exitCode;
-		},
-		get signalCode() {
-			return state.signalCode;
-		},
-		kill: vi.fn(() => true),
-		once: vi.fn(
-			(
-				event: "error" | "exit",
-				listener:
-					| ((error: Error) => void)
-					| ((code: number | null, signal: NodeJS.Signals | null) => void),
-			) => {
-				if (event === "error") {
-					onError = listener as (error: Error) => void;
-				} else {
-					onExit = listener as (
-						code: number | null,
-						signal: NodeJS.Signals | null,
-					) => void;
-				}
-			},
-		),
-	} as unknown as SupervisedChild;
-	const signalHandlers = new Map<"SIGINT" | "SIGTERM", () => void>();
-	const signalSource: StandaloneSignalSource = {
-		on: vi.fn((signal, handler) => signalHandlers.set(signal, handler)),
-		off: vi.fn((signal, handler) => {
-			if (signalHandlers.get(signal) === handler) {
-				signalHandlers.delete(signal);
-			}
-		}),
-	};
-	return {
-		child,
-		signalSource,
-		signalHandlers,
-		state,
-		error: (error: Error) => onError?.(error),
-		exit: (code: number | null, signal: NodeJS.Signals | null) =>
-			onExit?.(code, signal),
-	};
-}
-
-describe("standalone production launcher", () => {
-	it("pins every runtime path under the actual checkout root", () => {
-		const paths = standalonePaths(ROOT);
-		expect(paths).toEqual({
-			repositoryRoot: ROOT,
-			standaloneRoot: path.join(ROOT, ".next", "standalone"),
-			server: path.join(ROOT, ".next", "standalone", "server.js"),
-			publicSource: path.join(ROOT, "public"),
-			publicDestination: path.join(ROOT, ".next", "standalone", "public"),
-			xpathWorkerSource: path.join(
-				ROOT,
-				"public",
-				"xpath-worker",
-				"xpath-worker.js",
-			),
-			staticSource: path.join(ROOT, ".next", "static"),
-			staticDestination: path.join(
-				ROOT,
-				".next",
-				"standalone",
-				".next",
-				"static",
-			),
-			sharpSource: path.join(ROOT, "node_modules", "@img"),
-			sharpDestination: path.join(
-				ROOT,
-				".next",
-				"standalone",
-				"node_modules",
-				"@img",
-			),
-		});
-	});
-
-	it("validates everything first, then overlays public, static, and sharp in Docker order", async () => {
-		const plan = standalonePreparationPlan(ROOT);
-		const fileSystem = fakeFileSystem(plan);
-
-		await expect(prepareStandalone(ROOT, fileSystem)).resolves.toEqual(
-			plan.paths,
-		);
-		expect(fileSystem.stat).toHaveBeenCalledTimes(plan.requirements.length);
-		expect(fileSystem.mkdir).toHaveBeenCalledTimes(3);
-		expect(fileSystem.cp).toHaveBeenNthCalledWith(
-			1,
-			plan.paths.publicSource,
-			plan.paths.publicDestination,
-			{ recursive: true, force: true },
-		);
-		expect(fileSystem.cp).toHaveBeenNthCalledWith(
-			2,
-			plan.paths.staticSource,
-			plan.paths.staticDestination,
-			{ recursive: true, force: true },
-		);
-		expect(fileSystem.cp).toHaveBeenNthCalledWith(
-			3,
-			plan.paths.sharpSource,
-			plan.paths.sharpDestination,
-			{ recursive: true, force: true },
-		);
-	});
-
-	it.each([
-		["standalone server", "Run `npm run build` first."],
-		["public assets", "Restore the repository's `public` directory."],
-		["built XPath worker", "Run `npm run build:xpath-worker` first."],
-		["built static assets", "Run `npm run build` first."],
-		[
-			"sharp runtime assets",
-			"Run `npm install` with optional dependencies enabled.",
-		],
-	])("fails before copying when %s are absent", async (label, remedy) => {
-		const plan = standalonePreparationPlan(ROOT);
-		const missing = plan.requirements.find(
-			(artifact) => artifact.label === label,
-		);
-		if (missing === undefined) throw new Error(`Missing fixture: ${label}`);
-		const fileSystem = fakeFileSystem(plan, missing.target);
-
-		await expect(prepareStandalone(ROOT, fileSystem)).rejects.toThrow(
-			`${label} is missing at ${missing.target}. ${remedy}`,
-		);
-		expect(fileSystem.mkdir).not.toHaveBeenCalled();
-		expect(fileSystem.cp).not.toHaveBeenCalled();
-	});
-
-	it("runs canonical server.js with explicit runtime host/port defaults", () => {
-		const paths = standalonePaths(ROOT);
+	await put(
+		".next/standalone/node_modules/retained.js",
+		"retained tracing output",
+	);
+	await prepareStandalone(root);
+	for (const [relative, bytes] of Object.entries(assets)) {
 		expect(
-			standaloneServerInvocation(
-				paths,
-				{ NODE_ENV: "test", CUSTOM: "kept" },
-				"/node",
+			await readFile(path.join(root, ".next/standalone", relative), "utf8"),
+		).toBe(bytes);
+		expect(await readFile(path.join(root, relative), "utf8")).toBe(bytes);
+	}
+	expect(
+		await readFile(
+			path.join(root, ".next/standalone/node_modules/retained.js"),
+			"utf8",
+		),
+	).toBe("retained tracing output");
+	await prepareStandalone(root);
+	expect(
+		await readFile(
+			path.join(root, ".next/standalone/public/favicon.ico"),
+			"utf8",
+		),
+	).toBe("icon bytes");
+});
+
+test.each([
+	[".next/standalone/server.js", "standalone server"],
+	["public", "public assets"],
+	["public/xpath-worker/xpath-worker.js", "built XPath worker"],
+	[".next/static", "built static assets"],
+	["node_modules/@img", "sharp runtime assets"],
+])(
+	"missing %s refuses before changing any existing runtime placement",
+	async (relative, label) => {
+		await put(".next/standalone/public/favicon.ico", "previous runtime");
+		await rm(path.join(root, relative), { recursive: true, force: true });
+		await expect(prepareStandalone(root)).rejects.toThrow(
+			`${label} is missing`,
+		);
+		expect(
+			await readFile(
+				path.join(root, ".next/standalone/public/favicon.ico"),
+				"utf8",
 			),
-		).toEqual({
-			command: "/node",
-			args: [paths.server],
-			options: {
-				cwd: paths.standaloneRoot,
-				env: {
-					NODE_ENV: "test",
-					CUSTOM: "kept",
-					PORT: "3000",
-					HOSTNAME: "0.0.0.0",
-				},
-				stdio: "inherit",
-			},
+		).toBe("previous runtime");
+		await expect(
+			readFile(path.join(root, ".next/standalone/.next/static/chunks/app.js")),
+		).rejects.toMatchObject({ code: "ENOENT" });
+	},
+);
+
+test.each([
+	[".next/standalone/server.js", "standalone server", "directory"],
+	["node_modules/@img", "sharp runtime assets", "file"],
+])(
+	"wrong artifact kind at %s refuses preparation",
+	async (relative, label, kind) => {
+		await rm(path.join(root, relative), { recursive: true, force: true });
+		if (kind === "directory") await mkdir(path.join(root, relative));
+		else await put(relative, "wrong kind");
+		await expect(prepareStandalone(root)).rejects.toThrow(
+			`${label} has the wrong kind`,
+		);
+		await expect(
+			readFile(path.join(root, ".next/standalone/public/favicon.ico")),
+		).rejects.toMatchObject({ code: "ENOENT" });
+	},
+);
+
+const launcher = pathToFileURL(
+	path.resolve("scripts/lib/standaloneLauncher.mts"),
+).href;
+function invocation(environment: NodeJS.ProcessEnv) {
+	return {
+		args: [
+			"--input-type=module",
+			"-e",
+			`
+import {launchStandaloneServer} from ${JSON.stringify(launcher)};
+const signals = ['SIGINT', 'SIGTERM'];
+const before = signals.map(s => process.listenerCount(s));
+const status = await launchStandaloneServer(${JSON.stringify(root)});
+console.log(JSON.stringify({status, before, after: signals.map(s => process.listenerCount(s))}));
+process.exitCode = status;
+`,
+		],
+		env: environment,
+	};
+}
+
+test.each([
+	{
+		PORT: "",
+		HOSTNAME: "",
+		expectedPort: "3000",
+		expectedHost: "0.0.0.0",
+		code: 0,
+	},
+	{
+		PORT: " 4102 ",
+		HOSTNAME: " 127.0.0.1 ",
+		expectedPort: "4102",
+		expectedHost: "127.0.0.1",
+		code: 23,
+	},
+])(
+	"the real child receives its runtime cwd and environment, and returns exit $code",
+	async ({ PORT, HOSTNAME, expectedPort, expectedHost, code }) => {
+		await put(
+			".next/standalone/server.js",
+			`console.log(JSON.stringify({cwd: process.cwd(), port: process.env.PORT, hostname: process.env.HOSTNAME, custom: process.env.CUSTOM})); process.exit(${code});`,
+		);
+		const command = invocation({
+			NODE_ENV: "test",
+			PORT,
+			HOSTNAME,
+			CUSTOM: "kept",
 		});
-	});
+		const result = spawnSync(process.execPath, command.args, {
+			env: command.env,
+			encoding: "utf8",
+			timeout: 5000,
+		});
+		expect(result.error).toBeUndefined();
+		expect(result.status, result.stderr).toBe(code);
+		const [child, parent] = result.stdout
+			.trim()
+			.split("\n")
+			.map((line) => JSON.parse(line));
+		expect(child).toEqual({
+			cwd: path.join(root, ".next/standalone"),
+			port: expectedPort,
+			hostname: expectedHost,
+			custom: "kept",
+		});
+		expect(parent).toEqual({ status: code, before: [0, 0], after: [0, 0] });
+	},
+);
 
-	it("propagates child failures and conventional signal statuses", () => {
-		expect(childExitStatus(0, null)).toBe(0);
-		expect(childExitStatus(23, null)).toBe(23);
-		expect(childExitStatus(null, "SIGINT")).toBe(130);
-		expect(childExitStatus(null, "SIGTERM")).toBe(143);
-		expect(childExitStatus(null, null)).toBe(1);
-	});
-
-	it("forwards termination, propagates the child status, and removes handlers", async () => {
-		const fixture = supervisedFixture();
-		const result = superviseStandaloneChild(
-			fixture.child,
-			fixture.signalSource,
+test.each(["SIGINT", "SIGTERM"] as const)(
+	"the parent forwards OS %s, joins the child, and removes its listeners",
+	async (signal) => {
+		await put(
+			".next/standalone/server.js",
+			"console.log('READY'); setInterval(() => {}, 1000);",
 		);
+		const command = invocation({ NODE_ENV: "test" });
+		const parent = spawn(process.execPath, command.args, {
+			env: command.env,
+			stdio: ["ignore", "pipe", "pipe"],
+			detached: true,
+		});
+		const closed = once(parent, "close");
+		const killGroup = () => {
+			if (parent.pid) {
+				try {
+					process.kill(-parent.pid, "SIGKILL");
+				} catch (error) {
+					if ((error as NodeJS.ErrnoException).code !== "ESRCH") throw error;
+				}
+			}
+		};
+		const deadline = setTimeout(killGroup, 5000);
+		let output = "";
+		const ready = new Promise<void>((resolve) => {
+			parent.stdout.on("data", (chunk) => {
+				output += chunk.toString();
+				if (output.includes("READY\n")) resolve();
+			});
+		});
+		try {
+			await Promise.race([
+				ready,
+				closed.then(() => {
+					throw Error(`Parent exited before child ready: ${output}`);
+				}),
+			]);
+			expect(output).toContain("READY");
+			parent.kill(signal);
+			const expected = signal === "SIGINT" ? 130 : 143;
+			expect(await closed).toEqual([expected, null]);
+			expect(JSON.parse(output.trim().split("\n").at(-1) ?? "")).toEqual({
+				status: expected,
+				before: [0, 0],
+				after: [0, 0],
+			});
+		} finally {
+			clearTimeout(deadline);
+			killGroup();
+			await closed;
+		}
+	},
+);
 
-		fixture.signalHandlers.get("SIGTERM")?.();
-		expect(fixture.child.kill).toHaveBeenCalledWith("SIGTERM");
-		fixture.state.signalCode = "SIGTERM";
-		fixture.exit(null, "SIGTERM");
-
-		await expect(result).resolves.toBe(143);
-		expect(fixture.signalHandlers.size).toBe(0);
+test("a real spawn error rejects and removes supervision listeners", async () => {
+	const before = [
+		process.listenerCount("SIGINT"),
+		process.listenerCount("SIGTERM"),
+	];
+	const child = spawn(path.join(root, "missing-executable"));
+	const closed = new Promise<void>((resolve) =>
+		child.once("close", () => resolve()),
+	);
+	await expect(superviseStandaloneChild(child)).rejects.toMatchObject({
+		code: "ENOENT",
 	});
-
-	it("terminates a possibly-started child when supervision errors", async () => {
-		const fixture = supervisedFixture();
-		const result = superviseStandaloneChild(
-			fixture.child,
-			fixture.signalSource,
-		);
-
-		fixture.error(new Error("spawn failed"));
-
-		await expect(result).rejects.toThrow("spawn failed");
-		expect(fixture.child.kill).toHaveBeenCalledWith("SIGTERM");
-		expect(fixture.signalHandlers.size).toBe(0);
-	});
+	await closed;
+	expect([
+		process.listenerCount("SIGINT"),
+		process.listenerCount("SIGTERM"),
+	]).toEqual(before);
 });

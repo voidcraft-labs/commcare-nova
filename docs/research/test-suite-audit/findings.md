@@ -180,3 +180,22 @@ Actual CLI process tests also reproduced connector cleanup missing on option
 discovery failure and network preparation before credential validation. Input
 validation now precedes acquisition, and the connector's lifetime encloses
 option discovery and database-client construction as well as execution.
+
+## Filesystem, process, and bundle boundaries
+
+The standalone launcher's fake filesystem was seeded from its own preparation
+plan. Its replacement checks actual copied bytes, overwritten traced assets,
+unchanged source files, and refusal before any placement when an artifact is
+absent or has the wrong kind. Real children prove working directory, environment,
+exit status, SIGINT/SIGTERM forwarding, and listener cleanup. Test-only filesystem
+and signal-source interfaces were removed from the launcher.
+
+Operator target resolution now runs through a real child and controlled gcloud
+executable. This reproduced an eager fallback bug: an explicit `NOVA_DB_USER`
+still performed account discovery and failed if gcloud had no account. The
+fallback now runs only when no explicit database user is present.
+
+Language-registry source substring checks and a recursive test-file scan are
+replaced by esbuild's actual chunk graph. The full catalog must be present in
+the dynamic search output, absent from synchronous registry/load output, and
+the main domain barrel must keep the registry out of its static dependencies.
