@@ -16,7 +16,7 @@ const {
 	withMediaObjectKeyLocks,
 } = await import("../mediaObjectKeyLock");
 
-function fakeClient(assetId = "asset-1") {
+function fakeClient(assetId = testMediaAssetId("asset-1")) {
 	const query = vi.fn(async (statement: string, _params?: unknown[]) => {
 		if (statement.includes("pg_advisory_unlock")) {
 			return { command: "SELECT", rowCount: 1, rows: [{ unlocked: true }] };
@@ -37,7 +37,7 @@ function fakeClient(assetId = "asset-1") {
 }
 
 beforeEach(() => {
-	vi.clearAllMocks();
+	vi.resetAllMocks();
 });
 
 describe("withMediaObjectKeyLock", () => {
@@ -58,7 +58,8 @@ describe("withMediaObjectKeyLock", () => {
 	});
 
 	it("runs metadata SQL on the same checked-out session as the advisory lock", async () => {
-		const client = fakeClient("same-session-asset");
+		const assetId = testMediaAssetId("same-session-asset");
+		const client = fakeClient(assetId);
 		const connect = vi.fn(async () => client);
 		getCaseStorePool.mockResolvedValue({ connect, options: {} });
 
@@ -72,7 +73,7 @@ describe("withMediaObjectKeyLock", () => {
 					.executeTakeFirst(),
 		);
 
-		expect(result).toEqual({ id: "same-session-asset" });
+		expect(result).toEqual({ id: assetId });
 		expect(connect).toHaveBeenCalledOnce();
 		expect(client.query).toHaveBeenCalledTimes(3);
 		expect(client.query.mock.calls[0]?.[0]).toContain("pg_advisory_lock");
@@ -83,7 +84,10 @@ describe("withMediaObjectKeyLock", () => {
 
 	it("passes the same advisory identity for identical bytes with different extensions", async () => {
 		const hash = "b".repeat(64);
-		const clients = [fakeClient("txt"), fakeClient("markdown")];
+		const clients = [
+			fakeClient(testMediaAssetId("txt")),
+			fakeClient(testMediaAssetId("markdown")),
+		];
 		let nextClient = 0;
 		getCaseStorePool.mockResolvedValue({
 			connect: vi.fn(async () => clients[nextClient++]),
@@ -150,16 +154,16 @@ describe("withMediaObjectKeyLock", () => {
 	});
 
 	it("leaves one connection of the three-slot pool available", async () => {
-		const clients = [fakeClient("a"), fakeClient("b"), fakeClient("c")];
+		const clients = [
+			fakeClient(testMediaAssetId("a")),
+			fakeClient(testMediaAssetId("b")),
+			fakeClient(testMediaAssetId("c")),
+		];
 		let nextClient = 0;
 		const connect = vi.fn(async () => clients[nextClient++]);
 		getCaseStorePool.mockResolvedValue({ connect, options: {} });
 		let active = 0;
 		let peak = 0;
-		let signalTwo!: () => void;
-		const twoEntered = new Promise<void>((resolve) => {
-			signalTwo = resolve;
-		});
 		let releaseBodies!: () => void;
 		const bodiesReleased = new Promise<void>((resolve) => {
 			releaseBodies = resolve;
@@ -168,21 +172,29 @@ describe("withMediaObjectKeyLock", () => {
 			withMediaObjectKeyLock(key, async () => {
 				active++;
 				peak = Math.max(peak, active);
-				if (active === 2) signalTwo();
 				await bodiesReleased;
 				active--;
 			}),
 		);
 
-		await twoEntered;
-		expect(connect).toHaveBeenCalledTimes(2);
-		releaseBodies();
-		await Promise.all(calls);
-
-		expect(peak).toBe(2);
-		expect(connect).toHaveBeenCalledTimes(3);
-		for (const client of clients) {
-			expect(client.release).toHaveBeenCalledOnce();
+		const settled = Promise.allSettled(calls);
+		try {
+			await vi.waitFor(() => expect(active).toBe(2));
+			expect(connect).toHaveBeenCalledTimes(2);
+			releaseBodies();
+			expect(await settled).toEqual(
+				Array.from({ length: 3 }, () => ({
+					status: "fulfilled",
+					value: undefined,
+				})),
+			);
+			expect(peak).toBe(2);
+			expect(connect).toHaveBeenCalledTimes(3);
+			for (const client of clients)
+				expect(client.release).toHaveBeenCalledOnce();
+		} finally {
+			releaseBodies();
+			await settled;
 		}
 	});
 });

@@ -7347,25 +7347,37 @@
 			"file": "lib/storage/__tests__/captureObjectGeneration.test.ts",
 			"lines": 242,
 			"ciMs": 765,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain actual storage-wrapper calls with SDK mocked only. Remove repeated module invalidation under one stable bucket. Bind signed URL to exact key, expiry, version and returned URL plus headers; verify exact upload bytes. Cover numeric/string replay codes, independently vary destination size/checksum/type/generation after missing/conflicting/successful copies, and preserve unrelated failure identity without metadata adoption.",
+			"baselineSha256": "a27c6d7187b19cae18e641cfeb1cc51bd8f38e202c9aaf48783a15d8b8efc703",
+			"reviewedSha256": "6b4845429dedd031e25dc366b7ee61f514dfc973a94e6cd789962d4d81196793"
 		},
 		{
 			"file": "lib/storage/__tests__/captureStorageAuthority.test.ts",
 			"lines": 165,
 			"ciMs": 684,
-			"status": "pending"
+			"status": "revised",
+			"review": "Keep full probe orchestration through the real create-only copy helper and exact generation SDK handles. Restore bucket environment and remove needless per-case module invalidation. Correct mocked SDK success claim to requests; assert original operation and distinct source/destination cleanup errors by identity and order instead of only AggregateError length or cast.",
+			"baselineSha256": "fec7ee3b219e71c898770464e8974d8b19aff6cef61f4523e516a8a9c1fbbab9",
+			"reviewedSha256": "e6b6a7e66dd3e31caae06a652f36caed8c0f6acb6244edbc12134cc8151cf7ec"
 		},
 		{
 			"file": "lib/storage/__tests__/mediaBucketPolicy.test.ts",
 			"lines": 282,
 			"ciMs": 1368,
-			"status": "pending"
+			"status": "revised",
+			"review": "Keep exact policy patch, metageneration fence, retention refusal and postwrite verification at the SDK boundary. Remove weaker duplicate prefix/positive-age policy case already covered by exact full patch. Seed real prior policy drift and accept order-reversed equivalent response rules. Restore environment after each case; retain bounded SDK retries and full CORS headers.",
+			"baselineSha256": "18d8d2159130a3c9a425a902525ee69b97e04fb008c84e050a6525f11972a1f6",
+			"reviewedSha256": "d5f952985614d0e4e2815267e0b4f5e7f6e58eece5c87a2c44edb1d7d2f4c919"
 		},
 		{
 			"file": "lib/storage/__tests__/mediaObjectKeyLock.test.ts",
 			"lines": 188,
 			"ciMs": 254,
-			"status": "pending"
+			"status": "revised",
+			"review": "Retain real session-advisory wrapper with fake pool client to verify pinned SQL, cross-extension identity, sorted deduplicated acquisition and reverse release. Use canonical asset identities and reset mocks. Replace unbounded entry promise in admission test with bounded wait, immediate all-settled observer and finally release/join, checking all three results and release calls.",
+			"baselineSha256": "f0e1de17e38a15ab5aa414f5d90b74e2ee30b1ff3f03f185647b4dcd51383a54",
+			"reviewedSha256": "37957ae7f5a179120eae3719b93fc4ab58e084d03951efb8e4f72624324d08b2"
 		},
 		{
 			"file": "lib/tiptap/__tests__/proseTemplateCodec.test.ts",
