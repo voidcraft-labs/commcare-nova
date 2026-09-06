@@ -15,7 +15,7 @@
 // production-migrated schema when explicitly requested by behavior tests.
 
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
-import { Client, Pool } from "pg";
+import { Client, Pool, type PoolClient } from "pg";
 import { afterAll, afterEach, beforeAll, beforeEach, inject } from "vitest";
 import { compilerBugMessage } from "@/lib/domain/predicate/errors";
 
@@ -86,8 +86,7 @@ export function setupPerTestDatabase(
 				} finally {
 					if (previous === undefined) delete process.env.NOVA_DB_LOCAL_URL;
 					else process.env.NOVA_DB_LOCAL_URL = previous;
-					await built.db.destroy();
-					if (!built.pool.ended) await built.pool.end();
+					await built.destroy();
 				}
 			}
 			const admin = new Client({ connectionString: postgresTestUrl() });
@@ -112,6 +111,7 @@ export function setupPerTestDatabase(
 		uri: string;
 		db: Kysely<unknown>;
 		pool: Pool;
+		destroy: () => Promise<void>;
 		previousLocalDatabaseUrl: string | undefined;
 	} | null = null;
 
@@ -131,6 +131,7 @@ export function setupPerTestDatabase(
 			uri: created.uri,
 			db: built.db,
 			pool: built.pool,
+			destroy: built.destroy,
 			previousLocalDatabaseUrl,
 		};
 	});
@@ -149,12 +150,7 @@ export function setupPerTestDatabase(
 				if (options.establishLocalMigrationAuthority)
 					await closeApplicationConnection();
 			} finally {
-				// Kysely initializes lazily; direct pool users may never initialize its driver.
-				try {
-					await captured.db.destroy();
-				} finally {
-					if (!captured.pool.ended) await captured.pool.end();
-				}
+				await captured.destroy();
 			}
 		} finally {
 			try {
@@ -278,30 +274,41 @@ export function postgresTestUrl(): string {
  * `max: 1` — a single test thread issues sequential reads; a
  * larger pool would be wasted overhead.
  */
-function buildIsolatedDb(uri: string): {
+export function buildIsolatedDb(uri: string): {
 	db: Kysely<unknown>;
 	pool: Pool;
+	destroy(): Promise<void>;
 } {
 	const pool = new Pool({ connectionString: uri, max: 1 });
-	// Absorb the connection-termination error the teardown drop provokes.
-	// `afterEach` runs `DROP DATABASE ... WITH (FORCE)` (see
-	// `dropIsolatedDatabase`) as a fallback even after `db.destroy()`, and
-	// FORCE terminates any connection still open to the target — a checked-out
-	// leak, or one still closing when the drop lands under a loaded runner. pg
-	// re-emits that as a pool `'error'` (`terminating connection due to
-	// administrator command`); with no listener Node escalates it to an
-	// uncaughtException that fails the whole `vitest run`, and under
-	// a late worker teardown its timing can affect another file. The drop is intentional, so a
-	// terminated idle connection here is expected teardown noise, not a fault
-	// the harness should surface. (An error on an ACTIVE query still rejects
-	// that query — this listener only catches idle-client errors.)
-	pool.on("error", () => {});
+	const failures: Error[] = [];
+	const failed = new WeakSet<PoolClient>();
+	const observe = (error: Error, client: PoolClient) => {
+		if (failed.has(client)) return;
+		failed.add(client);
+		failures.push(error);
+	};
+	// A forced drop is not permission to hide unfinished test work. Both idle
+	// pool errors and checked-out client errors fail the owning teardown.
+	pool.on("error", observe);
+	pool.on("connect", (client) =>
+		client.on("error", (error) => observe(error, client)),
+	);
 	const db = new Kysely<unknown>({
-		dialect: new PostgresDialect({
-			pool: pool as unknown as PostgresPool,
-		}),
+		dialect: new PostgresDialect({ pool: pool as unknown as PostgresPool }),
 	});
-	return { db, pool };
+	return {
+		db,
+		pool,
+		async destroy() {
+			try {
+				await db.destroy();
+			} finally {
+				if (!pool.ended) await pool.end();
+			}
+			if (failures.length > 0)
+				throw new AggregateError(failures, "Test database connection failed");
+		},
+	};
 }
 
 /** The local URL permits production factories to open their own cached pool.

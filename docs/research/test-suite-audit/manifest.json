@@ -3094,8 +3094,8 @@
 			"lines": 483,
 			"ciMs": 319,
 			"status": "revised",
-			"review": "Retain environment/workload/pool-budget contracts; remove inert Pool construction and cached-import pseudo-proof; explicit type assertion and deterministic initialization env.",
-			"reviewedSha256": "e5a3c582127d3a67398c15a1719a1f07c087c69273e80e7fee545d11580e7bf7",
+			"review": "Read complete connection factory and installed pg/pg-pool/Kysely ownership semantics. Replaced broad config-only examples and empty shutdown checks with compact config contracts plus actual Node/PG crash, recovery, raw-pool shutdown, in-flight init and concurrent close/reopen tests. Fixed unowned pg errors and three reproduced singleton lifetime failures; test pool cleanup now reports retained failures.",
+			"reviewedSha256": "b6f8cd5fa1c9f3306e66b360bb17bff685987660b51f31088a62802ba5364a4a",
 			"baselineSha256": "16f5e3524185ccc1bd05d50bf9e4d0e355e250637c54d130fce613bafb091d6d"
 		},
 		{

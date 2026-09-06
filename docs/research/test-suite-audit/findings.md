@@ -1083,3 +1083,25 @@ the previous adopted object in superseded history. Its pure suite uses complete
 ownership scenarios and exact whole-plan results; the old other-kind example was
 removed because its empty inventory and identical expected creation would pass
 even if the kind filter were broken.
+
+### Runtime and test database connection ownership
+
+Two independent Node processes reproduced uncaught pg errors for killed idle and
+checked-out connections. A query rejection does not own pg's separate client
+error event. The shared runtime factory now observes both channels, deduplicates
+terminal events per physical connection, and leaves query rejection/discard to
+the driver. Three native-process cases verify idle, checked-out and active-query
+loss, one diagnostic, a healthy new backend, and no remaining connections.
+
+Additional actual singleton tests reproduced raw auth pool leakage before Kysely
+initialized, shutdown missing initialization in flight, and a second close/open
+racing an old checkout. Shutdown now awaits the full shared drain and closes the
+raw pool when Kysely had no initialized driver. The old configuration-only suite
+was reduced to independent environment/workload/config/budget contracts; its
+never-opened shutdown example is replaced by these real lifecycle scenarios.
+
+The per-test database helper's blanket idle error listener hid failures. The
+helper now owns both channels and reports its retained failures after closing;
+three actual pool scenarios verify this. Disabling the report makes the negative
+control fail despite successful socket cleanup. The separate perTestAppDb polling
+quiescence helper and scan-side background reapers remain to be resolved.

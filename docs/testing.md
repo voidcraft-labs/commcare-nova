@@ -301,3 +301,12 @@ refused response bodies must settle at the owned deadline and close the socket.
 An in-memory response fixture cannot prove body cancellation; a global timer count
 can also include Undici's unrelated scheduler, so native checks assert request
 settlement and socket ownership directly.
+
+Database process failure tests run the actual runtime factory in separate Node
+processes. The parent terminates the exact idle, checked-out, or querying backend
+and verifies process survival, rejected work, one connection diagnostic, a healthy
+replacement and no remaining connections. This avoids Vitest's own error handlers
+accidentally supplying an owner absent in production. Pool shutdown tests also
+exercise direct auth use, initialization in flight and concurrent close/reopen.
+Per-test database pools retain connection failures and fail their owning teardown
+after closure; `DROP DATABASE ... FORCE` cannot excuse a blanket error listener.

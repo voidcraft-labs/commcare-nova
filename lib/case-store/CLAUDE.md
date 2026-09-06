@@ -865,6 +865,13 @@ keeps riding the private IP (it never sets `NOVA_DB_IP_TYPE`). That
 central `--prod` helper authoritatively declares the `operator`
 workload, whose pool max is the residual ordinary-login connection.
 
+The runtime pool owns both idle pool errors and checked-out client errors.
+One failed physical connection produces one structured diagnostic; affected
+queries still reject, and a new checkout replaces the unusable client. Shutdown
+waits for initialization and existing checkouts, including direct Better Auth
+pool use before Kysely initialized. Concurrent closes share the drain, and a
+replacement pool waits until the old pool and connector are closed.
+
 Every non-local process must declare its pool workload exactly:
 `service` = 3 pooled connections, `migration` = 1,
 `capture-cleanup` = 2, `audit` = 1, and `operator` = 1 ordinary connection. The
