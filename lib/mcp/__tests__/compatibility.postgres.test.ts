@@ -102,7 +102,13 @@ async function settings() {
 		})
 		.execute();
 }
-function reply(peer: MockAgent, path: string, body: unknown, status = 200) {
+function reply(
+	peer: MockAgent,
+	path: string,
+	body: unknown,
+	status = 200,
+	contentType = "application/json",
+) {
 	peer
 		.get(HOST)
 		.intercept({
@@ -111,7 +117,7 @@ function reply(peer: MockAgent, path: string, body: unknown, status = 200) {
 			headers: { authorization: "ApiKey account@dimagi.com:fixture-key" },
 		})
 		.reply(status, typeof body === "string" ? body : JSON.stringify(body), {
-			headers: { "content-type": "application/json" },
+			headers: { "content-type": contentType },
 		});
 }
 function calls(peer: MockAgent) {
@@ -452,7 +458,13 @@ it.each([200, 403])(
 			reply(peer, paths[0], visible);
 			reply(peer, paths[1], visible);
 			reply(peer, paths[2], empty);
-			reply(peer, paths[3], "", status);
+			reply(
+				peer,
+				paths[3],
+				status === 200 ? "<fixture/>" : "Forbidden",
+				status,
+				status === 200 ? "text/xml; charset=utf-8" : "text/plain",
+			);
 			await asUser(async (client) => {
 				const result = (await payload(client)).project_space_compatibility;
 				const requirement = {

@@ -3867,7 +3867,7 @@
 			"status": "revised",
 			"review": "Replaced fetch spies and fake ZIP/media bytes with native serialized multipart, a real PNG archive consumer, strict upstream acknowledgement/completion evidence, selected-target and redirect refusal, connection/JSON failures, owned 60s upload and shared 45s polling clocks, and actual partial-body TCP abort/close proof. Actual SDK/PG publish covers malformed status while preserving imported app mapping; corrected production decoders, cancellation, and truthful uncertainty copy.",
 			"baselineSha256": "aeb700eaa0cf6b7116ce144d59c2b140db5012f24ab87fd5b8a6103542705bc2",
-			"reviewedSha256": "eb919cf7d9af645b66fff166aaac474eea973e9517ce664ec8c80aa3ad9c3897"
+			"reviewedSha256": "f2c3135f5c983642ae9d6be9566521fcb934ec1002f19c1b19c90458cc122db4"
 		},
 		{
 			"file": "lib/commcare/__tests__/moveReorderOnWire.test.ts",
@@ -3924,7 +3924,10 @@
 			"file": "lib/commcare/__tests__/projectSpaceCompatibilityProbe.test.ts",
 			"lines": 376,
 			"ciMs": 88,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced the complete imitation-Response/fetch-spy suite with 22 native HTTP cases and eight actual socket scenarios. Verified HQ Search XML and mobile permission decorators locally; reproduced HTML-200 false readiness and proxy-403 false permission diagnosis. Actual SDK publish refuses both before writes. Prove each 5s request/body deadline and cancel successful case data unread; negative body-read control fails and cleans up.",
+			"baselineSha256": "b1546af12a0135913ca5c44de57fd5c03a6748eda9fdb7d001d532cc756b975c",
+			"reviewedSha256": "550b977faf2cfa9d72b061f13901f04ba9f5e3c0d80be784530e1bf18cbe504f"
 		},
 		{
 			"file": "lib/commcare/__tests__/proseRoundTripMessage.test.ts",

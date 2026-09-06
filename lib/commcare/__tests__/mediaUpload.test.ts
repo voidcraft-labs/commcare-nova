@@ -1,14 +1,12 @@
 import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
-import { createServer } from "node:http";
-import { createConnection } from "node:net";
 import { setImmediate } from "node:timers/promises";
 import AdmZip from "adm-zip";
-import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { afterEach, expect, it, vi } from "vitest";
 import {
 	readMultipartRequest,
 	withHttpPeer,
+	withSocketHttpPeer,
 } from "@/__tests__/helpers/httpPeer";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { uploadAppMediaBundle } from "../client";
@@ -379,74 +377,43 @@ it("shares the 45-second clock across unfinished reports, retry waits and a stal
 	});
 });
 
-// An actual socket is needed here: the in-memory peer returns whole bodies and
-// cannot prove cancellation after native fetch has delivered its headers.
-it.each(["upload", "status"])(
-	"aborts and closes an incomplete %s JSON response body",
-	async (phase) => {
-		vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
-		const reached = Promise.withResolvers<void>(),
-			closed = Promise.withResolvers<void>();
-		const paths: string[] = [];
-		const server = createServer((request, response) => {
-			paths.push(`${request.method} ${request.url}`);
-			request.resume();
-			if (phase === "status" && request.method === "POST") {
-				response.setHeader("content-type", "application/json");
-				response.end(
-					JSON.stringify({ success: true, processing_id: "proc-1" }),
-				);
-				return;
-			}
-			response.on("close", closed.resolve);
-			response.writeHead(200, { "content-type": "application/json" });
-			response.write('{"success":true,');
-			reached.resolve();
-		});
-		await new Promise<void>((resolve) =>
-			server.listen(0, "127.0.0.1", resolve),
-		);
-		const address = server.address();
-		if (!address || typeof address === "string")
-			throw new Error("Missing peer port");
-		const previous = getGlobalDispatcher();
-		const dispatcher = new Agent({
-			connect: (options, callback) => {
-				if (options.hostname !== "india.commcarehq.org") {
-					callback(new Error("Unexpected HTTP destination"), null);
+// Upload-body cancellation is covered for all writers in hqWriteDeadlines.
+// This polling response has a separate 45-second lifetime.
+it("aborts and closes an incomplete media status response body", async () => {
+	vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+	const reached = Promise.withResolvers<void>(),
+		closed = Promise.withResolvers<void>();
+	const paths: string[] = [];
+	let pending: ReturnType<typeof upload> | undefined;
+	try {
+		await withSocketHttpPeer(
+			"india.commcarehq.org",
+			(request, response) => {
+				paths.push(`${request.method} ${request.url}`);
+				request.resume();
+				if (request.method === "POST") {
+					response.setHeader("content-type", "application/json");
+					response.end(
+						JSON.stringify({ success: true, processing_id: "proc-1" }),
+					);
 					return;
 				}
-				const socket = createConnection({
-					host: "127.0.0.1",
-					port: address.port,
-				});
-				socket.once("connect", () => callback(null, socket));
-				socket.once("error", (error) => callback(error, null));
+				response.once("close", closed.resolve);
+				response.writeHead(200, { "content-type": "application/json" });
+				response.write('{"success":true,');
+				reached.resolve();
 			},
-		});
-		setGlobalDispatcher(dispatcher);
-		const pending = upload();
-		try {
-			await reached.promise;
-			await setImmediate();
-			await vi.advanceTimersByTimeAsync(phase === "upload" ? 60_000 : 45_000);
-			expect(await pending).toEqual(
-				phase === "upload" ? { success: false, status: 503 } : timedOut,
-			);
-			await closed.promise;
-			expect(paths).toEqual(
-				phase === "upload"
-					? [`POST ${POST}`]
-					: [`POST ${POST}`, `GET ${STATUS}`],
-			);
-		} finally {
-			setGlobalDispatcher(previous);
-			await dispatcher.destroy();
-			server.closeAllConnections();
-			await new Promise<void>((resolve, reject) =>
-				server.close((error) => (error ? reject(error) : resolve())),
-			);
-			await pending;
-		}
-	},
-);
+			async () => {
+				pending = upload();
+				await reached.promise;
+				await setImmediate();
+				await vi.advanceTimersByTimeAsync(45_000);
+				expect(await pending).toEqual(timedOut);
+				await closed.promise;
+				expect(paths).toEqual([`POST ${POST}`, `GET ${STATUS}`]);
+			},
+		);
+	} finally {
+		await pending;
+	}
+});

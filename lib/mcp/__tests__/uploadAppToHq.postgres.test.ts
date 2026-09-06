@@ -860,9 +860,42 @@ it.each([
 	},
 );
 
-it.each([200, 403])(
-	"performs the real publish-time search check, with a missing advisory and runtime status %s",
-	async (status) => {
+it.each([
+	{
+		name: "XML success",
+		status: 200,
+		contentType: "text/xml; charset=utf-8",
+		responseBody: "<fixture/>",
+		ready: true,
+		permission: false,
+	},
+	{
+		name: "HTML success page",
+		status: 200,
+		contentType: "text/html",
+		responseBody: "<html>Sign in</html>",
+		ready: false,
+		permission: false,
+	},
+	{
+		name: "HQ permission refusal",
+		status: 403,
+		contentType: "text/plain",
+		responseBody: "Forbidden",
+		ready: false,
+		permission: true,
+	},
+	{
+		name: "proxy refusal",
+		status: 403,
+		contentType: "text/html",
+		responseBody: "<html><title>403 Forbidden</title>Proxy refusal</html>",
+		ready: false,
+		permission: false,
+	},
+])(
+	"publishes only on qualified Search evidence: $name",
+	async ({ status, contentType, responseBody, ready, permission }) => {
 		await seed(
 			buildDoc({
 				appName: "Patient search",
@@ -903,9 +936,11 @@ it.each([200, 403])(
 				meta: { total_count: 0 },
 				objects: [],
 			});
-			request(peer, paths[3]).reply(status, "");
+			request(peer, paths[3]).reply(status, responseBody, {
+				headers: { "content-type": contentType },
+			});
 			const uploads: FormData[] = [];
-			if (status === 200)
+			if (ready)
 				request(peer, IMPORT, "POST").reply(async (opts) => {
 					uploads.push(await readMultipartRequest(opts));
 					return {
@@ -914,18 +949,21 @@ it.each([200, 403])(
 					};
 				});
 			await asUser(async (client) => {
-				const result = body(await call(client), status !== 200);
+				const result = body(await call(client), !ready);
+				expect(JSON.stringify(result).includes("Mobile App Access")).toBe(
+					permission,
+				);
 				expect(result.project_space_compatibility).toMatchObject({
-					status: status === 200 ? "ready" : "blocked",
+					status: ready ? "ready" : "blocked",
 					required_capabilities: [
 						{
 							id: "case-search",
-							state: status === 200 ? "available" : "unverified",
+							state: ready ? "available" : "unverified",
 						},
 					],
 					advisories: [{ id: "large-search-performance", state: "missing" }],
 				});
-				if (status !== 200) {
+				if (!ready) {
 					expect(result.error_type).toBe("project_space_incompatible");
 					expect(await snapshot()).toEqual({ deployments: [], resources: [] });
 					expect(
@@ -950,7 +988,7 @@ it.each([200, 403])(
 			});
 			expect(requests(peer)).toEqual([
 				...paths.map((path) => `GET ${HOST}${path}`),
-				...(status === 200 ? [`POST ${HOST}${IMPORT}`] : []),
+				...(ready ? [`POST ${HOST}${IMPORT}`] : []),
 			]);
 		});
 	},

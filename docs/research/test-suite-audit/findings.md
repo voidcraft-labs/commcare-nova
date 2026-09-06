@@ -1159,3 +1159,30 @@ already awaited LogWriter. The remaining outer cleanup used a detached flush;
 it now awaits the same writer in a finally after attempting the fallback lock
 release. This is a cleanup-contract correction, not a reproduced event loss in
 the ordinary snapshot-failure path.
+
+
+### Qualified compatibility evidence at the native HTTP boundary
+
+Replaced the full compatibility-probe suite's imitation Responses and fetch
+spies with native HTTP peers. Two real misclassifications failed before repair:
+a 200 HTML login/proxy page advertised Search as available, and a generic proxy
+403 blamed Mobile App Access. Readiness now requires an XML media type; recognized
+edge refusals carry no account-permission diagnosis. Local HQ `ota/views.py`
+search/app_aware_search confirms XML success and the exact configured-off 404;
+`ota/decorators.py::mobile_auth` wraps `require_mobile_access`, and the users
+permission decorator supplies the origin 403. Its domain-migration guard uses
+503, which remains unverified.
+
+Twenty-two native HTTP scenarios cover required versus advisory evidence,
+visibility-before-negative conclusions, malformed/foreign inventories, exact
+statuses and disabled text, redirects, and no-I/O cases. Eight actual-socket
+scenarios cover the five-second clocks for visibility, flags, runtime headers,
+and refusal bodies, plus successful cancellation without reading case data.
+Replacing cancellation with a body read fails that negative control and still
+cleans up. The SDK publish suite adds HTML-success and proxy-refusal cases:
+neither creates a deployment, imports an app, or falsely requests permission.
+
+One shared socket peer now owns the native server and dispatcher used by these
+checks and the writer/media deadlines. The duplicate media-upload body case was
+removed because the shared writer suite already covers it; the distinct media
+status response retains its 45-second socket proof.

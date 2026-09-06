@@ -128,9 +128,13 @@ unverified. Current HQ returns the complete unpaginated list with one numeric
 this endpoint. Case search has an additional qualified read against the mobile
 Search endpoint, which checks both its base toggle and `CaseSearchConfig.enabled`.
 HQ accepts an API key there but separately requires the connected web account's
-Mobile App Access permission; a 403 is therefore a permission-specific
-unverified result, never evidence that Search is missing. Only the exact
-configured-off 404 is missing, and no result body is retained or logged.
+Mobile App Access permission. An HQ-origin 403 gives that permission-specific
+unverified result; a recognized edge refusal remains unverified without blaming
+account permissions. Readiness requires HTTP 200 with an XML content type, so an
+HTML login/proxy page cannot pass preflight. The successful body is cancelled
+without reading case data. Only the exact configured-off 404 is missing, and no
+result body is retained or logged. Each visibility, flag, and runtime check owns
+its five-second deadline through response-body completion or cancellation.
 Only a Search field with a starting value adds the private child setting to the
 SAME public Case search capability, because HQ omits `<prompt default>` without
 it. HQ still emits and executes `_xpath_query` filters without that setting;

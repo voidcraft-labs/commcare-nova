@@ -325,3 +325,11 @@ lane or authorization cadence in SQL, then proves both consumer cancellation
 and abort-to-EOF wait for the read. The app-state contention helper uses the
 same owned pool teardown as the ordinary isolated database fixture; it has no
 pool-idle polling loop. Finish or cancel each response before closing its fixture.
+
+
+HQ transport tests share `withSocketHttpPeer` for actual request/body/socket
+lifetimes. The named HQ host alone maps to loopback; it exercises native HTTP,
+not TLS. Controlled peer tests cover exact acknowledgement and classification;
+streaming peers cover incomplete headers/bodies and prove cancellation. The
+compatibility success fixture never finishes its body, so an implementation
+that reads case data fails its available verdict at the owned virtual deadline.

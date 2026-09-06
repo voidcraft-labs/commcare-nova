@@ -1,12 +1,10 @@
 /** An actual socket proves that cancellation reaches a response body after
  * headers have arrived. In-memory response fixtures cannot establish this. */
-import { createServer } from "node:http";
-import { createConnection } from "node:net";
 import { setImmediate } from "node:timers/promises";
 import AdmZip from "adm-zip";
-import { Agent, getGlobalDispatcher, setGlobalDispatcher } from "undici";
 import { afterEach, expect, it, vi } from "vitest";
 import * as XLSX from "xlsx";
+import { withSocketHttpPeer } from "@/__tests__/helpers/httpPeer";
 import { importApp, uploadAppMediaBundle } from "../client";
 import { patchHqLocations } from "../hq/locations";
 import { uploadLookupTableWorkbook } from "../hq/lookupTables";
@@ -121,79 +119,49 @@ it.each(
 		const reached = Promise.withResolvers<void>(),
 			closed = Promise.withResolvers<void>();
 		const paths: string[] = [];
-		const server = createServer((request, response) => {
-			paths.push(`${request.method} ${request.url}`);
-			request.resume();
-			response.once("close", closed.resolve);
-			if (stage !== "headers") {
-				response.writeHead(stage === "refusal body" ? 500 : status, {
-					"content-type": "application/json",
-				});
-				response.write('{"incomplete":');
-			}
-			reached.resolve();
-		});
-		await new Promise<void>((resolve, reject) => {
-			server.once("error", reject);
-			server.listen(0, "127.0.0.1", () => {
-				server.off("error", reject);
-				resolve();
-			});
-		});
-		const address = server.address();
-		if (!address || typeof address === "string")
-			throw new Error("Missing socket peer port");
-		const previous = getGlobalDispatcher();
-		const dispatcher = new Agent({
-			connect: (options, callback) => {
-				if (options.hostname !== "india.commcarehq.org") {
-					callback(new Error("Unexpected HTTP destination"), null);
-					return;
-				}
-				const socket = createConnection({
-					host: "127.0.0.1",
-					port: address.port,
-				});
-				const failed = (error: Error) => callback(error, null);
-				socket.once("error", failed);
-				socket.once("connect", () => {
-					socket.off("error", failed);
-					callback(null, socket);
-				});
-			},
-		});
-		setGlobalDispatcher(dispatcher);
-		let settled = false;
-		const pending = invoke().then((value) => {
-			settled = true;
-			return value;
-		});
+		let pending: Promise<Awaited<ReturnType<typeof invoke>>> | undefined;
 		try {
-			await reached.promise;
-			await setImmediate();
-			await vi.advanceTimersByTimeAsync(milliseconds - 1);
-			expect(settled).toBe(false);
-			await vi.advanceTimersByTimeAsync(1);
-			await setImmediate();
-			expect(settled).toBe(true);
-			expect(await pending).toEqual(
-				stage === "refusal body" && !name.startsWith("worker")
-					? {
-							...expected,
-							status: 500,
-							...(name === "location batch" ? {} : { edgeRefusal: false }),
-						}
-					: expected,
+			await withSocketHttpPeer(
+				"india.commcarehq.org",
+				(request, response) => {
+					paths.push(`${request.method} ${request.url}`);
+					request.resume();
+					response.once("close", closed.resolve);
+					if (stage !== "headers") {
+						response.writeHead(stage === "refusal body" ? 500 : status, {
+							"content-type": "application/json",
+						});
+						response.write('{"incomplete":');
+					}
+					reached.resolve();
+				},
+				async () => {
+					let settled = false;
+					pending = invoke().then((value) => {
+						settled = true;
+						return value;
+					});
+					await reached.promise;
+					await setImmediate();
+					await vi.advanceTimersByTimeAsync(milliseconds - 1);
+					expect(settled).toBe(false);
+					await vi.advanceTimersByTimeAsync(1);
+					await setImmediate();
+					expect(settled).toBe(true);
+					expect(await pending).toEqual(
+						stage === "refusal body" && !name.startsWith("worker")
+							? {
+									...expected,
+									status: 500,
+									...(name === "location batch" ? {} : { edgeRefusal: false }),
+								}
+							: expected,
+					);
+					await closed.promise;
+					expect(paths).toEqual([`${method} ${path}`]);
+				},
 			);
-			await closed.promise;
-			expect(paths).toEqual([`${method} ${path}`]);
 		} finally {
-			setGlobalDispatcher(previous);
-			await dispatcher.destroy();
-			server.closeAllConnections();
-			await new Promise<void>((resolve, reject) =>
-				server.close((error) => (error ? reject(error) : resolve())),
-			);
 			await pending;
 		}
 	},

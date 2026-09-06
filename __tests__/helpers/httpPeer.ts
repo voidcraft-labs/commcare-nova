@@ -59,3 +59,57 @@ export async function withHttpPeer<T>(
 		await peer.close();
 	}
 }
+
+/** Exercise native HTTP streaming over a real loopback socket. Only the named
+ * HQ host can connect; the transport remaps that host to this HTTP peer without
+ * TLS. This proves request/body/socket lifetime, not TLS configuration. */
+export async function withSocketHttpPeer<T>(
+	hostname: string,
+	onRequest: RequestListener,
+	run: () => Promise<T>,
+): Promise<T> {
+	const server = createServer(onRequest);
+	await new Promise<void>((resolve, reject) => {
+		server.once("error", reject);
+		server.listen(0, "127.0.0.1", () => {
+			server.off("error", reject);
+			resolve();
+		});
+	});
+	const address = server.address();
+	if (!address || typeof address === "string")
+		throw new Error("Missing HTTP peer port");
+	const previous = getGlobalDispatcher();
+	const dispatcher = new Agent({
+		connect(options, callback) {
+			if (options.hostname !== hostname) {
+				callback(new Error("Unexpected HTTP destination"), null);
+				return;
+			}
+			const socket = createConnection({
+				host: "127.0.0.1",
+				port: address.port,
+			});
+			const failed = (error: Error) => callback(error, null);
+			socket.once("error", failed);
+			socket.once("connect", () => {
+				socket.off("error", failed);
+				callback(null, socket);
+			});
+		},
+	});
+	setGlobalDispatcher(dispatcher);
+	try {
+		return await run();
+	} finally {
+		setGlobalDispatcher(previous);
+		await dispatcher.destroy();
+		server.closeAllConnections();
+		await new Promise<void>((resolve, reject) =>
+			server.close((error) => (error ? reject(error) : resolve())),
+		);
+	}
+}
+
+import { createServer, type RequestListener } from "node:http";
+import { createConnection } from "node:net";

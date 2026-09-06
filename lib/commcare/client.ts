@@ -42,6 +42,7 @@ import {
 	type CommCareApiError,
 	type CommCareCredentials,
 	delay,
+	isEdgeRefusal,
 	isValidDomainSlug,
 	logAndReturnError,
 	WAF_PADDING,
@@ -412,8 +413,21 @@ async function probeCaseSearchRuntime(
 				signal,
 			});
 			if (response.status === 200 && response.redirected !== true) {
+				// HQ emits a fixture as text/xml. Headers distinguish the runtime
+				// answer from a successful HTML login/proxy page without reading
+				// any case data. application/xml is the equivalent XML media type.
+				const mediaType = response.headers
+					.get("content-type")
+					?.split(";")[0]
+					.trim()
+					.toLowerCase();
 				await response.body?.cancel();
-				return { state: "available" };
+				return {
+					state:
+						mediaType === "text/xml" || mediaType === "application/xml"
+							? "available"
+							: "unverified",
+				};
 			}
 			if (response.status === 404) {
 				const body = await response.text();
@@ -427,10 +441,12 @@ async function probeCaseSearchRuntime(
 				 * account may be allowed to edit/import apps while this separate
 				 * role permission is absent. Diagnose that recoverable distinction;
 				 * never reinterpret it as Case Search being disabled. */
-				await response.body?.cancel();
+				const body = await response.text();
 				return {
 					state: "unverified",
-					issue: "connected-account-permission",
+					...(isEdgeRefusal(body)
+						? {}
+						: { issue: "connected-account-permission" as const }),
 				};
 			}
 			await response.body?.cancel();
