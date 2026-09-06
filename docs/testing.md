@@ -199,3 +199,11 @@ Retain actual media element handles across access changes to verify sources and
 playback were retired. A disappearing role locator alone cannot prove closure:
 a parent dialog becomes hidden to role queries while its child confirmation is
 open. Wait for the topmost dialog to be removed.
+
+The migrated app-state fixture can exercise the production schema-service
+factories through its isolated local database URL. That fixture owns both its
+explicit pool and any application singleton pool opened through the URL; it
+closes both before dropping the database. Database contention probes use a
+separate controller connection, observe `pg_blocking_pids`, and release the
+lock and drain the operation in `finally`. Observing through a blocked
+single-connection application pool would deadlock the test itself.

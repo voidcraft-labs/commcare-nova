@@ -570,3 +570,35 @@ prove malformed/date/sort failures through real handlers.
 
 The MCP and pagination validation passed 252 tests across 33 files in 12.54
 seconds. This is the current slice's evidence; the full audit is still active.
+
+### Shared MCP writes are proved against real commits and blocked connections
+
+The old context and staged-transaction suites mocked the guarded database write.
+The shared-adapter suite also bypassed SDK dispatch and replaced access, logging
+and host methods. Those tests could not prove their transaction and await claims.
+The replacement uses native SDK calls, real migrated Project authorization,
+canonical commits, schema services, case rows and stored event envelopes.
+
+A two-stage conversion/patch commits one history row. A native trigger rejecting
+only a patch-bearing INSERT proves the failed call leaves no earlier conversion
+behind. Another call supplies the calculation its new hidden field requires in
+the same batch. Actual conversion impact prompts before changing stored values;
+a confirmed conversion preserves the original decimal in Data to review and
+keeps the consequence in the MCP success text. Pure result projection now owns
+summary stripping and note placement without a fabricated context.
+
+Native app and event-table locks prove the response waits for its database work.
+The lock controller observes `pg_blocking_pids` on its own connection and always
+releases and drains the operation. Temporarily removing the adapter's final
+`await logWriter.flush()` made both success/error response tests fail because
+the response resolved while INSERT was blocked. The production await is restored.
+
+The real failure test exposed raw PostgreSQL diagnostics in the ordinary shared
+tool error payload. `DatabaseError` now escapes that catch to the existing safe
+operational classifier. A real rejecting trigger verifies the complete safe MCP
+envelope and unchanged storage. Case-service testing also exposed an unowned
+cached application pool: fixtures granting a local database URL now close that
+pool before dropping the database, including on failure.
+
+The final MCP and shared-error consumer run passed 271 tests across 33 files in
+14.62 seconds. Type checking passed. The full audit remains in progress.

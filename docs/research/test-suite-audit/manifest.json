@@ -2106,7 +2106,10 @@
 			"file": "lib/agent/__tests__/tools/toolErrorResult.test.ts",
 			"lines": 41,
 			"ciMs": 591,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full shared helper and old tests. Replaced partial result assertions and misleading nothing-committed claim with complete refusal projections and original error-identity propagation for authority, protocol and PostgreSQL errors. Real shared MCP/DB test owns rollback and safe wire proof. Added DatabaseError escape after native trigger showed raw database diagnostic in model-correctable result.",
+			"baselineSha256": "a61f81af41c3f83b5f76fad708ee436e36d7756bf23e86ab69dc6603a9765b02",
+			"reviewedSha256": "0b46c025c01874c7c60d3aef22d0e6c5f007c32a1a45ae3a42dd577abfad09ed"
 		},
 		{
 			"file": "lib/agent/__tests__/turnRetry.test.ts",
@@ -6468,7 +6471,10 @@
 			"file": "lib/mcp/__tests__/context.test.ts",
 			"lines": 345,
 			"ciMs": 1806,
-			"status": "pending"
+			"status": "removed",
+			"review": "Replaced whole guarded-write and LogWriter mocks with context.postgres.test.ts using actual initMcpCall, schema/data store, membership and event writer. Complete interleaved envelopes, one history row per staged batch, no-op invariance, organization revision refusal/retry and authoritative peer merge are observed in real rows. Native app lock proves persistence precedes return and logging.",
+			"baselineSha256": "ab15425dc6d103d8b86134902d2f2e8a3cf30366dde03afddc5879aeca5f0329",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/mcp/__tests__/createApp.test.ts",
@@ -6654,13 +6660,19 @@
 			"file": "lib/mcp/__tests__/sharedToolAdapter.test.ts",
 			"lines": 1049,
 			"ciMs": 2165,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replaced 1049-line fake SDK, fabricated app/access and monkey-patched host suite with pure result projection plus real SDK/migrated database suite. Actual schema refinements, scope/roles, app_id stripping, stable option receipts, duplicate refusal, case-write membership, atomic stages and both response paths awaiting native log INSERT are verified. Negative control removing await caused both blocked-log tests to fail. Real case rows prove conversion consent, unchanged pre-consent storage, parked original value and user-visible data consequence. SQL failure exposed raw private diagnostics; shared tool now propagates DatabaseError for safe operational classification.",
+			"baselineSha256": "53fb0b6333d6e372a73240a984d0b778ec7fce6047037665dc294edd6dfb15dc",
+			"reviewedSha256": "9be4a62a7584ddfe45d0cb630344b52f877c84b88357cddf97837af3f8b3b74f"
 		},
 		{
 			"file": "lib/mcp/__tests__/stagedToolTransactionalCommit.test.ts",
 			"lines": 228,
 			"ciMs": 1497,
-			"status": "pending"
+			"status": "removed",
+			"review": "Removed alleged transactional proof whose whole database write was mocked and whose edit had only one stage. Actual sharedToolAdapter.postgres.test.ts drives conversion plus patch through SDK and real commit. Native trigger rejects only the patch-bearing history insert, so a split-save regression would leave a detectable prefix. Actual hidden conversion supplies its required calculation in the same call and commits one change.",
+			"baselineSha256": "e45b7ce4007667ddc4eb578831dcbb31cda3d8ac260097ffbe5f15a6d3802592",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/mcp/__tests__/updateMemberRole.test.ts",

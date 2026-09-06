@@ -46,7 +46,9 @@ export interface PerTestDatabaseOptions {
 	 * Exact migrations fail closed when production database-role identities are
 	 * absent. Tests that run those migrations must opt into the same local
 	 * authority used by `npm run dev`; merely running under Vitest is not
-	 * authority to bypass a production invariant.
+	 * authority to bypass a production invariant. The fixture also owns and
+	 * closes any application connection opened through this local URL before
+	 * dropping the database.
 	 */
 	establishLocalMigrationAuthority?: true;
 }
@@ -78,10 +80,15 @@ export function setupPerTestDatabase(
 				}
 				await prepare(built.db, built.pool);
 			} finally {
-				if (previous === undefined) delete process.env.NOVA_DB_LOCAL_URL;
-				else process.env.NOVA_DB_LOCAL_URL = previous;
-				await built.db.destroy();
-				if (!built.pool.ended) await built.pool.end();
+				try {
+					if (options.establishLocalMigrationAuthority)
+						await closeApplicationConnection();
+				} finally {
+					if (previous === undefined) delete process.env.NOVA_DB_LOCAL_URL;
+					else process.env.NOVA_DB_LOCAL_URL = previous;
+					await built.db.destroy();
+					if (!built.pool.ended) await built.pool.end();
+				}
 			}
 			const admin = new Client({ connectionString: postgresTestUrl() });
 			try {
@@ -138,14 +145,16 @@ export function setupPerTestDatabase(
 			return;
 		}
 		try {
-			await captured.db.destroy();
-			// Kysely initializes its driver lazily. Tests that use the exposed
-			// `pool` directly can open a connection without ever initializing
-			// `db`, in which case `db.destroy()` intentionally no-ops and leaves
-			// the shared pool alive. Close that path explicitly; when Kysely did
-			// initialize, its destroy already marks the pool ended.
-			if (!captured.pool.ended) {
-				await captured.pool.end();
+			try {
+				if (options.establishLocalMigrationAuthority)
+					await closeApplicationConnection();
+			} finally {
+				// Kysely initializes lazily; direct pool users may never initialize its driver.
+				try {
+					await captured.db.destroy();
+				} finally {
+					if (!captured.pool.ended) await captured.pool.end();
+				}
 			}
 		} finally {
 			try {
@@ -293,4 +302,12 @@ function buildIsolatedDb(uri: string): {
 		}),
 	});
 	return { db, pool };
+}
+
+/** The local URL permits production factories to open their own cached pool.
+ * Close that real pool before dropping its database or changing the URL; it
+ * otherwise survives into the next test and receives a forced-disconnect error. */
+async function closeApplicationConnection(): Promise<void> {
+	const { closeCaseStoreDatabase } = await import("../../postgres/connection");
+	await closeCaseStoreDatabase();
 }
