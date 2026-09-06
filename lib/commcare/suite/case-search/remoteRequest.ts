@@ -1,4 +1,5 @@
 import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
+
 // lib/commcare/suite/case-search/remoteRequest.ts
 //
 // Top-level orchestrator for `<remote-request>`. Walks one module
@@ -9,10 +10,10 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
 // `WireShape` flag set comes from `compileForPlatform.ts` and
 // drives the downstream sub-emitters' attribute choices.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	type CaseListConfig,
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
@@ -218,7 +219,7 @@ export function emitRemoteRequest(args: {
 }): RemoteRequestEmission {
 	const { element, strings, translationUnits, wire } = buildRemoteRequest(args);
 	return {
-		xml: render(element, RENDER_OPTS),
+		xml: serializeXml(element),
 		strings,
 		translationUnits,
 		wire,

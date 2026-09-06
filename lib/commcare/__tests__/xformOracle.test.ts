@@ -32,11 +32,7 @@ describe("validateXForm — XForm parse-time oracle", () => {
 	});
 
 	it("catches an element using an undeclared namespace prefix (malformed XML)", () => {
-		// `<orx:meta>` with no `xmlns:orx` declaration — the prefix is
-		// undefined, so the whole form is malformed XML. fast-xml-parser's
-		// well-formedness gate doesn't catch an undeclared prefix; the
-		// namespace check does (the regression that silently broke media
-		// uploads — CCHQ rejects the form, so no media attaches).
+		// HQ rejects an undeclared prefix before inspecting any form content.
 		const xml = `<?xml version="1.0"?>
 <h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">
   <h:head>
@@ -198,7 +194,7 @@ describe("validateXForm — XForm parse-time oracle", () => {
 
 	it("rejects a <value> containing an unescaped < in label text (e.g. weight ranges)", () => {
 		// Raw `<` in label text is not a valid XML character outside markup.
-		// htmlparser2 silently recovers; fast-xml-parser catches it at the gate.
+		// htmlparser2 silently recovers; the namespace-aware XML parser catches it at the gate.
 		const xml = `<?xml version="1.0"?>
 <h:html xmlns:h="http://www.w3.org/1999/xhtml" xmlns="http://www.w3.org/2002/xforms">
   <h:head>

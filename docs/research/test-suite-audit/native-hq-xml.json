@@ -1,0 +1,276 @@
+{
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"lxmlVersion": [6, 1, 0, 0],
+	"libxmlVersion": [2, 14, 6],
+	"corpusSha256": "6e20fe35d11b90013a36708bb9b2341aea19a3437885960b89e1b635096022f5",
+	"xmlCases": [
+		{
+			"name": "ordinary Unicode",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "XML whitespace",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "legal range edges",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "C1 characters",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "supplementary noncharacters",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "decimal and hex references",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "escaped reference spelling",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "comment and CDATA reference spelling",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "namespace rebindings scoped to children",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "built in xml namespace",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "same local attribute in distinct namespaces",
+			"accepted": true,
+			"error": null
+		},
+		{
+			"name": "literal U+0000",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reference U+0000",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+0001",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reference U+0001",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+0008",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reference U+0008",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+000B",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reference U+000B",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+000C",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reference U+000C",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+000E",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reference U+000E",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+001F",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reference U+001F",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+D800",
+			"accepted": false,
+			"error": "UnicodeEncodeError"
+		},
+		{
+			"name": "reference U+D800",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+DC00",
+			"accepted": false,
+			"error": "UnicodeEncodeError"
+		},
+		{
+			"name": "reference U+DC00",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+FFFE",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reference U+FFFE",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal U+FFFF",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reference U+FFFF",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "unbound element prefix",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "unbound attribute prefix",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "prefix defined only on sibling",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "prefix defined only on descendant",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "namespace alias duplicate attributes",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "reserved xml prefix rebound",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "unescaped ampersand",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "unknown entity",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "out of Unicode range",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "mismatched close",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "two roots",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "no root",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal control in comment",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		},
+		{
+			"name": "literal control in CDATA",
+			"accepted": false,
+			"error": "XMLSyntaxError"
+		}
+	],
+	"nativeHqForms": [
+		{
+			"name": "unicode",
+			"accepted": true,
+			"error": null,
+			"inputSha256": "f2292bf69960effaf15c0677b965722374d33b0f97d8520576086b9552606d09"
+		},
+		{
+			"name": "control",
+			"accepted": false,
+			"error": "XFormException",
+			"inputSha256": "df3d1ea2356d445db1b6a06465d3756ef3954c0161650cf97ebe2100a1b4f4f8"
+		},
+		{
+			"name": "nul",
+			"accepted": false,
+			"error": "XFormException",
+			"inputSha256": "4bd1754e1c829f1c40fba9aa1eb427a93e6d4809579aad1f5ebec7171c1ac2ee"
+		},
+		{
+			"name": "surrogate",
+			"accepted": false,
+			"error": "XFormException",
+			"inputSha256": "1c5622071e1c2a7685604e3148299a5dbe9de59456bdf981dd0311a09255b3ea"
+		},
+		{
+			"name": "noncharacter",
+			"accepted": false,
+			"error": "XFormException",
+			"inputSha256": "034945c556ab28b927ab2766d865f54ddda8b9efb09a22a638549ff1b09458dc"
+		}
+	],
+	"limits": "Read-only native HQ Application.from_source and XForm.xml, native libxml well-formedness, and decoded text from actual CCZ artifacts. No DB writes, remote calls, HQ build or Android installation. DTD and XML 1.1 refusal is Nova policy, excluded from native malformedness claims."
+}

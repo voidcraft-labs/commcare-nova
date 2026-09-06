@@ -1,19 +1,16 @@
 import { isTag } from "domhandler";
 import { textContent } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
-import { parseDocument } from "htmlparser2";
 import { COMMCARE_SERVERS, type CommCareServer } from "./servers";
+import { tryParseXml } from "./xmlParse";
 
 /** HQ profile.xml always carries a remote resource named suite; local is optional. */
 export function profileReferencesBuildSuite(
 	xml: string,
 	target: { server: CommCareServer; domain: string; buildId: string },
 ): boolean {
-	if (XMLValidator.validate(xml) !== true) return false;
-	const roots = parseDocument(xml, {
-		xmlMode: true,
-		decodeEntities: true,
-	}).children.filter(isTag);
+	const parsed = tryParseXml(xml);
+	if ("issue" in parsed) return false;
+	const roots = parsed.doc.children.filter(isTag);
 	if (roots.length !== 1 || roots[0].name !== "profile") return false;
 	const resources = roots[0].children
 		.filter(isTag)

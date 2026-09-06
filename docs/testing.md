@@ -386,3 +386,10 @@ not TLS. Controlled peer tests cover exact acknowledgement and classification;
 streaming peers cover incomplete headers/bodies and prove cancellation. The
 compatibility success fixture never finishes its body, so an implementation
 that reads case data fails its available verdict at the owned virtual deadline.
+
+XML checks must distinguish syntax from value preservation. `xmlBoundary.test.ts`
+shares a malformedness corpus with the native HQ/libxml proof, exercises the
+actual mutation gates, and checks exact decoded whitespace and Unicode. The
+native proof parses actual HQ source and local CCZ forms; Core separately
+initializes both forms and reads their answer and question text. A successful
+HTML-parser round trip or an emitter paired with its own oracle is insufficient.

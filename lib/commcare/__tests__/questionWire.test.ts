@@ -1,8 +1,8 @@
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { findAll, textContent } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -89,7 +89,7 @@ describe("question types and labels in delivered XForms", () => {
 					: Object.values(hq._attachments)[0];
 			if (typeof xml !== "string") throw new Error("Missing delivered form");
 			// htmlparser2 recovers malformed XML, so prove strict syntax first.
-			expect(XMLValidator.validate(xml)).toBe(true);
+			new SaxesParser({ xmlns: true }).write(xml).close();
 			const parsed = parseDocument(xml, { xmlMode: true });
 			const model = one(findAll((e) => e.name === "model", parsed.children));
 			const body = one(findAll((e) => e.name === "h:body", parsed.children));

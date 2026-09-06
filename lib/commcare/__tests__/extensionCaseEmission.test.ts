@@ -1,8 +1,8 @@
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { findAll } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -22,7 +22,7 @@ function one(nodes: Element[]): Element {
 	return node;
 }
 function xmlTree(xml: string) {
-	expect(XMLValidator.validate(xml)).toBe(true);
+	new SaxesParser({ xmlns: true }).write(xml).close();
 	return parseDocument(xml, { xmlMode: true });
 }
 function at(parent: Element, name: string) {

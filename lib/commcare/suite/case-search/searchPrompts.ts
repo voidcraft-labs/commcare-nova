@@ -39,10 +39,10 @@
 // `<default>` element; barcode rides on `@appearance="barcode_scan"`,
 // not `@input`. Both verified against the `QueryPrompt` model.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	type LookupOptionsSource,
 	makeTranslationUnitId,
@@ -437,7 +437,7 @@ export function emitSearchPrompts(
 	);
 	if (elements.length === 0) return { xml: "", strings, translationUnits };
 	return {
-		xml: elements.map((promptEl) => render(promptEl, RENDER_OPTS)).join("\n"),
+		xml: elements.map((promptEl) => serializeXml(promptEl)).join("\n"),
 		strings,
 		translationUnits,
 	};

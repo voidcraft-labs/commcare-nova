@@ -25,9 +25,9 @@
  *
  * ## Structural model
  *
- * The strict `XMLValidator.validate` gate proves well-formedness (the only
- * parse-failure path; htmlparser2 recovers rather than throws, so it can't be
- * the gate), then a single htmlparser2 DOM walk builds the shared model once:
+ * The namespace-aware XML 1.0 gate proves well-formedness (the only
+ * parse-failure path) and builds a DOM with faithfully decoded XML values.
+ * A single structural walk then builds the shared model:
  * the set of instance node paths (element + `@attr`), the set of REPEATABLE
  * node paths (elements carrying `jr:template`), and the itext id set. Each
  * invariant reads off that model.
@@ -61,7 +61,7 @@
  * stays.
  */
 
-import { type Document, type Element, isTag } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
 import {
 	isParseableXPath,
@@ -673,7 +673,7 @@ function checkRepeats(
 	}
 
 	// #22: walk the BODY repeat/control nesting, tracking the nearest enclosing
-	// repeat's nodeset. The body element is the XHTML `<h:body>` — htmlparser2
+	// repeat's nodeset. The body element is the XHTML `<h:body>` — the DOM
 	// keeps the namespace prefix in `name`, so match on the local name (the
 	// part after the `:`) to stay robust to the prefix the emitter happens to
 	// pick. We descend from the body root.
@@ -1168,62 +1168,6 @@ function readElementText(el: Element): string {
 	return acc;
 }
 
-// ── Namespace declarations (#0 — malformedness) ────────────────────
-
-/** XML namespace prefixes that are always available without an explicit
- *  `xmlns:` declaration. */
-const RESERVED_NS_PREFIXES = new Set(["xml"]);
-
-/**
- * Every namespace prefix used on an element or attribute NAME must be
- * declared somewhere via `xmlns:<prefix>`. An undeclared prefix makes the
- * whole document malformed XML: CCHQ's namespace-aware parser rejects the
- * form, and on the multimedia path `FormMediaMixin.all_media` then returns
- * empty (the form never parses), so EVERY media reference silently fails to
- * attach on upload.
- *
- * `fast-xml-parser`'s validator (the model's parse gate) does NOT check
- * namespace declarations, so this is the check that catches an emitter that
- * uses a prefix it forgot to declare (e.g. an `<orx:meta>` emitted without
- * its `xmlns:orx` declaration). "Declared anywhere" counts as available — this flags
- * never-declared prefixes, not strict per-element scoping, so a
- * correctly-scoped prefix never trips it.
- */
-function checkNamespacePrefixes(
-	doc: Document,
-	formName: string,
-	loc: ValidationLocation,
-): ValidationError[] {
-	const declared = new Set<string>();
-	const used = new Set<string>();
-	for (const el of findAll(() => true, doc.children)) {
-		const nameColon = el.name.indexOf(":");
-		if (nameColon !== -1) used.add(el.name.slice(0, nameColon));
-		for (const attr of Object.keys(el.attribs)) {
-			if (attr === "xmlns") continue; // the default namespace carries no prefix
-			if (attr.startsWith("xmlns:")) {
-				declared.add(attr.slice("xmlns:".length));
-				continue;
-			}
-			const attrColon = attr.indexOf(":");
-			if (attrColon !== -1) used.add(attr.slice(0, attrColon));
-		}
-	}
-	const errors: ValidationError[] = [];
-	for (const prefix of used) {
-		if (RESERVED_NS_PREFIXES.has(prefix) || declared.has(prefix)) continue;
-		errors.push(
-			validationError(
-				"XFORM_PARSE_ERROR",
-				"form",
-				`"${formName}" uses the XML namespace prefix "${prefix}:" but never declares it (no matching xmlns:${prefix}). That makes the whole form malformed XML. CCHQ's parser rejects it, which silently breaks every media reference on upload. This is a bug in the form generator.`,
-				loc,
-			),
-		);
-	}
-	return errors;
-}
-
 // ── Public API ─────────────────────────────────────────────────────
 
 /**
@@ -1256,12 +1200,10 @@ export function validateXForm(
 	const built = buildXFormDataModel(xml, formName, moduleName);
 	if ("fatal" in built) return [built.fatal];
 	const model = built.model;
-	const doc = model.doc;
 
 	// Run every invariant against the shared model. Order is cosmetic — errors
 	// accumulate into one flat array the caller renders.
 	return [
-		...checkNamespacePrefixes(doc, formName, loc),
 		...checkTranslations(model, formName, loc),
 		...checkItextDefinitions(model, formName, loc),
 		...checkBinds(model, formName, loc),

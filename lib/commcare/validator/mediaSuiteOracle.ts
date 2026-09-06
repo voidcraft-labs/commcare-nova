@@ -53,17 +53,14 @@
  * accepts it cleanly.
  */
 
-import { type Document, type Element, isTag } from "domhandler";
+import { type Element, isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
-import { parseDocument } from "htmlparser2";
+import { tryParseXml } from "../xmlParse";
 import {
 	type ValidationError,
 	type ValidationLocation,
 	validationError,
 } from "./errors";
-
-const XML_OPTS = { xmlMode: true } as const;
 
 /**
  * Validate a generated `media_suite.xml` against CommCare's parse + install
@@ -84,21 +81,20 @@ export function validateMediaSuite(
 ): ValidationError[] {
 	const loc: ValidationLocation = {};
 
-	// Strict well-formedness gate. CommCare's KXmlParser rejects malformed XML
-	// at parse; fast-xml-parser's strict XMLValidator mirrors that contract.
-	const xmlValidation = XMLValidator.validate(mediaSuiteXml);
-	if (xmlValidation !== true) {
+	// Syntax and decoded values come from one namespace-aware XML parse.
+	const parsed = tryParseXml(mediaSuiteXml);
+	if ("issue" in parsed) {
 		return [
 			validationError(
 				"MEDIA_SUITE_PARSE_ERROR",
 				"app",
-				`The generator produced malformed media_suite.xml that CommCare will reject: ${xmlValidation.err.msg}. This is a bug in the media-suite generator.`,
+				`The generator produced malformed media_suite.xml that CommCare will reject: ${parsed.issue}. This is a bug in the media-suite generator.`,
 				loc,
 			),
 		];
 	}
 
-	const doc: Document = parseDocument(mediaSuiteXml, XML_OPTS);
+	const { doc } = parsed;
 
 	const suiteEl = findAll((el) => el.name === "suite", doc.children)[0];
 	if (suiteEl === undefined) {

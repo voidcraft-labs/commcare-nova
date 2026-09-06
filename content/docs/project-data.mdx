@@ -180,6 +180,10 @@ A table travels with the app it is read by, whichever way the app leaves Nova:
 - **The CommCare HQ app file** comes as a zip with a `lookup-tables.xlsx` beside
   it, for uploading on the project's Lookup Tables page.
 
+If a cell contains a character CommCare cannot preserve, Nova stops the export
+and names the table and column. Remove that character in Project data, then try
+again. Nova keeps your stored values unchanged.
+
 Two things worth knowing before you rename an export tag. CommCare HQ finds a
 table by that tag, so renaming makes a **new** table there and leaves the old
 one where it is, and a tag longer than 31 characters is one CommCare HQ has no

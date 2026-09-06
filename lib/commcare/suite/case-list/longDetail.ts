@@ -55,10 +55,10 @@
 // blocks display a consistent runtime title without app-strings
 // entries.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	type BlueprintDoc,
 	effectiveCaseTypes,
@@ -210,7 +210,7 @@ export function emitLongDetail(args: {
 	readonly target?: DetailTarget;
 }): CaseListEmission {
 	const { element, strings, translationUnits } = buildLongDetail(args);
-	return { xml: render(element, RENDER_OPTS), strings, translationUnits };
+	return { xml: serializeXml(element), strings, translationUnits };
 }
 
 /**

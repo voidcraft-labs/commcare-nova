@@ -11,7 +11,7 @@
  *
  * The emitter CONSTRUCTS `domhandler` element trees (via the shared helpers
  * in `elementBuilders.ts`) and splices them into the form's parsed DOM, then
- * serializes the tree once with `dom-serializer`. There is NO template-literal
+ * serializes the tree once with `serializeXml`. There is NO template-literal
  * XML in this module: every attribute and text value flows through `setAttribute`
  * (an `attribs` object literal) or a `Text` node, and the serializer is the
  * single, exclusive escaping authority. The earlier string-template emitter
@@ -1027,7 +1027,7 @@ function conditionToRelevantXPath(condition: FormActionCondition): string {
  * `<setvalue>` elements seeding the case_id at form load.
  *
  * Round-trip parse + splice + serialize via the shared `xform/domSplice.ts`
- * helpers — `dom-serializer` is the single XML-escaping authority there, so
+ * helpers — `serializeXml` is the single XML-escaping authority there, so
  * every interpolated XPath body / case-type / field path goes through one
  * structural pass with no hand-escaping. The post-injection XForm oracle
  * reparses what this returns (`validator/xformDataModel.ts::buildXFormDataModel`)

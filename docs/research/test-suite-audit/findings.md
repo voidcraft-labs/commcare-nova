@@ -1286,7 +1286,7 @@ Shrinking is enabled in both corpora. Temporary production corruptions proved
 that emptying packaged media and changing entry form namespaces each fail both
 corpora, with smaller counterexamples. Both corruptions were reverted. These
 finite checks do not claim native CommCare execution or exhaustive validity.
-Final validation: both 900-sample corpora plus independent question-wire and
+Final validation: both corpora (900 samples total) plus independent question-wire and
 scope regressions pass (four files, nine tests, 14.87 seconds); full TypeScript
 check passes.
 
@@ -1424,7 +1424,7 @@ entities, unscoped `indexOf` ordering and editor-shadow requirements are removed
 
 Validation: the final focused run passes 89 tests in five files; the native
 Core run passes all ten cases, and native HQ checks all 13 exported scenarios.
-Both 900-document wire corpora and the other compiler consumers passed in the
+Both wire corpora (900 documents total) and the other compiler consumers passed in the
 broader run; its obsolete repeat/batch assertions were replaced and rerun.
 Full typecheck, strict Biome checks and all recorded review hashes pass.
 
@@ -1467,3 +1467,49 @@ the regenerated corpus. No remote request or paid model call runs.
 
 Validation: 21 focused tests in three files, all 34 native operation/capture
 cases, full typecheck, strict Biome and recorded review hashes pass.
+
+## XML evidence covers admission, decoding and native values
+
+Native HQ rejected four source forms that Nova had accepted and exported: a
+control character, NUL, an unpaired surrogate and U+FFFF. A separate accepted
+Unicode document exposed two silent changes. Literal tab/LF/CR in XPath
+attributes became spaces in native XML parsing. HTML parsing of C1 numeric
+references changed their values to Windows-1252 display characters. Recovering
+HTML parsers and the previous well-formedness check could not establish an XML
+contract, even when both Nova's emitter and test helper agreed.
+
+The wire boundary now uses namespace-aware SAXES parsing for both syntax and
+DOM construction. The shared writer preserves XML attribute whitespace and
+text carriage returns with character references, checks raw character values,
+and leaves encoding to one boundary. The app validator refuses unsupported
+characters in emitted definitions and translations through both shared mutation
+gates. Purpose notes and other non-emitted metadata are outside that rule.
+External lookup data remains editable; every export mode returns bounded,
+column-specific findings before constructing either fixture XML or an HQ
+workbook, including unsupported values in an unselected column. Profiles also
+receive the strict XML check.
+
+A 49-case syntax corpus covers character ranges, namespace scope, expanded
+attribute duplicates and reference spellings in comments/CDATA. Native HQ's
+libxml independently checks 47 cases; Nova's explicit DTD/XML 1.1 policy accounts
+for the other two. Historical source artifacts reproduce the four native
+refusals. The accepted document passes native HQ import/regeneration and two
+Core runtime tests which inspect the initialized answer and worker prompt.
+The native case corpus was regenerated after the writer change: all 25 HQ
+scenarios and 34 Core case-operation/capture tests pass.
+
+The gate suite also loses its source-regex union check, fixed classification
+counts and code-prefix oracle imitation. Typed exhaustiveness remains a
+compiler check. Its behavioral tests establish strict valid baselines, complete
+candidate refusal, atomic complete-form acceptance, repair, cross-module writer
+findings and the actual media boundary difference. A deliberate legacy shape
+still exercises the defensive shape gate. The old 20-second timing test used
+an invalid app and would pass a no-op validator. Its replacement validates an
+admissible 3,000-field app, then requires the exact broken reference at the final
+field. Runtime belongs in measured suite results, not a permissive wall-clock
+assertion that says nothing about completed work.
+
+Validation: 114 focused XML/gate/export cases pass; the large-app test passes in
+one second. The broader compiler/parser consumers and both wire corpora (900 documents total) also pass after replacing the obsolete classification assertions.
+Native evidence records source identities, actual exported bytes and the limits
+of each proof. No remote submission or paid model call runs.

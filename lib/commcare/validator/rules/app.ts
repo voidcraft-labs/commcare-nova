@@ -43,6 +43,7 @@ import { AUTOMATION_RULES } from "./automations";
 import { fieldKindMatchesPropertyType } from "./fieldKindMatchesPropertyType";
 import { ORGANIZATION_RULES } from "./organization";
 import { USER_RULES } from "./users";
+import { authoredXmlText } from "./xmlText";
 
 function closedBlueprintTopology(doc: BlueprintDoc): ValidationError[] {
 	return blueprintTopologyIssues(doc).map((issue) =>
@@ -730,6 +731,7 @@ function validEntryPoints(doc: BlueprintDoc): ValidationError[] {
 }
 
 export const APP_RULES = [
+	authoredXmlText,
 	validEntryPoints,
 	closedBlueprintTopology,
 	catalogXPathCompatible,

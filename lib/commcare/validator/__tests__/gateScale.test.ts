@@ -1,30 +1,20 @@
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { proseText } from "@/lib/domain/prose";
-/**
- * Perf guard for the boundary gate: a full `evaluateBoundary` run over a
- * large deterministic fixture must finish inside a GENEROUS budget. The
- * budget is sized to trip only on an order-of-magnitude regression (an
- * accidentally quadratic walk, a per-field full-doc rescan), never on CI
- * load noise — typical runs finish well under a tenth of it.
- */
-
-import { performance } from "node:perf_hooks";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
-import type { BlueprintDoc } from "@/lib/domain";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
 import {
 	buildDoc,
 	caseListConfig,
 	f,
 	type ModuleSpec,
+	xp,
 } from "../../../__tests__/docHelpers";
 import { evaluateBoundary } from "../gate";
 
-const BUDGET_MS = 20_000;
-
 /**
  * Deterministic large fixture: 30 modules × 4 forms × 25 fields = 3,000
- * fields, every field carrying XPath surfaces (so the deep walk's Lezer
- * parses — the expensive part — run at scale), case-property writers
+ * fields, chained expression references, case-property writers
  * feeding real case lists, and nested groups so the tree walks recurse.
  */
 function largeDoc(): BlueprintDoc {
@@ -36,7 +26,7 @@ function largeDoc(): BlueprintDoc {
 			caseType,
 			caseListConfig: caseListConfig([
 				{ field: "case_name", header: "Name" },
-				{ field: `prop_${m}_0`, header: "First" },
+				{ field: "q_0", header: "First" },
 			]),
 			forms: Array.from({ length: 4 }, (_, fm) => ({
 				name: `Form ${m}-${fm}`,
@@ -50,10 +40,10 @@ function largeDoc(): BlueprintDoc {
 					}),
 					...Array.from({ length: 20 }, (_, q) =>
 						f({
-							kind: "text",
+							kind: "int",
 							id: `q_${q}`,
 							label: `Question ${q}`,
-							relevant: q > 0 ? `#form/q_${q - 1} != ''` : undefined,
+							relevant: q > 0 ? `#form/q_${q - 1} > 0` : undefined,
 							required: "true()",
 							...(fm > 0 && q < 3
 								? {
@@ -88,28 +78,44 @@ function largeDoc(): BlueprintDoc {
 			name: `case_type_${m}`,
 			properties: [
 				{ name: "case_name", label: "Name" },
-				{ name: `prop_${m}_0`, label: "First" },
+				...Array.from({ length: 3 }, (_, q) => ({
+					name: `q_${q}`,
+					label: proseText(`Number ${q}`),
+					data_type: "int" as const,
+				})),
 			],
 		})),
 	});
 }
 
-describe("evaluateBoundary perf guard", () => {
-	it(`completes a full boundary run over a 3,000-field doc in under ${BUDGET_MS / 1000}s`, () => {
+describe("complete validation of a large app", () => {
+	it("accepts 3,000 fields, then finds a broken reference in the last form", () => {
 		const doc = largeDoc();
-		const start = performance.now();
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		expect(Object.keys(doc.fields)).toHaveLength(3_000);
+		expect(
+			evaluateBoundary(doc, new Map(), LOOKUP_CONTEXT_UNAVAILABLE),
+		).toEqual([]);
+		const lastField = Object.values(doc.fields).at(-1);
+		if (lastField?.kind !== "hidden")
+			throw new Error("Expected the final calculation field");
+		const broken = produce(doc, (draft) => {
+			draft.fields[lastField.uuid] = {
+				...lastField,
+				calculate: xp("#form/missing"),
+			};
+		});
+		blueprintDocSchema.parse(toPersistableDoc(broken));
 		const findings = evaluateBoundary(
-			doc,
+			broken,
 			new Map(),
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-		const elapsed = performance.now() - start;
-
-		// The fixture is intentionally imperfect in benign ways; what the
-		// guard pins is the RUNTIME, not cleanliness. Sanity-check the run
-		// actually walked the doc (a short-circuit bug would also be fast).
-		expect(Array.isArray(findings)).toBe(true);
-		expect(Object.keys(doc.fields).length).toBeGreaterThan(2_500);
-		expect(elapsed).toBeLessThan(BUDGET_MS);
-	}, 60_000);
+		expect(
+			findings.map(({ code, location }) => ({
+				code,
+				fieldUuid: location.fieldUuid,
+			})),
+		).toEqual([{ code: "INVALID_REF", fieldUuid: lastField.uuid }]);
+	});
 });

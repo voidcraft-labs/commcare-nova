@@ -1,8 +1,8 @@
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { findAll, textContent } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -31,7 +31,7 @@ function child(parent: Element, name: string): Element {
 	return one(parent.children.filter(isTag).filter((e) => e.name === name));
 }
 function parse(xml: string) {
-	expect(XMLValidator.validate(xml)).toBe(true);
+	new SaxesParser({ xmlns: true }).write(xml).close();
 	return one(parseDocument(xml, { xmlMode: true }).children.filter(isTag));
 }
 function formTree(xml: string) {

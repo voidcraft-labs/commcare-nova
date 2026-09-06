@@ -13,6 +13,7 @@ export type ValidationErrorCode =
 	| "SUITE_ENDPOINT_INVALID"
 	// App-level
 	| "EMPTY_APP_NAME"
+	| "APP_TEXT_UNREPRESENTABLE"
 	| "NO_MODULES"
 	| "MISSING_CHILD_CASE_MODULE"
 	| "RESERVED_CASE_TYPE_NAME"
@@ -403,6 +404,7 @@ export type ValidationErrorCode =
 	// not of any commit. Every export mode takes them — a choice list whose
 	// saved values are blank or duplicated is equally broken however the
 	// table reached the device.
+	| "LOOKUP_CELL_TEXT_UNREPRESENTABLE"
 	| "LOOKUP_SELECT_SOURCE_VALUE_BLANK"
 	| "LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE"
 	| "LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE"

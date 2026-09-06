@@ -75,3 +75,12 @@ This proof does not establish rollback: Core's in-memory test storage applies
 records as the parser visits them. It also does not run Android or HQ's server
 case processor. `docs/research/test-suite-audit/native-core-operations.json`
 records the passing methods, native sources and exact exported form hashes.
+
+## XML text execution
+
+Run the XML producer and HQ proof above, then select
+`nova.compatibility.XmlTextRuntimeTest` with
+`-PnovaProofResources=/tmp/nova-xml-evidence`. Two cases initialize the actual
+CCZ and HQ-regenerated forms, assert the tab/LF/CR-bearing default answer and
+read the worker's question prompt with accents, combining marks, non-Latin
+scripts, emoji and C1 characters. This checks runtime values, not only parsing.

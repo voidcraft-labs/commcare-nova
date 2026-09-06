@@ -4,8 +4,8 @@ import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { textContent } from "domutils";
 import { assert, type IProperty, type Parameters } from "fast-check";
-import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { expect } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -82,7 +82,7 @@ function one(elements: Element[]): Element {
 	return element;
 }
 function xmlRoot(xml: string): Element {
-	expect(XMLValidator.validate(xml)).toBe(true);
+	new SaxesParser({ xmlns: true }).write(xml).close();
 	return one(parseDocument(xml, { xmlMode: true }).children.filter(isTag));
 }
 

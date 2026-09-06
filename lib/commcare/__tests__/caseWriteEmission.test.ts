@@ -1,7 +1,7 @@
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
-import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
@@ -22,7 +22,7 @@ function child(element: Element, name: string): Element {
 	return one(element.children.filter(isTag).filter((e) => e.name === name));
 }
 function read(xml: string) {
-	expect(XMLValidator.validate(xml)).toBe(true);
+	new SaxesParser({ xmlns: true }).write(xml).close();
 	const root = one(
 		parseDocument(xml, { xmlMode: true }).children.filter(isTag),
 	);

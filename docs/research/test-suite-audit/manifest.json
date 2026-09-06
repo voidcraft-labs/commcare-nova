@@ -3612,7 +3612,7 @@
 			"status": "revised",
 			"review": "Replaced hand-built hosts, apostrophe de-escaping, duplicated owner/name checks, and unscoped substring/order assertions. Real builder plus meta output feeds strict XML and direct-child transaction/model reads: exact no-op bytes; selected-case and metadata preload joins; merged unique required-name binds; generated parent/child identities; guarded child writes; isolated inactive/always/conditional close wire contracts. Native HQ import/build testing of actual Nova exports exposed ignored extension relationships; source emission now preserves those links and native navigation IDs. Private owner preload now reads @owner_id as verified in native HQ; no claim this dormant input was authorable.",
 			"baselineSha256": "82f9c5a7bbc1bde7497f8cc572f416ea26d4a9992c7137e8decd47adfc05c1d1",
-			"reviewedSha256": "e2fe25ebfc4388f307b3342b5fda2f2c56334f9447af4d8d1087dc4ffef18ed2"
+			"reviewedSha256": "53c8353cec039dc826cc78f5eb84ccd7ced14cd5587c21928c5cfcd6116fe72e"
 		},
 		{
 			"file": "lib/commcare/__tests__/caseOps.test.ts",
@@ -3920,7 +3920,7 @@
 			"ciMs": 1371,
 			"status": "revised",
 			"baselineSha256": "bff9d710cc278f20aba29e2098ba6477205bf499f5d97484b0a828ef3ad3759a",
-			"reviewedSha256": "868d0f33a0997a335be8422a3d69156b205cebb38eea2d7ab175b7541b88ccfd",
+			"reviewedSha256": "f0e4c95d2871240a4e1c23c9ffe0e39dcfe63c97bec2fa885b2d7bfd6f9a45fe",
 			"review": "Replaced entity-deescaping, unscoped string order and editor-metadata requirements with strict scoped source/archive XML over accepted documents. Checks actual expanded HQ selection details; per-selected-case identity and operation/update/close ordering; complete scalar/file routing with target and without; no scalar preload; per-parent child IDs with retained unconsumed HQ datum; close preserving prior retype. Separate native capture example executes two selected cases through Core and submission serialization, including hidden, blank and all-blank shared writes."
 		},
 		{
@@ -3983,7 +3983,7 @@
 			"ciMs": 1258,
 			"status": "revised",
 			"baselineSha256": "6e0ab5e54a9c93373bed84475debb9093ed3f959062e8b803554dc6fd988a9d8",
-			"reviewedSha256": "dccd27b245e51e348fd6f1e4c994b9e4e2c904152d056cdbba1a6fa343119498",
+			"reviewedSha256": "1a4796571e5d5cb7f6c4ef4774a127e5f10e7413886d8070204d72257c2e38ec",
 			"review": "Replaced global regex/substrings and selective two-code validation with full strict-schema/domain admission and scoped transaction, answer-bind, repeat-control and suite-entry joins. Old matrix used reserved parent case type and omitted accessible child modules. Eight accepted cases now prove three repeat modes, one/two child buckets, cousin IDs, real root/repeat/root noncontiguous action numbering, per-iteration UUID calculates, complete session datums and frozen count-node seeding. Editor-only Vellum attributes are no longer mistaken for device structure. Native capture proof independently executes user/query repeat emission; this matrix claims structural coverage only."
 		},
 		{
@@ -4044,7 +4044,7 @@
 			"status": "revised",
 			"review": "Replaced global tag scans, implementation-constant expectations, split-string browse detection and conditional upstream skip. Four tests join scoped strict XML worker transaction, suite datum/assertion, locale resource, current retargeted path and last-writer removal. Browse is a separate valid module. Shared producer feeds the same accepted survey/followup artifacts to native HQ _add_usercase and EntriesHelper builders; all four binds and datum/assertion match, and wrong-worker-ID negative control fails.",
 			"baselineSha256": "191e8689c229f271d343cb17890bac3856700e21e14cd07f81d5a27aa2147ece",
-			"reviewedSha256": "2eeeebe126483827a607e8ff3d6e81cc41e1d727b54d15036cc46bc0c50be603"
+			"reviewedSha256": "52245bb9fed9b482b94ae1c5bab9687de66ca1f004b31ef193e3d911a9e60a9a"
 		},
 		{
 			"file": "lib/commcare/__tests__/validationRules.test.ts",
@@ -4353,13 +4353,19 @@
 			"file": "lib/commcare/validator/__tests__/gate.perf.test.ts",
 			"lines": 115,
 			"ciMs": 3321,
-			"status": "pending"
+			"status": "revised",
+			"review": "Removed invalid large fixture and 20-second no-op-permitting timing guard. Replaced by gateScale.test.ts: strict valid 3000-field app with expressions, nested fields and case writers, full successful boundary evaluation, then exact late-field reference refusal. Runtime measured by the test runner without a permissive performance claim.",
+			"baselineSha256": "948f45131f4897db4d6ac67ceaa076556ba5552c7d13c2f1cd5ee1c9c18c6d97",
+			"reviewedSha256": "948f45131f4897db4d6ac67ceaa076556ba5552c7d13c2f1cd5ee1c9c18c6d97"
 		},
 		{
 			"file": "lib/commcare/validator/__tests__/gate.test.ts",
 			"lines": 717,
 			"ciMs": 1118,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete gate and suite. Removed source-union regex, fixed counts and oracle-prefix imitation. Strict valid fixtures and candidate schemas support actual atomic complete-form admission, incomplete/unrelated/soundness refusals, repair, cross-module writer locations and media boundary behavior. Legacy shape is explicitly invalid and exercises defensive admission.",
+			"baselineSha256": "57f01925704946419b48bc4e059ec77be656f685cc6dcb2adccfc224636da4c3",
+			"reviewedSha256": "96f50f3f105ce6d578f610fa6214b4d4c0ff8c5454caf9d5f6b97efbca3d1550"
 		},
 		{
 			"file": "lib/commcare/validator/__tests__/localization.test.ts",
@@ -6449,7 +6455,7 @@
 			"status": "revised",
 			"review": "Replace cast-only snapshot/revision/UUID fixtures with real parsed types. Merge duplicate empty-mode preparation checks. Replace identical mocked missing/foreign comparison with exact unavailable-table request and wrong-Project snapshot refusal. Repair false-positive reverse-owner fixture whose destination did not own cases; require full successful preparation and real expansion/fixture declaration for all three modes. Keep actual lookup emission plus missing-naming negative control, per-mode HQ tag refusals, and row findings across every mode. Replace impossible 10001-row single table with three individually valid tables; accept exact 10000 aggregate rows then reject one extra before media byte resolution.",
 			"baselineSha256": "1aedee7ed870ea6d9fd75e01922ea9f7fae24df03ad4b325b18724c39c66469b",
-			"reviewedSha256": "99815c73d2a42deb61e38d6d63e18d7dd6da31b576b4530bd5ca1f8e1554a2db"
+			"reviewedSha256": "f76efe8381d97b28440a142355a3b8634c3ba8caa9a4213bb96f04d29806ec3f"
 		},
 		{
 			"file": "lib/generation/__tests__/designProgressWire.test.ts",

@@ -875,3 +875,73 @@ describe("prepareExportBoundary", () => {
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	});
 });
+
+// This is an export-orchestration check: the snapshot read is the IO seam;
+// character scanning, app validation and both carrier builders are real.
+it.each(["ccz", "hq-json", "hq-upload"] as const)(
+	"refuses unsupported lookup text before building the %s carrier",
+	async (mode) => {
+		const snapshot = carrierFixtureSnapshot();
+		const extraColumn = lookupColumnIdSchema.parse(
+			"018f3e8a-7b2c-7def-8abc-1234567890af",
+		);
+		const definitions = snapshot.definitions.map((table) => ({
+			...table,
+			columns: [
+				...table.columns,
+				{
+					id: extraColumn,
+					wireName: "note",
+					label: "Note",
+					dataType: "text" as const,
+				},
+			],
+		}));
+		const rows = Array.from({ length: 6 }, (_, index) => ({
+			id: lookupRowIdSchema.parse(
+				`018f3e8a-7b2c-7def-8abc-12345678930${index}`,
+			),
+			values: {
+				[CARRIER_VALUE_COLUMN]: `value${index}`,
+				[CARRIER_LABEL_COLUMN]: "Label",
+				[extraColumn]: `Note \u0001`,
+			},
+		}));
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...snapshot,
+			definitions,
+			rowsByTable: new Map([[CARRIER_TABLE, rows]]),
+		});
+		const result = await prepareExportBoundary({
+			mode,
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 17,
+			attachmentTarget: null,
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("Unsupported text exported");
+		expect(
+			result.violations.map((finding) => ({
+				code: finding.code,
+				details: finding.details,
+			})),
+		).toEqual([
+			{
+				code: "LOOKUP_CELL_TEXT_UNREPRESENTABLE",
+				details: {
+					tableId: CARRIER_TABLE,
+					columnId: extraColumn,
+					offendingRowCount: "6",
+					offendingRowPositions: "1,2,3,4,5",
+					offendingRowIds: rows
+						.slice(0, 5)
+						.map((row) => row.id)
+						.join(","),
+					characters: "U+0001,U+0001,U+0001,U+0001,U+0001",
+				},
+			},
+		]);
+		expect(resolveMediaManifest).not.toHaveBeenCalled();
+	},
+);

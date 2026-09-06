@@ -75,10 +75,10 @@
 // (present) and the same fixture's `detail[@id='m0_search_short']`
 // (no `<action>` child).
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	type BlueprintDoc,
 	type CaseTileGrouping,
@@ -321,7 +321,7 @@ export function emitShortDetail(args: {
 	readonly searchAction?: SearchActionContext;
 }): CaseListEmission {
 	const { element, strings, translationUnits } = buildShortDetail(args);
-	return { xml: render(element, RENDER_OPTS), strings, translationUnits };
+	return { xml: serializeXml(element), strings, translationUnits };
 }
 
 /**

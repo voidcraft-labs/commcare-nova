@@ -1,8 +1,8 @@
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { textContent } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -26,7 +26,7 @@ function child(element: Element, name: string) {
 	return one(children(element, name));
 }
 function root(xml: string) {
-	expect(XMLValidator.validate(xml)).toBe(true);
+	new SaxesParser({ xmlns: true }).write(xml).close();
 	return one(parseDocument(xml, { xmlMode: true }).children.filter(isTag));
 }
 function exported(doc: BlueprintDoc) {

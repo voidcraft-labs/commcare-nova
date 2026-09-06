@@ -48,10 +48,10 @@
 //     mapped to a `SortType`. A resolution failure or the null-literal
 //     `ANY_TYPE` arm routes to `"plain"`.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
 import type { LookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import type {
 	BlueprintDoc,
 	CasePropertyDataType,
@@ -551,5 +551,5 @@ export function buildSortBlock(directive: ResolvedSortDirective): Element {
  * `columns.ts` itself calls `buildSortBlock` directly.
  */
 export function emitSortBlock(directive: ResolvedSortDirective): string {
-	return render(buildSortBlock(directive), RENDER_OPTS);
+	return serializeXml(buildSortBlock(directive));
 }

@@ -1,4 +1,5 @@
 import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
+
 // lib/commcare/suite/case-search/searchSession.ts
 //
 // `<session>` body of a `<remote-request>`. Wraps `<query>` (search-
@@ -8,9 +9,9 @@ import { type RuntimeTarget, runtimeUrls } from "@/lib/commcare/runtimeTarget";
 // ids). The orchestrator at `remoteRequest.ts` splices the result
 // into the `<remote-request>` body.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	type CaseListConfig,
 	caseListColumnIsEmitted,
@@ -533,7 +534,7 @@ export function emitSearchSession(
 	const { element, strings, translationUnits, instances } =
 		buildSearchSession(args);
 	return {
-		xml: render(element, RENDER_OPTS),
+		xml: serializeXml(element),
 		strings,
 		translationUnits,
 		instances,

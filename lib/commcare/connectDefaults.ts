@@ -12,7 +12,7 @@
  *
  * Lives at the package root rather than inside `./xform/` because two
  * different consumers need it. Importing from `./xform/builder` would
- * pull `htmlparser2` / `dom-serializer` / `domhandler` / `domutils`
+ * pull `serializeXml` / `domhandler` / `domutils`
  * (top-level imports in that file) into every barrel consumer —
  * `RESERVED_CASE_PROPERTIES` and other client-safe exports would each drag
  * the DOM-parser graph through `formActions` into client bundles.

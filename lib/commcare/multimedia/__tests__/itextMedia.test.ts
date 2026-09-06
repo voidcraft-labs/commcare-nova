@@ -1,7 +1,6 @@
-import render from "dom-serializer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
-import { RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import type { Media, MediaAssetId } from "@/lib/domain/multimedia";
 import type { AssetManifest, ResolvedMediaAsset } from "../assetWirePath";
 import { itextMediaValues } from "../itextMedia";
@@ -58,7 +57,7 @@ function renderValues(
 	manifest: AssetManifest | undefined,
 ) {
 	return itextMediaValues(media, manifest, "test")
-		.map((el) => render(el, RENDER_OPTS))
+		.map((el) => serializeXml(el))
 		.join("");
 }
 

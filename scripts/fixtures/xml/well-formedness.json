@@ -1,0 +1,249 @@
+[
+	{
+		"name": "ordinary Unicode",
+		"xml": "<root a=\"\u96ea \ud83d\ude00 caf\u00e9\">\u00e9 e\u0301 \u0627\u0644\u0639\u0631\u0628\u064a\u0629 \u6c49\u5b57 \ud83d\ude00</root>",
+		"accepted": true
+	},
+	{
+		"name": "XML whitespace",
+		"xml": "<root a=\"&#9;&#10;&#13;\">\t\n\r</root>",
+		"accepted": true
+	},
+	{
+		"name": "legal range edges",
+		"xml": "<root> \ud7ff\ue000\ufffd\ud800\udc00\udbff\udfff</root>",
+		"accepted": true
+	},
+	{
+		"name": "C1 characters",
+		"xml": "<root>\u007f\u0085\u009f</root>",
+		"accepted": true
+	},
+	{
+		"name": "supplementary noncharacters",
+		"xml": "<root>\ud83f\udffe\ud83f\udfff</root>",
+		"accepted": true
+	},
+	{
+		"name": "decimal and hex references",
+		"xml": "<root a=\"&#65;&#x1F600;\">&#xD7FF;&#57344;&#65533;</root>",
+		"accepted": true
+	},
+	{
+		"name": "escaped reference spelling",
+		"xml": "<root>&amp;#0;</root>",
+		"accepted": true
+	},
+	{
+		"name": "comment and CDATA reference spelling",
+		"xml": "<root><!-- &#0; --><![CDATA[&#xFFFF;]]></root>",
+		"accepted": true
+	},
+	{
+		"name": "namespace rebindings scoped to children",
+		"xml": "<root xmlns:p=\"urn:first\"><p:a/><child xmlns:p=\"urn:second\"><p:a/></child><p:b/></root>",
+		"accepted": true
+	},
+	{
+		"name": "built in xml namespace",
+		"xml": "<root xml:lang=\"en\"/>",
+		"accepted": true
+	},
+	{
+		"name": "same local attribute in distinct namespaces",
+		"xml": "<root xmlns:a=\"urn:a\" xmlns:b=\"urn:b\" a:id=\"1\" b:id=\"2\"/>",
+		"accepted": true
+	},
+	{
+		"name": "literal U+0000",
+		"xml": "<root>\u0000</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+0000",
+		"xml": "<root a=\"&#0;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+0001",
+		"xml": "<root>\u0001</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+0001",
+		"xml": "<root a=\"&#1;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+0008",
+		"xml": "<root>\b</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+0008",
+		"xml": "<root a=\"&#8;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+000B",
+		"xml": "<root>\u000b</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+000B",
+		"xml": "<root a=\"&#11;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+000C",
+		"xml": "<root>\f</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+000C",
+		"xml": "<root a=\"&#12;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+000E",
+		"xml": "<root>\u000e</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+000E",
+		"xml": "<root a=\"&#14;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+001F",
+		"xml": "<root>\u001f</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+001F",
+		"xml": "<root a=\"&#31;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+D800",
+		"xml": "<root>\ud800</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+D800",
+		"xml": "<root a=\"&#55296;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+DC00",
+		"xml": "<root>\udc00</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+DC00",
+		"xml": "<root a=\"&#56320;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+FFFE",
+		"xml": "<root>\ufffe</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+FFFE",
+		"xml": "<root a=\"&#65534;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "literal U+FFFF",
+		"xml": "<root>\uffff</root>",
+		"accepted": false
+	},
+	{
+		"name": "reference U+FFFF",
+		"xml": "<root a=\"&#65535;\"/>",
+		"accepted": false
+	},
+	{
+		"name": "unbound element prefix",
+		"xml": "<root><p:a/></root>",
+		"accepted": false
+	},
+	{
+		"name": "unbound attribute prefix",
+		"xml": "<root p:a=\"x\"/>",
+		"accepted": false
+	},
+	{
+		"name": "prefix defined only on sibling",
+		"xml": "<root><a xmlns:p=\"urn:x\"/><p:b/></root>",
+		"accepted": false
+	},
+	{
+		"name": "prefix defined only on descendant",
+		"xml": "<p:root><a xmlns:p=\"urn:x\"/></p:root>",
+		"accepted": false
+	},
+	{
+		"name": "namespace alias duplicate attributes",
+		"xml": "<root xmlns:a=\"urn:x\" xmlns:b=\"urn:x\" a:id=\"1\" b:id=\"2\"/>",
+		"accepted": false
+	},
+	{
+		"name": "reserved xml prefix rebound",
+		"xml": "<root xmlns:xml=\"urn:wrong\"/>",
+		"accepted": false
+	},
+	{
+		"name": "unescaped ampersand",
+		"xml": "<root>A & B</root>",
+		"accepted": false
+	},
+	{
+		"name": "unknown entity",
+		"xml": "<root>&nbsp;</root>",
+		"accepted": false
+	},
+	{
+		"name": "out of Unicode range",
+		"xml": "<root>&#x110000;</root>",
+		"accepted": false
+	},
+	{
+		"name": "mismatched close",
+		"xml": "<root><child></root>",
+		"accepted": false
+	},
+	{
+		"name": "two roots",
+		"xml": "<root/><root/>",
+		"accepted": false
+	},
+	{
+		"name": "no root",
+		"xml": "<!-- comment -->",
+		"accepted": false
+	},
+	{
+		"name": "literal control in comment",
+		"xml": "<root><!-- \u0001 --></root>",
+		"accepted": false
+	},
+	{
+		"name": "literal control in CDATA",
+		"xml": "<root><![CDATA[\u0001]]></root>",
+		"accepted": false
+	},
+	{
+		"name": "DTD outside wire vocabulary",
+		"xml": "<!DOCTYPE root><root/>",
+		"accepted": false,
+		"policyOnly": true
+	},
+	{
+		"name": "XML 1.1 outside wire vocabulary",
+		"xml": "<?xml version=\"1.1\"?><root/>",
+		"accepted": false,
+		"policyOnly": true
+	}
+]

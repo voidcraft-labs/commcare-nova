@@ -49,9 +49,9 @@
  * the same here as in the field.
  */
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import { el, text } from "@/lib/commcare/elementBuilders";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import type { LocationProperty, OrganizationLevel, Uuid } from "@/lib/domain";
 import type { StoredLocation } from "@/lib/organization/types";
 
@@ -215,7 +215,7 @@ export function buildFlatLocationsFixture(args: {
 		],
 	);
 	const schema = buildSchemaNode(levels);
-	const xml = `${render(schema, RENDER_OPTS)}${render(fixture, RENDER_OPTS)}`;
+	const xml = `${serializeXml(schema)}${serializeXml(fixture)}`;
 	return {
 		schema,
 		fixture,

@@ -116,6 +116,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	ENTRY_POINT_INVALID: "soundness",
 	SUITE_ENDPOINT_INVALID: "oracle",
 	EMPTY_APP_NAME: "soundness",
+	APP_TEXT_UNREPRESENTABLE: "soundness",
 	NO_MODULES: "completeness",
 	MISSING_CHILD_CASE_MODULE: "completeness",
 	RESERVED_CASE_TYPE_NAME: "soundness",
@@ -479,6 +480,7 @@ export const VALIDITY_CLASS_BY_CODE: Readonly<
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: "soundness",
 	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
 	 * functions of external Project data, so they never gate a commit. */
+	LOOKUP_CELL_TEXT_UNREPRESENTABLE: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: "environment",

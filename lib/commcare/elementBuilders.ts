@@ -1,22 +1,6 @@
-/**
- * Shared `domhandler` element + text constructors and serializer options used
- * by every wire-emission module in this package — the XForm side
- * (`xform/builder.ts`, `xform/metaBlock.ts`, `xform/caseBlocks.ts`) and the
- * suite.xml side (`compiler.ts`, `session.ts`, the modules under `suite/`).
- *
- * Each emitter constructs a tree of `Element` / `Text` nodes and hands them to
- * `dom-serializer` once at the end. The serializer is the single, exclusive
- * escaping authority — hand-escaping a value here and then handing it to the
- * serializer would double-encode it (`&` → `&amp;` → `&amp;amp;`). Attribute
- * values are therefore passed in RAW; the serializer XML-escapes `<` / `>` /
- * `&` / `"` / `'` exactly once at render time.
- *
- * Centralizing these helpers keeps the per-emitter modules from re-declaring
- * the same one-line constructors, and pins one set of render options so every
- * emitter's bytes round-trip identically under the validator's parse oracles
- * (`validator/xformOracle.ts` and `validator/suiteOracle.ts` re-parse what
- * these emitters produce).
- */
+/** Shared constructors for raw XML values. Emitters build ordered domhandler
+ * trees; serializeXml is the sole escaping and whitespace-preservation boundary.
+ * Never escape a value before constructing its element or text node. */
 
 import { type ChildNode, Element, Text } from "domhandler";
 
@@ -41,32 +25,3 @@ export function el(
 export function text(data: string): Text {
 	return new Text(data);
 }
-
-/**
- * Shared `dom-serializer` options.
- *
- * `xmlMode: true` is the load-bearing flag — it routes element names /
- * namespaces / self-closing through XML rules AND switches the
- * attribute-value + text encoder to `encodeXML`. `encodeXML` rewrites
- * `<` / `>` / `&` / `"` / `'` to their named entities (`&lt;` / `&gt;` /
- * `&amp;` / `&quot;` / `&apos;`) and every non-ASCII code point
- * (`\x80-￿`) to a numeric character reference (`&#xNNNN;`). `$` is NOT a
- * special XML character, so it serializes literally — matching CCHQ's
- * own suite.xml, whose Python serializer emits a bare `$` too. (The
- * `entities` library encoded `$` as `&#x24;` through v7; v8 — which
- * htmlparser2 12 / dom-serializer 3 pull in — dropped that over-
- * encoding. Both forms are XML-spec-equivalent: a conforming parser
- * (CCHQ uses Java's standard `DocumentBuilder`) decodes them back
- * identically before the XPath / suite-parse layers see the value.)
- *
- * `selfClosingTags: true` is the xmlMode default but is stated
- * explicitly for clarity. `encodeEntities: "utf8"` is set defensively
- * — in xmlMode the option is inert (encodeXML wins) but it documents
- * the intent and would constrain HTML-mode behavior if a future caller
- * flipped xmlMode off.
- */
-export const RENDER_OPTS = {
-	xmlMode: true,
-	selfClosingTags: true,
-	encodeEntities: "utf8" as const,
-} as const;

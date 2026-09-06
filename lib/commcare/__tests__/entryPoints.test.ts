@@ -1,16 +1,15 @@
 import { readFileSync } from "node:fs";
 import AdmZip from "adm-zip";
-import render from "dom-serializer";
 import { type Element, isTag } from "domhandler";
 import { textContent } from "domutils";
 import { parseDocument } from "htmlparser2";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { simpleSearchInputDef } from "@/lib/domain";
 import { compileCcz } from "../compiler";
-import { RENDER_OPTS } from "../elementBuilders";
 import {
 	entryPointProjectionIssue,
 	projectEntryPoint,
@@ -88,14 +87,14 @@ describe("entry points", () => {
 				},
 				"https://www.example.com/a/test-domain/phone/claim-case/",
 			);
-			expect(
-				normalized(`<partial>${render(emitted, RENDER_OPTS)}</partial>`),
-			).toEqual(normalized(expected));
+			expect(normalized(`<partial>${serializeXml(emitted)}</partial>`)).toEqual(
+				normalized(expected),
+			);
 		});
 	it("emits the HQ follow-up endpoint with claim then navigation push", () => {
 		const doc = fixture();
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
-		expect(normalized(render(result.endpoints[0], RENDER_OPTS))).toEqual(
+		expect(normalized(serializeXml(result.endpoints[0]))).toEqual(
 			normalized(
 				`<endpoint id="visit"><argument id="case_id"/><stack><push><datum id="case_id" value="$case_id"/><command value="'claim_command.visit.case_id'"/></push><push><command value="'m0'"/><datum id="case_id" value="$case_id"/><command value="'m0-f0'"/></push></stack></endpoint>`,
 			),
@@ -180,7 +179,7 @@ describe("entry points", () => {
 			),
 		];
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
-		const xml = render(result.endpoints[0], RENDER_OPTS);
+		const xml = serializeXml(result.endpoints[0]);
 		expect(result.remoteRequests).toHaveLength(0);
 		expect(xml).toContain('ref="$case_id"');
 		expect(xml).toContain("/phone/case_fixture/");
@@ -205,7 +204,7 @@ describe("entry points", () => {
 			ignoreDisplayConditions: true,
 		};
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
-		const xml = render(result.endpoints[0], RENDER_OPTS);
+		const xml = serializeXml(result.endpoints[0]);
 		expect(xml).toContain('respect-relevancy="false"');
 		expect(xml).not.toContain("<argument");
 		expect(xml).not.toContain("<datum");
@@ -291,7 +290,7 @@ describe("entry points", () => {
 		doc.modules[baby].parentModuleUuid = mother;
 		doc.forms[form].entryPoint = { uuid: testUuid("baby-link"), id: "my_form" };
 		const result = buildEntryPointSuite(doc, formLinkProjectionContext(doc));
-		expect(normalized(render(result.endpoints[0], RENDER_OPTS))).toEqual(
+		expect(normalized(serializeXml(result.endpoints[0]))).toEqual(
 			normalized(
 				`<endpoint id="my_form"><argument id="parent_id"/><argument id="case_id"/><stack><push><datum id="parent_id" value="$parent_id"/><command value="'claim_command.my_form.parent_id'"/></push><push><datum id="case_id" value="$case_id"/><command value="'claim_command.my_form.case_id'"/></push><push><command value="'m0'"/><command value="'m1'"/><datum id="parent_id" value="$parent_id"/><datum id="case_id" value="$case_id"/><command value="'m1-f0'"/></push></stack></endpoint>`,
 			),
@@ -327,7 +326,7 @@ describe("entry points", () => {
 			(node) => isTag(node) && node.name === "remote-request",
 		);
 		root.children[old] = request;
-		expect(endpointSuiteSignature(render(root, RENDER_OPTS), "visit")).toBe(
+		expect(endpointSuiteSignature(serializeXml(root), "visit")).toBe(
 			endpointSuiteSignature(suite, "visit"),
 		);
 	});
@@ -417,9 +416,9 @@ describe("entry points", () => {
 		root.children[oldIndex] = actual;
 		const options = { appIds: ["working", "released"] };
 		const expected = endpointSuiteSignature(suite, "visit", options);
-		expect(
-			endpointSuiteSignature(render(root, RENDER_OPTS), "visit", options),
-		).toBe(expected);
+		expect(endpointSuiteSignature(serializeXml(root), "visit", options)).toBe(
+			expected,
+		);
 		const session = actual.children
 			.filter(isTag)
 			.find((node) => node.name === "session");
@@ -430,15 +429,15 @@ describe("entry points", () => {
 		query.children = query.children.filter(
 			(node) => !isTag(node) || node.name !== "title",
 		);
-		expect(
-			endpointSuiteSignature(render(root, RENDER_OPTS), "visit", options),
-		).toBe(expected);
+		expect(endpointSuiteSignature(serializeXml(root), "visit", options)).toBe(
+			expected,
+		);
 		query.attribs.url = query.attribs.url.replace(
 			"test-domain",
 			"other-domain",
 		);
 		expect(
-			endpointSuiteSignature(render(root, RENDER_OPTS), "visit", options),
+			endpointSuiteSignature(serializeXml(root), "visit", options),
 		).not.toBe(expected);
 	});
 });

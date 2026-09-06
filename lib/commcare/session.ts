@@ -32,9 +32,9 @@
  * into the suite tree).
  */
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import { el, text } from "@/lib/commcare/elementBuilders";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import type {
 	CaseTileGrouping,
 	FormType,
@@ -1435,7 +1435,7 @@ export function buildStackElement(
 /**
  * Build an `<entry>` Element from a derived entry definition. The orchestrator
  * (`compiler.ts`) splices the returned Element into the suite.xml tree and
- * serializes the entire suite once via `dom-serializer`.
+ * serializes the entire suite once via `serializeXml`.
  *
  * Element order inside `<entry>` matches CCHQ's canonical fixture order:
  * optional `<form>`, `<command>` (with nested `<text><locale/></text>`),
@@ -1542,13 +1542,13 @@ function sortInstancesById(
 
 /** Render an EntryDefinition to a suite.xml `<entry>` string. */
 export function renderEntryXml(entry: EntryDefinition): string {
-	return render(buildEntryElement(entry), RENDER_OPTS);
+	return serializeXml(buildEntryElement(entry));
 }
 
 /** Render stack operations to a suite.xml `<stack>` string. */
 export function renderStackXml(operations: StackOperation[]): string {
 	const stackEl = buildStackElement(operations);
-	return stackEl === null ? "" : render(stackEl, RENDER_OPTS);
+	return stackEl === null ? "" : serializeXml(stackEl);
 }
 
 // ── HQ Workflow Mapping ────────────────────────────────────────────────

@@ -60,3 +60,33 @@ regenerated capture and operation forms and their CCZ counterparts. Capture
 checks reach native form entry and submission serialization; operation checks
 also apply the form through Core's case parser and inspect its in-memory case
 records. Neither proof sends a remote submission.
+
+## XML text and well-formedness
+
+From the Nova checkout:
+
+```bash
+mise exec -- npx tsx scripts/fixtures/hq/emit-xml-evidence.ts /tmp/nova-xml-evidence
+/path/to/commcare-hq/.venv/bin/python scripts/fixtures/hq/xml-boundary-proof.py \
+  --hq-root /path/to/commcare-hq \
+  --exports /tmp/nova-xml-evidence \
+  --corpus scripts/fixtures/xml/well-formedness.json
+```
+
+An optional `--python-path` supplies an existing dependency overlay. The script
+uses the same network-denied HQ bootstrap as the case proof, parses the syntax
+corpus with HQ's native libxml, and imports actual Nova source with
+`Application.from_source` and `XForm.xml`. It checks the decoded label, starting
+value and CCZ profile name, then regenerates the accepted form for Core.
+
+The four `before-audit-*.json` files preserve source content actually emitted
+before the repair. Their documents passed Nova's schema and commit validation;
+all four HQ forms failed native parsing. The repaired producer verifies that
+admission and serialization now refuse those characters. JSON formatting is not
+part of the counterexample; the embedded form source is.
+
+The syntax corpus includes legal Unicode range edges, illegal literal and
+referenced characters, scoped namespaces, duplicate expanded attribute names,
+and comments/CDATA containing literal reference spellings. DTD and XML 1.1
+refusals are explicit Nova policy and are excluded from native malformedness
+claims. This does not connect to HQ, save an app or build Android.

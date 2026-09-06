@@ -1,7 +1,6 @@
-import render from "dom-serializer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
-import { RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import type { MediaAssetId } from "@/lib/domain/multimedia";
 import type { AssetManifest, ResolvedMediaAsset } from "../assetWirePath";
 import { buildNavMediaDicts, buildNavMenuNode } from "../navMenuMedia";
@@ -68,9 +67,7 @@ describe("buildNavMenuNode", () => {
 			MANIFEST,
 			"t",
 		);
-		expect(render(node, RENDER_OPTS)).toBe(
-			'<text><locale id="modules.m0"/></text>',
-		);
+		expect(serializeXml(node)).toBe('<text><locale id="modules.m0"/></text>');
 		expect(strings).toEqual({});
 	});
 
@@ -82,7 +79,7 @@ describe("buildNavMenuNode", () => {
 			MANIFEST,
 			"t",
 		);
-		expect(render(node, RENDER_OPTS)).toBe(
+		expect(serializeXml(node)).toBe(
 			"<display>" +
 				'<text><locale id="modules.m0"/></text>' +
 				'<text form="image"><locale id="modules.m0.icon"/></text>' +
@@ -103,7 +100,7 @@ describe("buildNavMenuNode", () => {
 			MANIFEST,
 			"t",
 		);
-		expect(render(node, RENDER_OPTS)).toBe(
+		expect(serializeXml(node)).toBe(
 			"<display>" +
 				'<text><locale id="forms.m0f0"/></text>' +
 				'<text form="image"><locale id="forms.m0f0.icon"/></text>' +

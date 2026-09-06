@@ -9,7 +9,7 @@
  * `#case/`, `#user/`, or the commcare session.
  *
  * The emitter CONSTRUCTS a `domhandler` element tree and serializes it once
- * with `dom-serializer`; it never assembles XML by string concatenation. This
+ * with `serializeXml`; it never assembles XML by string concatenation. This
  * is a deliberate totality property: a string-concatenated emitter can produce
  * malformed bytes (an unescaped `<` in a label, an unbalanced tag from a
  * mishandled edge case), and only a test can catch it after the fact. A
@@ -33,7 +33,6 @@
  * emitted bytes.
  */
 
-import render from "dom-serializer";
 import type { ChildNode, Element } from "domhandler";
 import { decodeXML } from "entities";
 import {
@@ -46,7 +45,7 @@ import {
 	effectiveDeliverEntities,
 } from "@/lib/commcare/connectDefaults";
 import type { ResolvedConnectConfig } from "@/lib/commcare/connectSlugs";
-import { el, RENDER_OPTS, text } from "@/lib/commcare/elementBuilders";
+import { el, text } from "@/lib/commcare/elementBuilders";
 import { readFieldString } from "@/lib/commcare/fieldProps";
 import { referencesSearchAnswer } from "@/lib/commcare/hashtags";
 import {
@@ -67,6 +66,7 @@ import {
 	collectPredicateInstances,
 	instanceSourceFor,
 } from "@/lib/commcare/predicate/instances";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import type {
 	FormActionCondition,
 	OpenSubCaseAction,
@@ -116,7 +116,7 @@ import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
 
 /**
  * Build the ordered itext-value node list for one typed prose template, letting
- * `dom-serializer` (at final assembly) own ALL escaping.
+ * `serializeXml` (at final assembly) own ALL escaping.
  *
  * A label is natural-language prose whose references are explicit typed atoms,
  * not hashtag-looking substrings and not markup.
@@ -889,7 +889,7 @@ export function buildXForm(
 
 	// Single serialization of the whole tree. The XML declaration is the one
 	// byte the serializer doesn't emit, so it's prepended literally.
-	return `<?xml version="1.0"?>\n${render(html, RENDER_OPTS)}`;
+	return `<?xml version="1.0"?>\n${serializeXml(html)}`;
 }
 
 /**

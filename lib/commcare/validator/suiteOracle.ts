@@ -76,20 +76,17 @@
 
 import { type Document, type Element, isTag } from "domhandler";
 import { findAll, getAttributeValue, getChildren } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
-import { parseDocument } from "htmlparser2";
 import { collectInstanceRefs } from "@/lib/commcare/xform/instanceRefs";
 import {
 	isParseableXPath,
 	isPathExpression,
 } from "@/lib/commcare/xform/pathExpression";
+import { tryParseXml } from "../xmlParse";
 import {
 	type ValidationError,
 	type ValidationLocation,
 	validationError,
 } from "./errors";
-
-const XML_OPTS = { xmlMode: true } as const;
 
 /**
  * Secondary-instance ids the runtime resolves WITHOUT requiring a `<instance>`
@@ -2041,24 +2038,20 @@ export function validateSuite(
 ): ValidationError[] {
 	const loc: ValidationLocation = {};
 
-	// Strict well-formedness gate — the only parse-failure path. htmlparser2
-	// (used for the DOM walk) is an HTML-recovery parser that heals malformed
-	// XML rather than throwing, so it can't be the gate; fast-xml-parser's
-	// XMLValidator is a strict XML 1.0 validator matching how Core's
-	// KXmlParser rejects a malformed suite.
-	const xmlValidation = XMLValidator.validate(suiteXml);
-	if (xmlValidation !== true) {
+	// Syntax and decoded values come from one namespace-aware XML parse.
+	const parsed = tryParseXml(suiteXml);
+	if ("issue" in parsed) {
 		return [
 			validationError(
 				"SUITE_PARSE_ERROR",
 				"app",
-				`The generator produced malformed suite.xml that CommCare will reject: ${xmlValidation.err.msg}. This is a bug in the suite generator.`,
+				`The generator produced malformed suite.xml that CommCare will reject: ${parsed.issue}. This is a bug in the suite generator.`,
 				loc,
 			),
 		];
 	}
 
-	const doc = parseDocument(suiteXml, XML_OPTS);
+	const { doc } = parsed;
 
 	const suiteEl = findAll((el) => el.name === "suite", doc.children)[0];
 	if (suiteEl === undefined) {

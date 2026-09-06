@@ -24,33 +24,33 @@
 	"forms": [
 		{
 			"scenario": "registration",
-			"inputSha256": "7a9121c842e411b5ae51e3c4bb787df6161784efd5d5345e99c631fc8a4db7b7",
-			"nativeFormSha256": "9433d76a891a07bd71127df45c90d217a7896d1075b3e264da13e01fd38a2cb1",
-			"localFormSha256": "59cadad30f060f5c1fdcc2c4f186277a6b3d183e5f5b6e880c2ef0ed34e5ea50"
+			"inputSha256": "af4072c01407e96414cd5341e614c5e615ab38bde9c4e945ab7210386d8460cb",
+			"nativeFormSha256": "7aaff4209e328505ca8eb0061fa087101501363209833f45f8648c5198855e9e",
+			"localFormSha256": "aba6f375ec230cbef1178cb7f58ded02c7e76d18ecdf9578a14c719f85078983"
 		},
 		{
 			"scenario": "followup",
-			"inputSha256": "d67602cf762691c91c188d00e5900c68422b8ea4772d4c6b7e369c846aa56431",
-			"nativeFormSha256": "d1c39caf89935a91234d71d76aaba1e5aecfd5e54bdd88197d3b477088b43c3d",
-			"localFormSha256": "e1d33e465325cc90ff94a8edea2af1f952a037bd6da7567324e5d396027f8cac"
+			"inputSha256": "d523efa5cecff59e7d4bc494906eda75d470b7c9737e38ef533c2488a6de8b6f",
+			"nativeFormSha256": "f588b791c11957055eb4dc049258ed71e2132548370b38fe213216112b69d177",
+			"localFormSha256": "f6710219c1c5d942a088270c15b8fc6fb43d7c9fca178bcc2fa88144cd0266aa"
 		},
 		{
 			"scenario": "repeat",
-			"inputSha256": "0afd62de4edd4add8056a3ba6b12cf309875f5c5f7ec75ab89472860231874dd",
-			"nativeFormSha256": "f8e9ab2358cfff01b5c3b84b620cf3eb99f0b0464c334fd29331c9c322c61d98",
-			"localFormSha256": "2c07847e4afa190f02d39ac58aa6627a64a17a3207d41902d453792ce5bebc5e"
+			"inputSha256": "78540d35a10d0bab706ada06dcee611c3b79d69adbc89e1a477d0fcf23f41d58",
+			"nativeFormSha256": "39e3a99adeb035586c1b0ebb9716eca8136d076912c0ecc8d1163582029d416b",
+			"localFormSha256": "2665efd0f2288e0b6ef465494e1e5c0e39fb0cbce7d49905cf7facac19c8d4c0"
 		},
 		{
 			"scenario": "query",
-			"inputSha256": "2f4379549f5090521147967e24b3b8a457f96d3f9f8ad4ce88363e102379ac2e",
-			"nativeFormSha256": "39fedcf035990e30854800e3a3852100b08a3e3773e3f3a009f73c1b2020df97",
-			"localFormSha256": "85337ebd5473ca7a6b72cc8521277117df67f218e3afbe3c565661854a6f7b4e"
+			"inputSha256": "b9f7b7271835628dd8647af901b313c5f9e4d37e3443ffcd5f1b1fbe7f438f10",
+			"nativeFormSha256": "2b460e5da76b871997980188d4d7eabf15f70f249fbf89e72ab913e3e525089a",
+			"localFormSha256": "30c3612d38cf355d8c7ed4e0b36d0e4c4479f1c29f0285d151a9a9eaf00c147a"
 		},
 		{
 			"scenario": "multiple",
-			"inputSha256": "ad11cbd471e21b11a3895d0e0a68dab45d3e08568fd34b2c09b2a2d120bc9753",
-			"nativeFormSha256": "059e9aa7db5711bc44b7e248075d9273522a44030943596625b76dae14484c9f",
-			"localFormSha256": "a02b1828c288f097d332a9e9c7ca814dc3ea7ab748717b631a1b2ef7e9876e9e"
+			"inputSha256": "bae3cb0dcb755605e27e19ad403f711b7461f744f90059650dc974d52beacca3",
+			"nativeFormSha256": "d564ab8a70bdcca23b334c410f99a73f0c844d14dc929afd64f6fb015b1d0416",
+			"localFormSha256": "5f9b09ecb6b8c918d8fa1ef6523066c1e4c2ef19fa25bd21540f7f4dfbeb17a7"
 		}
 	],
 	"checks": [

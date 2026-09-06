@@ -425,7 +425,25 @@ A `section` field (one page of a form) emits exactly like a group — a DATA gro
 
 Two XPath surfaces, both classified by the shared `xform/pathExpression.ts` gate (the single Lezer-backed classifier the emitter and oracle both consume; `countReference.ts::isCountReferencePath` delegates to it). PATH-only surfaces (bind `nodeset`, control `ref`, `<setvalue ref>`) go through `isPathExpression`, mirroring `XPathReference.getPathExpr`'s `instanceof XPathPathExpr` check; ANY-expression surfaces (`relevant`/`constraint`/`calculate`, `<output value>`, `<setvalue value>`) go through `isParseableXPath`. The repeat-member-scope check (`verifyRepeatMemberBindings`) first applies Core's `collapseRepeatGroups` (a non-repeat `<group>` wrapping a single `<repeat>` collapses into the repeat) so the canonical Vellum wrapper-group shape isn't read as a skipped-repeat violation. Dependency-cycle detection is intentionally NOT ported — the doc-layer validator (`validateBlueprintDeep` via `TriggerDag`) owns cycles.
 
-Every wire emitter in this package is **DOM construction**, not string assembly — XForm (`xform/builder.ts`, `xform/caseBlocks.ts`, `xform/metaBlock.ts`), suite.xml (`compiler.ts`, `session.ts`, `suite/case-list/*`, `suite/case-search/*`). Each emitter builds a `domhandler` element tree via the shared `elementBuilders.ts` helpers (`el(name, attribs, children)` / `text(data)` / `RENDER_OPTS`) and the orchestrator serializes once via `dom-serializer`, so malformed output (unescaped `<` / `&`, broken nesting, double-encoded entities) is unrepresentable by construction — the serializer is the sole escaping authority, and there is no `escapeXml` helper anywhere. The oracle is the test-time backstop; the construction shape is the structural guarantee.
+Every wire emitter constructs a `domhandler` tree through `elementBuilders.ts`.
+`serializeXml.ts` is the sole encoder: raw text and attributes enter unchanged,
+XML metacharacters are escaped once, and numeric references preserve CR in text
+and tab/LF/CR in attributes. It refuses characters outside XML 1.0's repertoire.
+`xmlParse.ts` uses SAXES for both well-formedness and DOM construction, including
+namespace scope and XML character decoding. Never use an HTML parser or
+serializer on these resources: their XML modes can still substitute C1
+characters or normalize authored attribute whitespace incorrectly. DTDs and
+XML 1.1 declarations are outside Nova's generated resource vocabulary.
+
+`APP_TEXT_UNREPRESENTABLE` gates app names, module/form/field definitions,
+case catalogs and translation values before every commit, including dormant
+translations and typed expression literals. Purpose notes and preview-only
+metadata are outside that wire inventory. External lookup rows are checked at
+export with `LOOKUP_CELL_TEXT_UNREPRESENTABLE` before either carrier is built.
+The native proof under `scripts/fixtures/hq/` checks the actual HQ parser,
+compiled form values and malformed counterexamples; `XmlTextRuntimeTest` also
+initializes the exported forms in Core and checks the resulting answer and label.
+
 
 Local CCZ compilation removes attributes in the Vellum namespace after case/meta lowering (`xform/deviceForm.ts`), matching HQ `strip_vellum_ns_attributes`. The source retains them for HQ editing. Core looks up bind/action attributes by local name, so an earlier editor shadow can otherwise be parsed as executable XPath. Namespace identity, including aliases and nested rebindings, determines removal. The native capture proof parses, enters, evaluates and serializes both export paths with actual CommCare Core; it covers concrete cases, not the whole dialect.
 
@@ -508,7 +526,7 @@ Adding a second cross-case-type field to a single-subcase-in-repeat form FLIPS t
 
 The OpenRosa `<meta>` block (`<deviceID>`/`<timeStart>`/`<timeEnd>`/`<username>`/`<userID>`/`<instanceID>`/`<appVersion>`/`<drift>`, eight populating setvalues, two `<bind type="xsd:dateTime">` timestamp binds) is a CCHQ render-time artifact, NOT part of a form's source — exactly like the case transaction blocks. CCHQ injects it for every form via `xform.py::add_case_and_meta` → `_add_meta_2` (stripping any pre-existing meta first), so a Vellum-edited source never carries it. `buildXForm` therefore omits it: the HQ-upload source has no meta block and CCHQ regenerates it on render. Only the local `.ccz` path — which has no CCHQ render step — injects it, via `xform/metaBlock.ts::addMetaBlock`, which `compiler.ts` calls right after `addCaseBlocks` (case-then-meta order). The split is load-bearing: a meta block in the uploaded source can't be opened in CCHQ's form builder (Vellum parses every `<data>` child as a question and rejects `<meta>`/`<orx:meta>` — "'meta' is not a valid Question ID").
 
-`addCaseBlocks` and `addMetaBlock` share `xform/domSplice.ts` so the two render-time injections stay in lockstep — one splice-into-`<data>`/`<model>` path, one idempotent secondary-instance declaration (`casedb` / `commcaresession`), one `dom-serializer` escaping authority.
+`addCaseBlocks` and `addMetaBlock` share `xform/domSplice.ts` so the two render-time injections stay in lockstep — one splice-into-`<data>`/`<model>` path, one idempotent secondary-instance declaration (`casedb` / `commcaresession`), one `serializeXml` escaping authority.
 
 ### Hashtag form-context
 

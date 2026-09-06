@@ -3,8 +3,8 @@
 import AdmZip from "adm-zip";
 import { type Element, isTag } from "domhandler";
 import { getText } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
 import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { expect, it } from "vitest";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
@@ -28,7 +28,7 @@ const children = (element: Element) => element.children.filter(isTag);
 const child = (parent: Element, name: string) =>
 	one(children(parent).filter((element) => element.name === name));
 function tree(xml: string) {
-	expect(XMLValidator.validate(xml)).toBe(true);
+	new SaxesParser({ xmlns: true }).write(xml).close();
 	const html = one(
 		parseDocument(xml, { xmlMode: true }).children.filter(isTag),
 	);

@@ -34,6 +34,7 @@ import {
 	MAX_HQ_FIXTURE_WORKBOOK_ROWS,
 	TYPES_SHEET,
 } from "@/lib/commcare/lookup/workbook";
+import { lookupXmlTextFindings } from "@/lib/commcare/lookup/xmlText";
 import {
 	type ValidationError,
 	validationError,
@@ -326,6 +327,7 @@ function organizationExportFindings(
 /** The row-bearing generation each mode's lookup verdicts are drawn from. */
 interface LookupRowVerdictInput {
 	readonly fixtureData: LookupFixtureDataSnapshot;
+	readonly textFindings: readonly ValidationError[];
 	/** Built for `ccz` only: the bytes the archive would embed. */
 	readonly fixtures?: CompiledLookupFixtureSet;
 	/**
@@ -357,6 +359,7 @@ function lookupExportFindings(
 ): ValidationError[] {
 	if (mode === undefined || lookupRows === undefined) return [];
 	return [
+		...lookupRows.textFindings,
 		...lookupSelectSourceRowFindings(doc, lookupRows.fixtureData),
 		...(lookupRows.fixtures === undefined
 			? []
@@ -606,15 +609,19 @@ async function prepareWithRegistry(
 		lookupTargets.tableIds.length === 0
 			? undefined
 			: lookupWireNaming(fixtureData.definitions);
+	const textFindings = lookupXmlTextFindings(fixtureData);
 	const lookupWire =
-		naming === undefined || input.mode !== "ccz"
+		naming === undefined || input.mode !== "ccz" || textFindings.length > 0
 			? undefined
 			: {
 					naming,
 					fixtures: buildLookupFixtures(naming, fixtureData.rowsByTable),
 				};
 	const lookupWorkbook =
-		naming === undefined || input.mode === "ccz" || hasUnpushableTag(naming)
+		naming === undefined ||
+		input.mode === "ccz" ||
+		hasUnpushableTag(naming) ||
+		textFindings.length > 0
 			? undefined
 			: buildLookupWorkbook(naming, fixtureData.rowsByTable);
 
@@ -629,6 +636,7 @@ async function prepareWithRegistry(
 		input.mode,
 		{
 			fixtureData,
+			textFindings,
 			...(lookupWire !== undefined && { fixtures: lookupWire.fixtures }),
 			...(naming !== undefined && input.mode !== "ccz" && { hqNaming: naming }),
 			...(lookupWorkbook !== undefined && { workbook: lookupWorkbook }),

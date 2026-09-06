@@ -21,12 +21,11 @@
 
 import { type Document, type Element, isTag } from "domhandler";
 import { getAttributeValue, getChildren } from "domutils";
-import { XMLValidator } from "fast-xml-parser";
-import { parseDocument } from "htmlparser2";
+import { tryParseXml } from "../xmlParse";
 import { type ValidationError, validationError } from "./errors";
 
 /**
- * The local (unprefixed) part of a parsed element name. htmlparser2 keeps
+ * The local (unprefixed) part of a parsed element name. The DOM keeps
  * the namespace prefix in `Element.name` (`orx:meta`, not `meta`), and
  * JavaRosa resolves nodesets by local name, so paths in the data model are
  * keyed by the local name. Shared with the XForm parse-time oracle.
@@ -61,8 +60,6 @@ function findInstanceDeclarations(elements: readonly Element[]): Element[] {
 			el.parent.name === "model",
 	);
 }
-
-const XML_OPTS = { xmlMode: true } as const;
 
 /**
  * Parsed XForm shape every invariant reads off.
@@ -183,19 +180,19 @@ export function buildXFormDataModel(
 ): { model: XFormDataModel } | { fatal: ValidationError } {
 	const loc = { formName, moduleName };
 
-	const xmlValidation = XMLValidator.validate(xml);
-	if (xmlValidation !== true) {
+	const parsed = tryParseXml(xml);
+	if ("issue" in parsed) {
 		return {
 			fatal: validationError(
 				"XFORM_PARSE_ERROR",
 				"form",
-				`"${formName}" generated malformed XML that FormPlayer will reject: ${xmlValidation.err.msg}. This is a bug in the form generator.`,
+				`"${formName}" generated malformed XML that FormPlayer will reject: ${parsed.issue}. This is a bug in the form generator.`,
 				loc,
 			),
 		};
 	}
 
-	const doc = parseDocument(xml, XML_OPTS);
+	const { doc } = parsed;
 
 	const definitionElements = collectDefinitionElements(doc);
 	const instances = findInstanceDeclarations(definitionElements).filter(

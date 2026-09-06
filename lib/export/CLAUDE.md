@@ -51,3 +51,9 @@ duplicated is equally broken however the table reached the device. All are
 `environment`-class: rows change outside the document, so they never gate a
 commit. Export therefore needs its own selected-target verdict over those
 current external rows in addition to the absolute document commit gate.
+
+All referenced lookup cells must be representable as XML 1.0 text, because both
+carriers ultimately supply XML fixtures to CommCare. Preparation scans the exact
+snapshot before serialization; `LOOKUP_CELL_TEXT_UNREPRESENTABLE` aggregates by
+column with bounded row examples. A refusal builds neither carrier and does not
+change stored rows. Legal XML whitespace and Unicode remain unchanged.

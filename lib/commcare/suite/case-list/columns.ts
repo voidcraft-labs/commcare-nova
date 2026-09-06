@@ -102,9 +102,9 @@
 // `commcare-hq/corehq/apps/app_manager/detail_screen.py::FormattedDetailColumn.sort_node`
 // short-circuit on `self.detail.display != 'short'`.
 
-import render from "dom-serializer";
 import type { Element } from "domhandler";
-import { el, RENDER_OPTS } from "@/lib/commcare/elementBuilders";
+import { el } from "@/lib/commcare/elementBuilders";
+import { serializeXml } from "@/lib/commcare/serializeXml";
 import {
 	type CaseProperty,
 	type Column,
@@ -1214,5 +1214,5 @@ export function emitColumnField(args: {
 	readonly ctx: CaseListEmitContext;
 }): CaseListEmission {
 	const { element, strings, translationUnits } = buildColumnField(args);
-	return { xml: render(element, RENDER_OPTS), strings, translationUnits };
+	return { xml: serializeXml(element), strings, translationUnits };
 }
