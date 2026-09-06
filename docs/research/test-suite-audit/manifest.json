@@ -4232,7 +4232,10 @@
 			"file": "lib/commcare/predicate/__tests__/csqlRuntimeWalk.test.ts",
 			"lines": 160,
 			"ciMs": 537,
-			"status": "pending"
+			"status": "revised",
+			"review": "Reviewed complete dialect walker and relevant shared expression recursion. Retained private structural analysis at its appropriate boundary, including intentionally unsupported device descendants that the compatibility gate must see. Replaced partial count/inner-subtree containment with complete ordered expression and predicate visitation; no native execution claim.",
+			"baselineSha256": "69305fcb7acdfeb33c519396de79b79cfd38789ec3f420df2878ee6f489d0281",
+			"reviewedSha256": "1afc4b8fba98274d6a510baebac9c2c17f1e5f3401cbac912ef415b17d6474c5"
 		},
 		{
 			"file": "lib/commcare/predicate/__tests__/instances.test.ts",
@@ -4244,7 +4247,10 @@
 			"file": "lib/commcare/predicate/__tests__/runtimeCsqlQuoteSafety.test.ts",
 			"lines": 191,
 			"ciMs": 737,
-			"status": "pending"
+			"status": "revised",
+			"review": "Reviewed full private raw-byte-flow collector and dialect classification. Replaced duplicate invalid partial-config composition checks with direct expression contracts for native versus device coercion, presence/control-only refs, concat/coalesce/switch unions, conditional output, reversed native count filter and identity rename/missing declaration. Complete composition/runtime blame belongs to admitted native prompt proof.",
+			"baselineSha256": "cea1834a16742002f413006aa08e11cbff9f29c01b47a3e298cc57e2e892cd88",
+			"reviewedSha256": "f453e3b09a5eb272d829f08e26bc0285e6477ce16b50681064ab401c8b077d91"
 		},
 		{
 			"file": "lib/commcare/predicate/__tests__/stringQuoting.test.ts",

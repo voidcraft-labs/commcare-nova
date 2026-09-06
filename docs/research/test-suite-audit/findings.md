@@ -1675,3 +1675,13 @@ manager owns the virtual input instance; no copied evaluator decides validity.
 Validation: 47 focused checks across four files, three native HQ comparisons and
 four native Core methods pass. Full typecheck passes. These are engine and
 artifact checks, not rendered widgets, HTTP requests or server search results.
+
+## Runtime dependency analyses retain their private boundary
+
+The CSQL byte-flow tests now distinguish native function arguments from already
+converted device outputs, exercise concat/coalesce/switch and conditional output
+unions, and prove identity-based name resolution. Duplicate partial-config
+composition checks move to the admitted prompt corpus. The dialect walk retains
+its structural role, including unsupported device descendants that validation
+must find; partial containment checks now assert the entire visit sequence.
+Fourteen focused checks pass. Neither helper suite claims native execution.

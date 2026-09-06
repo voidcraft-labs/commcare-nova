@@ -34,6 +34,8 @@ function visitedKinds(predicate: Predicate): {
 	return { expressions, predicates };
 }
 
+// Private dialect-boundary analysis. These are structural visitor contracts,
+// including unsupported device descendants that compatibility validation must find.
 describe("walkCsqlOnDeviceNodes", () => {
 	it("leaves a direct native date-add entirely on the CSQL server", () => {
 		const predicate = eq(
@@ -102,9 +104,10 @@ describe("walkCsqlOnDeviceNodes", () => {
 			),
 		);
 		const visited = visitedKinds(predicate);
-		expect(visited.expressions).toContain("count");
-		expect(visited.expressions).toContain("date-add");
-		expect(visited.predicates).toContain("eq");
+		expect(visited).toEqual({
+			expressions: ["count", "term", "date-add", "today", "term"],
+			predicates: ["eq"],
+		});
 	});
 
 	it("keeps a direct comparison-LHS subcase count and its where clause in CSQL", () => {
@@ -154,7 +157,9 @@ describe("walkCsqlOnDeviceNodes", () => {
 			),
 		);
 		const visited = visitedKinds(predicate);
-		expect(visited.expressions).toContain("if");
-		expect(visited.expressions).toContain("date-add");
+		expect(visited).toEqual({
+			expressions: ["if", "date-add", "today", "term", "today"],
+			predicates: ["match-all"],
+		});
 	});
 });
