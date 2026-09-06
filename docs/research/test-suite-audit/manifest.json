@@ -3792,7 +3792,10 @@
 			"file": "lib/commcare/__tests__/hqWorkers.test.ts",
 			"lines": 432,
 			"ciMs": 117,
-			"status": "pending"
+			"status": "revised",
+			"review": "Replace fake fetch and body casts with native serialized worker search/create/update requests, upstream status/identity evidence, exact username matching, strict malformed/duplicate refusal, no credential resets, all known versus ambiguous refusal statuses, no response-password logging, manual redirects and owned 30-second deadlines. Native failures reproduced null-create throw, HTML-update success and wrong endpoint IDs; production fixed. Lifecycle credential survival runs through actual SDK and Postgres.",
+			"baselineSha256": "41dbea4cf1f0d812d0387c8f3184939dd8f798768b07413f0ea27cb0cc405ad4",
+			"reviewedSha256": "3127a8c22c4e7930136aaab646ec626ddab9aa8b0e8bac46c84cac30937a9528"
 		},
 		{
 			"file": "lib/commcare/__tests__/imageMapColumn.test.ts",
@@ -5363,13 +5366,19 @@
 			"file": "lib/deployment/__tests__/provisionWorkers.test.ts",
 			"lines": 574,
 			"ciMs": 625,
-			"status": "pending"
+			"status": "removed",
+			"review": "Delete the mocked settings/store/HQ lifecycle and invalid partial Blueprint fixtures. Replacement lib/mcp/__tests__/provisionWorkers.postgres.test.ts uses actual SDK, valid persisted personas, native HTTP, real membership/guarded commits/organization records/ledger, partial and unconfirmed credentials, assignment retry, adoption attribution, reconciliation, actual table-lock ordering and ledger trigger failure. Remove dead throwing progress hook after reproducing credential loss.",
+			"baselineSha256": "d8b199609579f5cb23d322e6a57370533217fa88d1a559b2ae85c5a9af6555bd",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/deployment/__tests__/provisionWorkersAction.test.ts",
 			"lines": 152,
 			"ciMs": 1175,
-			"status": "pending"
+			"status": "removed",
+			"review": "Delete all-mocked action suite with impossible partial outcomes and artifact throws. Replacement in lib/mcp/__tests__/provisionWorkers.postgres.test.ts invokes actual action with trusted session boundary only, real Project access/blueprint/HQ writes/ledger/artifact generation. Complete and partial account credentials survive; actual post-mapping organization SQL failure degrades at the real reader while retaining credential and view.",
+			"baselineSha256": "85126e9b346e6ab67662c3d02771552a4358c0c1e45e4ee613035fc3bc87e132",
+			"reviewedSha256": null
 		},
 		{
 			"file": "lib/deployment/__tests__/publishLifecycle.test.ts",
@@ -5408,7 +5417,10 @@
 			"file": "lib/deployment/__tests__/workerCredentials.test.ts",
 			"lines": 149,
 			"ciMs": 191,
-			"status": "pending"
+			"status": "revised",
+			"review": "Keep password generation at the entropy boundary: forced low accepted/rejected bytes prove required character classes rather than stochastic repeated samples; actual successive platform entropy smoke. Remove duplicate fake-fetch logging suites; native HQ and persisted SDK lifecycle now inspect credential echo refusals, actual serialized payloads, output passwords, persistence and logs.",
+			"baselineSha256": "1d8ecb76454a71178bb50a1c07c07fab142931fb10cabe1a88d12565e2a4fe84",
+			"reviewedSha256": "8b9e9edc2df0c4ec5716f1957da0bc105ba349863551df4ab071dc5f06ed9bc2"
 		},
 		{
 			"file": "lib/deployment/__tests__/workerProvisionPlan.test.ts",

@@ -975,3 +975,41 @@ Publishing previously described a timeout as HQ still processing with media due 
 appear shortly. It now distinguishes acceptance from unconfirmed processing.
 The actual persisted SDK publish verifies malformed completion still returns the
 published app and its ownership mapping with an actionable media warning.
+
+
+## Worker credentials across HTTP, persistence and reporting
+
+Replaced the worker driver's fetch spies and deleted both all-mocked provisioning
+lifecycle/action suites. The actual SDK and Server Action now read persisted
+personas, authorize real Project membership, use native HQ requests and commit
+the real ownership ledger. A native before run reproduced six failures: malformed
+search rows were treated as absence, null creates threw, HTML updates became
+success, acknowledgement status/identity was unchecked, and dot-shaped worker IDs
+left the intended endpoint. Strict decoders and 30-second owned deadlines now keep
+all unconfirmed writes typed, including bodies that fail after headers. Redirects
+are refused, update payloads exclude credentials, and password-echoing refusals
+never reach logging. Upstream v0_5 serialize/Meta and v0_1 identity declarations
+confirm the 201/new-ID and 200/exact-ID wire evidence.
+
+Persisted cases verify two accounts' exact generated credentials, later updates
+while Elasticsearch lags, partial acceptance, lost acknowledgement, malformed
+create responses, exact adoption with actor attribution, actual separate place
+assignment and retry, clearing places, and deleted-persona supersession without
+a remote DELETE. Invalid requests, wrong targets, missing credentials, viewer and
+outsider access all stop before an account write. A real table lock proves the
+credential response waits for mapping persistence. A trigger rejects a worker
+mapping while the credential still reaches the caller.
+
+The initial failure test also found a dead progress-callback API that could throw
+after account creation and discard the only password. No production caller used
+it; removed the hook rather than retaining an unused post-write failure path.
+Browser action cases preserve credentials on partial provisioning and a genuine
+post-mapping organization read failure. The former mock tests forced artifact
+helpers to throw even though their actual read paths already degrade locally; the
+replacement asserts the actual degraded view and credential outcome.
+
+Removed redundant fake-fetch logging tests from password generation. Its focused
+test supplies only low accepted entropy bytes (with rejected 255 bytes interleaved),
+so required character classes must be established by the generator rather than
+passed by chance across hundreds of random samples. Native HTTP and persisted
+lifecycle tests own the credential logging/persistence evidence.

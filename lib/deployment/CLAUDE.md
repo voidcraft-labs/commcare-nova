@@ -482,7 +482,11 @@ states where it found them, and writes only the ledger.
 carries it back once. Nothing writes it to Postgres, hands it to `log.*`
 or a `LogWriter`, or logs a request body that contains it — the refusal
 path in `lib/commcare/hq/workers.ts` deliberately logs the status and
-never the body for that reason. An update never sends a password at all,
+never the body for that reason. Native HTTP failures, invalid JSON and timed-out
+body reads return an uncertain write outcome; they cannot throw away a generated
+credential. Creates require HTTP 201 and a routeable ID; updates require HTTP 200
+and the exact requested ID. Both reads and writes own 30-second deadlines and
+refuse redirects. An update never sends a password at all,
 because an update is what an account somebody is already using gets.
 
 **A refusal is not proof that nothing happened.** `obj_create` wraps its

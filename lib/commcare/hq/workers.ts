@@ -42,10 +42,10 @@ import {
 	INVALID_DOMAIN_SLUG,
 	isEdgeRefusal,
 	isValidDomainSlug,
-	logAndReturnError,
-	warnAndReturnError,
 	writeMayHaveLanded,
 } from "./http";
+import { isHqObject } from "./readCollection";
+import { readHqJson } from "./readJson";
 
 /** One worker the project space already holds. */
 export interface HqMobileWorker {
@@ -206,40 +206,29 @@ export async function findHqMobileWorkers(
 	url.searchParams.append("fields", "username");
 	url.searchParams.set("limit", String(usernames.length * 4));
 
-	let res: Response;
-	try {
-		res = await fetch(url.toString(), {
-			headers: { Authorization: authHeader(creds) },
-		});
-	} catch (error) {
-		log.warn("[commcare] worker search unreachable", {
-			domain,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		return { success: false, status: 503 };
-	}
-	if (!res.ok) {
-		return res.status === 401 || res.status === 403
-			? warnAndReturnError("worker search refused", res)
-			: logAndReturnError("worker search failed", res);
-	}
-	let body: { readonly objects?: readonly unknown[] };
-	try {
-		body = (await res.json()) as { readonly objects?: readonly unknown[] };
-	} catch {
-		log.error("[commcare] worker search returned non-JSON", undefined, {
-			domain,
-		});
+	const response = await readHqJson(creds, url.toString(), "worker search");
+	if ("success" in response) return response;
+	const body = response.data;
+	if (!isHqObject(body) || !Array.isArray(body.objects))
 		return { success: false, status: 502 };
-	}
-
 	const found: HqMobileWorker[] = [];
-	for (const raw of body.objects ?? []) {
-		if (raw === null || typeof raw !== "object") continue;
-		const { id, username } = raw as { id?: unknown; username?: unknown };
-		if (typeof id !== "string" || typeof username !== "string") continue;
-		if (!wanted.has(username)) continue;
-		found.push({ userId: id, username });
+	const ids = new Set<string>(),
+		names = new Set<string>();
+	for (const raw of body.objects) {
+		if (
+			!isHqObject(raw) ||
+			typeof raw.id !== "string" ||
+			!/^[\w-]+$/.test(raw.id) ||
+			typeof raw.username !== "string" ||
+			!raw.username ||
+			ids.has(raw.id) ||
+			names.has(raw.username)
+		)
+			return { success: false, status: 502 };
+		ids.add(raw.id);
+		names.add(raw.username);
+		if (wanted.has(raw.username))
+			found.push({ userId: raw.id, username: raw.username });
 	}
 	return found;
 }
@@ -283,8 +272,10 @@ export async function createHqMobileWorker(
 		"POST",
 		body,
 		(parsed) => {
-			const id = (parsed as { id?: unknown }).id;
-			return typeof id === "string" && id !== "" ? { userId: id } : null;
+			const id = isHqObject(parsed) ? parsed.id : undefined;
+			return typeof id === "string" && /^[\w-]+$/.test(id)
+				? { userId: id }
+				: null;
 		},
 	);
 }
@@ -311,7 +302,7 @@ export async function updateHqMobileWorker(
 	if (!isValidDomainSlug(domain)) {
 		return { ...INVALID_DOMAIN_SLUG, message: "", mayHaveLanded: false };
 	}
-	if (userId === "" || userId.includes("/")) {
+	if (!/^[\w-]+$/.test(userId)) {
 		log.error("[commcare] worker update given an unusable id", undefined, {
 			domain,
 		});
@@ -324,7 +315,8 @@ export async function updateHqMobileWorker(
 		`${baseUrl(creds)}/a/${domain}/api/user/v1/${encodeURIComponent(userId)}/`,
 		"PUT",
 		body,
-		() => ({ userId }),
+		(parsed) =>
+			isHqObject(parsed) && parsed.id === userId ? { userId } : null,
 	);
 }
 
@@ -366,74 +358,66 @@ async function writeWorker(
 	body: string,
 	read: (parsed: unknown) => { readonly userId: string } | null,
 ): Promise<{ readonly userId: string } | HqMobileWorkerRefusal> {
-	let res: Response;
+	const controller = new AbortController();
+	const timer = setTimeout(() => controller.abort(), 30_000);
 	try {
-		res = await fetch(url, {
+		const res = await fetch(url, {
 			method,
 			headers: {
 				Authorization: authHeader(creds),
 				"Content-Type": "application/json",
 			},
 			body,
+			redirect: "manual",
+			signal: controller.signal,
 		});
-	} catch (error) {
-		log.warn("[commcare] worker write unreachable", {
-			domain,
-			method,
-			error: error instanceof Error ? error.message : String(error),
-		});
-		/* The request went out and no answer came back, so what CommCare HQ
-		 * did with it is unknown. */
-		return { success: false, status: 503, message: "", mayHaveLanded: true };
-	}
-
-	let text = "";
-	try {
-		text = await res.text();
-	} catch {}
-	let parsed: unknown;
-	try {
-		parsed = JSON.parse(text);
-	} catch {
-		parsed = null;
-	}
-
-	if (!res.ok) {
-		const message =
-			parsed !== null &&
-			typeof parsed === "object" &&
-			typeof (parsed as { error?: unknown }).error === "string"
-				? (parsed as { error: string }).error
-				: "";
-		/* The body is deliberately NOT logged. A create carries the
-		 * generated password, and a refusal echoing the request would put
-		 * it in Cloud Logging forever. */
-		const context = { domain, method, status: res.status };
-		const edgeRefusal = isEdgeRefusal(text);
-		if (res.status === 401 || res.status === 403) {
-			log.warn("[commcare] worker write refused", context);
-		} else {
-			log.error("[commcare] worker write failed", undefined, context);
+		const text = await res.text();
+		let parsed: unknown;
+		try {
+			parsed = JSON.parse(text);
+		} catch {
+			parsed = null;
 		}
-		return {
-			success: false,
-			status: res.status,
-			message,
-			edgeRefusal,
-			mayHaveLanded: writeMayHaveLanded(res.status, edgeRefusal),
-		};
-	}
-
-	const result = read(parsed);
-	if (result === null) {
-		log.error("[commcare] worker write answered without an id", undefined, {
+		if (!res.ok) {
+			const message =
+				isHqObject(parsed) && typeof parsed.error === "string"
+					? parsed.error
+					: "";
+			// A peer may echo the password in its refusal. Only status and routing
+			// context belong in logging; never the request or response body.
+			log.warn("[commcare] worker write refused", {
+				domain,
+				method,
+				status: res.status,
+			});
+			const edgeRefusal = isEdgeRefusal(text);
+			return {
+				success: false,
+				status: res.status,
+				message,
+				edgeRefusal,
+				mayHaveLanded: writeMayHaveLanded(res.status, edgeRefusal),
+			};
+		}
+		const result =
+			res.status === (method === "POST" ? 201 : 200) ? read(parsed) : null;
+		if (result === null) {
+			log.warn(
+				"[commcare] worker write acknowledgement could not be confirmed",
+				{ domain, method, status: res.status },
+			);
+			return { success: false, status: 502, message: "", mayHaveLanded: true };
+		}
+		return result;
+	} catch {
+		// The request may have committed before a disconnect, body-read failure or
+		// deadline. Its generated credential must survive all of these outcomes.
+		log.warn("[commcare] worker write could not be confirmed", {
 			domain,
 			method,
 		});
-		/* CommCare HQ answered SUCCESS and Nova could not read which
-		 * account it was talking about. The write took effect; only its
-		 * subject is unknown. */
-		return { success: false, status: 502, message: "", mayHaveLanded: true };
+		return { success: false, status: 503, message: "", mayHaveLanded: true };
+	} finally {
+		clearTimeout(timer);
 	}
-	return result;
 }

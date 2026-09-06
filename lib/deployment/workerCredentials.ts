@@ -7,8 +7,8 @@ import "server-only";
  * is not how it is built but where it may go: into the answer of the call
  * that made the account, once, and nowhere else. It is never written to
  * Postgres, never handed to `log.*` or the run's `LogWriter`, and never
- * put in a request Nova logs the body of. A test pins that
- * (`__tests__/workerCredentials.test.ts`); this comment is the reason.
+ * put in a request Nova logs the body of. Native HTTP tests exercise password-echoing refusals, and the persisted
+ * SDK lifecycle checks its real writes and logging; this comment is the reason.
  *
  * Nova generates one because it must. CommCare HQ's two-stage
  * account-confirmation branch, which lets a person set their own password

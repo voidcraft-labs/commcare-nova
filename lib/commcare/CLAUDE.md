@@ -1030,6 +1030,14 @@ nonnegative integer counts, and complete error/unmatched-file lists whose count
 agrees. Malformed evidence is unconfirmed attachment, never zero-file success.
 A polling timeout makes no claim about whether the remote task is still running.
 
+Worker discovery is an Elasticsearch hint: strict object/identity validation
+rejects malformed or ambiguous replies, and only exact requested usernames are
+returned. HQ's create-time uniqueness check remains authoritative. Worker POST
+and PUT own a 30-second deadline through body reads, refuse redirects, and require
+201/new-ID and 200/exact-ID acknowledgements respectively. A timeout, unreadable
+body or malformed acknowledgement may have landed; return that uncertainty with
+no response body in logging so the provisioning caller preserves its credential.
+
 **The generated app shell carries only fields Nova authors.** HQ's update is an
 overlay merge (`_merge_source_into_app`): a field present in the source
 overwrites the HQ app's value, and an absent one is retained. So target-owned

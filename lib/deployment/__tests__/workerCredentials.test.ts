@@ -1,149 +1,33 @@
-/**
- * The password Nova generates for a new mobile worker.
- *
- * Two separate promises are pinned here. One is that the password is
- * strong and typable — a person reads it off a screen and types it into a
- * phone, so an alphabet full of look-alike characters is a support call,
- * and CommCare HQ's own `domain/extension_points.py::validate_password_rules`
- * scores what it gets when a project space turns strong passwords on.
- *
- * The other is the one that matters: **it exists in the answer and
- * nowhere else.** Nothing writes it to Postgres and nothing logs it. The
- * logging half is proved against the real driver rather than by reading
- * the code, because a refusal that echoed the request body would put every
- * generated password in Cloud Logging forever and would look perfectly
- * ordinary in review.
- *
- * The refused-but-not-ruled-out create is covered here alongside the
- * plain ones. It is the path where a password OUTLIVES the failure, so it
- * is also the path where a well-meant "log what went wrong" would do the
- * most damage.
- */
+import { afterEach, expect, it, vi } from "vitest";
+import { generateWorkerPassword } from "../workerCredentials";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+afterEach(() => vi.restoreAllMocks());
 
-vi.mock("server-only", () => ({}));
-
-const logCalls: unknown[][] = [];
-vi.mock("@/lib/logger", () => ({
-	log: {
-		info: (...args: unknown[]) => logCalls.push(args),
-		warn: (...args: unknown[]) => logCalls.push(args),
-		error: (...args: unknown[]) => logCalls.push(args),
-		critical: (...args: unknown[]) => logCalls.push(args),
-		debug: (...args: unknown[]) => logCalls.push(args),
-	},
-}));
-
-const { generateWorkerPassword } = await import("../workerCredentials");
-const { createHqMobileWorker } = await import("@/lib/commcare/hq/workers");
-
-describe("generateWorkerPassword", () => {
-	it("carries one of every character class CommCare HQ's own generator does", () => {
-		// `users/forms.py::generate_strong_password` guarantees lower, upper,
-		// digit, and punctuation. A run of twenty lowercase letters would be
-		// legal by chance and refused by a project space that scores.
-		for (let attempt = 0; attempt < 200; attempt += 1) {
-			const password = generateWorkerPassword();
-			expect(password).toMatch(/[a-z]/);
-			expect(password).toMatch(/[A-Z]/);
-			expect(password).toMatch(/[0-9]/);
-			expect(password).toMatch(/[!@#$%&*?\-+=]/);
-			expect(password).toHaveLength(20);
-		}
+it("guarantees all four typable character classes even when entropy would choose only lowercase letters", () => {
+	// 255 exercises rejection of biased bytes; low accepted values would
+	// otherwise produce only lowercase letters. Cycling permits distinct slots.
+	const bytes = [255, 0, 1, 2, 3];
+	let position = 0;
+	vi.spyOn(crypto, "getRandomValues").mockImplementation((buffer) => {
+		if (!(buffer instanceof Uint8Array))
+			throw new Error("Expected random bytes");
+		for (let index = 0; index < buffer.length; index++)
+			buffer[index] = bytes[position++ % bytes.length] ?? 0;
+		return buffer;
 	});
-
-	it("holds no character a person can mistake for another", () => {
-		const confusable = /[l1IO0]/;
-		for (let attempt = 0; attempt < 200; attempt += 1) {
-			expect(generateWorkerPassword()).not.toMatch(confusable);
-		}
-	});
-
-	it("gives a different answer every time", () => {
-		const seen = new Set(
-			Array.from({ length: 200 }, () => generateWorkerPassword()),
-		);
-		expect(seen.size).toBe(200);
-	});
+	const password = generateWorkerPassword();
+	expect(password).toHaveLength(20);
+	expect(password).toMatch(
+		/^[abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@#$%&*?+=-]+$/,
+	);
+	for (const group of [/[a-z]/, /[A-Z]/, /[2-9]/, /[!@#$%&*?+=-]/])
+		expect(password).toMatch(group);
 });
 
-describe("a password never reaches a log", () => {
-	const CREDS = {
-		username: "user@example.org",
-		apiKey: "abc123",
-		server: "production",
-	} as const;
-	let fetchMock: ReturnType<typeof vi.spyOn>;
-
-	beforeEach(() => {
-		logCalls.length = 0;
-		fetchMock = vi.spyOn(globalThis, "fetch");
-	});
-	afterEach(() => {
-		fetchMock.mockRestore();
-	});
-
-	it("keeps it out of the refusal the driver files", async () => {
-		const password = generateWorkerPassword();
-		/* CommCare HQ's 400 bodies do not echo the request, but a driver
-		 * that logged what it SENT would, so the refusal path is exercised
-		 * with a body that contains the password to make the leak
-		 * detectable if one is ever added. */
-		fetchMock.mockResolvedValue(
-			new Response(JSON.stringify({ error: `rejected ${password}` }), {
-				status: 400,
-				headers: { "Content-Type": "application/json" },
-			}),
-		);
-
-		const result = await createHqMobileWorker(CREDS, "myproject", {
-			username: "amina",
-			password,
-		});
-		expect(result).toMatchObject({ success: false, status: 400 });
-
-		expect(logCalls.length).toBeGreaterThan(0);
-		expect(JSON.stringify(logCalls)).not.toContain(password);
-	});
-
-	it("keeps it out of the refusal that hands it back anyway", async () => {
-		/* The path that matters most. A 5xx cannot rule out an account, so
-		 * this password travels onward to the caller instead of being
-		 * dropped — and a driver that logged the refusal body to explain
-		 * itself would be putting a live account's only credential in Cloud
-		 * Logging forever. */
-		const password = generateWorkerPassword();
-		fetchMock.mockResolvedValue(
-			new Response(JSON.stringify({ error: `boom ${password}` }), {
-				status: 500,
-				headers: { "Content-Type": "application/json" },
-			}),
-		);
-
-		const result = await createHqMobileWorker(CREDS, "myproject", {
-			username: "amina",
-			password,
-		});
-		expect(result).toMatchObject({ success: false, mayHaveLanded: true });
-
-		expect(logCalls.length).toBeGreaterThan(0);
-		expect(JSON.stringify(logCalls)).not.toContain(password);
-	});
-
-	it("keeps it out of anything the driver files on a success", async () => {
-		const password = generateWorkerPassword();
-		fetchMock.mockResolvedValue(
-			new Response(JSON.stringify({ id: "u9" }), {
-				status: 201,
-				headers: { "Content-Type": "application/json" },
-			}),
-		);
-
-		await createHqMobileWorker(CREDS, "myproject", {
-			username: "amina",
-			password,
-		});
-		expect(JSON.stringify(logCalls)).not.toContain(password);
-	});
+it("uses fresh platform entropy for successive credentials", () => {
+	const first = generateWorkerPassword(),
+		second = generateWorkerPassword();
+	expect(first).toHaveLength(20);
+	expect(second).toHaveLength(20);
+	expect(first).not.toBe(second);
 });

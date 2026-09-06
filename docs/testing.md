@@ -276,3 +276,13 @@ the upload and whole-poll deadlines. For partial JSON, use an actual local HTTP
 socket and confirm abort closes it: an in-memory whole-body response cannot prove
 ownership after headers arrive. Persisted SDK publishing covers malformed media
 status alongside disconnections and verifies the app mapping survives.
+
+Worker provisioning runs through the actual SDK and browser action over persisted
+personas, actual guarded persona changes and the production ownership ledger.
+Native HTTP checks compare returned passwords with the bytes HQ received, cover
+partial/unconfirmed creates and separate place assignment, then retry by recorded
+identity without passwords. Use real PostgreSQL locks and trigger failures to prove
+answer ordering and credential survival. Reporting-read failures run against an
+actual failed database read rather than a mocked setup-artifact function. Password
+generation tests control only the entropy boundary to force missing character
+classes and biased-byte rejection; transport log checks belong at the native peer.
