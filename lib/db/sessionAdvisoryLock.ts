@@ -115,6 +115,18 @@ export async function withSessionAdvisoryLocks<T>(
 		let failed = false;
 		let failure: unknown;
 		let value!: T;
+		// pg removes the pool's idle error listener on checkout. This owner
+		// must handle connection loss even between queries (for example during
+		// GCS I/O), fail the operation and discard the session. Query rejection
+		// alone does not consume the separate EventEmitter error.
+		const onClientError = (error: Error) => {
+			discardClient = error;
+			if (!failed) {
+				failed = true;
+				failure = error;
+			}
+		};
+		client.on("error", onClientError);
 		try {
 			try {
 				for (const identity of lockIdentities) {
@@ -162,7 +174,11 @@ export async function withSessionAdvisoryLocks<T>(
 				}
 			}
 		} finally {
-			client.release(discardClient);
+			try {
+				client.release(discardClient);
+			} finally {
+				client.off("error", onClientError);
+			}
 		}
 		if (failed) throw failure;
 		return value;

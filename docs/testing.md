@@ -226,3 +226,13 @@ records, and the actual export boundary and compilers. They open the returned
 ZIPs, decode workbook cells, and inspect XML and media bytes. A mocked compiler
 returning an arbitrary buffer cannot prove a usable download. Replace only the
 external object store; keep metadata selection and Project authorization real.
+
+Commit-response loss uses a transparent local PostgreSQL protocol peer. It
+forwards real traffic and drops the server's COMMIT acknowledgement after an
+actual INSERT transaction commits. Recovery therefore encounters real durable
+rows and a real driver disconnection, without replacing SQL or transaction
+methods. The peer, connections, requests and optional post-commit action are
+owned and drained. A transaction-held contention observer calls
+`pg_stat_clear_snapshot()` before each `pg_stat_activity` read so it can see a
+newly connected waiter; it also fails immediately if the operation finishes
+without reaching the expected lock.

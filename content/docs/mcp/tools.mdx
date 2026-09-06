@@ -943,6 +943,11 @@ You can attach images, audio, and video to parts of an app, a field's label or h
 | `set_menu_media` | Set or clear menu icons and audio labels on module home-screen tiles and form menu tiles: any mix of both, the whole app's menu in one call. |
 | `set_app_logo` | Set or clear the app logo shown on the login and home screens. |
 
+Media uploads require an editor role or higher. If your access changes during
+an upload, Nova checks it again before adding the file to the library or
+returning an existing file. If a response is lost, retrying the same bytes
+returns the saved file when you still have access.
+
 ## Publishing
 
 `compile_app` accepts `server: "production" | "india" | "eu"`. Supply it

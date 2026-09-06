@@ -6729,7 +6729,10 @@
 			"file": "lib/mcp/__tests__/uploadMediaAsset.test.ts",
 			"lines": 364,
 			"ciMs": 1355,
-			"status": "pending"
+			"status": "removed",
+			"baselineSha256": "35524c96580183661d369c5aa6bd67e359b217f38be3b29f5fe168d0b1eedb2b",
+			"reviewedSha256": null,
+			"review": "Replaced fake SDK, fake validation, fake metadata, fake personal Project and fake lock callback tests with uploadMediaAsset.postgres.test.ts. Actual byte parsers, migrated Project permissions, native content/membership locks, committed metadata and external-only object storage prove publication/dedup/isolation, invalid bytes/schema refusal, native transaction rollback, object-response loss, and permission changes during storage, lock waits and reconciliation. A transparent local PostgreSQL protocol peer drops the real COMMIT acknowledgement: recovery must return the exact committed row, retain bytes, and own the driver error. Removed an unreachable post-schema length branch and its fake string-object test."
 		},
 		{
 			"file": "lib/mcp/__tests__/userToolRegistration.test.ts",
@@ -7632,9 +7635,9 @@
 			"lines": 188,
 			"ciMs": 254,
 			"status": "revised",
-			"review": "Retain real session-advisory wrapper with fake pool client to verify pinned SQL, cross-extension identity, sorted deduplicated acquisition and reverse release. Use canonical asset identities and reset mocks. Replace unbounded entry promise in admission test with bounded wait, immediate all-settled observer and finally release/join, checking all three results and release calls.",
-			"baselineSha256": "f0e1de17e38a15ab5aa414f5d90b74e2ee30b1ff3f03f185647b4dcd51383a54",
-			"reviewedSha256": "37957ae7f5a179120eae3719b93fc4ab58e084d03951efb8e4f72624324d08b2"
+			"review": "Replaced fake clients, pool counters and SQL-string substring tests with two pure content-identity cases and mediaObjectKeyLock.postgres.test.ts. Real sessions prove global acquisition order using a held first identity, cross-extension blocking, metadata transaction PID identity, lock retention across commit, two-owner admission with spare SQL capacity, body-error cleanup, backend loss between queries, reset detection and empty-input no-checkout. Socket-loss ownership is also exercised through the actual MCP lost-COMMIT recovery test.",
+			"baselineSha256": "37957ae7f5a179120eae3719b93fc4ab58e084d03951efb8e4f72624324d08b2",
+			"reviewedSha256": "ac9e2729e98bcd15bf4eab40281c0ceea1e02fef2dce196cd94b9774f55d050b"
 		},
 		{
 			"file": "lib/tiptap/__tests__/proseTemplateCodec.test.ts",

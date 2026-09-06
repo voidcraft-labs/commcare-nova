@@ -3,22 +3,9 @@ import "server-only";
 import type { Kysely } from "kysely";
 import type { AppDatabase } from "@/lib/db/pg";
 import { withSessionAdvisoryLocks } from "@/lib/db/sessionAdvisoryLock";
+import { mediaObjectLockIdentity } from "./mediaObjectIdentity";
 
-/**
- * The advisory-lock identity for a media object.
- *
- * Validated final objects use `projects/<project>/<sha256><extension>`, while a
- * document extract uses the same Project/hash without the source extension.
- * The identical UTF-8 bytes can validly arrive as either `.txt` or `.md`, so
- * locking the full base-object key would let those rows race on their shared
- * extract object. Collapse every valid content-addressed final/extract key to
- * the extension-independent Project/hash identity. Pending upload keys stay
- * per-attempt and therefore retain their exact identity.
- */
-export function mediaObjectLockIdentity(gcsObjectKey: string): string {
-	const match = /^(projects\/[^/]+\/[0-9a-f]{64})(?:\..+)$/.exec(gcsObjectKey);
-	return match?.[1] ?? gcsObjectKey;
-}
+export { mediaObjectLockIdentity } from "./mediaObjectIdentity";
 
 /**
  * Serialize publication and last-reference cleanup for canonical media content

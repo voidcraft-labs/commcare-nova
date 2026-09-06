@@ -1,5 +1,6 @@
 /** Real host persistence and event ordering, with every writer explicitly drained. */
 import { expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { commitGuardedBatch, loadApp } from "@/lib/db/apps";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
@@ -12,7 +13,6 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { readEvents } from "@/lib/log/reader";
 import { initMcpCall } from "../context";
-import { whileBlocked } from "./postgresBarrier";
 import { promptDoc } from "./promptFixtures";
 
 const h = setupAppStateTestDb("mcp_context_", { authSchema: "migrated" });

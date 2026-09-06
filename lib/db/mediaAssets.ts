@@ -684,39 +684,45 @@ export async function insertReadyAsset(
 	args: ReadyAssetInsert,
 	lockedDb?: Kysely<AppDatabase>,
 ): Promise<MediaAssetRecord> {
-	const insert = async (tx: Transaction<AppDatabase>) => {
-		const row = await tx
-			.insertInto("media_assets")
-			.values({
-				id: args.assetId,
-				owner: args.owner,
-				project_id: args.project_id,
-				content_hash: args.contentHash,
-				mime_type: args.mimeType,
-				kind: args.kind,
-				extension: args.extension,
-				size_bytes: args.sizeBytes,
-				gcs_object_key: args.gcsObjectKey,
-				original_filename: args.originalFilename,
-				display_name: args.displayName ?? args.originalFilename,
-				...(args.dimensions !== undefined && {
-					dimensions: JSON.stringify(args.dimensions),
-				}),
-				...(args.durationMs !== undefined && { duration_ms: args.durationMs }),
-				...(args.extract !== undefined && {
-					extract: JSON.stringify(args.extract),
-				}),
-				status: "ready",
-				created_at: new Date(),
-			})
-			.returningAll()
-			.executeTakeFirstOrThrow();
-		return mediaAssetRecordFromRow(row);
-	};
-	if (lockedDb) {
-		return lockedDb.transaction().execute(insert);
-	}
+	const insert = (tx: Transaction<AppDatabase>) =>
+		insertReadyAssetInTransaction(tx, args);
+	if (lockedDb) return lockedDb.transaction().execute(insert);
 	return withAppTx(insert);
+}
+
+/** Caller-owned publication transaction, so actor-facing writers can keep
+ * fresh membership authority and the complete ready insert under one lock set. */
+export async function insertReadyAssetInTransaction(
+	tx: Transaction<AppDatabase>,
+	args: ReadyAssetInsert,
+): Promise<MediaAssetRecord> {
+	const row = await tx
+		.insertInto("media_assets")
+		.values({
+			id: args.assetId,
+			owner: args.owner,
+			project_id: args.project_id,
+			content_hash: args.contentHash,
+			mime_type: args.mimeType,
+			kind: args.kind,
+			extension: args.extension,
+			size_bytes: args.sizeBytes,
+			gcs_object_key: args.gcsObjectKey,
+			original_filename: args.originalFilename,
+			display_name: args.displayName ?? args.originalFilename,
+			...(args.dimensions !== undefined && {
+				dimensions: JSON.stringify(args.dimensions),
+			}),
+			...(args.durationMs !== undefined && { duration_ms: args.durationMs }),
+			...(args.extract !== undefined && {
+				extract: JSON.stringify(args.extract),
+			}),
+			status: "ready",
+			created_at: new Date(),
+		})
+		.returningAll()
+		.executeTakeFirstOrThrow();
+	return mediaAssetRecordFromRow(row);
 }
 
 /**

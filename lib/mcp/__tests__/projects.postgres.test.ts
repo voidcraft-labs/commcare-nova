@@ -5,6 +5,7 @@ import { betterAuth } from "better-auth";
 import { organization } from "better-auth/plugins";
 import { Pool } from "pg";
 import { expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import {
 	NOVA_ORGANIZATION_HOOKS,
 	NOVA_PROJECT_LIFECYCLE_OPTIONS,
@@ -22,7 +23,6 @@ import { registerListMembers } from "../tools/listMembers";
 import { registerListProjects } from "../tools/listProjects";
 import { registerUpdateMemberRole } from "../tools/updateMemberRole";
 import { withMcpClient } from "./client";
-import { whileBlocked } from "./postgresBarrier";
 import { resultText } from "./promptClient";
 
 const h = setupAppStateTestDb("mcp_projects_", { authSchema: "migrated" });

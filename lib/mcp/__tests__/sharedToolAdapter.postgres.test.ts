@@ -2,6 +2,7 @@
 import { sql } from "kysely";
 import { expect, it } from "vitest";
 import { z } from "zod";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { addFieldsTool } from "@/lib/agent/tools/addFields";
@@ -24,7 +25,6 @@ import {
 	type SharedToolModule,
 } from "../adapters/sharedToolAdapter";
 import { withMcpClient } from "./client";
-import { whileBlocked } from "./postgresBarrier";
 import { resultText } from "./promptClient";
 import { promptDoc } from "./promptFixtures";
 

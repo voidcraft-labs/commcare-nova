@@ -32,11 +32,21 @@ export async function whileBlocked<T>(
 		);
 		const deadline = Date.now() + 1000;
 		for (;;) {
+			// This controller holds a transaction. Refresh PostgreSQL's cached
+			// activity snapshot so a newly connected waiter becomes visible.
+			await pg.query("SELECT pg_stat_clear_snapshot()");
 			const blocked = await pg.query<{ count: number }>(
 				"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))",
 				[pid],
 			);
 			if (blocked.rows[0].count > 0) break;
+			if (settled) {
+				const outcome = await pending;
+				if (!outcome.ok) throw outcome.error;
+				throw new Error(
+					"The operation completed before reaching the held database lock",
+				);
+			}
 			if (Date.now() > deadline)
 				throw new Error("The operation never reached the held database lock");
 			await new Promise<void>((resolve) => setImmediate(resolve));

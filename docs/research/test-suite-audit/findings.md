@@ -771,3 +771,53 @@ All nine replacement scenarios passed. The complete MCP/export/lookup and
 multimedia consumer selection passed 337 tests across 37 files in 20.18
 seconds; type checking passed. No export runtime change was needed. The tool's
 description now correctly states Project view access and lookup companions.
+
+### Media publication: actual locks, commits and lost responses
+
+MCP upload formerly authorized once before waiting for its content lock and
+object storage. A real storage callback committed a role demotion; the old
+handler still inserted a ready asset and returned success. Publication now
+proves current edit membership under the same transaction as the ready insert.
+Deduplication after a lock wait and result reconciliation after response loss
+also require current authority. Cleanup remains responsible for unclaimed
+objects even after permission loss; committed objects remain intact.
+
+The replacement uses actual PNG validation, migrated auth/media rows and
+native advisory locks, replacing only the external object store. It checks
+shared-member deduplication, personal-Project provisioning and isolation,
+invalid bytes and input schema, native insert rejection, ambiguous storage
+write cleanup, and role demotion/removal during lock waits and publication.
+The old oversized-input test fabricated a string-shaped object to reach a
+branch that real SDK schema validation made unreachable. That branch is
+removed; the real published schema's length limit is checked directly.
+
+A transparent local PostgreSQL protocol peer forwards real traffic until the
+server acknowledges COMMIT after an INSERT. It then drops that acknowledgement
+and disconnects. The row really committed, and the driver really fails. The
+upload must recover that exact asset and preserve its bytes. A second case
+commits a role demotion before delivering the disconnect, proving recovery
+does not return the asset after access loss.
+
+This exposed an independent session-owner defect: the recovery assertions
+passed, but node-postgres emitted an unhandled connection error. Its pool
+removes the idle error listener on checkout. The session-lock owner now owns
+that event, records the operation failure and discards the connection; a
+rejected query promise alone did not handle it. Native backend termination
+between queries and a server-side advisory-lock reset exercise failure and
+replacement-session behavior too.
+
+The old lock suite's fake client and SQL substring assertions are replaced by
+native contention, transaction PID identity, committed-row visibility, global
+acquisition order, cross-extension serialization, two-owner admission with
+spare pool capacity, body-failure cleanup and empty-input no-checkout checks.
+Only the content-identity projection remains a pure test. The shared barrier
+moved to `__tests__/helpers` and refreshes the controller's activity snapshot:
+PostgreSQL otherwise caches it within the held transaction and may omit a new
+waiter ([PostgreSQL monitoring contract](https://www.postgresql.org/docs/current/monitoring-stats.html)).
+
+The complete MCP/media/storage and related metadata-consumer run passed 407
+tests across 41 files in 22.00 seconds. Type checking passed. Broader pool
+error ownership outside the session-lock owner remains a separate audit lead.
+A negative control removed global lock sorting: the native order test failed
+because the later identity was already held. Restoring the original source
+restored the implementation previously validated by the complete run.
