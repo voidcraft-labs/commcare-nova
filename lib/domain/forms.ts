@@ -198,11 +198,9 @@ export const formLinkObjectSchema = z
 		/** Immutable identity: every editor, mutation anchor, and finding
 		 *  addresses the link by it. */
 		uuid: uuidSchema,
-		// An empty condition is semantically meaningless (the emitters
-		// treat absence as "unconditional"), so the slot is either absent
-		// or a non-empty expression — the printed projection of an empty
-		// AST is "", and the boundary that parses authored text never
-		// stores one (an empty commit clears the slot).
+		// The structural XPath schema permits an empty AST. Authoring text
+		// boundaries clear an empty condition, and projections interpret
+		// an empty printed condition as unconditional.
 		condition: xpathExpressionSchema.optional(),
 		target: formLinkTargetSchema,
 		/**

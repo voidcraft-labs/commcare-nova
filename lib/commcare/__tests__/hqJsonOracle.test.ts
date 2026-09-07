@@ -1,30 +1,15 @@
 /**
- * Unit tests for the HQ import-JSON oracle (`validator/hqJsonOracle.ts`).
- *
- * Each test pins one invariant against a hand-built `HqApplication` fixture — a
- * minimal clean app the corresponding check passes, and a mutated copy that
- * trips exactly the check under test. Because every wrap-fatal enum / `doc_type`
- * slot `expandDoc` fills comes from a hardcoded shell constant, a factory, or a
- * closed lookup table, the property fuzzer (`hqJsonOracle.fuzz.test.ts`) can
- * NEVER reach a bad value — so these negatives are the only thing standing
- * between a future shell/factory/table edit that drifts a slot out of `choices=`
- * and a silent regression. Every `HQJSON_*` code gets a dedicated negative here;
- * the fuzzer proves the emitter never produces one.
- *
- * The CCHQ `models.py::symbol` each check mirrors is cited in `hqJsonOracle.ts`;
- * the test names restate the import-visible symptom.
- *
- * Fixtures are built two ways. The clean baseline runs a real `expandDoc` of a
- * minimal valid `BlueprintDoc` (proving the oracle accepts genuine emitter
- * output, not just a hand-built shell). The negatives build the smallest
- * `HqApplication` via the same shell factories the emitter uses, then mutate one
- * slot to the bad value — type-cast where the slot's TS type is narrower than the
- * runtime shape CCHQ would reject. The cast is the point: it stands in for the
- * exact emitter regression (a shell/factory edit producing an off-`choices=`
- * value) the check exists to catch.
+ * The private HQ JSON consistency oracle uses deliberately partial shell
+ * fixtures to isolate corruption diagnostics. Those fixtures do not claim app
+ * admission or native HQ acceptance. Reachable projection examples separately
+ * pass Blueprint schema and the full authoring validator before expansion.
+ * Native HQ/Core producers own external compatibility; this oracle supplements
+ * them with local enum, identity and media-reference diagnostics.
  */
 
-import { describe, expect, it } from "vitest";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolve } from "node:path";
+import { afterAll, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import {
@@ -38,20 +23,29 @@ import {
 	moduleShell,
 	type OpenSubCaseAction,
 } from "@/lib/commcare";
-import { expandDoc } from "@/lib/commcare/expander";
+import { expandDoc as projectUncheckedDoc } from "@/lib/commcare/expander";
 import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
 import type { ValidationErrorCode } from "@/lib/commcare/validator/errors";
-import { validateHqJson } from "@/lib/commcare/validator/hqJsonOracle";
+import { validateHqJson as checkHqJson } from "@/lib/commcare/validator/hqJsonOracle";
+import { runValidation } from "@/lib/commcare/validator/runner";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
+	LOOKUP_CONTEXT_UNAVAILABLE,
+	type LookupValidationContext,
+} from "@/lib/doc/lookupReferences";
+import {
+	blueprintDocSchema,
 	calculatedColumn,
-	emptyCaseListConfig,
 	hiddenSearchInputDef,
 	plainColumn,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 	type SearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import {
 	eq,
 	input,
@@ -65,7 +59,42 @@ import {
 	toValueExpression,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
-import type { LookupRevision } from "@/lib/lookup/types";
+import { lookupRevisionSchema } from "@/lib/lookup/schema";
+
+const nativeRecords: {
+	test: string;
+	app: HqApplication;
+	codes: ValidationErrorCode[];
+}[] = [];
+function validateHqJson(app: HqApplication) {
+	const findings = checkHqJson(app);
+	if (process.env.NOVA_HQ_ORACLE_EVIDENCE_DIR)
+		nativeRecords.push({
+			test: expect.getState().currentTestName ?? "unnamed",
+			app: structuredClone(app),
+			codes: findings.map((finding) => finding.code),
+		});
+	return findings;
+}
+afterAll(() => {
+	const destination = process.env.NOVA_HQ_ORACLE_EVIDENCE_DIR;
+	if (!destination) return;
+	mkdirSync(destination, { recursive: true });
+	writeFileSync(
+		resolve(destination, "hq-oracle-probes.json"),
+		JSON.stringify(nativeRecords, null, 2),
+	);
+});
+
+function expandDoc(
+	doc: Parameters<typeof projectUncheckedDoc>[0],
+	options?: Parameters<typeof projectUncheckedDoc>[1],
+	lookup: LookupValidationContext = LOOKUP_CONTEXT_UNAVAILABLE,
+) {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, lookup)).toEqual([]);
+	return projectUncheckedDoc(doc, options);
+}
 
 // ── Fixture builders ───────────────────────────────────────────────
 
@@ -76,13 +105,7 @@ function codes(
 	return errors.map((e) => e.code);
 }
 
-/**
- * The smallest valid `HqApplication`: one `Module` carrying one case-bearing
- * `Form` whose actions open a case (an active condition) with one subcase, plus
- * one short-detail column. Built straight from the emitter's shell factories so
- * every enum slot starts at its emitted value. Each negative test deep-mutates a
- * fresh copy of this baseline.
- */
+/** Partial wire-object fixture for the private consistency checker only. */
 function baselineApp(): HqApplication {
 	const actions = emptyFormActions();
 	// Activate the open-case condition so the condition check has a non-`never`
@@ -207,7 +230,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 	it("accepts independently ordered short and long column arrays with list-indexed calculated sort", () => {
 		const name = plainColumn(
 			testUuid("00000000-0000-4000-8000-000000000091"),
-			"name",
+			"case_name",
 			"Name",
 		);
 		const age = calculatedColumn(
@@ -240,7 +263,11 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "name", label: proseText("Name"), data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Name"),
+								data_type: "text",
+							},
 							{ name: "age", label: proseText("Age"), data_type: "int" },
 						],
 					},
@@ -266,7 +293,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 	it("keeps a Results sort carrier invisible and omits it from Details", () => {
 		const name = plainColumn(
 			testUuid("00000000-0000-4000-8000-000000000093"),
-			"name",
+			"case_name",
 			"Name",
 		);
 		const sortOnly = plainColumn(
@@ -297,7 +324,11 @@ describe("HQ-JSON oracle — clean baseline", () => {
 					{
 						name: "patient",
 						properties: [
-							{ name: "name", label: proseText("Name"), data_type: "text" },
+							{
+								name: "case_name",
+								label: proseText("Name"),
+								data_type: "text",
+							},
 							{
 								name: "external_id",
 								label: proseText("External ID"),
@@ -311,12 +342,12 @@ describe("HQ-JSON oracle — clean baseline", () => {
 
 		const details = app.modules[0].case_details;
 		expect(details.short.columns.map((column) => column.field)).toEqual([
-			"name",
+			"case_name",
 			"external_id",
 		]);
 		expect(details.short.columns[1].format).toBe("invisible");
 		expect(details.long.columns.map((column) => column.field)).toEqual([
-			"name",
+			"case_name",
 		]);
 		expect(details.short.sort_elements[0]?.field).toBe("external_id");
 		expect(validateHqJson(app)).toEqual([]);
@@ -361,7 +392,7 @@ describe("HQ-JSON oracle — clean baseline", () => {
 		expect(validateHqJson(app)).toEqual([]);
 	});
 
-	it("a hand-built minimal app passes clean", () => {
+	it("the partial shell fixture passes this private checker", () => {
 		expect(validateHqJson(baselineApp())).toEqual([]);
 	});
 
@@ -372,14 +403,36 @@ describe("HQ-JSON oracle — clean baseline", () => {
 		// output, not a hand-built shell.
 		const doc = buildDoc({
 			caseTypes: [
-				{ name: "patient", properties: [], parent_type: undefined },
-				{ name: "visit", properties: [], parent_type: "patient" },
+				{
+					name: "patient",
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+						{ name: "notes", label: proseText("Notes"), data_type: "text" },
+					],
+					parent_type: undefined,
+				},
+				{
+					name: "visit",
+					properties: [
+						{ name: "case_name", label: proseText("Name"), data_type: "text" },
+					],
+					parent_type: "patient",
+				},
 			],
 			modules: [
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListConfig: emptyCaseListConfig(),
+					caseListConfig: {
+						columns: [
+							plainColumn(
+								testUuid("oracle-patient-column"),
+								"case_name",
+								"Name",
+							),
+						],
+						searchInputs: [],
+					},
 					forms: [
 						{
 							name: "Register",
@@ -404,7 +457,12 @@ describe("HQ-JSON oracle — clean baseline", () => {
 				{
 					name: "Visits",
 					caseType: "visit",
-					caseListConfig: emptyCaseListConfig(),
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("oracle-visit-column"), "case_name", "Name"),
+						],
+						searchInputs: [],
+					},
 					forms: [
 						{
 							name: "Visit",
@@ -432,10 +490,9 @@ describe("HQ-JSON oracle — clean baseline", () => {
 describe("HQ-JSON oracle — application doc_type", () => {
 	it("flags an application doc_type that isn't 'Application'", () => {
 		const app = baselineApp();
-		// `get_correct_app_class` can't pick the wrap class for a non-Application
-		// doc_type, so the import fails before any module is read.
+		// HQ recognizes RemoteApp, but Nova must emit its Application model.
 		(app as { doc_type: string }).doc_type = "RemoteApp";
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_DOC_TYPE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_DOC_TYPE"]);
 	});
 });
 
@@ -445,13 +502,13 @@ describe("HQ-JSON oracle — doc_type dispatch", () => {
 	it("flags a module doc_type outside the ModuleBase.wrap dispatch set", () => {
 		const app = baselineApp();
 		(moduleOf(app) as { doc_type: string }).doc_type = "BogusModule";
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_MODULE_DOC_TYPE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_MODULE_DOC_TYPE"]);
 	});
 
-	it("flags a form doc_type outside the FormBase.wrap dispatch set", () => {
+	it("flags an unknown form tag as a generator convention", () => {
 		const app = baselineApp();
 		(moduleOf(app).forms[0] as { doc_type: string }).doc_type = "BogusForm";
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_FORM_DOC_TYPE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_FORM_DOC_TYPE"]);
 	});
 });
 
@@ -461,15 +518,15 @@ describe("HQ-JSON oracle — form choice slots", () => {
 	it("flags a form requires value outside the choice list", () => {
 		const app = baselineApp();
 		moduleOf(app).forms[0].requires = "always";
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_FORM_REQUIRES");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_FORM_REQUIRES"]);
 	});
 
 	it("flags a post_form_workflow value outside ALL_WORKFLOWS", () => {
 		const app = baselineApp();
 		moduleOf(app).forms[0].post_form_workflow = "home";
-		expect(codes(validateHqJson(app))).toContain(
+		expect(codes(validateHqJson(app))).toEqual([
 			"HQJSON_BAD_POST_FORM_WORKFLOW",
-		);
+		]);
 	});
 
 	it("flags a form link whose form_id lives in a different module than its form_module_id", () => {
@@ -533,7 +590,7 @@ describe("HQ-JSON oracle — case_list_form", () => {
 			label: { en: "Register" },
 			post_form_workflow: "previous_screen" as "default",
 		};
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_CASE_LIST_FORM");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_CASE_LIST_FORM"]);
 	});
 
 	it("accepts a resolvable form under case_list", () => {
@@ -559,15 +616,15 @@ describe("HQ-JSON oracle — condition choice slots", () => {
 		const app = baselineApp();
 		moduleOf(app).forms[0].actions.open_case.condition.type =
 			"maybe" as "always";
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_CONDITION_TYPE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_CONDITION_TYPE"]);
 	});
 
 	it("flags a non-null condition operator outside the choice list", () => {
 		const app = baselineApp();
 		moduleOf(app).forms[0].actions.update_case.condition.operator = "~=";
-		expect(codes(validateHqJson(app))).toContain(
+		expect(codes(validateHqJson(app))).toEqual([
 			"HQJSON_BAD_CONDITION_OPERATOR",
-		);
+		]);
 	});
 
 	it("does NOT flag a null operator (the always/never factory default)", () => {
@@ -586,14 +643,14 @@ describe("HQ-JSON oracle — update_mode choice slot", () => {
 		const app = baselineApp();
 		moduleOf(app).forms[0].actions.update_case.update.notes.update_mode =
 			"sometimes";
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_UPDATE_MODE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_UPDATE_MODE"]);
 	});
 
 	it("flags an update_mode on a subcase name_update outside the choice list", () => {
 		const app = baselineApp();
 		moduleOf(app).forms[0].actions.subcases[0].name_update.update_mode =
 			"never";
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_UPDATE_MODE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_UPDATE_MODE"]);
 	});
 });
 
@@ -603,9 +660,9 @@ describe("HQ-JSON oracle — subcase relationship choice slot", () => {
 	it("flags a subcase relationship outside {child, extension}", () => {
 		const app = baselineApp();
 		moduleOf(app).forms[0].actions.subcases[0].relationship = "sibling";
-		expect(codes(validateHqJson(app))).toContain(
+		expect(codes(validateHqJson(app))).toEqual([
 			"HQJSON_BAD_SUBCASE_RELATIONSHIP",
-		);
+		]);
 	});
 });
 
@@ -615,7 +672,7 @@ describe("HQ-JSON oracle — detail display choice slot", () => {
 	it("flags a case detail display outside {short, long}", () => {
 		const app = baselineApp();
 		moduleOf(app).case_details.short.display = "medium" as "short";
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_DETAIL_DISPLAY");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_DETAIL_DISPLAY"]);
 	});
 });
 
@@ -625,14 +682,14 @@ describe("HQ-JSON oracle — column finite-number slots", () => {
 	it("flags a non-finite late_flag (NaN serializes to null at import)", () => {
 		const app = baselineApp();
 		moduleOf(app).case_details.short.columns[0].late_flag = Number.NaN;
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_TYPE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_TYPE"]);
 	});
 
 	it("flags a non-finite time_ago_interval (Infinity from a bad divisor)", () => {
 		const app = baselineApp();
 		moduleOf(app).case_details.long.columns[0].time_ago_interval =
 			Number.POSITIVE_INFINITY;
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_TYPE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_TYPE"]);
 	});
 });
 
@@ -650,9 +707,9 @@ describe("HQ-JSON oracle — multimedia_map shape", () => {
 			media_type: "CommCareImage",
 			version: 1,
 		};
-		expect(codes(validateHqJson(app))).toContain(
+		expect(codes(validateHqJson(app))).toEqual([
 			"HQJSON_BAD_MULTIMEDIA_MAP_KEY",
-		);
+		]);
 	});
 
 	it("flags an unknown multimedia_map media_type", () => {
@@ -662,9 +719,9 @@ describe("HQ-JSON oracle — multimedia_map shape", () => {
 			media_type: "CommCareTypo",
 			version: 1,
 		};
-		expect(codes(validateHqJson(app))).toContain(
+		expect(codes(validateHqJson(app))).toEqual([
 			"HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE",
-		);
+		]);
 	});
 
 	it("accepts every live CommCare media class name", () => {
@@ -694,25 +751,25 @@ describe("HQ-JSON oracle — nav media dict shape", () => {
 	it("flags a module media_image value missing the jr://file/ prefix", () => {
 		const app = baselineApp();
 		moduleOf(app).media_image = { en: "commcare/no-prefix.png" };
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_NAV_MEDIA_VALUE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_NAV_MEDIA_VALUE"]);
 	});
 
 	it("flags a module media_audio value missing the prefix", () => {
 		const app = baselineApp();
 		moduleOf(app).media_audio = { en: "/audio/no-prefix.mp3" };
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_NAV_MEDIA_VALUE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_NAV_MEDIA_VALUE"]);
 	});
 
 	it("flags a form media_image value missing the prefix", () => {
 		const app = baselineApp();
 		moduleOf(app).forms[0].media_image = { en: "no-prefix" };
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_NAV_MEDIA_VALUE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_NAV_MEDIA_VALUE"]);
 	});
 
 	it("flags a case-list media_image value missing the prefix", () => {
 		const app = baselineApp();
 		moduleOf(app).case_list.media_image = { en: "no-prefix" };
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_NAV_MEDIA_VALUE");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_NAV_MEDIA_VALUE"]);
 	});
 
 	it("accepts well-formed jr://file/ media values across all carriers", () => {
@@ -747,7 +804,7 @@ describe("HQ-JSON oracle — logo_refs shape", () => {
 		app.logo_refs = {
 			hq_logo_web_apps: { path: "commcare/no-prefix.png" },
 		};
-		expect(codes(validateHqJson(app))).toContain("HQJSON_BAD_LOGO_REF");
+		expect(codes(validateHqJson(app))).toEqual(["HQJSON_BAD_LOGO_REF"]);
 	});
 
 	it("accepts a well-formed jr://file/ logo path", () => {
@@ -783,17 +840,21 @@ describe("HQ-JSON oracle — search prompt children", () => {
 	const SI_EMAIL = testUuid("44444444-4444-4444-4444-cccccccc0002");
 	const SI_TIME = testUuid("44444444-4444-4444-4444-cccccccc0003");
 	const SI_REGION = testUuid("44444444-4444-4444-4444-cccccccc0004");
-	const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
-	const REGIONS_VALUE =
-		"018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
-	const REGIONS_LABEL =
-		"018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
-	const REGIONS_NAMING = lookupWireNaming([
+	const REGIONS = lookupTableIdSchema.parse(
+		"018f3e8a-7b2c-7def-8abc-0000000000a1",
+	);
+	const REGIONS_VALUE = lookupColumnIdSchema.parse(
+		"018f3e8a-7b2c-7def-8abc-0000000000b1",
+	);
+	const REGIONS_LABEL = lookupColumnIdSchema.parse(
+		"018f3e8a-7b2c-7def-8abc-0000000000b2",
+	);
+	const REGIONS_DEFINITIONS = [
 		{
 			id: REGIONS,
 			name: "Regions",
 			tag: "regions",
-			definitionRevision: "1" as LookupRevision,
+			definitionRevision: lookupRevisionSchema.parse("1"),
 			columns: [
 				{
 					id: REGIONS_VALUE,
@@ -809,7 +870,14 @@ describe("HQ-JSON oracle — search prompt children", () => {
 				},
 			],
 		},
-	]);
+	] satisfies import("@/lib/lookup/types").LookupTableDefinition[];
+	const REGIONS_NAMING = lookupWireNaming(REGIONS_DEFINITIONS);
+	const REGIONS_CONTEXT: LookupValidationContext = {
+		kind: "available",
+		projectId: "oracle-project",
+		projectRevision: lookupRevisionSchema.parse("1"),
+		definitions: REGIONS_DEFINITIONS,
+	};
 
 	function promptDoc(searchInputs: SearchInputDef[]) {
 		return buildDoc({
@@ -968,6 +1036,7 @@ describe("HQ-JSON oracle — search prompt children", () => {
 				),
 			]),
 			{ lookupNaming: REGIONS_NAMING },
+			REGIONS_CONTEXT,
 		);
 		const multiApp = expandDoc(
 			promptDoc([
@@ -981,6 +1050,7 @@ describe("HQ-JSON oracle — search prompt children", () => {
 				),
 			]),
 			{ lookupNaming: REGIONS_NAMING },
+			REGIONS_CONTEXT,
 		);
 		const [single] = propertiesOf(singleApp);
 		const [multi] = propertiesOf(multiApp);

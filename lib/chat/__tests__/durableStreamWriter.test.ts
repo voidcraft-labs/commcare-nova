@@ -59,11 +59,13 @@ function makeInner(opts: { dead?: boolean } = {}) {
 	};
 }
 
+const writers = new Set<InstanceType<typeof DurableStreamWriter>>();
+
 function makeWriter(
 	inner: UIMessageStreamWriter,
 	fold?: UIMessageStreamWriter,
 ) {
-	return new DurableStreamWriter({
+	const writer = new DurableStreamWriter({
 		streamId: "stream-1",
 		target: { kind: "app", appId: "app-1" },
 		runId: "run-1",
@@ -71,6 +73,8 @@ function makeWriter(
 		inner,
 		fold,
 	});
+	writers.add(writer);
+	return writer;
 }
 
 const chunk = (i: number): UIMessageChunk =>
@@ -88,8 +92,13 @@ beforeEach(() => {
 	appendMock.mockResolvedValue(undefined);
 });
 
-afterEach(() => {
-	vi.useRealTimers();
+afterEach(async () => {
+	try {
+		await Promise.all([...writers].map((writer) => writer.close()));
+	} finally {
+		writers.clear();
+		vi.useRealTimers();
+	}
 });
 
 describe("DurableStreamWriter", () => {
@@ -211,17 +220,25 @@ describe("DurableStreamWriter", () => {
 		expect(appendMock.mock.calls.length).toBe(rowsAfterClose);
 	});
 
-	it("flushes on the timer without waiting for close", async () => {
+	it("flushes at the batch deadline and close cancels the next timer", async () => {
+		vi.useFakeTimers();
 		const { inner } = makeInner();
 		const writer = makeWriter(inner);
 		writer.write(chunk(0));
-		await vi.waitFor(() => expect(appendMock).toHaveBeenCalledOnce(), {
-			timeout: 2_000,
-		});
+		await vi.advanceTimersByTimeAsync(299);
+		expect(appendMock).not.toHaveBeenCalled();
+		await vi.advanceTimersByTimeAsync(1);
+		expect(appendMock).toHaveBeenCalledOnce();
 		expect((appendMock.mock.calls[0][0] as StreamChunkAppend).terminal).toBe(
 			false,
 		);
+		writer.write(chunk(1));
+		expect(vi.getTimerCount()).toBe(1);
 		await writer.close();
+		expect(vi.getTimerCount()).toBe(0);
+		const completed = appendMock.mock.calls.length;
+		await vi.advanceTimersByTimeAsync(600);
+		expect(appendMock).toHaveBeenCalledTimes(completed);
 	});
 
 	it("marks the stream broken after a failed append + failed retry, and stops buffering", async () => {
@@ -291,7 +308,8 @@ describe("DurableStreamWriter", () => {
 
 		// Cross the burst trigger so the log fails and marks itself broken…
 		for (let i = 0; i < 64; i++) writer.write(chunk(i));
-		await vi.waitFor(() => expect(appendMock).toHaveBeenCalledTimes(2));
+		expect(await writer.flushNow()).toBe(false);
+		expect(appendMock).toHaveBeenCalledTimes(2);
 		// …then lose the client too.
 		kill();
 		writer.write(chunk(64));
@@ -367,5 +385,34 @@ describe("DurableStreamWriter", () => {
 		);
 		expect(appends[1].firstIndex).toBe(2);
 		expect(appends.at(-1)?.terminal).toBe(true);
+	});
+});
+
+it("every concurrent close waits for the one terminal append", async () => {
+	const appendStarted = Promise.withResolvers<void>();
+	const appendReleased = Promise.withResolvers<void>();
+	appendMock.mockImplementationOnce(async () => {
+		appendStarted.resolve();
+		await appendReleased.promise;
+	});
+	const writer = makeWriter(makeInner().inner);
+	writer.write(chunk(0));
+	const first = writer.close("completed");
+	let secondSettled = false;
+	const second = writer.close("failed").then(() => {
+		secondSettled = true;
+	});
+	try {
+		await appendStarted.promise;
+		await Promise.resolve();
+		expect(secondSettled).toBe(false);
+	} finally {
+		appendReleased.resolve();
+		await Promise.all([first, second]);
+	}
+	expect(appendMock).toHaveBeenCalledOnce();
+	expect(appendMock.mock.calls[0][0]).toMatchObject({
+		terminal: true,
+		terminalOutcome: "completed",
 	});
 });

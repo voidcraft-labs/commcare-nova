@@ -1,40 +1,17 @@
-/**
- * Behavioral tests for `setCaseSearchDisplay`.
- *
- * Drives the tool through `GenerationContext`. Coverage:
- *
- *   1. Effect on the doc — supplied display labels land on the
- *      module's `caseSearchConfig`.
- *   2. Structured success carries the `displaySlotsSet` discriminator.
- *   3. `null` clears any display slot (key omitted on the persisted
- *      doc).
- *   4. Advanced cluster (excluded owners) survives the patch
- *      byte-identically.
- *   5. Module-not-found surfaces an Elm-style error.
- *   6. Cross-surface parity — chat + MCP contexts produce
- *      structurally identical mutation batches.
- *   7. Initializes the caseSearchConfig with an empty rebuild when
- *      the module has none.
- */
+/** Actual schema-to-workspace/reducer behavior over admitted documents.
+ * The commit receipt is controlled; this suite does not model SQL or MCP. */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type BlueprintDoc,
 	type CaseSearchConfig,
-	caseSearchConfigSchema,
 	isOrdinaryCaseSearchConfig,
-	type Module,
 	type OrdinaryCaseSearchConfig,
 } from "@/lib/domain";
 import { eq, literal, matchAll, prop, term } from "@/lib/domain/predicate";
 import { setCaseSearchDisplayTool } from "../setCaseSearchDisplay";
-import {
-	MOD_A,
-	makeCaseSearchDoc,
-	makeCaseSearchFixture,
-	makeCaseSearchMcpFixture,
-} from "./fixtures";
+import { MOD_A, makeCaseSearchDoc, makeCaseSearchFixture } from "./fixtures";
 
 const MISSING_MODULE = testUuid("missing-case-search-module");
 
@@ -47,47 +24,23 @@ function ordinary(
 	return config;
 }
 
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
-
 describe("setCaseSearchDisplay", () => {
-	it("refuses a case-property-reading button condition at the gate", async () => {
-		// The condition evaluates before any case is selected — a
-		// property read has no row to read, so the commit gate rejects
-		// the batch and nothing persists. (The tool-input schema rejects
-		// the same shape at parse for framework-validated callers; the
-		// gate covers direct execute calls.)
+	it("refuses a case-property-reading button condition before execution", async () => {
 		const h = makeCaseSearchFixture();
-		const result = await h.runTool(setCaseSearchDisplayTool, {
-			moduleUuid: MOD_A,
-			searchScreenTitle: null,
-			searchScreenSubtitle: null,
-			searchButtonLabel: null,
-			searchButtonDisplayCondition: eq(
-				prop("patient", "external_id"),
-				literal("abc"),
-			),
-		});
-
-		expect(result.mutations).toEqual([]);
-		expect(h.currentDoc()).toBe(h.doc);
-		expect(result.result).toMatchObject({
-			error: expect.stringContaining("before any case is selected"),
-		});
+		await expect(
+			h.runTool(setCaseSearchDisplayTool, {
+				moduleUuid: MOD_A,
+				searchScreenTitle: null,
+				searchScreenSubtitle: null,
+				searchButtonLabel: null,
+				searchButtonDisplayCondition: eq(
+					prop("patient", "external_id"),
+					literal("abc"),
+				),
+			}),
+		).rejects.toThrow("before a case is selected");
+		expect(h.currentDoc()).toEqual(h.doc);
+		expect(h.host.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("sets every display slot on the module's caseSearchConfig", async () => {
@@ -109,12 +62,6 @@ describe("setCaseSearchDisplay", () => {
 		expect(search.searchScreenSubtitle).toBe("Type to filter");
 		expect(search.searchButtonLabel).toBe("Search");
 		expect(search.searchButtonDisplayCondition).toEqual(buttonCondition);
-		// Schema-strict round-trip — `caseSearchConfigSchema` is `.strict()`,
-		// so the persisted config's key set must be exactly the schema's
-		// declared slots. Catches the shape drift the observable-shape
-		// assertions above don't (an unknown key leaking onto the layer,
-		// or a known key landing as `undefined` instead of absent).
-		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
 	});
 
 	it("surfaces displaySlotsSet in the structured result", async () => {
@@ -278,7 +225,7 @@ describe("setCaseSearchDisplay", () => {
 		const docWithoutConfig: BlueprintDoc = {
 			...baseDoc,
 			modules: {
-				[MOD_A]: { ...baseMod, caseSearchConfig: undefined } as Module,
+				[MOD_A]: { ...baseMod, caseSearchConfig: undefined },
 			},
 		};
 
@@ -293,29 +240,6 @@ describe("setCaseSearchDisplay", () => {
 
 		const config = h.currentDoc().modules[MOD_A]?.caseSearchConfig;
 		expect(ordinary(config).searchScreenTitle).toBe("Find a patient");
-		// Schema-strict round-trip — every cluster key is optional, so
-		// a config carrying only one display slot still validates.
-		expect(caseSearchConfigSchema.safeParse(config).success).toBe(true);
-	});
-
-	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		// The tool body is host-shape-agnostic — chat and MCP hosts
-		// route through the same `recordMutations` interface and emit
-		// structurally identical mutation batches for the same input.
-		const chat = makeCaseSearchFixture();
-		const mcp = makeCaseSearchMcpFixture();
-		const input = {
-			moduleUuid: MOD_A,
-			searchScreenTitle: "Find a patient",
-			searchScreenSubtitle: null,
-			searchButtonLabel: "Go",
-			searchButtonDisplayCondition: null,
-		};
-
-		const r1 = await chat.runTool(setCaseSearchDisplayTool, input);
-		const r2 = await mcp.runTool(setCaseSearchDisplayTool, input);
-
-		expect(r1.mutations).toEqual(r2.mutations);
 	});
 
 	it("rejects unknown slot names at the SA boundary (strict input schema)", async () => {

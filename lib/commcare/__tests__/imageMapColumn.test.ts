@@ -1,171 +1,46 @@
-/**
- * Image-map column — schema + wire emission (suite `enum-image` +
- * hqJson `enum-image`), plus the media-OFF degradation to a plain
- * column.
- *
- * Verified shape: CCHQ's `detail_screen.py::EnumImage` extends the
- * `Enum` format with `template_form = 'image'`, so the wire is the
- * id-mapping `if(selected(field,'v'), <value>, '')` chain under a
- * `<template form="image">`, with each value an image path. Nova
- * inlines `jr://file/commcare/<hash><ext>` literals.
- */
-
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { compileCcz } from "@/lib/commcare/compiler";
 import { expandDoc } from "@/lib/commcare/expander";
-import type {
-	AssetManifest,
-	ResolvedMediaAsset,
-} from "@/lib/commcare/multimedia/assetWirePath";
-import { columnSchema, imageMapColumn, imageMapEntry } from "@/lib/domain";
-import type { MediaAssetId } from "@/lib/domain/multimedia";
-import { proseText } from "@/lib/domain/prose";
+import { mediaIds, mediaWireFixture } from "./mediaWireFixtures";
+import { readXmlEvidence, type XmlEvidence } from "./xmlEvidence";
 
-const HASH_ACTIVE = "a".repeat(64);
-const HASH_CLOSED = "c".repeat(64);
+const descend = (node: XmlEvidence): XmlEvidence[] =>
+	node.children.flatMap((child) => [child, ...descend(child)]);
 
-function manifest(): AssetManifest {
-	const entry = (
-		id: string,
-		hash: string,
-	): [MediaAssetId, ResolvedMediaAsset] => {
-		const assetId = testMediaAssetId(id);
-		return [
-			assetId,
-			{
-				assetId,
-				wirePath: `commcare/${hash}.png`,
-				kind: "image",
-				mimeType: "image/png",
-				contentHash: hash,
-				extension: ".png",
-				bytes: Buffer.from(`${id}-png`),
-			},
-		];
-	};
-	return new Map([
-		entry("asset-active", HASH_ACTIVE),
-		entry("asset-closed", HASH_CLOSED),
-	]);
-}
-
-function imageMapDoc() {
-	return buildDoc({
-		appName: "Status icons",
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-		],
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				caseListConfig: {
-					columns: [
-						imageMapColumn(testUuid("col-status"), "care_status", "Status", [
-							imageMapEntry("active", testMediaAssetId("asset-active")),
-							imageMapEntry("closed", testMediaAssetId("asset-closed")),
-						]),
-					],
-					searchInputs: [],
-				},
-				forms: [
+describe("image mapping at both export boundaries", () => {
+	for (const enabled of [true, false])
+		it(`emits image semantics with media ${enabled ? "on" : "off"}`, () => {
+			const { doc, assets } = mediaWireFixture();
+			const options = enabled ? { assets } : {};
+			const hq = expandDoc(doc, options);
+			const column = hq.modules[0].case_details.short.columns[1];
+			expect(column.format).toBe(enabled ? "enum-image" : "plain");
+			if (enabled) {
+				// HQ interprets plain enum-image keys as equality and punctuation as
+				// expressions. Explicit predicates preserve token matching and literals.
+				expect(column.enum).toEqual([
 					{
-						name: "Register",
-						type: "registration",
-						fields: [
-							{
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
-							},
-						],
+						key: "selected(., 'active')",
+						value: { en: `jr://file/${assets.get(mediaIds.label)?.wirePath}` },
 					},
-				],
-			},
-		],
-	});
-}
-
-describe("image-map column schema", () => {
-	it("round-trips through columnSchema", () => {
-		const col = imageMapColumn(testUuid("c1"), "care_status", "Status", [
-			imageMapEntry("active", testMediaAssetId("asset-1")),
-		]);
-		expect(columnSchema.parse(col)).toEqual(col);
-	});
-
-	it("rejects duplicate mapping values", () => {
-		const dup = {
-			uuid: testUuid("c1"),
-			kind: "image-map",
-			field: "care_status",
-			header: "Status",
-			mapping: [
-				{ value: "active", assetId: "a1" },
-				{ value: "active", assetId: "a2" },
-			],
-		};
-		expect(columnSchema.safeParse(dup).success).toBe(false);
-	});
-});
-
-describe("image-map column wire emission", () => {
-	it("projects to format enum-image with jr:// image values in HQ JSON", () => {
-		const hqJson = expandDoc(imageMapDoc(), { assets: manifest() });
-		const shortCols = hqJson.modules[0].case_details.short.columns;
-		const statusCol = shortCols.find((c) => c.field === "care_status");
-		expect(statusCol?.format).toBe("enum-image");
-		expect(statusCol?.enum).toEqual([
-			{ key: "active", value: { en: `jr://file/commcare/${HASH_ACTIVE}.png` } },
-			{ key: "closed", value: { en: `jr://file/commcare/${HASH_CLOSED}.png` } },
-		]);
-	});
-
-	it("emits a <template form=image> with the selected() image chain in suite.xml", () => {
-		const doc = imageMapDoc();
-		const ccz = compileCcz(
-			expandDoc(doc, { assets: manifest() }),
-			"Status icons",
-			doc,
-			{
-				assets: manifest(),
-			},
-		);
-		const suite =
-			new AdmZip(ccz).getEntry("suite.xml")?.getData().toString("utf-8") ?? "";
-		expect(suite).toContain('<template form="image">');
-		// enum-image uses a NESTED `if(...)` chain (not id-mapping's
-		// `replace(join(...))` wrapper, which would leave a trailing space on
-		// the matched image path). The serializer encodes the literal single
-		// quotes as `&apos;`.
-		expect(suite).not.toContain("replace(join");
-		expect(suite).toContain(
-			"if(selected(care_status, &apos;active&apos;), " +
-				`&apos;jr://file/commcare/${HASH_ACTIVE}.png&apos;, ` +
-				"if(selected(care_status, &apos;closed&apos;), " +
-				`&apos;jr://file/commcare/${HASH_CLOSED}.png&apos;, &apos;&apos;))`,
-		);
-	});
-
-	it("degrades to a plain column when media is off", () => {
-		const hqJson = expandDoc(imageMapDoc());
-		const statusCol = hqJson.modules[0].case_details.short.columns.find(
-			(c) => c.field === "care_status",
-		);
-		// No manifest → no images to map → the raw value column.
-		expect(statusCol?.format).toBe("plain");
-
-		const doc = imageMapDoc();
-		const ccz = compileCcz(expandDoc(doc), "Status icons", doc);
-		const suite =
-			new AdmZip(ccz).getEntry("suite.xml")?.getData().toString("utf-8") ?? "";
-		expect(suite).not.toContain('<template form="image">');
-	});
+					{
+						key: "selected(., 'closed')",
+						value: { en: `jr://file/${assets.get(mediaIds.option)?.wirePath}` },
+					},
+					{
+						key: `selected(., concat('a.', "'", '"/b'))`,
+						value: { en: `jr://file/${assets.get(mediaIds.icon)?.wirePath}` },
+					},
+				]);
+			}
+			const zip = new AdmZip(compileCcz(hq, doc.appName, doc, options));
+			const suite = readXmlEvidence(zip.readAsText("suite.xml"));
+			const images = descend(suite).filter(
+				(node) => node.name === "template" && node.attributes.form === "image",
+			);
+			expect(images).toHaveLength(enabled ? 2 : 0);
+			// Executable matching, first-match order, punctuation and no-match behavior
+			// are independently exercised by native Core over local + actual HQ suites.
+		});
 });

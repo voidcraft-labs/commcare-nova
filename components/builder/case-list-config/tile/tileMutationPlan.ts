@@ -140,10 +140,8 @@ export function planTileLayoutDisable(moduleUuid: Uuid): readonly Mutation[] {
  *
  * `patch.tile` replaces the layout object wholesale, so this rebuilds it
  * from the current one rather than writing a bare `{ persistOnForms }`.
- * The layout carries exactly one slot today and the two spellings are
- * identical, but a second slot added later would be silently erased by
- * every toggle of this switch, and that failure is invisible until an
- * author notices a setting gone.
+ * Grouping shares the same layout object and must survive this independent
+ * switch, just as this switch survives a grouping edit.
  */
 export function planTilePersistOnForms(
 	moduleUuid: Uuid,

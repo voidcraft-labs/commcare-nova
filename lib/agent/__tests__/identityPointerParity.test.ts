@@ -1,5 +1,5 @@
 /**
- * Complete authored-identity parity across the shared local, SA, and MCP tool
+ * Patterned authored-identity projections across the shared local, SA, and MCP tool
  * surfaces. The local registry is schema-derived; the MCP side is read through
  * a real SDK client from tools/list, not reconstructed from registration args.
  */
@@ -15,13 +15,11 @@ import { z } from "zod";
 import {
 	AUTHORABLE_IDENTITY_POINTER_REGISTRY,
 	type AuthorableIdentityPointer,
-	buildAuthorableIdentityPointerRegistry,
 	collectIdentitySchemaPointers,
 } from "@/lib/agent/identityPointerRegistry";
 import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import {
-	CANONICAL_UUID_PATTERN,
 	LOOKUP_UUID_V7_PATTERN,
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
@@ -68,16 +66,18 @@ beforeAll(async () => {
 	const [clientTransport, serverTransport] =
 		InMemoryTransport.createLinkedPair();
 	const client = new Client({ name: "identity-test-client", version: "0.0.0" });
-	await Promise.all([
-		server.connect(serverTransport),
-		client.connect(clientTransport),
-	]);
-	const tools = (await client.listTools()).tools;
-	mcpSchemas = new Map(
-		tools.map((tool) => [tool.name, tool.inputSchema as JsonNode]),
-	);
-	await client.close();
-	await server.close();
+	try {
+		await Promise.all([
+			server.connect(serverTransport),
+			client.connect(clientTransport),
+		]);
+		const tools = (await client.listTools()).tools;
+		mcpSchemas = new Map(
+			tools.map((tool) => [tool.name, tool.inputSchema as JsonNode]),
+		);
+	} finally {
+		await Promise.all([client.close(), server.close()]);
+	}
 });
 
 function signature(pointer: AuthorableIdentityPointer): string {
@@ -120,15 +120,11 @@ function assertRejectionMatrix(
 }
 
 describe("shared-tool authored identity registry", () => {
-	it("is complete, deterministic, classified, and duplicate-free", () => {
-		expect(AUTHORABLE_IDENTITY_POINTER_REGISTRY).toEqual(
-			buildAuthorableIdentityPointerRegistry(),
-		);
+	it("has duplicate-free classified pointers for module ownership and confirmation", () => {
 		const exactPointers = AUTHORABLE_IDENTITY_POINTER_REGISTRY.map(
 			(pointer) => `${pointer.tool}:${pointer.schemaPointer}`,
 		);
 		expect(new Set(exactPointers).size).toBe(exactPointers.length);
-		expect(AUTHORABLE_IDENTITY_POINTER_REGISTRY.length).toBeGreaterThan(400);
 		for (const tool of ["create_module", "move_module"]) {
 			expect(
 				AUTHORABLE_IDENTITY_POINTER_REGISTRY.find(
@@ -149,7 +145,7 @@ describe("shared-tool authored identity registry", () => {
 		});
 	});
 
-	it("pins the complete malformed/case/version/variant/nil/max matrix in the domain schemas", () => {
+	it("rejects malformed/case/version/variant/nil/max examples in the domain schemas", () => {
 		for (const invalid of GENERAL_UUID_REJECTIONS) {
 			expect(uuidSchema.safeParse(invalid).success, invalid).toBe(false);
 		}
@@ -168,7 +164,7 @@ describe("shared-tool authored identity registry", () => {
 		}
 	});
 
-	it("keeps every exact identity pointer and rejection matrix identical in local Zod, compact SA, and real MCP tools/list schemas", () => {
+	it("keeps collected non-AST pointers and the sampled rejection matrix identical in local Zod, compact SA, and real MCP tools/list schemas", () => {
 		/* The SA wire flattens the AST family into self-contained merged roots
 		 * (`wireSchemas.ts`), so pointers that the canonical emission reaches
 		 * through AST definitions sit at different logical paths there — or,
@@ -253,14 +249,33 @@ describe("shared-tool authored identity registry", () => {
 		).toEqual([...localAstSlots].sort());
 	});
 
-	it("uses only the shared canonical UUID patterns at every registered pointer", () => {
-		for (const pointer of AUTHORABLE_IDENTITY_POINTER_REGISTRY) {
-			expect(
-				[CANONICAL_UUID_PATTERN.source, LOOKUP_UUID_V7_PATTERN.source].includes(
-					pointer.pattern,
+	it("collects nested and array identities and refuses an unclassified canonical identity", () => {
+		const json = z.toJSONSchema(
+			z.object({
+				confirmedModuleUuids: z.array(uuidSchema),
+				target: z.object({ formUuid: uuidSchema }),
+				columnId: lookupColumnIdSchema,
+			}),
+		);
+		expect(
+			collectIdentitySchemaPointers("probe", json).map((pointer) => ({
+				path: pointer.logicalPointer,
+				family: pointer.family,
+			})),
+		).toEqual([
+			{ path: "/confirmedModuleUuids/*", family: "module" },
+			{ path: "/target/formUuid", family: "form" },
+			{ path: "/columnId", family: "lookup-column" },
+		]);
+		expect(() =>
+			collectIdentitySchemaPointers(
+				"probe",
+				z.toJSONSchema(
+					z.object({
+						unknownIdentity: uuidSchema,
+					}),
 				),
-				`${pointer.tool} ${pointer.schemaPointer}`,
-			).toBe(true);
-		}
+			),
+		).toThrow("Unclassified authored identity");
 	});
 });

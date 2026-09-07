@@ -13,7 +13,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument("--hq-root", required=True, type=Path)
 parser.add_argument("--exports", required=True, type=Path)
 parser.add_argument("--python-path", type=Path, help="Optional dependency overlay for the HQ environment")
-parser.add_argument("--corpus", choices=["search", "prompts", "functions", "quotes", "static-quotes"], default="search")
+parser.add_argument("--corpus", choices=["search", "prompts", "functions", "quotes", "static-quotes", "links"], default="search")
 args = parser.parse_args()
 hq_root = args.hq_root.resolve()
 sys.path.insert(0, str(hq_root))
@@ -87,6 +87,8 @@ if args.corpus == "quotes":
     expected = {"runtime-quotes"}
 if args.corpus == "static-quotes":
     expected = {"static-quotes"}
+if args.corpus == "links":
+    expected = {"else", "module", "home", "previous", "unconditional", "overlap", "manual"}
 sources = sorted(args.exports.glob("*.json"))
 assert {source.stem for source in sources} == expected
 results = []

@@ -1,3 +1,5 @@
+import { NextRequest } from "next/server";
+import { AppAccessError } from "@/lib/db/appAccess";
 /**
  * `PUT /api/media/upload/dev-put`: the local-dev signed-PUT proxy.
  *
@@ -24,22 +26,12 @@ const {
 	uploadAssetBytesMock: vi.fn(),
 }));
 
-// The route branches on `err instanceof AppAccessError`, so the mocked
-// module must export a real class the tests can throw. Hoisted because the
-// factory runs while the route module is being imported.
-const { MockAppAccessError } = vi.hoisted(() => {
-	class MockAppAccessError extends Error {
-		readonly name = "AppAccessError";
-	}
-	return { MockAppAccessError };
-});
-
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
 }));
-vi.mock("@/lib/db/appAccess", () => ({
+vi.mock("@/lib/db/appAccess", async (original) => ({
+	...(await original<typeof import("@/lib/db/appAccess")>()),
 	resolveProjectAccess: resolveProjectAccessMock,
-	AppAccessError: MockAppAccessError,
 }));
 vi.mock("@/lib/db/formAttachments", () => ({
 	authorizePendingFormAttachmentUpload:
@@ -49,6 +41,7 @@ vi.mock("@/lib/storage/media", () => ({
 	uploadAssetBytes: uploadAssetBytesMock,
 }));
 
+const ownedRequests: NextRequest[] = [];
 function devPutReq(opts: {
 	key?: string;
 	max?: string;
@@ -59,13 +52,16 @@ function devPutReq(opts: {
 	if (opts.key !== undefined) params.set("key", opts.key);
 	if (opts.max !== undefined) params.set("max", opts.max);
 	const bytes = opts.body ?? new TextEncoder().encode("png-bytes");
-	return {
-		url: `http://localhost:3000/api/media/upload/dev-put?${params.toString()}`,
-		headers: new Headers(
-			opts.contentType ? { "content-type": opts.contentType } : {},
-		),
-		arrayBuffer: async () => bytes.buffer as ArrayBuffer,
-	} as Parameters<typeof PUT>[0];
+	const req = new NextRequest(
+		`http://localhost:3000/api/media/upload/dev-put?${params.toString()}`,
+		{
+			method: "PUT",
+			headers: opts.contentType ? { "content-type": opts.contentType } : {},
+			body: new Uint8Array(bytes),
+		},
+	);
+	ownedRequests.push(req);
+	return req;
 }
 
 beforeEach(() => {
@@ -78,8 +74,13 @@ beforeEach(() => {
 	uploadAssetBytesMock.mockResolvedValue(undefined);
 });
 
-afterEach(() => {
-	vi.unstubAllEnvs();
+afterEach(async () => {
+	try {
+		for (const req of ownedRequests.splice(0))
+			if (!req.bodyUsed) await req.body?.cancel();
+	} finally {
+		vi.unstubAllEnvs();
+	}
 });
 
 describe("PUT /api/media/upload/dev-put", () => {
@@ -102,7 +103,7 @@ describe("PUT /api/media/upload/dev-put", () => {
 		);
 		expect(uploadAssetBytesMock).toHaveBeenCalledWith({
 			gcsObjectKey: "pending/project-1/asset-1.png",
-			bytes: expect.any(Buffer),
+			bytes: Buffer.from("png-bytes"),
 			contentType: "image/png",
 			ifAbsent: true,
 		});
@@ -129,7 +130,7 @@ describe("PUT /api/media/upload/dev-put", () => {
 		expect(resolveProjectAccessMock).not.toHaveBeenCalled();
 		expect(uploadAssetBytesMock).toHaveBeenCalledWith({
 			gcsObjectKey: "captures-staged/project-1/attachment-1.png",
-			bytes: expect.any(Buffer),
+			bytes: Buffer.from("png-bytes"),
 			contentType: "image/png",
 			ifAbsent: true,
 		});
@@ -185,7 +186,7 @@ describe("PUT /api/media/upload/dev-put", () => {
 
 	it("403s when the caller can't edit the key's Project, writing nothing", async () => {
 		resolveProjectAccessMock.mockRejectedValue(
-			new MockAppAccessError("not_member"),
+			new AppAccessError("not_member"),
 		);
 
 		const res = await PUT(
@@ -245,4 +246,20 @@ describe("PUT /api/media/upload/dev-put", () => {
 		expect(uploadAssetBytesMock).not.toHaveBeenCalled();
 		await res.json();
 	});
+});
+
+it("refuses a foreign Project before consuming any upload bytes", async () => {
+	resolveProjectAccessMock.mockRejectedValue(new AppAccessError("not_member"));
+	const req = devPutReq({ key: "pending/project-foreign/a.png", max: "100" });
+	const response = await PUT(req);
+	try {
+		expect(await response.json()).toMatchObject({
+			error: expect.stringContaining("can't edit"),
+		});
+		expect(response.status).toBe(403);
+		expect(req.bodyUsed).toBe(false);
+		expect(uploadAssetBytesMock).not.toHaveBeenCalled();
+	} finally {
+		if (!req.bodyUsed) await req.body?.cancel();
+	}
 });

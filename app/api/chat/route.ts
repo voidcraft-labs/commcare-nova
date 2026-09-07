@@ -1493,7 +1493,7 @@ export async function POST(req: Request) {
 					 * heartbeat MUST stop here or an abandoned pause would never lapse for
 					 * the reapers). Idempotent. Clearing the interval here is what keeps it
 					 * from leaking. */
-					ctx.stopRunLeaseHeartbeat();
+					await ctx.stopRunLeaseHeartbeat();
 					const paused = opts?.paused ?? false;
 
 					/* Retire the transcript FIRST, before any settle/flush work: set

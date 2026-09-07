@@ -6,69 +6,60 @@
  * removal, anchor, and parent relationship uses stable identity.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
 import { editFieldInputSchema, editFieldTool } from "../editField";
 import { getFieldInputSchema, getFieldTool } from "../getField";
 import { removeFieldInputSchema, removeFieldTool } from "../removeField";
 
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
 function makeDoc(): BlueprintDoc {
-	return buildDoc({
-		modules: [
-			{
-				name: "Clinic",
-				forms: [
-					{
-						name: "Encounter",
-						type: "survey",
-						fields: [
-							f({
-								id: "orders",
-								kind: "group",
-								label: "Orders",
-								children: [
-									f({
-										id: "patient_name",
-										kind: "text",
-										label: "In orders",
-									}),
-								],
-							}),
-							f({
-								id: "history",
-								kind: "group",
-								label: "History",
-								children: [
-									f({
-										id: "patient_name",
-										kind: "text",
-										label: "In history",
-									}),
-								],
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
+	return expectAdmittedDoc(
+		buildDoc({
+			modules: [
+				{
+					name: "Clinic",
+					forms: [
+						{
+							name: "Encounter",
+							type: "survey",
+							fields: [
+								f({
+									id: "orders",
+									kind: "group",
+									label: "Orders",
+									children: [
+										f({
+											id: "patient_name",
+											kind: "text",
+											label: "In orders",
+										}),
+									],
+								}),
+								f({
+									id: "history",
+									kind: "group",
+									label: "History",
+									children: [
+										f({
+											id: "patient_name",
+											kind: "text",
+											label: "In history",
+										}),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
 }
 
 function address(doc: BlueprintDoc): {
@@ -90,13 +81,12 @@ function fieldByLabel(doc: BlueprintDoc, label: string) {
 	return field;
 }
 
-beforeEach(() => {
-	vi.clearAllMocks();
-});
-
 describe("field UUID addresses", () => {
-	it("rejects positional and semantic-id address aliases at every schema", () => {
+	it("rejects positional and semantic-id address aliases even alongside a valid UUID address at the three field schemas", () => {
+		const doc = makeDoc();
 		const oldAddress = {
+			...address(doc),
+			fieldUuid: fieldByLabel(doc, "In history").uuid,
 			moduleIndex: 0,
 			formIndex: 0,
 			fieldId: "patient_name",
@@ -122,7 +112,7 @@ describe("field UUID addresses", () => {
 		});
 
 		expect(result.result).not.toHaveProperty("error");
-		const newDoc = h.currentDoc();
+		const newDoc = expectAdmittedDoc(h.currentDoc());
 		const changed = newDoc.fields[inHistory.uuid];
 		expect(
 			changed &&
@@ -153,10 +143,18 @@ describe("field UUID addresses", () => {
 			},
 		});
 
+		const second = await h.runTool(editFieldTool, {
+			...address(doc),
+			fieldUuid: inHistory.uuid,
+			updates: { kind: "text", help: proseText("Use the renamed field") },
+		});
+		expect(second.result).not.toHaveProperty("error");
+		expectAdmittedDoc(h.currentDoc());
 		expect(h.currentDoc().fields[inHistory.uuid]).toMatchObject({
 			uuid: inHistory.uuid,
 			id: "order_note",
 			label: proseText("Renamed history"),
+			help: proseText("Use the renamed field"),
 		});
 	});
 
@@ -171,6 +169,7 @@ describe("field UUID addresses", () => {
 		});
 
 		expect(result.result).not.toHaveProperty("error");
+		expectAdmittedDoc(h.currentDoc());
 		expect(h.currentDoc().fields[inOrders.uuid]).toBeUndefined();
 		expect(h.currentDoc().fields[inHistory.uuid]).toBeDefined();
 	});
@@ -213,6 +212,7 @@ describe("field parent identity", () => {
 		});
 
 		expect(result.result).not.toHaveProperty("error");
+		expectAdmittedDoc(h.currentDoc());
 		expect(h.currentDoc().fieldParent[newFieldUuid]).toBe(history.uuid);
 	});
 
@@ -241,6 +241,7 @@ describe("field parent identity", () => {
 		});
 
 		expect(result.result).not.toHaveProperty("error");
+		expectAdmittedDoc(h.currentDoc());
 		expect(h.currentDoc().fieldParent[childUuid]).toBe(sectionUuid);
 	});
 
@@ -263,6 +264,7 @@ describe("field parent identity", () => {
 
 		expect(result.result).toHaveProperty("error");
 		expect(result.mutations).toEqual([]);
+		expect(h.currentDoc()).toEqual(doc);
 		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 });

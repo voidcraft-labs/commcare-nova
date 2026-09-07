@@ -517,8 +517,9 @@ Translation is a named model role using GPT-5.6 Sol through Nova's installed AI
 SDK structured-output path. The SDK API called “translation” is speech/audio
 translation and is not used for text localization.
 
-The translator receives batches grouped by owning screen/form and bounded by
-estimated tokens rather than item count alone. Each batch includes:
+The translator receives batches grouped by owning screen/form and split at a
+12,000 estimated-token target. A single translation unit is indivisible: an
+oversized unit stays alone without truncating its source. Each batch includes:
 
 - source and target languages, each as `{identity, descriptor}` where the
   descriptor is the registry-derived prose ("Mandarin Chinese (Simplified
@@ -532,6 +533,10 @@ estimated tokens rather than item count alone. Each batch includes:
 
 The system prompt names the three standards and instructs the model to follow
 the target's script and regional conventions.
+
+An explicitly incomplete provider response is refused even when the SDK parsed
+a complete-looking object. Its usage and failure remain durable; it cannot
+advance the document or become a successful replay.
 
 Output is structured and must cover the exact requested unit IDs. The server
 rejects missing, extra, duplicate, wrong-kind, blank-illegal, or

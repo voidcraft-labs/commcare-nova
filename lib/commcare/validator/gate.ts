@@ -207,7 +207,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	CASE_LIST_DUPLICATE_SEARCH_INPUT_NAME: "soundness",
 	CASE_LIST_BARE_SEARCH_INPUT_REF: "soundness",
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: "soundness",
-	CASE_LIST_ID_MAPPING_EMPTY_VALUE: "soundness",
 	CASE_LIST_IMAGE_MAP_DUPLICATE_VALUE: "soundness",
 	CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE: "soundness",
 	CASE_LIST_ANCESTOR_EXISTS_NESTS_CROSS_DIRECTION_WALK: "soundness",
@@ -274,7 +273,6 @@ export const VALIDITY_CLASS_BY_CODE = {
 	SEARCH_NO_MATCHES_ENTRY_NOT_REGISTRATION: "soundness",
 	SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION: "soundness",
 	SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN: "soundness",
-	SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM: "soundness",
 	FORM_LINK_CIRCULAR: "soundness",
 	FORM_LINK_NO_FALLBACK: "soundness",
 	FORM_LINK_SELF_REFERENCE: "soundness",
@@ -474,18 +472,23 @@ export const VALIDITY_CLASS_BY_CODE = {
 	// context is therefore a whole-candidate soundness failure.
 	LOOKUP_CONTEXT_UNAVAILABLE: "soundness",
 	LOOKUP_TABLE_NOT_AVAILABLE: "soundness",
+	LOOKUP_TAG_RESERVED_BY_RUNTIME: "soundness",
 	LOOKUP_COLUMN_NOT_AVAILABLE: "soundness",
 	LOOKUP_COLUMN_TYPE_MISMATCH: "soundness",
 	LOCATION_OWNER_EXPORT_NOT_ACTIVE: "soundness",
 	/* Row-dependent boundary findings: like MEDIA_EXPORT_TOO_LARGE they are
 	 * functions of external Project data, so they never gate a commit. */
 	LOOKUP_CELL_TEXT_UNREPRESENTABLE: "environment",
+	LOOKUP_CELL_TEXT_CHANGED_BY_HQ: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_WHITESPACE: "environment",
 	LOOKUP_SELECT_SOURCE_VALUE_DUPLICATE: "environment",
 	LOOKUP_SELECT_SOURCE_LABEL_BLANK: "environment",
 	LOOKUP_FIXTURE_EXPORT_TOO_LARGE: "environment",
 	LOOKUP_HQ_PUSH_TOO_LARGE: "environment",
+	// HQ regeneration cannot preserve these proven nested selection shapes.
+	// Local package export remains supported; this is target-specific.
+	HQ_NESTED_SELECTION_UNREPRESENTABLE: "environment",
 	LOOKUP_TAG_TOO_LONG_FOR_HQ: "environment",
 	LOOKUP_TAG_RESERVED_BY_HQ: "environment",
 	// ── XPath deep validation ────────────────────────────────────────

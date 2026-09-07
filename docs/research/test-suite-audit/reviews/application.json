@@ -1,0 +1,1398 @@
+{
+	"owner": "application",
+	"files": [
+		{
+			"file": "lib/chat/__tests__/compaction.test.ts",
+			"status": "revised",
+			"review": "Inspected compaction.ts and exercised actual history projections. Added two checkpoints in one message, newest incompatible checkpoint fallback, whole source immutability and nonprovider custom-part counterexamples; these prove projection identity and boundaries, not provider encrypted-content validity.",
+			"reviewedSha256": "8dba24291dd6e98308b87bb4b6fb89fa17104d8f753d1ae641d897895846b050"
+		},
+		{
+			"file": "lib/chat/__tests__/durableStreamWriter.test.ts",
+			"status": "revised",
+			"review": "Inspected batching, marker, fold and live writer lifecycle. Retained narrow mocked append boundary because Postgres owns row durability; replaced wall-clock polling with exact fake batch deadline, cancellation count, explicit flush and per-test close ownership. Held actual pending append promise exposed concurrent close returning before terminal append; production close now joins same chain. Indices, marker redaction and sink failures remain covered.",
+			"reviewedSha256": "793c631c5a2d2d2d53a73fd541be9f7b78185006972580086a5f72ff78cc8c5a"
+		},
+		{
+			"file": "lib/chat/__tests__/hydratedStepFilter.test.ts",
+			"status": "revised",
+			"review": "Inspected actual step-window and TransformStream wrapper. Kept pure protocol rules and added exact retained chunk suffix with distinct step content and hydration captured once at start; old type-only comparisons could not distinguish wrong retained steps. Real transport/route composition remains assigned Postgres suite.",
+			"reviewedSha256": "a15c43ea10c731bcf7609154ce82f11e8fef0e561ca3f1270f00f7c6acf95d48"
+		},
+		{
+			"file": "lib/chat/__tests__/internalToolParts.test.ts",
+			"status": "retained",
+			"review": "Inspected internal protocol classification and toolSummary presentation. Explicit tool corpus guards plain-language projection and suppresses model-facing success/refusal payloads while preserving failed status; ordinary edit negative control and private wait exclusion are meaningful. Does not claim registration coverage or rendered UI.",
+			"reviewedSha256": "cea587c400bc01b322bb0b707f44f7ba57b8ae4a48dfdff97149e4550d3cd18b"
+		},
+		{
+			"file": "lib/chat/__tests__/sanitizeReasoningParts.test.ts",
+			"status": "revised",
+			"review": "Inspected reasoning repair and composed it with actual SDK tool-history conversion and convertToModelMessages. Reproduced dynamic-tool gap for compatible/incompatible model histories, fixed classifier including dynamic askQuestions. Exact model message call/result/reasoning sequence and source immutability now tested; no live model call or encrypted blob validity claim.",
+			"reviewedSha256": "e7a2ab3fde91db37f8148b5b397bb6dda3fb37dd3a389a9aaaa0c6b7891862f3"
+		},
+		{
+			"file": "lib/chat/__tests__/sanitizeToolParts.test.ts",
+			"status": "retained",
+			"review": "Inspected full sanitizer. Tests retain installed SDK safeValidateUIMessages/validateUIMessages and controlled strict tool schemas; meaningful deployed-schema narrowing, terminal native dynamic conversion, in-flight deletion and unchanged-reference boundaries. New sibling composition regression proves downstream reasoning repair compatibility.",
+			"reviewedSha256": "00dc4f9decaa827f9daab6dec6f36f3a4aa153003db963314e2bbce03b303674"
+		},
+		{
+			"file": "lib/chat/__tests__/streamPartClosure.test.ts",
+			"status": "revised",
+			"review": "Inspected tracker state and installed SDK consumer source. Added actual readUIMessageStream consumer over interrupted text/reasoning/tool call plus retry, asserting one final assistant message with closed parts and retried text. Awaited full pipeTo completion; SDK/Web Streams dormant PROMISE allocations remain detector observations shared with agent_domain, not live handles or ignored work.",
+			"reviewedSha256": "8984b51433b82202dec4e7e748f14e725484ae46b9de377f09ee5a936852e797"
+		},
+		{
+			"file": "lib/chat/__tests__/validateMessages.test.ts",
+			"status": "revised",
+			"review": "Inspected metadata schemas and count gate. Existing malformed carriers and attachment kinds now pair with exact maximum messages, total attachments, filename/MIME/title/summary byte-independent string lengths, plus one-over request refusal. Actual production parser, no route/schema mock.",
+			"reviewedSha256": "2b7f47f8a791fd1a7840c493ba24353df37146c9f380aa0837a03a7aff7dd580"
+		},
+		{
+			"file": "lib/chat/__tests__/threadAttachments.test.ts",
+			"status": "revised",
+			"review": "Inspected canonical strict traversal, remap and stored-authority projection. Added conflicting stale/current attachment identities, explicit empty stored list and absent stored metadata, with richer client text/metadata retained and input immutable; production persistence authorization remains DB boundary.",
+			"reviewedSha256": "f4ec96bbf5181c9b6fdb99895653d7f8b439b3d47e2766d86a898c993608ac50"
+		},
+		{
+			"file": "lib/chat/__tests__/toolSummary.test.ts",
+			"status": "retained",
+			"review": "Read complete presentation owner and all tests. Actual pure semantic projection covers honest pending/failed/unchanged states, user-facing tense/counts/location, typed coordination refusal and historical nonmutating tools; user-visible phrases are the contract, unlike CSS snapshots. UI rendering and actual mutation commits remain separate boundaries.",
+			"reviewedSha256": "23cb1ff853040d82ebab6b95793f1f3804722fb73d720ada989810a607e5e638"
+		},
+		{
+			"file": "lib/__tests__/auth-oauth-config.test.ts",
+			"status": "removed",
+			"review": "Removed snapshots of exported arrays that falsely claimed anonymous registration defaulted to baseline scopes. Replacement configuration.postgres.test.ts calls the complete production Better Auth factory over migrated Postgres, exercises actual registration and rejected unknown scope, inspects persisted capabilities and zero grants, and follows a signed-session authorization response to consent with exactly the explicitly requested narrow scopes. Native run auth-native-third.log: 9 tests pass across both replacement suites; no leak diagnostics. Registration is capabilities, not a user grant; no live Google OAuth or token issuance claim.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/__tests__/auth-project-lifecycle.test.ts",
+			"status": "removed",
+			"review": "Removed frozen-option object equality, which could pass with an unwired plugin. Replacement configuration.postgres.test.ts drives the production auth HTTP handler with a real signed session and persisted owner membership. Disabled organization deletion returns the native error and leaves project, membership, and active session unchanged. Native auth-native-third.log passes; this proves refusal before mutation, not a future tenant deletion implementation.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/__tests__/auth-utils.test.ts",
+			"status": "removed",
+			"review": "Replaced fake fluent SQL and auth-user authority with auth-utils.postgres.test.ts over real migrated auth rows. Cached session and signout are controlled at the auth boundary; actual requireSession/requireAdmin reads prove promotion, demotion, ban expiry, deleted-user denial, impersonation, signout failure and documented fail-open read policy. A competing PostgreSQL row lock proves request completion now owns the noncritical activity update; prior implementation emitted unfinished PROMISE chains. Updated touchUser to await and catch failures. auth-native-third.log: nine total tests pass with no diagnostics.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/__tests__/apiError.test.ts",
+			"status": "revised",
+			"review": "Replaced hand-made arrayBuffer Request doubles and constant limit snapshot with native Request/ReadableStream byte-boundary tests. Actual readJsonBody now enforces the cap while pulling bytes, cancels oversized headerless or falsely sized bodies before reading further chunks, handles split UTF-8, malformed JSON and native stream failure, and releases its reader. Four before-fix failures are recorded in api-body-before.log; 25 tests pass in api-body-after.log. Native Web Streams proof does not claim reverse-proxy buffering behavior.",
+			"reviewedSha256": "7c7652bd4a005b9a1c2c46c48266ab9678956bedf657e26d768d72264bfc5843"
+		},
+		{
+			"file": "lib/__tests__/clientErrorReporter.test.ts",
+			"status": "revised",
+			"review": "Removed happy-dom ambient window/module-reset ownership. Production createClientErrorReporter owns per-document deduplication; tests construct native Blob payloads, await fallback fetch promises and verify source-captured errors do not re-capture into Sentry. Distinct factory instances prove independent lifetime budgets. application-policies.log passed six files and 41 tests. Browser transport is separately exercised by native browser error-guard coverage.",
+			"reviewedSha256": "f0d17097966cb457668145be4b82450afaec57aeb9b154e30af336f0f76a4914"
+		},
+		{
+			"file": "lib/__tests__/utils.test.ts",
+			"status": "retained",
+			"review": "Read full utils test and production cn helper. Tests call actual clsx/tailwind-merge with conflicting classes and value types. The remaining source inventory is explicitly an architecture rule requiring canonical theme color tokens rather than claiming rendered appearance. Retained this narrow purpose; application-policies.log passes.",
+			"reviewedSha256": "af66028f4aab5d0f94311368bcf10014f35b2d0b2b4497f3d720f039a3525089"
+		},
+		{
+			"file": "lib/session/__tests__/hooks.test.tsx",
+			"status": "removed",
+			"review": "Removed happy-dom renderHook smoke checks that duplicated actual session actions and merely re-tested primitive Zustand subscriptions. Full store suite executes sidebar stash/restore and active-field/no-op behavior; native Builder acceptance owns page interaction wiring. No claim that object setters prove browser focus.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/session/__tests__/hooks-useSessionEventsEmpty.test.tsx",
+			"status": "removed",
+			"review": "Removed simulated-DOM tests of a one-line events.length selector. Actual beginRun/pushEvents/endRun sequences and completion persistence are exercised through the real session store and client dispatcher integration. Browser chat lifecycle remains native acceptance scope.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/session/__tests__/store.test.ts",
+			"status": "revised",
+			"review": "Read the complete 1822-line baseline and 1822-line store plus hooks/provider contract. Kept actual Zustand reducers and real BlueprintDocStore integration; admitted complete Connect and generation fixtures through blueprint schema plus absolute empty-batch commit gate, replaced no-undo-entry canUndo boolean pseudo-count with identity and real undo restoration, removed duplicate event lifecycle cases, and moved toast/subscription teardown to unconditional ownership. Session-core.log: seven files, 140 tests pass with no diagnostics; no renderer/layout claims.",
+			"reviewedSha256": "b5f6d49de58395a403a31b57865b776ff142b7f1e1140161b75643d931c6f2ff"
+		},
+		{
+			"file": "lib/session/__tests__/stagedUploads.test.ts",
+			"status": "revised",
+			"review": "Direct store/cancellation-boundary tests retained: production transfer callbacks are controlled while state transitions execute unchanged. Parameterizing the existing throwing-abort regression across resetProjectScope and reset reproduced ordinary reset abandoning later aborts and all state cleanup. Production reset now drains every callback, clears state/handles, then throws AggregateError. One before-fix failure session-reset-before.log; all 10 upload tests pass in session-core.log.",
+			"reviewedSha256": "b92e1dd1c6601c630b2a599d3c33781758058f05b1c8de05437eb9d156f5bc8d"
+		},
+		{
+			"file": "lib/session/__tests__/derivePhase.test.ts",
+			"status": "revised",
+			"review": "Pure phase function is the appropriate owner for lifecycle priority; retained conflicting-state and unfinished materialization cases. Removed two duplicated hand-written empty-state snapshots mislabeled end-to-end; true transition sequences are covered by the session and dispatcher integration tests. session-core.log passes.",
+			"reviewedSha256": "d16eaf77070501eab2f25075e1647d1075300e3a8bd437dd43ca7938855e6d4b"
+		},
+		{
+			"file": "lib/session/__tests__/deriveChatAppReady.test.ts",
+			"status": "retained",
+			"review": "Read full pure policy and consuming hook. Tests distinguish paused unfinished build from ordinary edit, including completion-stamp bridge and new empty session. The build latch is intentionally independent of phase; no mocked DOM or invented runtime wiring. session-core.log passes.",
+			"reviewedSha256": "ddf6bf5a86a9e02cdfcf2409868276b9e2b4960733425696967ee7ac4964e9ea"
+		},
+		{
+			"file": "lib/session/__tests__/lifecycle.test.ts",
+			"status": "retained",
+			"review": "Read complete tests and production lifecycle fold. Direct real event-prefix folding proves monotonic milestones, live versus historical tags, sticky errors, validation replay, attachment prep transitions, and post-build edit discrimination. Stage label projection cases have a narrow formatting role; no claim to test generation itself. session-core.log passes.",
+			"reviewedSha256": "b3fba7751086bdb00a54ea7bec1c700c812be3ce55f4082388bc55efe6802cd1"
+		},
+		{
+			"file": "lib/session/__tests__/assetMeta.test.ts",
+			"status": "retained",
+			"review": "Read actual registry reducer and full test. Tests prove merge/overwrite, identity-preserving no-ops, session reset and Project boundary invalidation on the real store. They are cache ownership tests, not storage or authoritative export-budget proof. session-core.log passes.",
+			"reviewedSha256": "29e9d1cd99f85e98398eb25d3d1f75387b9bb94cf69825659cbba1cb3bb8f976"
+		},
+		{
+			"file": "lib/session/__tests__/previewSearchState.test.ts",
+			"status": "retained",
+			"review": "Read full immutable search reducer and tests. Explicit first/later attempts, stale and terminal completion rejection, successful-zero-only registration, and registration closing the no-match action prove the true state machine directly. No fake browser interactions. session-core.log passes.",
+			"reviewedSha256": "61edcdda12114a95e32def118ecdddab95c94468dd88d8a672c17cc0e9cd241f"
+		},
+		{
+			"file": "lib/session/__tests__/designProgressStore.test.ts",
+			"status": "revised",
+			"review": "Read complete store, derivations, client wire parser and all tests. Actual scripted progress frames execute schema admission and state folding, including legacy materialization without committed projection, current committed roots, replay deduplication, foreign/version refusal, pulse retirement, recovery and terminal priority. Corrected stale header claiming every current root lacked a committed frame. progress-policies.log: seven files, 67 tests pass; compiler equivalence separately owned by .test-d.ts.",
+			"reviewedSha256": "3cc48e9ff2f88494ffed36ea66a4a7544433efbe3fe137cf09572feac7670351"
+		},
+		{
+			"file": "lib/generation/__tests__/designProgressWire.test.ts",
+			"status": "revised",
+			"review": "Moved mutually assignable server/client type declarations out of true==true runtime assertions into designProgressWire.test-d.ts for compiler enforcement. Runtime parsers now consume the actual server progressEnvelope rather than a copied producer fixture. Removed inventory-only label loop and corrected negative-character test to use a valid phase, so the intended guard is decisive. Tests validate actual malformed/session/version/count rejection and pulse working-state mapping. progress-policies.log passes; final compiler check owned by root.",
+			"reviewedSha256": "98db2df27eba4b428f955aad09e50935af373ba0751341b0c31d4413cba47086"
+		},
+		{
+			"file": "lib/auth/__tests__/projectRoles.test.ts",
+			"status": "revised",
+			"review": "Read real Better Auth access-control role definitions. Actual roleAllowsApp matrix retained and expanded to roleCanManageProject and roleIsOwner for every role plus unknown role, proving distinct capabilities rather than constants. progress-policies.log passes.",
+			"reviewedSha256": "00710c5656c1f16b552269acbaa3bdfe86e5a8f22fc27c42f5c9ae6411549f36"
+		},
+		{
+			"file": "lib/projects/__tests__/invitePolicy.test.ts",
+			"status": "revised",
+			"review": "Read invitePolicy owner and whole test. Removed allowlist/copy constant snapshots, retained direct accepted/excluded domain, normalized address, malformed address and personal metadata decoding cases. Native production auth configuration tests own plugin wiring. progress-policies.log passes.",
+			"reviewedSha256": "ed9f9b82a6120e35c5657716480da05f5fe76d43383df8c7ce64347d44f707fe"
+		},
+		{
+			"file": "lib/projects/__tests__/moveTargets.test.ts",
+			"status": "revised",
+			"review": "Read moveTargets and complete test. Replaced copy-only equality pretending to prove same-Project move policy with actual appProjectMovePolicy calls for equal/different Project IDs. Native app journey separately owns disclosure text. progress-policies.log passes.",
+			"reviewedSha256": "a478b9b074dbe143b824af7b1bd9c3526ef49c19e15710de94f50293344575a0"
+		},
+		{
+			"file": "lib/__tests__/auth-logger.test.ts",
+			"status": "retained",
+			"review": "Read full bridge and tests. The injected output sink is the correct effect boundary for severity routing and first-Error extraction; actual production forwardBetterAuthLog executes without mocking its algorithm. Assertions verify absence of cross-channel calls. This is bridge routing proof, not Sentry delivery. progress-policies.log passes.",
+			"reviewedSha256": "834450fc424604391416f13ef5ac20d6967f58783900bb90295bae810cde9feb"
+		},
+		{
+			"file": "lib/__tests__/logger.test.ts",
+			"status": "retained",
+			"review": "Read full logger and pure tagging tests. vi.importActual intentionally bypasses global logger stub to execute sentryTagsFor, proving prefix extraction, bounded context allowlist, null filtering and JSON coercion. These tests claim only pure tagging, not production stdout or Sentry transport. progress-policies.log passes; separate observability pipeline coverage still under audit.",
+			"reviewedSha256": "c0e586aef9768e9a751ec702274ec2501d470e72d55112bdd17ae4f7fc014781"
+		},
+		{
+			"file": "lib/generation/__tests__/generationLifecycle.test.ts",
+			"status": "revised",
+			"review": "Read full dispatcher and wired session/reconciler helper. Replaced manufactured empty invalid build and direct finish() with schema/gate-admitted client integration: actual data-done commits final snapshot/cursor while close latch remains open, error preserves partial materialization, author undo excludes generated edits. Native store/reconciler lifecycle explicitly closed/disposed; no server or LLM claim. generation-native.log passed.",
+			"reviewedSha256": "ac48a4b7c4f125580d24a7a18ab7e4ceb87a55e3e7cf7b6c9de0cf8ec8976428"
+		},
+		{
+			"file": "lib/generation/__tests__/streamDispatcher.test.ts",
+			"status": "revised",
+			"review": "Actual receiver/stores/reconciler retained, invalid registration fixture replaced admitted survey. Runs and reconcilers registered for deterministic teardown, signal/toast state cleared. Existing active/dormant final-doc and lifecycle boundaries plus visible error-toast projection exercised. generation-native.log passed.",
+			"reviewedSha256": "404c40c7347894138ad9cfd6f5ad5053712e06f555be77639dfb40f72455954a"
+		},
+		{
+			"file": "lib/generation/__tests__/streamDispatcher-mutations.test.ts",
+			"status": "revised",
+			"review": "Replaced permissive invalid fake corpus with admitted survey/select and real lookup table definitions. Each mutation passes schema+absolute commit gate before native JSON roundtrip into actual receiver; document subscription proves atomic content transition, canonical refusal leaves document/events/energy unchanged, real reconciler proves chat/echo orders exactly once with no user undo. Routing-after.log5 tests pass with explicit dispose.",
+			"reviewedSha256": "bce64e70470e58c157a5cefb4861537b3f540d8aa045727c4069237b4b97d952"
+		},
+		{
+			"file": "lib/__tests__/hostnames.test.ts",
+			"status": "revised",
+			"review": "Read full host normalization/classification/allowlists and filesystem-route invariant. Removed OAuth constant snapshots; actual authentication metadata ownership elsewhere. Combined DNS absolute-name dot plus standard port counterexample exposed normalization order bug, fixed after reproduction. Retained source route inventory only as actual deploy allowlist architecture rule. routing-before.log2 failures; routing-after.log34 passed.",
+			"reviewedSha256": "ea8083640230fed430eec54a0e1f18123034c326952b173e4825a0b9cb763fc9",
+			"preIntegrationReviewedSha256": "733d22864048e8cf990d8f1de653cb3bbd81011169eb8081fab82f805b96c440",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "__tests__/proxy.test.ts",
+			"status": "revised",
+			"review": "Read complete proxy and native Next request/response tests. Replaced negative status and substring rewrite checks with exact200/pass marker and full URL, linked forwarded nonce exactly to request/response CSP. Replaced hand-built matcher RegExp with installed Next unstable_doesMiddlewareMatch compiler (packaged docs name differs). Exact trailing-slash rewrite exposed real NextURL retained slash; native URL fix preserves queries/canonical route. routing-after.log70 tests pass; browser-host deploy behavior still final native smoke boundary.",
+			"reviewedSha256": "c4c450a30781955498f4fc207a63fe3ee033db7f67a2c9167bd3a4a2b795cfbb",
+			"preIntegrationReviewedSha256": "b4b416667b946663f76206511244330cdaa34c7c1e6b92061a9276db8fc3cae3",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "lib/__tests__/styles.test.ts",
+			"status": "removed",
+			"review": "Deleted source JSX Positioner/z-index scan because string classes cannot establish visible popup stacking or reachability. Native builder-controls dialog portals opens popover/select inside modal, chooses pointer targets, returns focus and measures long content +44px targets after actual CSS transforms settle. native-components-sixth.log dialog passes; previous native component cases passed independently. Builder owns replacement spec.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "app/(app)/(site)/__tests__/app-actions.test.ts",
+			"status": "revised",
+			"review": "Read all action implementations and route tests. Replaced fabricated AppAccessError and AppBusyError classes with production constructors while mocking only I/O. Retained precise authorization, move/delete/restore refusal and revalidation envelopes; durable Postgres outcomes belong to the store tests and native app journey. app-boundaries.log passed 6 tests.",
+			"reviewedSha256": "163788509a39a2483237e475bc9860451b000fbdc5907758bf71e29855a32e14"
+		},
+		{
+			"file": "app/(app)/build/__tests__/actions.test.ts",
+			"status": "retained",
+			"review": "Read all create/rename action branches. Uses actual materialization receipt decoder over admitted genesis, real AppAccessError constructor and controlled persistence calls. Tests cover create receipt and denied access without claiming mocked writes prove transactions. app-boundaries.log passed 4 tests.",
+			"reviewedSha256": "0c380aa3d96700bd16c8f9e7224c2106a35e07d2c31b8390077aaf85ef830984"
+		},
+		{
+			"file": "app/(app)/warmup/__tests__/page.test.tsx",
+			"status": "revised",
+			"review": "Removed dynamic-export constant snapshot. Rendered actual server component to HTML after controlled startup admission; rejected startup promise must reject rendering. Native startup probe and production build admission are separately owned by deployment coverage. app-boundaries.log passed 2 tests.",
+			"reviewedSha256": "6b8d2b790e350379d57c48a589d76c2f62e22f9c6f4be723ccd1e696ecab9b6b"
+		},
+		{
+			"file": "app/api/apps/[id]/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read complete GET/PUT handlers and original suite. Replaced invalid empty document with canonical survey and real native requests; used real AppAccessError instead of a forged class. Kept strict canonical mutation admission and snapshot schema; removed duplicate Object.keys receipt inventory. Actual locked database snapshots are owned by Postgres tests, not this HTTP projection suite. app-boundaries.log passed 7 tests.",
+			"reviewedSha256": "aee12106379795c7acea0e72cc72cc0ad5dbda4d6ee5b6d773bd87f90dd814ee"
+		},
+		{
+			"file": "app/api/apps/[id]/attachments/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read complete sign-upload route and capture-worker cleanup contract. Removed fake capture-kind and capture-format validators, constructed schema/gate-admitted image form, and exercised native NextRequest plus actual committed path/kind/extension matching. Added unknown field, wrong path and metadata overposting refusal. Controlled noncancelable signer settles in finally after native abort; response499 arrives before late rejection without detached work. Removed request-owned detached global purge because existing recurring capture worker owns the identical purge and generation cleanup. app-boundaries.log passed 11 tests; live worker health could not be queried because gcloud requires reauthentication.",
+			"reviewedSha256": "d2ea11765cdcb7bafc6b63362f23693d20c84bc97170e00050373f243d386ca6"
+		},
+		{
+			"file": "app/api/apps/[id]/threads/[threadId]/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read handler and whole suite. Added inaccessible app and absent thread cases with real AppAccessError; private no-store404 answers cannot read a transcript on denied scope. Existing successful projection reads actual native response and exact scoped load. publish-threads-before.log passed.",
+			"reviewedSha256": "97bc25e8de476e4e060198f3e0246b36cbfb6047f7b65e5fb9ce6fdebbb477dc"
+		},
+		{
+			"file": "app/api/apps/[id]/threads/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read handler and whole suite. Added native private no-store denial and exact authorized listThreadMetas scope, while keeping the actual returned metadata response. This verifies HTTP authorization wiring only; transcript persistence is not mocked proof. publish-threads-before.log passed.",
+			"reviewedSha256": "dc6f1c29b74fef0a768d289c8483a62d247bd1e1aa0d285fd952fe37ab9a4988"
+		},
+		{
+			"file": "app/api/design-sessions/[id]/threads/[threadId]/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read route and all tests. Added genuine AppAccessError and absent-thread private404 negatives; retained authoritative post-load scope recheck across materialization and denied recheck. Controlled scope transitions prove route sequencing, not database locking. publish-threads-before.log passed.",
+			"reviewedSha256": "536eff5a389dce5c82ea1843ae4b191f487550c04ca32333d18b2b71411fe619"
+		},
+		{
+			"file": "app/api/commcare/feature-flags/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read compatibility legacy route and full suite. Replaced fake request object with native NextRequest; retained only the legacy envelope projection over its actual modern route boundary and drained responses. Native HQ compatibility is owned by commcare tests. publish-threads-before.log passed.",
+			"reviewedSha256": "37886c965db2d0bbf6509f8878eef2936a63e7a99afb3a4125199759d1b1cba4"
+		},
+		{
+			"file": "app/api/commcare/project-space-compatibility/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read full route and tests. Replaced undeclared patient/no-form fixture with schema- and commit-gate-admitted patient form and visible case-list field. Actual compatibility-plan/report derivation runs against a controlled external HQ probe with native NextRequest; primary wire probe proof is separate. publish-threads-before.log passed2.",
+			"reviewedSha256": "b4a16a9dda1df3e927c92cd789bc00156979b5047c81020e39d135e90ffd1546"
+		},
+		{
+			"file": "app/api/commcare/upload/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read full publish route and tests. Removed identity hydration mock and empty blueprint; canonical stored survey passes schema+absolute gate. Real NextRequest domain/appName nonstring cases reproduced500 then verified400 after narrow production string guards. Actual AppAccessError refuses before credentials or publish, malformed resource-adoption ids fail before writing, and service lifecycle record projection retains incomplete200 refusal contract. Native lifecycle persistence/HQ behavior is separately tested. compile-native-before.log passed21 upload tests after fix.",
+			"reviewedSha256": "abce1a6c885d7f28554c18f605ca4a4c45550dbd298f52b78ea30d2f63b10af1"
+		},
+		{
+			"file": "lib/codemirror/__tests__/buildSessionLintContext.test.ts",
+			"status": "revised",
+			"review": "Read whole context builders and tests. Replaced invalid fixtures with schema/gate-admitted visible case-list and registration name writer, then compared actual form/session contexts and native CodeMirror completion sources. Registration can read newly created case properties after submit while form scope remains narrowed. compile-native-after.log passed13 tests.",
+			"reviewedSha256": "01edbc6721f3d79c4b8e5dc507443a358820113053427cd9498f3039a1c0dad5"
+		},
+		{
+			"file": "lib/codemirror/__tests__/xpath-autocomplete.test.ts",
+			"status": "retained",
+			"review": "Read autocomplete sources and full tests. Uses installed CodeMirror EditorState/CompletionContext and actual source; added range/identity-sensitive completions and prefix refusal without fabricated DOM. Native XPath editor acceptance separately owns popup pointer selection and saved AST. editor-extract.log passed.",
+			"reviewedSha256": "ba97904c6681019424753a45fb3eb9e5ae9f87fba40c93671161dab6a6d93862"
+		},
+		{
+			"file": "lib/codemirror/__tests__/xpath-format.test.ts",
+			"status": "retained",
+			"review": "Read formatter and complete tests. Actual formatter token walk, stable formatting and namespace preservation are pure source behavior; retained cases as direct function evidence. editor-extract.log passed.",
+			"reviewedSha256": "c0a566fbc67cb3939eb09c7b107ccf1076dcb5dfb58ee6f650b6bc685d4bcd53"
+		},
+		{
+			"file": "lib/codemirror/__tests__/xpath-lint.test.ts",
+			"status": "retained",
+			"review": "Read full lint implementation and tests. Actual parser/diagnostics run with deliberate form and session contexts; no mocked lint answers. Native editor journey owns focus and acceptance. editor-extract.log passed.",
+			"reviewedSha256": "72d5f0ae6b431f2ae5ec8742b9ea7a8c6907fcbbd953fe44942b3598b808fd1a"
+		},
+		{
+			"file": "lib/codemirror/__tests__/xpath-parser.test.ts",
+			"status": "retained",
+			"review": "Read generated grammar integration and all parser tests. Real Lezer parser produces diagnostics and tree identities, with source-level expression grammar assertions rather than fake input handlers. editor-extract.log passed.",
+			"reviewedSha256": "7af3a716855d19e5a3b42bc9f8f12a450c64141979c2b3d74287fd07f895e847"
+		},
+		{
+			"file": "app/api/compile/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read all three baseline compile suites, both routes and prepareCompileRequest. Replaced mocked export boundary, hydration, expander, compiler and fabricated CCZ bytes with actual admitted-document compilation across CCZ and JSON. Only external auth/database/lookup/storage reads controlled. Independent Python zipfile reads actual XML/HQJSON/workbook files, including embedded PNG and lookup data, server-choice attachment links, schema rejection, access denial, missing media, and compatibility advisory behavior. devput-before.log compile23passed; csv-compile-before.log original18passed. Additional native propagation review: Added actual persisted-admitted document -> HTTP -> export-boundary propagation for both HQ nested selection failures, with corresponding readable CCZ success. All27 route tests passed; no production route edits.",
+			"reviewedSha256": "955e0eded2cc3e0a0bd9a8e973815de5b938ebdd5623aa65d7063194b34980fb",
+			"preSupplementReviewedSha256": "6ad0cb541a673a7c8a72219fbc4078a0537bff0a439e555387351b18280ed05d",
+			"supplementalEvidenceReport": "commcare-propagation.json"
+		},
+		{
+			"file": "app/api/compile/__tests__/prepareCompileRequest.test.ts",
+			"status": "removed",
+			"review": "Full source/suite read. Deleted fabricated boundary-success suite after consolidating real helper/gate/export behavior into app/api/compile/__tests__/route.test.ts; final23native route cases run actual shared helper, not identity mocks.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "app/api/compile/json/__tests__/route.test.ts",
+			"status": "removed",
+			"review": "Full source/suite read. Deleted duplicate mocked compiler success tests after parameterizing real CCZ+JSON pipeline in app/api/compile/__tests__/route.test.ts. Native archive contents independently decoded; final23casespassed.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "app/api/projects/[projectId]/lookup/tables/[tableId]/import/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read complete CSV route, parser and tests. Actual native NextRequest streams replace fabricated arrayBuffer return; production ApiError/AppAccessError classes and CSV parser remain real. Controlled second stream pull reproduced unbounded buffering before413. Shared readBodyBytes now stops and cancels on over-budget chunk; route maps413 to CSV error without invented final size. Scope/revision refusals leave bytes unread, tests cancel early request bodies and join held producers. routes-types-after.log passed13CSV.",
+			"reviewedSha256": "58d76f4d4709b6d823aad39079dba5583d960a32c10ff92e6367d6d24aad6fa3"
+		},
+		{
+			"file": "app/api/media/upload/dev-put/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read full route/suite. Native requests replace fake arrayBuffer, actual access error and exact bytes preserved. Native bodyUsed regression proved old route read bytes before membership; now authorizes and computes upload cap before bounded readBodyBytes. devput-applist-after.log11passed; narrowed Buffer.from branches for TypeScript.",
+			"reviewedSha256": "7e85812cb363fe8e47f9529247dd50133364bab03ea2e72b90bfd902e04a7804"
+		},
+		{
+			"file": "app/api/media/[assetId]/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read full GET/DELETE and all tests. Native Request, real metadata records and actual Node Readable prove streaming. Native abort arriving after metadata and close-listener leak regressions failed then passed after499 guard plus close-event removal of AbortSignal listener. Deletion tests explicitly prove authorized delegation, not mocked storage race safety. media-stream-after.log11passed.",
+			"reviewedSha256": "5c4ac18cff6e909b19489ed1cb2a8441aee2718d75a5152ce9dc4e2ff8155f48"
+		},
+		{
+			"file": "app/api/media/library/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read full route and suite. Removed fake request URL, fabricated cursor error and identity toWire projection; actual native NextRequest, AppAccessError, MalformedCursorError, and complete ready/pending metadata. Corrected unused resolveAppAccess mock to actual resolveAppScope, tested app-scoped Project and private fields excluded from real wire response. media-confirm.log13passed.",
+			"reviewedSha256": "3b026ffa3aad8bfd456b41732b515fb49256e2cbc1f14b298bf187296fb3608d"
+		},
+		{
+			"file": "app/api/media/upload/[assetId]/confirm/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read full confirm route, validation pipeline and suite. Removed success validator mock over bytes and private-GCS fake wire projection. Tests generate real PNG through sharp, use real sniff/body/hash validator, actual wire projection and native request. Mid-flight storage overwrite occurs after real validation at controlled DB boundary; uploaded bytes remain exact original validated PNG. Real hash mismatch drives rejection. Database race outcomes explicitly controlled, with no claim this proves locking or uniqueness. media-confirm.log12passed.",
+			"reviewedSha256": "68ec37f9d0f07e26838a337d1d712cfe63716513eff4fb0e4494473156de27b5"
+		},
+		{
+			"file": "app/api/dev/login/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read full route/tests and sessionCookie signer. Native backslash and tab authority redirects reproduced303 with minted session despite same-origin promise. Route now compares native URL-parsed origin before writes; existing auth/env/slug/cookie dispatch boundary remains, native actual Better Auth cookie acceptance owned by Postgres suite. admin-log-dev-after.log6passed.",
+			"reviewedSha256": "51c331b87dc6a8870fddc6e176d43a272a51d1085c108fa97c5cefd997b70249"
+		},
+		{
+			"file": "app/api/log/error/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read full route and producer-normalized tests. Added native headerless stream whose second pull is controlled; reproduced buffering after cap and fixed by shared readBodyBytes, preserving schema/producer normalization and413. Held producers joined on both paths. admin-log-dev-after.log7passed.",
+			"reviewedSha256": "07dc2185c94ab1cadf1889290bb61819e5096161f56944e2120f53fcad7f2478"
+		},
+		{
+			"file": "app/api/admin/users/[id]/credits/__tests__/route.test.ts",
+			"status": "retained",
+			"review": "Read complete route and tests. Native Request/Response, actual Zod schema and ApiError status mapping; only auth and ledger writers controlled. Exact actor identity and reason/amount routing plus malformed inputs are valid HTTP orchestration tests; no claim controlled writes prove database atomicity. admin-log-dev-after.log9passed.",
+			"reviewedSha256": "a54250d46fd4b1f0044846ddf4510d1b4e399f7db6a336b06bc1a0a8f4bf0783"
+		},
+		{
+			"file": "app/(app)/(site)/settings/__tests__/commcare-actions.test.ts",
+			"status": "retained",
+			"review": "Read full Server Action source and suite. Actual server-catalog acceptance and response mapping over controlled HQ discovery/settings I/O; cases assert full multi-project result, selected server, authentication and refusals. Scope is orchestration and error copy, with HQ probing/persistence owned elsewhere. admin-log-dev-after.log11passed.",
+			"reviewedSha256": "742f730f51e8c6e4119c7b137cc01673c5b62b46288cd7de64f87ec111bee3bf"
+		},
+		{
+			"file": "lib/__tests__/markdown.test.tsx",
+			"status": "revised",
+			"review": "Read actual markdown-to-jsx React SSR implementation and full277line suite. Strengthened rawHTML literal oracle to require escaped mother tag content, added encoded img/onerror/iframe and fenced-code newline cases. Uses actual React server renderer and actual markdown engine, with no DOM imitation. editor-markdown.log25passed.",
+			"reviewedSha256": "e5804009de85454e928d56acbef909ef179652aa8b3ea8fa59df4d2c8f245c2c",
+			"preIntegrationReviewedSha256": "f3809a58f20c118539bd37f65038695943c4bb64fb5e35d6681eb2791bec27d0",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "app/api/mcp/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read whole route, dispatch, auth-plugin and both auth handlers plus baseline suite. Removed whole SDK success fake; actual McpServer/createMcpHandler verifies JSON-RPC envelope, malformed bodies and per-request ToolContext diagnostic calls. Kept controlled verifier outcomes as narrow route orchestration, with real JWT coverage in native Postgres. Native shim abort regression exposed missing signal and SDK request clone stranded stream exposed unconsumed branch; fixes preserve caller abort and use supported parsedBody dispatch. mcp-native-after.log20passed without leak diagnostics.",
+			"reviewedSha256": "8bc49ff2e6dc6b226cc0c573c6722f8b10d6ed8db13ff857e43be62d6356f144"
+		},
+		{
+			"file": "app/(app)/(site)/settings/__tests__/api-key-actions.test.ts",
+			"status": "revised",
+			"review": "Read full actions and baseline762line suite. Removed fake Kysely query builder and compensation snapshots, now covered by real Postgres concurrent actions. Removed replicated scope catalog and key cap. Kept controlled auth/plugin refusal orchestration, actual APIError conversion; runtime nonarray scopes revealed throwing edit action and now resolves refusal. Imports moved before tests to avoid billing startup time against first assertion. api-key-wire-final.log23passed.",
+			"reviewedSha256": "53bd337fcf4ab796163e7595d97ad313ab6fca947c76d89a9a9a1c5ce05f4d1a"
+		},
+		{
+			"file": "lib/db/__tests__/api-keys.postgres.test.ts",
+			"status": "revised",
+			"review": "Read complete production helpers/action and full native suite. Replaced replicated Better Auth plugin configuration with actual createAuth. Actual action mint/edit/revoke roundtrip uses real plugin persistence plus signed-cookie revoke, project/HQ scopes verify through native plugin. Controlled barriers hold actual preflight SQL and actual committed plugin writes; two mints compete for one slot. Real PostgreSQL BEFORE DELETE rejection revealed compensation discarded plaintext for retained row; fixed action and proved native valid keys returned. native-auth-final.log14passed no leak diagnostics.",
+			"reviewedSha256": "836be1048a421089d908f8da054d15dc7a0986a71203ec3813531db339169fb0"
+		},
+		{
+			"file": "lib/db/__tests__/mcp-revocation.postgres.test.ts",
+			"status": "revised",
+			"review": "Read full baseline and auth/dispatch/JWT/consent sources. Replaced synthetic claims and sentinel SDK 200 with actual createAuth, signed JWTs, owned loopback HTTP JWKS, native verifier, native MCP diagnostic tool protocol, real consent and user tables. Signature/issuer/audience/expiry/scopes/required claims, banned user and consent revoke checked. Native configured Postgres limiter admits only one of three concurrent callers at119/120, rejects same IP and permits second IP; enable flag supplied because Better Auth captures test NODE_ENV, production rule/storage untouched. native-auth-final16combined/native-mcp-concurrent2passed; final added true DB lookup failure uses table rename and restoration.",
+			"reviewedSha256": "64f01a874c03dced3869a1052e195f07d6323625ec0d2a30caf139dbef275463"
+		},
+		{
+			"file": "lib/organization/__tests__/orderKeys.test.ts",
+			"status": "revised",
+			"review": "Full test and production bounded/underlying fractional-key sources read. Retains10000append bound/order proof, adds crowded middle redistribution proving both neighbor identities, strict slot, bounded keys and original input unchanged. No fabricated allocator. organization-pure.log30combinedpassed.",
+			"reviewedSha256": "3701871a9de3c5822922e3a78207774c719e01a6ab83ac6bbd41d56aeea275a0"
+		},
+		{
+			"file": "lib/organization/__tests__/levelUpdateVerdicts.test.ts",
+			"status": "revised",
+			"review": "Full suite and actual candidate planner/owner verdicts read. Existing topology/archive/persona refusals retained; added successful harmless label change and source immutability plus missing-level denial to prevent always-refusing implementation passing. organization-pure.log30combinedpassed.",
+			"reviewedSha256": "dc5c97d6204504dda581e560b255ff277e6e3bb7fe1414216df33721c531cb39"
+		},
+		{
+			"file": "lib/organization/__tests__/ownerSets.test.ts",
+			"status": "revised",
+			"review": "Read complete suite, ownerSets, footprint and all ownerTargetVerdicts source plus organization contract. Removed oracle that recomputed expected results with production predicate called by the implementation. Nine independently specified destination sets cover each address-book arm, ancestors, depth limits, sibling branches and multi-assignment dedupe; test both public projections against those literals. Existing ownership/archival/member cases retained. Corrected false fast-check differential claims in source/contract. organization-pure.log30combinedpassed.",
+			"reviewedSha256": "1f824af3177ec5c83b161f45b3ba6c886c565357c0a8f353b5513981b16e367a"
+		},
+		{
+			"file": "lib/organization/__tests__/ownerTargetVerdicts.test.ts",
+			"status": "retained",
+			"review": "Read complete suite and full verdict source. Real field/tree fixtures exercise three decisive binding distinctions: cap level may be sibling branch, actual place depth for skipped rung, and case-delivery depth independent of address-book visibility. No I/O fake; related mutation totality/locking belongs native organizationStore suite. organization-pure.log30combinedpassed.",
+			"reviewedSha256": "36281166704eee9d7e804d7652e9296e83895db4e71a7262766a0da6bbbf9f4b"
+		},
+		{
+			"file": "lib/automations/__tests__/actions.test.ts",
+			"status": "revised",
+			"review": "Read full action suite, actual action, matching/setup/hq/formChoices sources and domain automation schema. Controlled auth/snapshot/count I/O now explicitly proves exact query dispatch under authorized Project rather than count correctness. Exact open-case predicate and every criteria array replace any-object checks; real setup guidance, omissions, conflict, count fallback and ambiguity classes retained. automations.log49combinedpassed.",
+			"reviewedSha256": "8b4abf983b17edb358b1dd0218b6a0cdfb2bae51b142af2ea09f29c2253eddc8"
+		},
+		{
+			"file": "lib/automations/__tests__/automations.test.ts",
+			"status": "revised",
+			"review": "Read all2181baseline lines plus1484line domain schema and complete matching/setup/formChoices. Kept actual schema and emitted guidance acceptance matrices. Removed source-file/docs text scans from runtime suite. Strengthened open-only predicate to complete independent AST; narrowed emptyANY title to grammar because actual SQL emptyALL/ANY truth is in native automationMatching.postgres.test.ts338. String projection tests cover actual outputs without pretending setup guidance executes HQ. automations.log49combinedpassed.",
+			"reviewedSha256": "a9b622871fad8838f18f481a18e2abac12f7fcd2b7ce2742a0806f094d13a656"
+		},
+		{
+			"file": "lib/automations/__tests__/hqCaseProperties.test.ts",
+			"status": "revised",
+			"review": "Read complete suite, HQ property/template projector and domain message schema. Retains exact scalar-slot mapping, literal brace escaping and shadowed-property refusal. Added composed native Python string.Formatter consumption proving braces remain literal while explicit owner/case references substitute; child process awaited via execFile. This proves formatter syntax, not live HQ endpoint behavior. automations.log49combinedpassed.",
+			"reviewedSha256": "2895a02887f93ff38de8b060b861d74b52fb1be443337dcc6823004a3c4d5467"
+		},
+		{
+			"file": "app/api/apps/[id]/attachments/[attachmentId]/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read complete capture confirm/retarget/delete route and tests. Native NextRequest and real durable-refusal class replace shape casts and fabricated class. Added exact confirmation payload, generation-specific mismatch cleanup without confirmation, and 409 retarget refusal. Controlled authoritative DB/GCS seams remain explicit; route binding does not claim real cloud writes. routes-types-after.log: 8 tests pass, no diagnostics.",
+			"reviewedSha256": "d768b06108a914221519eb9eff38fb15b373d4c954af64dc5ca4e55be9b02055"
+		},
+		{
+			"file": "app/api/media/upload/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read full initiation route and tests. Native requests exercise body admission; removed fake toWireMediaAsset identity and fake AppAccessError. Actual MIME normalization, URL-app Project targeting independent of active Project, exact public deduplicated metadata, and malformed/overposted input refusal now covered with no reserve/sign side effects. Controlled durable store and signer boundaries; routes-types-after.log: 9 tests pass.",
+			"reviewedSha256": "b195ea590428a02d28696f8cdcaf8a918f54d5130fe843e6578d38a1b78dcdbc"
+		},
+		{
+			"file": "app/api/media/[assetId]/extract/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Read complete extraction route/store protocol tests. Native stream reader proves progress arrives while extraction is held, then exact single terminal done and EOF; extraction and reader cancellation/release are joined in finally. Removed fake request and timestamp casts. GET preserves literal backslashes verbatim after coordinated removal of lossy normalization, with sandbox/nosniff response headers. Actual provider/storage work intentionally controlled; routes-types-after.log: 21 pass without diagnostics.",
+			"reviewedSha256": "897363326184371a8ebdf37344d5a294877c3eb7be5d745c58e68d4eac926c12"
+		},
+		{
+			"file": "lib/organization/__tests__/organization.test.ts",
+			"status": "revised",
+			"review": "Read full schemas, unassignment planner, reference extraction, organization mutations and level ancestry. Retained direct grammar/bounds/identity cases. Replaced impossible empty Blueprint/fake fixed-owner form and automation casts with canonical genesis, complete typed operations, fresh derived index and typed automation fixture. Exact mutation and independent reference sets remain asserted. organization-schema-after.log: 38 pass; source vocabulary behavior unchanged.",
+			"reviewedSha256": "0a7b5a8bf3c52a59dd6f3149ffdacbbf1b6516eec1fdaa811dad116db19bbf34"
+		},
+		{
+			"file": "lib/organization/__tests__/organizationStore.postgres.test.ts",
+			"status": "revised",
+			"review": "Read all 2686 baseline test lines and full service/transaction/integrity/schema/action/value owners. Replaced forged partial owner forms with complete workflow doc and circular verdict comparison with independent expected reachable branch. Replaced claimed round-trip that reread only app id with actual loadApp catalog/persona/order/property round-trip. Added live case-owner preservation/open-subtree counts, foreign snapshot denial and two simultaneously blocked real writer connections proving initial state upsert, site-code dedupe and optimistic conflict. Auth fixture now uses actual migrated schema with two pool connections; native gate observer clears PostgreSQL statistics snapshots. All resources released/joined in finally. organization-auth-final.log: organization 83 and tenancy 26 pass without diagnostics.",
+			"reviewedSha256": "db1e8237d196d95baaf0f34069380e6d97756c707b5b9f36a3f5a9050eb24b87"
+		},
+		{
+			"file": "lib/auth/migrations/__tests__/appsProjectTenancy.postgres.test.ts",
+			"status": "revised",
+			"review": "Read complete 764-line suite and 1348-line migration. Actual migrated Postgres catalog/DDL, preserved OIDs on exact rerun, FK rejection SQLSTATEs, orphan cutovers, altered keys/actions/types/nullability/indexes/ACL/ownership and forward-only refusal are appropriate native proofs. Removed imported expected FK definitions in favor of independent literal wire definitions. Environment restoration now covers initial grants as well as migration; created role restored/dropped in finally. organization-auth-final.log: all 26 tenancy cases pass.",
+			"reviewedSha256": "61984d744f5bbcaacd2b1769bfff023180d8c21c54ad12e7c6b459de9e75d743"
+		},
+		{
+			"file": "lib/auth/migrations/__tests__/appsProjectTenancy.test.ts",
+			"status": "retained",
+			"review": "Read full UTF-8 comparator and consuming canonical catalog ordering. Independent accented/mixed-case order corpus tests exact frozen byte order rather than locale output; actual PostgreSQL convert_to ordering is exercised by native migration suite. chat-auth-policies.log passes.",
+			"reviewedSha256": "df1354a804e6a4fe779aa842783bc8dcef835cfc2f5221ded2f96c7ac962033c"
+		},
+		{
+			"file": "lib/auth/__tests__/migrate.postgres.test.ts",
+			"status": "retained",
+			"review": "Read native two-test suite and full auth migration wrapper. Actual Better Auth schema plus Nova migrations prove fresh MCP resource initialization without retired bridge triggers, and a second setup preserves operator TTL/name rather than replacing policy or duplicating rows. No service/config schema mock. organization-store-after.log: both cases pass.",
+			"reviewedSha256": "4c204e60e7f3daac065a661ab34539db5b04d4bfbc4bead5e59a9160c9572d4b"
+		},
+		{
+			"file": "app/api/chat/__tests__/creditGate.test.ts",
+			"status": "revised",
+			"review": "Read complete advisory credit decision and typed-wait classifier. Retained literal build/edit floors, free continuations, redrive and paused-hold decision cases; added malformed/non-success wait outputs, intervening assistant and empty history negatives. Removed unnecessary UIMessage casts. Deliberately no claim to test authoritative debits or provider work; native route suites own those. chat-auth-policies.log passes.",
+			"reviewedSha256": "086ccab8c845bafc66c85e873e0e71178d4905a7baf13faf8d792cf7036da2e2"
+		},
+		{
+			"file": "app/api/chat/__tests__/schema.test.ts",
+			"status": "revised",
+			"review": "Read full request admission schema. Existing app-id/project identity guards now pair exact max opaque run/thread/project lengths with one-over and blank run id refusal, plus valid UUID holder and opaque invalid holder. Actual parser executes without mock; authorization remains native route responsibility. chat-auth-policies.log passes.",
+			"reviewedSha256": "32585bbe42a243e63d6503ff5c0b931003505eda63335a4ca680f2fb1aa9116f"
+		},
+		{
+			"file": "app/api/chat/__tests__/streamFailure.test.ts",
+			"status": "revised",
+			"review": "Read complete fatal-chunk predicate and classification suite. Direct terminal error versus recoverable tool-error/content distinction is appropriate pure policy coverage. Removed unsupported comment claiming Playwright/state-model wiring proof; native route finalization is explicitly separate. chat-auth-policies.log passes.",
+			"reviewedSha256": "fd84f8a500bccdcae3dc6743a0ea778d50de183656696459d01a7d30eaf4f000"
+		},
+		{
+			"file": "__tests__/integration/media-validation.test.ts",
+			"status": "revised",
+			"review": "Read complete integration fixture, actual runner manifest dispatch and all three asset rule implementations. Replaced broad contains-code checks with exact three code/asset identity pairs, proving the good image produces no finding; repaired manifest now proves whole document validation returns zero findings. Omitted-manifest contrast retained. Corrected fixture Project/provenance terminology. media-validation.log: both native runner tests pass.",
+			"reviewedSha256": "3986b494a7938e23a51367fecb3dd3b7b019db983ba5af0d7c34a0f7158b7a48"
+		},
+		{
+			"file": "app/api/apps/[id]/presence/__tests__/presence.postgres.test.ts",
+			"status": "revised",
+			"review": "Read entire native suite, route and roster projection. Migrated actual auth schema replaces compact membership fixture; removed fake session casts. Added actual GET live-only/current-app roster/private caching and lost membership, client identity overposting refusal, exact TTL and cross-user DELETE isolation. Existing native writer-first/move-first database fences retained; setup and rejection handlers now owned from allocation, release then join all work with no swallowed teardown failures. Native Request/Response lifetimes owned. presence-native.log: 15 pass, no diagnostics; later auth_member Kysely typing corrected to equivalent native SQL.",
+			"reviewedSha256": "436b45d9e6a8baf78a87337da8f8cf53c0d23fb144eeaeb999555a685727fe00"
+		},
+		{
+			"file": "app/api/chat/[streamId]/stream/__tests__/streamResume.postgres.test.ts",
+			"status": "revised",
+			"review": "Read full suite and resume route, target scope, chunk persistence and listener sources. Replaced fabricated AppAccessError/scope/account/membership mocks with migrated real auth tables and native checks; only session extraction controlled. Dead-run fixture now authorized existing completed app. Actual membership deletion after one transient scope throw, real ban and identity changes enforce confirmed revocation. Producer starts after initial frame, all outcomes observed immediately and joined; no swallowed reader failures or cancellation, writer close finally owned, env restored after import. Held-live test observes three actual database cadence checks instead of elapsed sleep. Warm listener plus call-through subscription proves actual notification callback after append. stream-resume-final.log 19 native tests pass with no diagnostics; final helper control flow lint cleanup equivalent.",
+			"reviewedSha256": "62adfbbe30ca9c552658696228ae2b9c5e13a3c50b2316c17fbcdcd6f435e4d6"
+		},
+		{
+			"file": "app/api/chat/[streamId]/stream/__tests__/transportContract.postgres.test.ts",
+			"status": "revised",
+			"review": "Read full suite, WorkflowChatTransport installed SDK implementation, NovaChatTransport, resume route and persistence sources. Migrated real auth/membership/app fixtures replace fabricated access mocks; controlled interrupted POST boundary explicitly documented. Routed native Request retains abort signal. Shared awaited pipeTo owns collectors through EOF; hydration test persists response snapshot then loads real persisted thread before replay, SDK readUIMessageStream consumes actual route chunks. transport-native.log 4 pass; 12 PROMISE diagnostics from native SDK/Web Streams wrappers remain disclosed, no process isolation/suppression. Actual chat POST is separately covered by route suites.",
+			"reviewedSha256": "378fac33abcbcd4869ce8af1672285bfd9d989859d4df16bfc65d5fd59f8a7cf"
+		},
+		{
+			"file": "app/api/apps/[id]/stream/__tests__/stream.postgres.test.ts",
+			"status": "revised",
+			"review": "Read complete1872-line baseline suite and809-line route, actual appAccess/native listener/pump/read hooks. Migrated real auth replaces fabricated access class/account/membership implementation. Native destination editor/viewer Project moves, actual ban/membership loss/role change now drive route; impossible canEdit-independent editor tuple replaced real viewer downgrade. Transient session/account/scope cases separated so none masked by earlier return, each observes repeated failing checks then receives successful real commit. Invalid post-baseline history now has valid preceding row so targeted late admission actually matters. Stream collector owns producers immediately, preserves reader errors and joins cancellation/release; warm listener joins readiness rather than300ms delay. Malformed presence waits actual throwing projection then later manifest barrier before absence assertion. Abort-only/cancel-only own readers in finally, verify both native interval handles cleared and no reads after an observed real lookup notification instead of400ms sleep. app-stream-final.log43 pass no diagnostics.",
+			"reviewedSha256": "66d2d3dc9089dab669e65f77056b82338cf824c561ecf1dad89ed8484bce6277"
+		},
+		{
+			"file": "e2e/lib/caseChangesSeed.test.ts",
+			"status": "retained",
+			"review": "Read full test and566-line deterministic seed. Retained fixture-admission and independent semantic move/refusal checks through real validators, operation target/review helpers. These establish valid browser preconditions and dependency order, not browser focus/layout proof. Native browser case-operation reorder peers are separately tracked. e2e-seeds.log8 cases pass; group4files18cases no diagnostics.",
+			"reviewedSha256": "56caa3163f3377c6b7a20003b494c71918b4724cce8d96612672010fed97aaaa"
+		},
+		{
+			"file": "e2e/lib/caseWorkspaceSeed.test.ts",
+			"status": "retained",
+			"review": "Read full tests and766-line seed. Retained independent canonical schema/validator checks, explicit property vocabulary and authored column visibility, identity uniqueness, literal route serialization, tile/group domain geometry. These are fixture semantic invariants, not CSS/rendering claims; native workspace/running cases handled separately. e2e-seeds.log6 pass.",
+			"reviewedSha256": "113ed5a901e45d3011ace88ce4514f200344b6879b57aed72f59d32859570ce4"
+		},
+		{
+			"file": "e2e/lib/searchFirstSeed.test.ts",
+			"status": "retained",
+			"review": "Read all seed tests and209-line builder. Retain full canonical validator admission, actual search/menu semantics and deterministic route/identity fixture assertions. No browser or live no-match registration claim inferred from these support tests. e2e-seeds.log3 pass.",
+			"reviewedSha256": "3a542c490409748855d28485a8ba8d245192055ee8baba1de841467197147da5"
+		},
+		{
+			"file": "e2e/lib/reactProfileSeed.test.ts",
+			"status": "revised",
+			"review": "Read full tests and308-line seed. Replaced diff-not-throw assertion with actual diff/apply materialization and exact normalized document equality, and validated zero-case-catalog variant. Retain independent326-field type/logic inventory required for meaningful profiling comparison. e2e-seeds.log2 pass.",
+			"reviewedSha256": "ace9601763af1addd6c33b089374efd198ceeaec9921064877a313576cee22e8"
+		},
+		{
+			"file": "__tests__/integration/case-list-authoring.postgres.test.ts",
+			"status": "revised",
+			"review": "Read all 1283 baseline lines, workspace tools, wire builders and Preview readCases owner. Split 15 pure schema/workspace/validator/archive cases into case-list-authoring.test.ts with shared fixture; only actual Postgres query remains in database file. Removed unused mocked persistence modules and 15 unnecessary fresh databases. Full validator admission exposed invalid missing Household Results fixture hidden by former code-filtered validation; repaired fixture, require zero findings before archive compilation. Exact parsed sort blocks prove ordered directives, not external HQ acceptance. Native query adds same-age Aaron/Bob so secondary name sort is observed, and distinct Project versus actor. Native one query passed and pure 15 passed; real SQL owns filtering/calculations/order, archive tests only emitted structure.",
+			"reviewedSha256": "0f7b588780752237f35a74d10266ca7d8fa68423d4718f696c672af01efa8033"
+		},
+		{
+			"file": "__tests__/integration/case-list-search-running-app.postgres.test.tsx",
+			"status": "revised",
+			"review": "Read all1044 baseline lines and actual action/controller/admission/preload/persistence owners. Replaced fake DOM screen clicks and hand-copied submit authorization/receipt construction with real EngineController, production Server Actions, migrated auth Project membership, persisted admitted Blueprint, real schema-healing CaseStore and native PostgreSQL. Only session extraction is controlled. Existing zero-field Close fixture was impossible under complete gate; repaired. Five native cases prove authored+search SQL narrowing/clear/sort/calculations; registration and same-entry exactly-once replay; real preloaded followup preserving other properties; close timestamp/status/open-results removal; stale digest and real membership revocation cause no writes. Every controller disposed and joined. UI wiring/focus/layout remain native browser responsibilities; this suite makes no UI claim. Native5 passed without leak diagnostics.",
+			"reviewedSha256": "b3cca59772fbcd3884b1876fafba4ec98c722d04e9dd63fc529ea5a24d41db64"
+		},
+		{
+			"file": "e2e/tests/case-workspace-manual.spec.ts",
+			"status": "revised",
+			"review": "Read whole manual visual-review harness and production smoke/seed configuration. Retained explicitly opt-in human lifecycle; it is not an automated product acceptance test. Replaced blanket wait rejection swallowing with exact native page-close/browser-disconnect completion, including listener release; bounded native companion passed.",
+			"reviewedSha256": "72a372cf97ebb59036a19e1f1756193be983179de00d2b7a320096e2cfe4ccd2"
+		},
+		{
+			"file": "e2e/tests/mp-manual.spec.ts",
+			"status": "revised",
+			"review": "Read whole four-user human co-editing harness and windowTiling production owner. Retained opt-in manual tool outside CI. Contexts are owned immediately after creation and all opening outcomes joined; any partial setup failure closes every created context in finally. Native page-close/disconnect lifecycle replaces broad catch-as-success. CDP tiling handle now detaches in finally even on failed bounds operations. Bounded two-native-page wait and listener-release companion passed; full human interaction intentionally not automated.",
+			"reviewedSha256": "548cb5574910631b1236e98161058506a81f66d2d0ee7c8bd90cca84aef24f3c"
+		},
+		{
+			"file": "e2e/react-profile/builder-load.spec.ts",
+			"status": "revised",
+			"review": "Read full native instrumentation and actual Builder fixture/CPU owner. Required DOM observation marks now fail if absent rather than produce zero; labels explicitly distinguish DOM observed timestamps from painted/usable latency. Resource durations preserve raw invalid values and report null as duration. CPU sessions own detach/stop on failure. Discovery assigns independent scenario/repeat/retry apps. Edit waits actual catalog/animation readiness, sends Tab through current input and joins Saved after diagnostic window. Native ordinary edit with CPU passed in profile-isolated-third.log; cold-load scenarios remain diagnostic and are not claimed as latency gates.",
+			"reviewedSha256": "fc70299e7c0a1e105b37eb79226287449220f3d0e9507de9f9ad50ab2a8c4fbf"
+		},
+		{
+			"file": "e2e/react-profile/builder-scale.spec.ts",
+			"status": "revised",
+			"review": "Read all nine native scenarios and large seed. Replaced single overwritten output with test/repeat/retry identity exports using actual pinned profiler; scenario discovery seeds isolated app per attempt so field-ID edits cannot contaminate later scenarios. CPU and active React recording teardown join ownership; mutating scenarios await Saved after measurement. Real large field rename and Saves-to commit with CPU passed alongside ordinary field edit and smoke, three unique version5 exports analyzed in profile-isolated-third.log. Other scale scenarios retain native assertions and diagnostic metrics; no inferred latency pass.",
+			"reviewedSha256": "9bfc98fcea4a30243d729ddad5f608b4f9c1ad0056ada558bc96f2e09e906d35"
+		},
+		{
+			"file": "e2e/react-profile/builder-smoke.spec.ts",
+			"status": "revised",
+			"review": "Read full native smoke and actual CLI orchestration. Default harness now selects only smoke, exact selections use Playwright discovery, every exported profile has unique test/repeat/retry identity and every actual artifact is analyzed. Smoke reads real exported version5 bytes and nonempty commit roots, recording cleanup is unconditional; default-alone and composed four-scenario harness runs passed. Raw artifacts/logs in application/profiles, no fake profiler or added performance threshold.",
+			"reviewedSha256": "649e308f8313121f4b5233ba6af53c48a19a785d128e69ea1d9d0dbbfc4bc7aa"
+		},
+		{
+			"file": "e2e/tests/public.spec.ts",
+			"status": "revised",
+			"review": "Read every native public scenario and auth/host boundary. Anonymous get-session now requires null JSON, not merely 200; OAuth navigation waiter and actual click join via Promise.all. Test name narrows datastore claim to actual public behavior. Real production standalone build native three scenarios passed in production-smoke-first.log; Google target is controlled external-page HTTP response, native redirect itself runs real Better Auth route.",
+			"reviewedSha256": "09488b05da16afc669803f0d066c710419b0619fdb8a0a8c48487093dfca9991"
+		},
+		{
+			"file": "e2e/tests/deep-links.spec.ts",
+			"status": "revised",
+			"review": "Read full225-line native journey, seeded two distinguishable real case rows and production DeepLinksSection/launch boundary. Seed read moved into beforeAll so seedless public discovery works. Saved mutation waiter joins actual action even if gesture rejects; extra viewer context is owned before page creation and guards assert after close inside finally. Held real Server Action reads release and unroute wait on failure. Native whole production journey passed in production-smoke-first.log, proving actual create/rename/refusal/viewer/selected-case launch/delete and route recovery. No fake application modules in this spec.",
+			"reviewedSha256": "64af107cf9c821eb4faf21ed94ada47b25f54077593175d28c9d480d67b73c87"
+		},
+		{
+			"file": "app/(app)/(site)/__tests__/app-list-body.test.tsx",
+			"status": "revised",
+			"review": "Read original fake-DOM test and AppListBody/AppCard/DeletedAppCard. Removed mocked card implementations and fake role/tab interaction evidence. Retained one actual static render projection proving normal and server-authorized resumable error hrefs while terminal error has no link; only never-called Server Action functions are stubbed. Static actual-card test passed app-list-static-final.log. Real role/tab/delete/restore/move behavior now exercised through authenticated production app: owner deletes then restores and reloads; real viewer session sees neither delete/move nor restore controls, and restored visible card links back to exact app. Native whole owner/viewer journey passed production-smoke-second.log; final locator scopes visible route tree to avoid hidden Activity duplicate.",
+			"reviewedSha256": "2c81438cc0eccd6b9dde9206c401ffb4f3515d11f8f71f390ba933164d3ed68e"
+		},
+		{
+			"file": "e2e/tests/multiplayer.spec.ts",
+			"status": "revised",
+			"review": "Fully read927-line original native suite, multiplayerSeed404, transport ownership/revocation and collab contract. Actual Playwright discovery now seeds separate app/Project/four users/sessions for each scenario/repeat/retry; default sequential mode bounds browser memory without serial failure skipping or reused mutated baseline. Context ownership registers immediately; afterEach joins failed opens; crew opens use allSettled. Removed swallowed membership restore/pool errors and scoped deletion to exact Project; unavailable-page/editor-unmount now proves revocation alongside roster removal. Local undo checks real authorized persisted snapshot contains restored local field and surviving peer field. Native all12 two-/four-user scenarios passed production-smoke-second.log including reconnect, contention, revocation46s, undo and reorders. Field cross-checks after page.goto prove persistence/reload; only assertions before navigation are claimed as live propagation.",
+			"reviewedSha256": "b7750c5562fadc77c7707c9b42929b0dfa0832b61bb632e7ce6f4476d792fc97"
+		},
+		{
+			"file": "e2e/tests/authed.spec.ts",
+			"status": "revised",
+			"review": "Read complete original authenticated journey and owning seed/routes/components; Builder peer independently read/fixed final lookup journey. Replaced shared mutable case-workspace app/Project/table state with actual Playwright discovery scenario/repeat/retry fixtures; identity-projection and case-submission cases now also isolated. Held request handlers always release and join on failure, save waiters join gestures, extra native contexts are owned before newPage, pointer release is unconditional. Native actual lookup ordering focus/draft retention/navigation/conflict and owner/viewer delete/restore verified; visible href scopes retained route trees. Seeded tall histories now use real accepted run/server response authority, not dropped client-history fabrication. Native assistant drag failure was raw coordinates captured during entrance animation (endX beyond viewport); locator trial click now waits actual stability and hit-testing before pointer coordinates. Full29 native authenticated journeys collectively passed production-smoke-first.log (unaffected16), production-smoke-second.log (12 selected) and production-selection-final.log (last1); no fake component mounts claim browser behavior. First log includes usercase collision server warnings, reported to root for owning persistence investigation. Integration follow-up: Read native failure report and actual reconciler PUT outcome/lifetime owners. The form-link journey admitted the local condition then immediately navigated a new document before the PUT committed, causing a real aborted save and rereading the old false condition. The test now joins the exact app/value PUT receipt and checks success before hard navigation; native post-submit mismatching/matching branches remain. Separate case-changes integration holds and releases native Server Action catalog reads to prove absence of a refused-edit alert does not imply readiness, then observes production catalog ready state. Home refusal, single ArrowUp move, actual focus, retargeting, lookups and viewer navigation remain.",
+			"reviewedSha256": "34dcf5bc928771c55a2c0a814098552d857dedeb8a8dce1ed608f8eed97fa098",
+			"preSupplementReviewedSha256": "54b78897c1141be32833f241e0c365aca9c9cd993e66ee0461d7b0bebd01912a",
+			"supplementalEvidenceReport": "root-browser-readiness.json"
+		},
+		{
+			"file": "lib/agent/build/__tests__/designProjectDataInspection.postgres.test.ts",
+			"status": "revised",
+			"review": "Read the complete Project-data inspection, cursor paging and evidence validator in designLoopRunner plus real lookup readers, attestation and migrated DB fixture. Retained actual authorized repeatable-read transactions; strengthened native proof with UTF-8 byte-limited distinct row pages, complete attestation despite filtered rows, same-not-found foreign Project resources, cross-Project catalog cursor refusal, and actual stale table changes. Reproduced missing expectedTableRevision check for modify-existing tables without choice references, fixed in validateAuthorizedProjectLookupEvidence, and verified all 10 native tests (lookup-native-third.log). No mock query builders or model quality claims; catalog and row authority are directly observed.",
+			"reviewedSha256": "b07d1f7330f92257975916036dfff1cd2efbe796c5dc14918d48f442dfa31687"
+		},
+		{
+			"file": "lib/agent/build/__tests__/lookupPlanReferences.test.ts",
+			"status": "revised",
+			"review": "Read complete plan binding validator, row-to-plan projection and both executionBrief choice projections. Kept this pure compiler-boundary suite explicitly separate from persisted-receipt authority. Admitted complete contract graphs before planning; typed 5000 row IDs through actual UUID schema, compared exact table/column projection instead of arbitrary serialized-size budget, used independent expected designed identity rather than copying fixture output, and added duplicate/wrong-kind/unaccepted identity refusals. Existing lookup evidence stripping remains exact. All 8 tests passed lookup-plan-final.log; this is not proof of live provider execution.",
+			"reviewedSha256": "9217962c7065c7eb13acafd2090a34f7964c974fa32c2910b4366c199072ad5a"
+		},
+		{
+			"file": "lib/agent/design/__tests__/lookupMaterialization.postgres.test.ts",
+			"status": "revised",
+			"review": "Read all 911 production materializer lines, receipt schemas, lookup writer/governance contracts and original suite. Replaced fabricated accepted/source rows with actual source package, draft, independent controlled review and accepted artifact writers, including successor revisions. Kept resealed historical payload only as explicit legacy-reader control. Now proves ordered add/update/move/remove/retype operations and complete row replacement through real Postgres, exact persisted values/identity mappings/columns, simultaneous materializers observed waiting in PostgreSQL with separate pool connections, lost-response reuse, and late protection-insert rollback of all rows/receipts/revisions. Reproduced recovered receipt accepting a rehashed wrong revision and genesis accepting another session; readRecordInTransaction now binds mapping to relational session/revision/digest/Project/revision metadata. All 14 native tests passed lookup-materialization-final.log. Native acceptance uses controlled clean review content and does not claim LLM grounding quality. Final cross-reader review also reproduced mismatched source-package Project payload reaching materialization. Replaced inline package parsing with exported artifactStore readSourcePackageInTx inside the same transaction; all15 materialization tests now pass lookup-source-final.log, and corruption fail-before is lookup-source-before.log.",
+			"reviewedSha256": "e87ebc2578b697e29bc681298e3f1d70e8a528c063c49ff7b242a67a18d26839"
+		},
+		{
+			"file": "components/builder/__tests__/PublishDialog.test.tsx",
+			"status": "removed",
+			"review": "Read all 719 baseline test lines and complete 1784-line dialog plus PublishPanel callback contract, publishOutcome and durable deployment store. Removed hook/authority/fetch happy-dom mocks after replacement by actual Chromium PublishDialog with admitted document, real session/Reconciler/DeploymentTarget providers and native upload fetch. Native coverage consolidates target choice/check/refusal/retry, viewer JSON/CCZ, old completion dismissal, actual checkbox consent and modal focus. Reproduced hidden adoption consent surviving cancel/reopen; reset on reopen and target/server changes, updated docs. Controlled parent download/compatibility callbacks have actual outcome-union semantics and are not proof of archive bytes or HQ server enforcement; those native owners are separate. All8 publishing methods pass browser-publishing-final.log.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/app-setup/__tests__/DeploymentEntryPointLinks.test.tsx",
+			"status": "removed",
+			"review": "Read all174 baseline test lines, full production component and real useEntryPoints/reconciler save contract. Removed mocked entry inventory, fake partial Reconciler and forged DeploymentView after actual native Chromium replacement. Admitted multiple-selection fixture and actual artifact builder, doc/session/Reconciler providers prove ordered trimmed external IDs, real human mutation PUT barrier, viewer readonly controls, native clipboard unchanged on fresh refusal, late doc/deployment reply invalidation. Reproduced stale refusal message surviving target change and fixed same authority invalidation effect. Actual Server Action serialization is a controlled native HTTP boundary; tests do not claim HQ release verification behavior. All8 publishing methods pass browser-publishing-final.log.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/agent/build/__tests__/designLoopRunner.test.ts",
+			"status": "revised",
+			"review": "Read full 844-line baseline, full 2658-line production runner and its installed SDK stream/continuation owners. Removed fabricated partial accepted GateState and dead helper-only checks; retained direct protocol parsers with satisfies-checked ModelMessage/UIMessage fixtures and actual askQuestions schema/validateUIMessages for answer projections. New native runner suite uses actual source package, SDK+HTTP, tools, migrated artifact/model ledger, and admitted accepted plans. Eight native checks prove paid wait replay and new input, provider-ordered question/wait arbitration, one durable correction across replacement, accepted-plan recovery, pre-cancel refusal, partial-response socket cancellation, and full-runner compaction state provenance. Reproduced cancelled caller purchasing a provider response; fixed SDK abortSignal and pre/post drain checks. Removed test-only contractSubmissionPulsePhase/designModelContextTrailsSuccessfulWait exports after verifying no serving callers. Pure26 and native runner8 pass; SDK PROMISE diagnostics retained, no live provider claims.",
+			"reviewedSha256": "f1b006127800e18d2baa9072e75b955009b590db54f529ff6a6e153ee410055c"
+		},
+		{
+			"file": "lib/agent/build/__tests__/orchestratorPresentation.test.ts",
+			"status": "revised",
+			"review": "Read full150 baseline and full1805-line orchestrator including accepted source/receipt/export completion path and callers. Removed source-code regex and dozens of prompt/version phrase assertions; retained only independent operational severity mapping. Added five actual Postgres orchestrator checks: exact-owned pause and assistant bracketing, recoverable/nonrecoverable durable failure, frozen accepted-plan selection with real executor/change-set/attempt/model-ledger bounded refusal, and in-flight heartbeat join under native held authority lock. Model outcome/step boundaries are explicit; native runner peer tests separately cover decoding. Actual heartbeat returned before its DB write completed; reproduced then coalesced and joined active write in finally, with payload-free refresh diagnostic. Native5 and pure26 pass; one known Bluebird inert import PROMISE diagnostic is reported. No claim these tests prove model quality or every successful localization/export branch.",
+			"reviewedSha256": "1f62def1bc21dc1287fc38ebbc3966230ad3cd54bb59018dc6205cf1dc6cfafe"
+		},
+		{
+			"file": "lib/commcare/locations/__tests__/fixture.test.ts",
+			"status": "removed",
+			"review": "Read the full368-line baseline and test-only flat fixture producer. Removed self-produced structural assertions and optional orphan HQ-file skips. There is no serving Nova fixture producer. Replacement native location-emission-proof.py executes real HQ FlatLocationSerializer.get_xml_nodes and index-schema generation over explicit ORM rows, emitting exact complete/empty/missing/skipped restore artifacts. Core restores these through actual indexed storage and consumes them through admitted local and HQ-regenerated forms. No copied serializer/evaluator remains; HQ footprint SQL and network restore are explicit limits.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/locations/__tests__/instanceDeclaration.test.ts",
+			"status": "revised",
+			"review": "Read full179 baseline and owner term/instance/export implementations. Replaced direct malformed or unadmitted form calls and byte-order substring pins with three schema- and validator-admitted complete app scenarios. Real expander and CCZ compilation verify structurally the exact XForm restore declaration, both_fixtures request and absence of per-worker fixture from suite. Native HQ regeneration plus Core executable form/case processing proves the declaration is consumed for both immediate and multi-rung owners; ordinary owner needs no fixture. Fixed-place bypass assertion was removed because production export correctly refuses unmapped fixed identities.",
+			"reviewedSha256": "13d907c86bcc1e1f2e552173078683d9dfe0de20854a0acf8c49e245cff25924"
+		},
+		{
+			"file": "lib/commcare/locations/__tests__/ownerHopParity.harness.postgres.test.ts",
+			"status": "revised",
+			"review": "Read full470 baseline, recursive SQL lowering, owner XPath and organization integrity/footprint contracts. Removed generated invalid worlds, skipped ambiguity pairs, copied nearest-owner oracle, raw row insertion and fake Lezer evaluator. Two new real-Postgres cases create complete branches via actual organization service under admitted owner docs, resolve each exact branch via production compileTerm SQL, prove unknown-worker empty result, then prove ambiguous creation refuses and preserves the entire rows/revision snapshot. Native HQ/Core companion independently transfers both branches for direct/multi-rung/skipped paths and rejects empty/missing destinations. Core in-memory storage has no rollback; separately source-verified Android complete-form SQLCipher transaction wrapper. No device execution or HQ footprint SQL claim.",
+			"reviewedSha256": "d65c46f8ef623b25256bc90cb1944b46335b3e9b0d12e9ebd7f967c6335f1f35"
+		}
+	],
+	"changedPaths": [
+		".agents/skills/nova-react-profiling/SKILL.md",
+		"__tests__/integration/case-list-authoring.postgres.test.ts",
+		"__tests__/integration/case-list-authoring.test.ts",
+		"__tests__/integration/case-list-search-running-app.postgres.test.tsx",
+		"__tests__/integration/fixtures/caseListAuthoring.ts",
+		"__tests__/integration/media-validation.test.ts",
+		"__tests__/proxy.test.ts",
+		"app/(app)/(site)/__tests__/app-actions.test.ts",
+		"app/(app)/(site)/__tests__/app-list-body.test.tsx",
+		"app/(app)/(site)/settings/__tests__/api-key-actions.test.ts",
+		"app/(app)/build/__tests__/actions.test.ts",
+		"app/(app)/warmup/__tests__/page.test.tsx",
+		"app/api/apps/[id]/__tests__/route.test.ts",
+		"app/api/apps/[id]/attachments/[attachmentId]/__tests__/route.test.ts",
+		"app/api/apps/[id]/attachments/__tests__/route.test.ts",
+		"app/api/apps/[id]/attachments/route.ts",
+		"app/api/apps/[id]/presence/__tests__/presence.postgres.test.ts",
+		"app/api/apps/[id]/stream/__tests__/stream.postgres.test.ts",
+		"app/api/apps/[id]/threads/[threadId]/__tests__/route.test.ts",
+		"app/api/apps/[id]/threads/__tests__/route.test.ts",
+		"app/api/chat/[streamId]/stream/__tests__/streamResume.postgres.test.ts",
+		"app/api/chat/[streamId]/stream/__tests__/transportContract.postgres.test.ts",
+		"app/api/chat/__tests__/creditGate.test.ts",
+		"app/api/chat/__tests__/schema.test.ts",
+		"app/api/chat/__tests__/streamFailure.test.ts",
+		"app/api/chat/route.ts",
+		"app/api/commcare/feature-flags/__tests__/route.test.ts",
+		"app/api/commcare/project-space-compatibility/__tests__/route.test.ts",
+		"app/api/commcare/upload/__tests__/route.test.ts",
+		"app/api/commcare/upload/route.ts",
+		"app/api/compile/__tests__/prepareCompileRequest.test.ts",
+		"app/api/compile/__tests__/route.test.ts",
+		"app/api/compile/json/__tests__/route.test.ts",
+		"app/api/design-sessions/[id]/threads/[threadId]/__tests__/route.test.ts",
+		"app/api/dev/login/__tests__/route.test.ts",
+		"app/api/dev/login/route.ts",
+		"app/api/log/error/__tests__/route.test.ts",
+		"app/api/log/error/route.ts",
+		"app/api/mcp/__tests__/route.test.ts",
+		"app/api/mcp/dispatch.ts",
+		"app/api/mcp/route.ts",
+		"app/api/media/[assetId]/__tests__/route.test.ts",
+		"app/api/media/[assetId]/extract/__tests__/route.test.ts",
+		"app/api/media/[assetId]/extract/route.ts",
+		"app/api/media/[assetId]/route.ts",
+		"app/api/media/library/__tests__/route.test.ts",
+		"app/api/media/upload/[assetId]/confirm/__tests__/route.test.ts",
+		"app/api/media/upload/__tests__/route.test.ts",
+		"app/api/media/upload/dev-put/__tests__/route.test.ts",
+		"app/api/media/upload/dev-put/route.ts",
+		"app/api/projects/[projectId]/lookup/tables/[tableId]/import/__tests__/route.test.ts",
+		"app/api/projects/[projectId]/lookup/tables/[tableId]/import/route.ts",
+		"e2e/CLAUDE.md",
+		"e2e/lib/manualSession.ts",
+		"e2e/lib/multiplayerSeed.ts",
+		"e2e/lib/reactProfileSeed.test.ts",
+		"e2e/lib/scenarioSeeds.ts",
+		"e2e/lib/windowTiling.ts",
+		"e2e/react-profile/builder-load.spec.ts",
+		"e2e/react-profile/builder-scale.spec.ts",
+		"e2e/react-profile/builder-smoke.spec.ts",
+		"e2e/react-profile/cpuProfile.ts",
+		"e2e/react-profile/profiler.ts",
+		"e2e/seed.ts",
+		"e2e/tests/case-workspace-manual.spec.ts",
+		"e2e/tests/deep-links.spec.ts",
+		"e2e/tests/manual-session-audit.spec.ts",
+		"e2e/tests/mp-manual.spec.ts",
+		"e2e/tests/multiplayer.spec.ts",
+		"e2e/tests/public.spec.ts",
+		"lib/__tests__/apiError.test.ts",
+		"lib/__tests__/auth-oauth-config.test.ts",
+		"lib/__tests__/auth-project-lifecycle.test.ts",
+		"lib/__tests__/auth-utils.test.ts",
+		"lib/__tests__/clientErrorReporter.test.ts",
+		"lib/__tests__/hostnames.test.ts",
+		"lib/__tests__/markdown.test.tsx",
+		"lib/__tests__/styles.test.ts",
+		"lib/agent/build/__tests__/designProjectDataInspection.postgres.test.ts",
+		"lib/agent/build/__tests__/lookupPlanReferences.test.ts",
+		"lib/agent/build/designLoopRunner.ts",
+		"lib/agent/design/__tests__/lookupMaterialization.postgres.test.ts",
+		"lib/agent/design/__tests__/persistedFixtures.ts",
+		"lib/agent/design/artifactStore.ts",
+		"lib/agent/design/lookupMaterialization.ts",
+		"lib/apiError.ts",
+		"lib/auth-utils.ts",
+		"lib/auth/__tests__/projectRoles.test.ts",
+		"lib/auth/migrations/__tests__/appsProjectTenancy.postgres.test.ts",
+		"lib/automations/__tests__/actions.test.ts",
+		"lib/automations/__tests__/automations.test.ts",
+		"lib/automations/__tests__/hqCaseProperties.test.ts",
+		"lib/chat/__tests__/compaction.test.ts",
+		"lib/chat/__tests__/durableStreamWriter.test.ts",
+		"lib/chat/__tests__/hydratedStepFilter.test.ts",
+		"lib/chat/__tests__/sanitizeReasoningParts.test.ts",
+		"lib/chat/__tests__/streamPartClosure.test.ts",
+		"lib/chat/__tests__/threadAttachments.test.ts",
+		"lib/chat/__tests__/validateMessages.test.ts",
+		"lib/chat/durableStreamWriter.ts",
+		"lib/chat/sanitizeReasoningParts.ts",
+		"lib/codemirror/__tests__/buildSessionLintContext.test.ts",
+		"lib/codemirror/__tests__/xpath-format.test.ts",
+		"lib/codemirror/__tests__/xpath-parser.test.ts",
+		"lib/db/__tests__/api-keys.postgres.test.ts",
+		"lib/db/__tests__/mcp-revocation.postgres.test.ts",
+		"lib/generation/__tests__/designProgressWire.test.ts",
+		"lib/generation/__tests__/generationLifecycle.test.ts",
+		"lib/generation/__tests__/streamDispatcher-mutations.test.ts",
+		"lib/generation/__tests__/streamDispatcher.test.ts",
+		"lib/hostnames.ts",
+		"lib/organization/CLAUDE.md",
+		"lib/organization/__tests__/levelUpdateVerdicts.test.ts",
+		"lib/organization/__tests__/orderKeys.test.ts",
+		"lib/organization/__tests__/organization.test.ts",
+		"lib/organization/__tests__/organizationStore.postgres.test.ts",
+		"lib/organization/__tests__/ownerSets.test.ts",
+		"lib/organization/footprint.ts",
+		"lib/projects/__tests__/invitePolicy.test.ts",
+		"lib/projects/__tests__/moveTargets.test.ts",
+		"lib/session/__tests__/derivePhase.test.ts",
+		"lib/session/__tests__/designProgressStore.test.ts",
+		"lib/session/__tests__/hooks-useSessionEventsEmpty.test.tsx",
+		"lib/session/__tests__/hooks.test.tsx",
+		"lib/session/__tests__/stagedUploads.test.ts",
+		"lib/session/__tests__/store.test.ts",
+		"lib/session/store.ts",
+		"proxy.ts",
+		"scripts/react-profile.sh",
+		"scripts/smoke.sh",
+		"components/builder/__tests__/PublishDialog.test.tsx",
+		"components/builder/app-setup/__tests__/DeploymentEntryPointLinks.test.tsx",
+		"components/builder/PublishDialog.tsx",
+		"components/builder/app-setup/DeploymentEntryPointLinks.tsx",
+		"e2e/lib/publishing-client.tsx",
+		"e2e/lib/publishing-boundary.ts",
+		"e2e/tests/publishing.spec.ts",
+		"e2e/lib/componentPeer.ts",
+		"e2e/tests/authed.spec.ts",
+		"components/builder/CLAUDE.md",
+		"content/docs/publishing.mdx",
+		"lib/agent/build/__tests__/designLoopRunner.test.ts",
+		"lib/agent/build/__tests__/orchestratorPresentation.test.ts",
+		"lib/agent/build/__tests__/designLoopRunner.postgres.test.ts",
+		"lib/agent/build/__tests__/orchestrator.postgres.test.ts",
+		"lib/agent/build/orchestrator.ts",
+		"lib/agent/design/loop/__tests__/designAgentPeer.ts",
+		"lib/agent/CLAUDE.md",
+		"docs/testing.md",
+		"lib/commcare/locations/__tests__/fixture.test.ts",
+		"lib/commcare/locations/__tests__/instanceDeclaration.test.ts",
+		"lib/commcare/locations/__tests__/ownerHopParity.harness.postgres.test.ts",
+		"lib/commcare/locations/__tests__/flatLocationsFixture.ts",
+		"lib/commcare/locations/__tests__/wireXPathReference.ts",
+		"lib/commcare/locations/__tests__/locationOwnerFixture.ts",
+		"scripts/fixtures/hq/emit-location-evidence.ts",
+		"scripts/fixtures/hq/location-emission-proof.py",
+		"scripts/fixtures/javarosa/LocationOwnerRuntimeTest.java",
+		"scripts/fixtures/hq/README.md",
+		"scripts/fixtures/javarosa/README.md",
+		"lib/commcare/CLAUDE.md",
+		"docs/architecture/complex-apps.md",
+		"lib/export/boundaryValidation.ts"
+	],
+	"checks": [
+		{
+			"command": "'vitest' run lib/chat/__tests__/compaction.test.ts lib/chat/__tests__/validateMessages.test.ts lib/chat/__tests__/hydratedStepFilter.test.ts lib/chat/__tests__/threadAttachments.test.ts lib/chat/__tests__/sanitizeToolParts.test.ts lib/chat/__tests__/toolSummary.test.ts lib/chat/__tests__/internalToolParts.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/chat-boundaries.log",
+			"result": "Test Files  7 passed (7); Tests  98 passed (98)"
+		},
+		{
+			"command": "reasoning + writer + closure regression",
+			"log": "/tmp/nova-test-audit-parallel/application/chat-fixes.log",
+			"result": "reasoning and writer pass; SDK closure expectation corrected in next check"
+		},
+		{
+			"command": "'vitest' run lib/chat/__tests__/streamPartClosure.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/closure-native-pipe.log",
+			"result": "Test Files  1 passed (1); Tests  6 passed (6)"
+		},
+		{
+			"command": "'vitest' run lib/auth/__tests__/configuration.postgres.test.ts lib/__tests__/auth-utils.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/auth-native-third.log",
+			"result": "Test Files  2 passed (2); Tests  9 passed (9)"
+		},
+		{
+			"command": "'vitest' run lib/session/__tests__/store.test.ts lib/session/__tests__/stagedUploads.test.ts lib/session/__tests__/derivePhase.test.ts lib/session/__tests__/deriveChatAppReady.test.ts lib/session/__tests__/lifecycle.test.ts lib/session/__tests__/assetMeta.test.ts lib/session/__tests__/previewSearchState.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/session-core.log",
+			"result": "Test Files  7 passed (7); Tests  140 passed (140)"
+		},
+		{
+			"command": "'vitest' run lib/generation/__tests__/designProgressWire.test.ts lib/session/__tests__/designProgressStore.test.ts lib/auth/__tests__/projectRoles.test.ts lib/projects/__tests__/invitePolicy.test.ts lib/projects/__tests__/moveTargets.test.ts lib/__tests__/auth-logger.test.ts lib/__tests__/logger.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/progress-policies.log",
+			"result": "Test Files  7 passed (7); Tests  67 passed (67)"
+		},
+		{
+			"command": "'vitest' run __tests__/integration/case-list-authoring.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/case-authoring-unit-final2.log",
+			"result": "Test Files  1 passed (1); Tests  15 passed (15)"
+		},
+		{
+			"command": "'vitest' run __tests__/integration/case-list-authoring.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/case-authoring-native.log",
+			"result": "Test Files  1 passed (1); Tests  1 passed (1)"
+		},
+		{
+			"command": "'vitest' run __tests__/integration/case-list-search-running-app.postgres.test.tsx --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/running-app-native-second.log",
+			"result": "Test Files  1 passed (1); Tests  5 passed (5)"
+		},
+		{
+			"command": "native manual-session-audit.spec.ts via bounded browser group",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workflows-workspace-manual.log",
+			"result": "Manual lifecycle1 passed; unrelated Builder/Doc bundle failures are not counted"
+		},
+		{
+			"command": "'vitest' run app/api/dev/login/__tests__/route.test.ts app/api/log/error/__tests__/route.test.ts app/api/admin/users/[id]/credits/__tests__/route.test.ts app/(app)/(site)/settings/__tests__/commcare-actions.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/admin-log-dev-after.log",
+			"result": "Test Files  4 passed (4); Tests  33 passed (33)"
+		},
+		{
+			"command": "'vitest' run lib/__tests__/apiError.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/api-body-after.log",
+			"result": "Test Files  1 passed (1); Tests  25 passed (25)"
+		},
+		{
+			"command": "'vitest' run app/(app)/(site)/settings/__tests__/api-key-actions.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/api-key-wire-final.log",
+			"result": "Test Files  1 passed (1); Tests  23 passed (23)"
+		},
+		{
+			"command": "'vitest' run app/(app)/(site)/__tests__/app-list-body.test.tsx --project unit --maxWorkers=1",
+			"log": "/tmp/nova-test-audit-parallel/application/app-list-static-final.log",
+			"result": "Test Files  1 passed (1); Tests  1 passed (1)"
+		},
+		{
+			"command": "'vitest' run app/api/apps/[id]/stream/__tests__/stream.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/app-stream-final.log",
+			"result": "Test Files  1 passed (1); Tests  43 passed (43)"
+		},
+		{
+			"command": "'vitest' run app/api/apps/[id]/stream/__tests__/stream.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/app-stream-native.log",
+			"result": "Test Files  1 passed (1); Tests  43 passed (43)"
+		},
+		{
+			"command": "'vitest' run lib/__tests__/clientErrorReporter.test.ts lib/__tests__/auth-logger.test.ts lib/__tests__/utils.test.ts lib/projects/__tests__/invitePolicy.test.ts lib/projects/__tests__/moveTargets.test.ts lib/auth/__tests__/projectRoles.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/application-policies.log",
+			"result": "Test Files  6 passed (6); Tests  41 passed (41)"
+		},
+		{
+			"command": "'vitest' run lib/automations/__tests__/automations.test.ts lib/automations/__tests__/hqCaseProperties.test.ts lib/automations/__tests__/actions.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/automations.log",
+			"result": "Test Files  3 passed (3); Tests  49 passed (49)"
+		},
+		{
+			"command": "'playwright' test e2e/tests/preview-cases-audit.spec.ts --project=authed --retries=0 --timeout=30000 --reporter=list",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-preview-cases-sixth.log",
+			"result": "1 passed (2.8s)"
+		},
+		{
+			"command": "'playwright' test e2e/tests/builder-controls.spec.ts --project=authed --grep refused prose commits|options use real|reference-bearing option --retries=0 --reporter=list",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-prose-after.log",
+			"result": "3 passed (3.6s)"
+		},
+		{
+			"command": "'playwright' test e2e/tests/builder-controls.spec.ts --project=authed --grep options use real --retries=0 --reporter=list",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-seventeenth.log",
+			"result": "1 passed (2.9s)"
+		},
+		{
+			"command": "'playwright' test e2e/tests/builder-controls.spec.ts --project=authed --grep worker information preserves --retries=0 --timeout=30000 --reporter=list",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-worker-information.log",
+			"result": "1 passed (2.9s)"
+		},
+		{
+			"command": "'playwright' test e2e/tests/builder-controls.spec.ts --project=authed --workers=1 --grep native access gate retains --output=/tmp/nova-test-audit-parallel/application/access-eighth-output",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workflows-eighth.log",
+			"result": "1 passed (2.5s)"
+		},
+		{
+			"command": "'playwright' test e2e/tests/case-workspace-audit.spec.ts --project=authed --workers=1 --grep native date presets|native mapping drafts",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workspace-fourth.log",
+			"result": "2 passed (2.4s)"
+		},
+		{
+			"command": "'vitest' run app/api/chat/__tests__/creditGate.test.ts app/api/chat/__tests__/schema.test.ts app/api/chat/__tests__/streamFailure.test.ts lib/auth/migrations/__tests__/appsProjectTenancy.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/chat-auth-policies.log",
+			"result": "Test Files  4 passed (4); Tests  20 passed (20)"
+		},
+		{
+			"command": "'vitest' run lib/chat/__tests__/streamPartClosure.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/closure-native.log",
+			"result": "Test Files  1 passed (1); Tests  6 passed (6)"
+		},
+		{
+			"command": "'vitest' run app/api/projects/[projectId]/lookup/tables/[tableId]/import/__tests__/route.test.ts lib/__tests__/apiError.test.ts app/api/compile/__tests__/route.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/csv-compile-after.log",
+			"result": "Test Files  3 passed (3); Tests  56 passed (56)"
+		},
+		{
+			"command": "'vitest' run app/api/media/upload/dev-put/__tests__/route.test.ts app/(app)/(site)/__tests__/app-list-body.test.tsx --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/devput-applist-after.log",
+			"result": "Test Files  2 passed (2); Tests  12 passed (12)"
+		},
+		{
+			"command": "'vitest' run e2e/lib/caseChangesSeed.test.ts e2e/lib/caseWorkspaceSeed.test.ts e2e/lib/reactProfileSeed.test.ts e2e/lib/searchFirstSeed.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/e2e-seeds.log",
+			"result": "Test Files  4 passed (4); Tests  18 passed (18)"
+		},
+		{
+			"command": "'vitest' run lib/codemirror/__tests__/buildSessionLintContext.test.ts lib/__tests__/markdown.test.tsx --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/editor-markdown.log",
+			"result": "Test Files  2 passed (2); Tests  38 passed (38)"
+		},
+		{
+			"command": "'vitest' run app/api/mcp/__tests__/route.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/mcp-native-after.log",
+			"result": "Test Files  1 passed (1); Tests  20 passed (20)"
+		},
+		{
+			"command": "'vitest' run app/api/media/upload/[assetId]/confirm/__tests__/route.test.ts app/api/media/library/__tests__/route.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/media-confirm.log",
+			"result": "Test Files  2 passed (2); Tests  25 passed (25)"
+		},
+		{
+			"command": "'vitest' run app/api/media/[assetId]/__tests__/route.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/media-stream-after.log",
+			"result": "Test Files  1 passed (1); Tests  11 passed (11)"
+		},
+		{
+			"command": "'vitest' run __tests__/integration/media-validation.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/media-validation.log",
+			"result": "Test Files  1 passed (1); Tests  2 passed (2)"
+		},
+		{
+			"command": "'vitest' run lib/db/__tests__/mcp-revocation.postgres.test.ts lib/db/__tests__/api-keys.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/native-auth-final.log",
+			"result": "Test Files  2 passed (2); Tests  16 passed (16)"
+		},
+		{
+			"command": "'playwright' test e2e/tests/builder-controls.spec.ts --project=authed --grep workbench related filter refuses|immutable AST leaf|logical group native drag --retries=0 --reporter=list",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-fifteenth.log",
+			"result": "10 passed (4.7s)"
+		},
+		{
+			"command": "'playwright' test e2e/tests/builder-controls.spec.ts --project=authed --grep slot disclosure keeps|literal type keyboard submenu --retries=0 --reporter=list",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-thirteenth.log",
+			"result": "2 passed (3.2s)"
+		},
+		{
+			"command": "'playwright' test e2e/tests/builder-controls.spec.ts --project=authed --grep workbench navigation|worker information follows|related membership edits|workbench special condition --retries=0 --reporter=list",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-twelfth.log",
+			"result": "5 passed (4.3s)"
+		},
+		{
+			"command": "'vitest' run lib/db/__tests__/mcp-revocation.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/native-mcp-complete.log",
+			"result": "Test Files  1 passed (1); Tests  2 passed (2)"
+		},
+		{
+			"command": "'vitest' run lib/db/__tests__/mcp-revocation.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/native-mcp-concurrent.log",
+			"result": "Test Files  1 passed (1); Tests  2 passed (2)"
+		},
+		{
+			"command": "'vitest' run lib/organization/__tests__/organizationStore.postgres.test.ts lib/auth/migrations/__tests__/appsProjectTenancy.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/organization-auth-final.log",
+			"result": "Test Files  2 passed (2); Tests  109 passed (109)"
+		},
+		{
+			"command": "'vitest' run lib/organization/__tests__/ownerSets.test.ts lib/organization/__tests__/ownerTargetVerdicts.test.ts lib/organization/__tests__/levelUpdateVerdicts.test.ts lib/organization/__tests__/orderKeys.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/organization-pure.log",
+			"result": "Test Files  4 passed (4); Tests  30 passed (30)"
+		},
+		{
+			"command": "'vitest' run lib/organization/__tests__/organization.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/organization-schema-after.log",
+			"result": "Test Files  1 passed (1); Tests  38 passed (38)"
+		},
+		{
+			"command": "'vitest' run app/api/apps/[id]/presence/__tests__/presence.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/presence-native.log",
+			"result": "Test Files  1 passed (1); Tests  15 passed (15)"
+		},
+		{
+			"command": "owning harness; exact invocation recorded in log",
+			"log": "/tmp/nova-test-audit-parallel/application/production-selection-final.log",
+			"result": "1 passed (7.8s)"
+		},
+		{
+			"command": "owning harness; exact invocation recorded in log",
+			"log": "/tmp/nova-test-audit-parallel/application/production-smoke-second.log",
+			"result": "24 passed (2.2m)"
+		},
+		{
+			"command": "owning harness; exact invocation recorded in log",
+			"log": "/tmp/nova-test-audit-parallel/application/profile-default-second.log",
+			"result": "1 passed (6.8s)"
+		},
+		{
+			"command": "owning harness; exact invocation recorded in log",
+			"log": "/tmp/nova-test-audit-parallel/application/profile-isolated-third.log",
+			"result": "4 passed (19.9s)"
+		},
+		{
+			"command": "'vitest' run app/api/apps/[id]/attachments/[attachmentId]/__tests__/route.test.ts app/api/media/upload/__tests__/route.test.ts app/api/media/[assetId]/extract/__tests__/route.test.ts app/api/projects/[projectId]/lookup/tables/[tableId]/import/__tests__/route.test.ts lib/chat/__tests__/compaction.test.ts lib/generation/__tests__/generationLifecycle.test.ts lib/generation/__tests__/streamDispatcher-mutations.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/routes-types-after.log",
+			"result": "Test Files  7 passed (7); Tests  63 passed (63)"
+		},
+		{
+			"command": "'vitest' run lib/generation/__tests__/streamDispatcher-mutations.test.ts lib/__tests__/hostnames.test.ts __tests__/proxy.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/routing-after.log",
+			"result": "Test Files  3 passed (3); Tests  109 passed (109)"
+		},
+		{
+			"command": "'vitest' run app/api/chat/[streamId]/stream/__tests__/streamResume.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/stream-resume-final.log",
+			"result": "Test Files  1 passed (1); Tests  19 passed (19)"
+		},
+		{
+			"command": "'vitest' run app/api/chat/[streamId]/stream/__tests__/streamResume.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/stream-resume-native.log",
+			"result": "Test Files  1 passed (1); Tests  17 passed (17)"
+		},
+		{
+			"command": "'vitest' run app/api/chat/[streamId]/stream/__tests__/transportContract.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/application/transport-native.log",
+			"result": "Test Files  1 passed (1); Tests  4 passed (4)"
+		},
+		{
+			"command": "production standalone targeted assistant pointer selection with locator stability",
+			"log": "/tmp/nova-test-audit-parallel/application/production-selection-final.log",
+			"result": "1 passed (7.8s); actual held drag selects text and retains painted drawer geometry"
+		},
+		{
+			"command": "Exact scoped Vitest via admission wrapper; see log header",
+			"log": "/tmp/nova-test-audit-parallel/application/lookup-materialization-before.log",
+			"result": "Fail-before: wrong receipt revision and wrong genesis session were accepted; native lock and late-insert rollback controls passed."
+		},
+		{
+			"command": "Exact scoped Vitest via admission wrapper; see log header",
+			"log": "/tmp/nova-test-audit-parallel/application/lookup-native-second.log",
+			"result": "Fail-before: stale modification revision returned no issues. Receipt integrity fixes passed."
+		},
+		{
+			"command": "Exact scoped Vitest via admission wrapper; see log header",
+			"log": "/tmp/nova-test-audit-parallel/application/lookup-native-third.log",
+			"result": "Project inspection all10 passed; materialization13 passed with one fixture enum error subsequently fixed."
+		},
+		{
+			"command": "Exact scoped Vitest via admission wrapper; see log header",
+			"log": "/tmp/nova-test-audit-parallel/application/lookup-materialization-final.log",
+			"result": "All14 native materialization tests passed."
+		},
+		{
+			"command": "Exact scoped Vitest via admission wrapper; see log header",
+			"log": "/tmp/nova-test-audit-parallel/application/lookup-plan-final.log",
+			"result": "All8 pure lookup plan tests passed."
+		},
+		{
+			"command": "Scoped materialization15 native PostgreSQL methods",
+			"log": "/tmp/nova-test-audit-parallel/application/lookup-source-final.log",
+			"result": "All15passed after source-reader integrity reuse; lookup-source-before.log reproduces payload Project mismatch accepted before fix."
+		},
+		{
+			"command": "Exact native Chromium publishing8 via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-publishing-final.log",
+			"result": "All8 pass7.7s; fail-before consent browser-publishing-second.log and stale refusal browser-publishing-seventh.log."
+		},
+		{
+			"command": "Production reused build exact /build/new and deep-links2",
+			"log": "/tmp/nova-test-audit-parallel/application/production-provider-links.log",
+			"result": "Both pass11.5s; new-app includes real viewer activeProject restored after assertion, deep-links full current viewer/native keyboard/readiness/selectedCase proof."
+		},
+		{
+			"command": "Native runner8 plus initial orchestrator4",
+			"log": "/tmp/nova-test-audit-parallel/application/orchestration-native-third.log",
+			"result": "12 pass; actual cancellation+heartbeat fail-before logs design-runner-cancel-before.log and orchestrator-native-second.log. 15 SDK PROMISE diagnostics plus one Bluebird import probe remain reported."
+		},
+		{
+			"command": "Final expanded native orchestrator5",
+			"log": "/tmp/nova-test-audit-parallel/application/orchestrator-native-fourth.log",
+			"result": "5 pass, including real frozen-plan executor bounded refusal; one known Bluebird import PROMISE diagnostic."
+		},
+		{
+			"command": "Pure runner/presentation actual SDK projection",
+			"log": "/tmp/nova-test-audit-parallel/application/orchestration-pure-final.log",
+			"result": "26 pass; no async diagnostic."
+		},
+		{
+			"command": "Actual SDK tool output schema type correction: focused pure orchestration 26 tests",
+			"result": "passed",
+			"log": "/tmp/nova-test-audit-parallel/application/orchestration-pure-type18.log"
+		},
+		{
+			"command": "Actual HQ fixture producer and import/case-meta regeneration",
+			"result": "passed: four native restore fixtures and three regenerated forms, actual HQ source/input hashes recorded",
+			"log": "/tmp/nova-test-audit-parallel/application/location-hq.log"
+		},
+		{
+			"command": "Native Core LocationOwnerRuntimeTest",
+			"result": "5 passed; both carriers consume actual restore bytes. Exact branches and native missing-destination refusals. No in-memory rollback claim.",
+			"log": "/tmp/nova-test-audit-parallel/application/location-core-sixth.log",
+			"junit": "/tmp/nova-test-audit-parallel/application/location-core-results.xml"
+		},
+		{
+			"command": "Vitest ownerHopParity.harness.postgres.test.ts",
+			"result": "2 passed through actual organization service and Postgres with final type-safe case catalog",
+			"log": "/tmp/nova-test-audit-parallel/application/location-postgres-final.log"
+		},
+		{
+			"command": "Vitest instanceDeclaration.test.ts",
+			"result": "3 passed",
+			"log": "/tmp/nova-test-audit-parallel/application/location-pure.log"
+		},
+		{
+			"command": "Biome final four location TS files",
+			"result": "passed"
+		},
+		{
+			"command": "Read actual Android production submission transaction owner",
+			"result": "verified source complete-form transaction on both synchronous and background paths at79d8418ab2dcd9846ae297c8f1edd189393b8e35; no Android runtime executed",
+			"log": "/tmp/nova-test-audit-parallel/application/location-android-transaction-evidence.md"
+		},
+		{
+			"command": "Final runner ordinary continuation descriptor and type20 corrections",
+			"result": "26 passed",
+			"log": "/tmp/nova-test-audit-parallel/application/orchestration-pure-type20.log"
+		}
+	],
+	"bugs": [
+		{
+			"owner": "lib/chat/sanitizeReasoningParts.ts",
+			"issue": "Retired tool converted by real SDK to dynamic-tool lost compatible reasoning or survived model-crossing repair. Both failing pre-fix cases in reasoning-before.log; classifier fixed."
+		},
+		{
+			"owner": "lib/chat/durableStreamWriter.ts",
+			"issue": "Concurrent close resolved before pending terminal append. Deferred append test failed before fix in chat-before-close.log; closed calls now await shared flush chain."
+		},
+		{
+			"owner": "lib/auth-utils.ts",
+			"finding": "Authenticated request returned before touchUser database update settled; real Postgres tests showed unfinished promise chains. Request now awaits caught update; competing row-lock proof enforces completion ownership."
+		},
+		"Host normalization strips default port before absolute DNS terminal dot, fixing known host refusal for commcare.app.:443.",
+		"MCP trailing-slash rewrite uses native URL because NextURL retained /api/mcp/ despite pathname assignment; exact canonical rewrite and queries now proved.",
+		{
+			"owner": "app/api/commcare/upload/route.ts",
+			"issue": "Nonstring domain/appName JSON triggered .trim TypeError500. Four native request regressions reproduced and passed400 after string guards. publish-threads-before.log red, compile-native-before.log upload21passed."
+		},
+		{
+			"owner": "lib/apiError.ts",
+			"issue": "Reusable bounded native byte reader now protects CSV import, capped dev PUT and public error relay. All previously buffered full headerless streams before rejecting size."
+		},
+		{
+			"owner": "app/api/media/upload/dev-put/route.ts",
+			"issue": "Native bodyUsed test proved route read bytes before membership. Authorizes first, caps while streaming."
+		},
+		{
+			"owner": "app/api/media/[assetId]/route.ts",
+			"issue": "Native abort during metadata await missed listener; finished stream retained abort listener. Added already-aborted499 guard and close listener cleanup."
+		},
+		{
+			"owner": "app/api/dev/login/route.ts",
+			"issue": "Slash-backslash and tab-prefixed authority targets bypassed raw startsWith redirect check and minted session. Native URL origin comparison refuses before writes."
+		},
+		{
+			"owner": "lib/agent/design/lookupMaterialization.ts",
+			"issue": "Native receipt reuse accepted rehashed mismatched revision, and genesis ignored caller designSessionId. Read record now joins mapping to persisted lineage metadata before returning; fail-before lookup-materialization-before.log and passing lookup-materialization-final.log."
+		},
+		{
+			"owner": "lib/agent/build/designLoopRunner.ts::validateAuthorizedProjectLookupEvidence",
+			"issue": "An existing-table modification not used as a choice source skipped authoritative expectedTableRevision comparison. Native before/after actual authoring revision change reproduced; fixed check passes lookup-native-third.log."
+		},
+		{
+			"owner": "lib/agent/design/lookupMaterialization.ts",
+			"issue": "Inline source-package parsing skipped artifactStore metadata joins. Reuses shared transactional reader, so forged payload Project now refuses before data writes."
+		},
+		"PublishDialog silently reused resource adoption consent after cancel/reopen; native request body reproduced. Now reset on reopen, destination and connected server changes.",
+		"DeploymentEntryPointLinks kept old-target refusal visible after destination change; native evidence reproduced and authority effect now clears failure too.",
+		"Design runner never passed cancellation to the actual model stream; already-aborted caller still bought a response. Fixed preflight, SDK abortSignal and post-drain propagation; actual stalled HTTP response/socket is joined.",
+		"Orchestrator returned after a model throw while heartbeat DB work remained blocked. Native SQL proved early settlement; active heartbeat is now coalesced and joined after interval cancellation.",
+		"Integrated Preview owner proven compaction state provenance helper in actual runner; a user state heading or pre-checkpoint packet cannot suppress fresh authoritative state."
+	],
+	"docsNeeded": [
+		"e2e/CLAUDE.md and profiling skill updated for native fixture isolation, scenario exports, resource ownership and diagnostic timing scope. Root aggregate docs/testing/soundness should preserve exact evidence scope: HTTP orchestration with controlled external services does not prove persistence; native browser and migrated Postgres cases separately own those contracts."
+	],
+	"blockedBy": [],
+	"sourcePaths": [
+		"__tests__/integration/case-list-authoring.test.ts",
+		"__tests__/integration/fixtures/caseListAuthoring.ts",
+		"app/api/apps/[id]/attachments/route.ts",
+		"app/api/chat/route.ts",
+		"app/api/commcare/upload/route.ts",
+		"app/api/dev/login/route.ts",
+		"app/api/log/error/route.ts",
+		"app/api/mcp/dispatch.ts",
+		"app/api/mcp/route.ts",
+		"app/api/media/[assetId]/extract/route.ts",
+		"app/api/media/[assetId]/route.ts",
+		"app/api/media/upload/dev-put/route.ts",
+		"app/api/projects/[projectId]/lookup/tables/[tableId]/import/route.ts",
+		"e2e/CLAUDE.md",
+		"e2e/lib/manualSession.ts",
+		"e2e/lib/multiplayerSeed.ts",
+		"e2e/lib/scenarioSeeds.ts",
+		"e2e/lib/windowTiling.ts",
+		"e2e/react-profile/cpuProfile.ts",
+		"e2e/react-profile/profiler.ts",
+		"e2e/seed.ts",
+		"lib/agent/build/designLoopRunner.ts",
+		"lib/agent/design/lookupMaterialization.ts",
+		"lib/apiError.ts",
+		"lib/auth-utils.ts",
+		"lib/chat/durableStreamWriter.ts",
+		"lib/chat/sanitizeReasoningParts.ts",
+		"lib/hostnames.ts",
+		"lib/organization/CLAUDE.md",
+		"lib/organization/footprint.ts",
+		"lib/session/store.ts",
+		"proxy.ts",
+		"scripts/react-profile.sh",
+		"scripts/smoke.sh",
+		"components/builder/PublishDialog.tsx",
+		"components/builder/PublishPanel.tsx",
+		"components/builder/app-setup/DeploymentEntryPointLinks.tsx",
+		"lib/doc/hooks/useEntryPoints.ts",
+		"lib/collab/ReconcilerProvider.tsx",
+		"lib/collab/reconciler.ts",
+		"lib/agent/build/orchestrator.ts",
+		"lib/agent/design/loop/designAgent.ts",
+		"lib/agent/design/loop/gates.ts",
+		"lib/agent/design/designGenerationContext.ts",
+		"lib/agent/build/modelContextStore.ts",
+		"lib/db/designSessions.ts",
+		"lib/agent/tools/askQuestions.ts"
+	],
+	"supplementalSourceHashes": {
+		"e2e/tests/publishing.spec.ts": "bae98c942caa0cd9f5b37b3a50a6118161e365122dd85725fee67496d45a7c6d",
+		"e2e/tests/authed.spec.ts": "54b78897c1141be32833f241e0c365aca9c9cd993e66ee0461d7b0bebd01912a",
+		"lib/agent/build/__tests__/designLoopRunner.test.ts": "f1b006127800e18d2baa9072e75b955009b590db54f529ff6a6e153ee410055c",
+		"lib/agent/build/__tests__/orchestratorPresentation.test.ts": "1f62def1bc21dc1287fc38ebbc3966230ad3cd54bb59018dc6205cf1dc6cfafe",
+		"lib/agent/build/__tests__/designLoopRunner.postgres.test.ts": "0e4213929beb055481fbf70470b4a234a43911f303f6479f8c768041c8690093",
+		"lib/agent/build/__tests__/orchestrator.postgres.test.ts": "54be24a0b4908bd6c9a45a2719dee5aab5be78899488c06e0dc1a391fcc876fb",
+		"lib/agent/build/designLoopRunner.ts": "a1ab3e258167f85b7ef76720d8cdd86ad3cd9b45053db278998779814b351339",
+		"lib/agent/build/orchestrator.ts": "51ccc1d36ba365e198a9bb853b3d21be6510b21722516deb9ffbeb2c0428a847",
+		"lib/agent/design/loop/__tests__/designAgentPeer.ts": "716f04d329dc8cf50524dfbae4d9311e6d88f63716ad24474a668cfaaf82f06c",
+		"lib/agent/CLAUDE.md": "4d6e4cb09fa376e12b6ff9a585cd8afd477dbdd3059b62a592eb3aa440841fe2",
+		"docs/testing.md": "957b7cb468ca7f2a310c2949daf6fe77e89c8f928eccbdfcc0b4f211b7a1dce6",
+		"lib/commcare/locations/__tests__/instanceDeclaration.test.ts": "13d907c86bcc1e1f2e552173078683d9dfe0de20854a0acf8c49e245cff25924",
+		"lib/commcare/locations/__tests__/ownerHopParity.harness.postgres.test.ts": "d65c46f8ef623b25256bc90cb1944b46335b3e9b0d12e9ebd7f967c6335f1f35",
+		"lib/commcare/locations/__tests__/locationOwnerFixture.ts": "7bbedb0b72bd3d9eded7b4f58793955e3efee380315e9e6c41456d5b7dd016db",
+		"scripts/fixtures/hq/emit-location-evidence.ts": "5f858c3bab9f2f70fc746edb624bbe6c4e6f3d2cb7d007fe4d15282e6f79bdfc",
+		"scripts/fixtures/hq/location-emission-proof.py": "fa97596e0bfdcd87da0170eec458957749c91fcc2263cae7252a700efbd094ea",
+		"scripts/fixtures/javarosa/LocationOwnerRuntimeTest.java": "e4cc1b6910e4e4dac3e5b0e27c0ff38ad156ac98320ac135df3b1466ef2d678d",
+		"scripts/fixtures/hq/README.md": "2d985115f2ac4adb892d4118d054c1d05cc7675a50aec1fa9d144150373e22c7",
+		"scripts/fixtures/javarosa/README.md": "e58a233423b91d8578cee8fdfe5d0106604d38daed50b13c81a02e9a51b495a5",
+		"lib/commcare/CLAUDE.md": "ab2e9965166d3b295483822129317998dceceddd08d02918c0335ef5aba95786",
+		"lib/organization/CLAUDE.md": "3dd17d4cabc5fdc2e5490d05dee370756fa49789e9ca0974cdd06dae14a15c7d",
+		"docs/architecture/complex-apps.md": "0803e6008e8666ad69f99a72d509dbe67ad487c4c1e1215b27069188276a8461",
+		"lib/export/boundaryValidation.ts": "39f424e698a579a7cde75b474d1ff485b492bf46ee17d0040655b8dfc249b6b0"
+	}
+}

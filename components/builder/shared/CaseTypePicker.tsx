@@ -29,63 +29,13 @@ import {
 	PopoverTrigger,
 } from "@/components/shadcn/popover";
 import { useCaseTypes } from "@/lib/doc/hooks/useCaseTypes";
-import { caseTypeNameVerdict } from "@/lib/doc/identifierVerdicts";
-import { humanizeId, slugifyId } from "@/lib/domain";
+import { humanizeId } from "@/lib/domain";
 import { SELECTED_TINT_CLS } from "@/lib/styles";
+
+import { caseTypeDisplays, planCaseTypeCreation } from "./caseTypePickerModel";
 
 const ROW_BASE =
 	"h-auto min-h-11 w-full justify-start gap-2 rounded-lg px-3 py-2.5 text-left text-sm whitespace-normal";
-
-interface CaseTypeDisplay {
-	readonly label: string;
-	readonly needsDisambiguation: boolean;
-}
-
-/**
- * Case types are stored as identifiers but read as concepts in the builder.
- * Only identifiers that collapse to the same friendly label need their
- * stored value exposed so a person can tell them apart.
- */
-function caseTypeDisplays(
-	names: readonly string[],
-): ReadonlyMap<string, CaseTypeDisplay> {
-	const labels = names.map((name) => ({ name, label: humanizeId(name) }));
-	const labelCounts = new Map<string, number>();
-	for (const { label } of labels) {
-		const key = label.toLowerCase();
-		labelCounts.set(key, (labelCounts.get(key) ?? 0) + 1);
-	}
-
-	return new Map(
-		labels.map(({ name, label }) => [
-			name,
-			{
-				label,
-				needsDisambiguation: (labelCounts.get(label.toLowerCase()) ?? 0) > 1,
-			},
-		]),
-	);
-}
-
-function creationErrorMessage(
-	verdict: ReturnType<typeof caseTypeNameVerdict>,
-	candidate: string,
-): string | null {
-	if (verdict.ok) return null;
-
-	switch (verdict.code) {
-		case "empty":
-			return "Use at least one letter or number";
-		case "illegal_format":
-			return "Start the name with a word, not a number";
-		case "reserved":
-			return `Choose a more specific name, such as ${humanizeId(candidate)} record`;
-		case "too_long":
-			return "Use a shorter name";
-		case "duplicate":
-			return `${humanizeId(candidate)} already exists. Choose it above.`;
-	}
-}
 
 interface CaseTypePickerContentProps {
 	/** The currently-bound case type, highlighted in the list. */
@@ -151,35 +101,15 @@ export function CaseTypePickerContent({
 	const compatibleExistingCount = availableCaseTypes.filter(
 		(caseType) => existingChoiceVerdicts.get(caseType.name)?.ok !== false,
 	).length;
-	const candidate = useMemo(() => slugifyId(draft, ""), [draft]);
-	const verdict = useMemo(
-		() => caseTypeNameVerdict(candidate, existingNames),
-		[candidate, existingNames],
-	);
-	// Only surface the reason once the user has typed something, an empty
-	// field shouldn't read as an error before they start.
-	const excludedCandidate = exclude?.has(candidate) === true;
-	const candidateChoiceVerdict =
-		verdict.ok && !excludedCandidate
-			? (choiceVerdict?.(candidate) ?? ({ ok: true } as const))
-			: ({ ok: true } as const);
-	const showError =
-		draft.trim().length > 0 &&
-		(!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok);
-	const creationError = !showError
-		? null
-		: excludedCandidate
-			? !verdict.ok && verdict.code === "duplicate"
-				? `${humanizeId(candidate)} already exists and is managed by the platform. Choose a different name.`
-				: "That case type is managed by the platform and cannot be changed here. Choose a different name."
-			: !verdict.ok
-				? creationErrorMessage(verdict, candidate)
-				: !candidateChoiceVerdict.ok
-					? candidateChoiceVerdict.reason
-					: null;
+	const {
+		candidate,
+		canCreate,
+		error: creationError,
+	} = planCaseTypeCreation({ draft, existingNames, exclude, choiceVerdict });
+	const showError = creationError !== null;
 
 	const commitNew = () => {
-		if (!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok) return;
+		if (!canCreate) return;
 		onChange(candidate);
 		setDraft("");
 	};
@@ -301,9 +231,7 @@ export function CaseTypePickerContent({
 						type="button"
 						variant="default"
 						onClick={commitNew}
-						disabled={
-							!verdict.ok || excludedCandidate || !candidateChoiceVerdict.ok
-						}
+						disabled={!canCreate}
 						className="w-full"
 					>
 						<Icon icon={tablerPlus} width="15" height="15" />

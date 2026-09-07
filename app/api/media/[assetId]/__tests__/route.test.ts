@@ -1,3 +1,7 @@
+import { getEventListeners } from "node:events";
+import { finished } from "node:stream/promises";
+import { NextRequest } from "next/server";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 /**
  * `GET` + `DELETE /api/media/[assetId]` route tests.
  *
@@ -65,25 +69,27 @@ vi.mock("@/lib/storage/media", () => ({
  *  to `["app-x"]`), not a field on the row. */
 function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
-		id: "00000000-0000-4000-8000-000000000001",
+		id: testMediaAssetId("served-asset"),
 		owner: "user-1",
 		project_id: "project-1",
 		gcsObjectKey: "projects/project-1/00000000-0000-4000-8000-000000000001.pdf",
 		originalFilename: "spec.pdf",
-		contentHash: "abc",
+		contentHash: "a".repeat(64),
+		created_at: new Date(0),
 		mimeType: "application/pdf",
 		kind: "pdf",
 		extension: ".pdf",
 		sizeBytes: 100,
 		status: "ready",
 		...over,
-	} as unknown as MediaAssetRecord;
+	};
 }
 
-const ctx = (assetId = "00000000-0000-4000-8000-000000000001") => ({
+const ctx = (assetId = testMediaAssetId("served-asset")) => ({
 	params: Promise.resolve({ assetId }),
 });
-const req = () => ({}) as Parameters<typeof DELETE>[0];
+const req = () =>
+	new NextRequest("http://localhost/api/media/asset", { method: "DELETE" });
 /** Drain a handler response's body so its underlying promise settles (the
  *  async-leak gate flags an unread `NextResponse.json` body). */
 const drainBody = (res: Response): Promise<string> => res.text();
@@ -104,11 +110,8 @@ beforeEach(() => {
 	streamAssetMock.mockImplementation(() => Readable.from(Buffer.from("bytes")));
 });
 
-/** GET needs an abort signal: the route wires client-disconnect cleanup. */
-const getReq = () =>
-	({ signal: new AbortController().signal }) as unknown as Parameters<
-		typeof GET
-	>[0];
+const getReq = (signal?: AbortSignal) =>
+	new NextRequest("http://localhost/api/media/asset", { signal });
 
 describe("GET media asset", () => {
 	it("streams no-store bytes with Content-Length from the stored object, not the row", async () => {
@@ -174,13 +177,13 @@ describe("GET media asset", () => {
 });
 
 describe("DELETE media asset", () => {
-	it("purges and returns 204 when no app references it", async () => {
+	it("delegates the authorized deletion and returns 204 for its success", async () => {
 		loadAssetByIdMock.mockResolvedValue(docAsset());
 
 		const res = await DELETE(req(), ctx());
 		expect(res.status).toBe(204);
 		expect(deleteMediaAssetForActor).toHaveBeenCalledWith({
-			assetId: "00000000-0000-4000-8000-000000000001",
+			assetId: testMediaAssetId("served-asset"),
 			actorUserId: "user-1",
 			expectedProjectId: "project-1",
 		});
@@ -230,4 +233,36 @@ describe("DELETE media asset", () => {
 		expect(purgeAssetStorage).not.toHaveBeenCalled();
 		await drainBody(res);
 	});
+});
+
+it("does not open storage after the request aborted while metadata was loading", async () => {
+	loadAssetByIdMock.mockResolvedValue(docAsset());
+	const metadata = Promise.withResolvers<number>();
+	getStoredObjectSizeMock.mockReturnValue(metadata.promise);
+	const controller = new AbortController();
+	const responseJob = GET(getReq(controller.signal), ctx());
+	controller.abort();
+	metadata.resolve(5);
+	const response = await responseJob;
+	try {
+		expect(response.status).toBe(499);
+		expect(streamAssetMock).not.toHaveBeenCalled();
+	} finally {
+		await response.body?.cancel();
+	}
+});
+it("removes the request abort listener when the native storage stream finishes", async () => {
+	loadAssetByIdMock.mockResolvedValue(docAsset());
+	const request = getReq();
+	const source = Readable.from(Buffer.from("bytes"));
+	streamAssetMock.mockReturnValue(source);
+	const response = await GET(request, ctx());
+	try {
+		expect(await response.text()).toBe("bytes");
+		await finished(source, { cleanup: true });
+		expect(getEventListeners(request.signal, "abort")).toHaveLength(0);
+	} finally {
+		source.destroy();
+		if (!response.bodyUsed) await response.body?.cancel();
+	}
 });

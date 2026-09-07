@@ -2,7 +2,10 @@ import "server-only";
 
 import { sql, type Transaction } from "kysely";
 import { z } from "zod";
-import type { DesignArtifactWriteAuthority } from "@/lib/agent/design/artifactStore";
+import {
+	type DesignArtifactWriteAuthority,
+	readSourcePackageInTx,
+} from "@/lib/agent/design/artifactStore";
 import {
 	type AppDesignContract,
 	type ChangedLookupColumnRef,
@@ -24,7 +27,6 @@ import {
 	type DesignLookupMaterializationPayload,
 	designLookupMaterializationPayloadSchema,
 } from "@/lib/agent/design/lookupMaterializationTypes";
-import { persistedSourcePackageSchema } from "@/lib/agent/design/sourcePackage";
 import { roleAllowsApp } from "@/lib/auth/projectRoles";
 import { assertDesignSessionRunAuthorityInTransaction } from "@/lib/db/designSessions";
 import { parsePersistedJsonText } from "@/lib/db/persistedJson";
@@ -410,10 +412,20 @@ function materializedEvidenceRefs(contract: AppDesignContract) {
 async function readRecordInTransaction(
 	tx: Transaction<AppDatabase>,
 	designRevisionId: string,
+	designSessionId: string,
 ): Promise<DesignLookupMaterializationRecord | null> {
 	const row = await tx
 		.selectFrom("design_lookup_materializations")
-		.select(["id", "result_digest", "created_at"])
+		.select([
+			"id",
+			"result_digest",
+			"created_at",
+			"design_session_id",
+			"design_revision_id",
+			"design_revision_digest",
+			"project_id",
+			"project_revision",
+		])
 		.select((eb) => eb.cast<string>("mapping", "text").as("mapping_text"))
 		.where("design_revision_id", "=", designRevisionId)
 		.executeTakeFirst();
@@ -428,6 +440,17 @@ async function readRecordInTransaction(
 	if (digest !== row.result_digest) {
 		throw new DesignLookupMaterializationError(
 			"A stored design lookup materialization disagrees with its result digest.",
+		);
+	}
+	if (
+		row.design_session_id !== designSessionId ||
+		payload.designRevisionId !== row.design_revision_id ||
+		payload.designRevisionDigest !== row.design_revision_digest ||
+		payload.projectId !== row.project_id ||
+		payload.projectRevision !== parseLookupRevision(row.project_revision)
+	) {
+		throw new DesignLookupMaterializationError(
+			"A design lookup materialization disagrees with its stored lineage.",
 		);
 	}
 	return {
@@ -511,7 +534,11 @@ export async function assertDesignLookupMaterializationCurrentInTransaction(
 		readonly projectId: string;
 	},
 ): Promise<void> {
-	const record = await readRecordInTransaction(tx, args.designRevisionId);
+	const record = await readRecordInTransaction(
+		tx,
+		args.designRevisionId,
+		args.designSessionId,
+	);
 	if (record === null) return;
 	if (
 		record.payload.designRevisionId !== args.designRevisionId ||
@@ -651,27 +678,17 @@ export async function ensureAcceptedLookupMaterialization(args: {
 			);
 			return null;
 		}
-		const sourceRow = await tx
-			.selectFrom("design_source_packages")
-			.select(
-				sql<string>`${sql.ref("design_source_packages.payload")}::text`.as(
-					"payload_text",
-				),
-			)
-			.where("design_session_id", "=", args.designSessionId)
-			.where("package_digest", "=", accepted.source_package_digest)
-			.executeTakeFirst();
-		if (sourceRow === undefined) {
+		const sourceRecord = await readSourcePackageInTx(
+			tx,
+			args.designSessionId,
+			accepted.source_package_digest,
+		);
+		if (sourceRecord === null) {
 			throw new DesignLookupMaterializationError(
 				"The accepted design's source package is unavailable for Project-data authorization.",
 			);
 		}
-		const sourcePackage = persistedSourcePackageSchema.parse(
-			parsePersistedJsonText(
-				sourceRow.payload_text,
-				`design_source_packages.payload for ${accepted.source_package_digest}`,
-			),
-		);
+		const sourcePackage = sourceRecord.payload;
 		const citable = new Set(
 			[
 				...sourcePackage.sources,
@@ -685,7 +702,11 @@ export async function ensureAcceptedLookupMaterialization(args: {
 				);
 			}
 		}
-		const prior = await readRecordInTransaction(tx, args.designRevisionId);
+		const prior = await readRecordInTransaction(
+			tx,
+			args.designRevisionId,
+			args.designSessionId,
+		);
 		if (prior !== null) {
 			if (
 				prior.payload.designRevisionDigest !== args.designRevisionDigest ||

@@ -1,6 +1,6 @@
 // lib/commcare/expression/__tests__/onDeviceEmitter.test.ts
 //
-// Acceptance tests for the on-device value-expression emitter — the
+// Unit emission tests for the on-device value-expression emitter — the
 // dialect that produces XPath value strings usable in any on-device
 // expression slot (calculated columns, sort keys, late-flag arguments,
 // the source of an ID-mapping column, search-input defaults). The
@@ -8,9 +8,10 @@
 // CSQL-only list expansion and multi-valued scalar relation reads throw as
 // defensive tripwires instead of shipping a runtime failure.
 //
-// Each test pins the exact wire string the emitter produces against
-// CCHQ HQ's wire grammar. Source citations live in the source file
-// alongside each operator arm.
+// Exact byte assertions pin lowering and identity anchoring. The small ASTs
+// deliberately isolate emission; they are not whole-document admission or
+// native grammar proofs. Arithmetic's admitted workflow and native stored
+// values are exercised by arithmeticFixture and ArithmeticRuntimeTest.java.
 //
 // Coverage organizes around three shells:
 //   1. Per-operator emissions for every arm of `ValueExpression`.
@@ -158,9 +159,11 @@ describe("emitOnDeviceExpression — arithmetic", () => {
 		expect(emitOnDeviceExpression(expr)).toBe("(3 * 4)");
 	});
 
-	it("emits the div operator with the spelled-out form", () => {
+	it("lowers integer division with signed remainder and preserves zero division", () => {
 		const expr = arith("div", term(literal(10)), term(literal(2)));
-		expect(emitOnDeviceExpression(expr)).toBe("(10 div 2)");
+		expect(emitOnDeviceExpression(expr)).toBe(
+			"if(2 = 0, (10 div 2), ((10 - (10 mod 2)) div 2))",
+		);
 	});
 
 	it("emits the mod operator with the spelled-out form", () => {
@@ -393,7 +396,9 @@ describe("emitOnDeviceExpression — scalar relation cardinality", () => {
 				ancestorPath(relationStep("parent", "household")),
 			),
 		);
-		expect(() => emitOnDeviceExpression(expression)).not.toThrow();
+		expect(emitOnDeviceExpression(expression)).toBe(
+			"instance('casedb')/casedb/case[@case_id=current()/index/parent and @case_type='household']/district",
+		);
 	});
 
 	it("narrows a graph-proven parent-only any-relation to a scalar ancestor read", () => {
@@ -407,9 +412,9 @@ describe("emitOnDeviceExpression — scalar relation cardinality", () => {
 				{ name: "household", properties: [] },
 			],
 		});
-		expect(emitted).toContain("index/parent");
-		expect(emitted).toContain("@case_type='household'");
-		expect(emitted).not.toContain(" | ");
+		expect(emitted).toBe(
+			"instance('casedb')/casedb/case[@case_id=current()/index/parent and @case_type='household']/district",
+		);
 	});
 
 	it("adds the inferred parent case type to a scalar ancestor read", () => {
@@ -423,7 +428,9 @@ describe("emitOnDeviceExpression — scalar relation cardinality", () => {
 				{ name: "household", properties: [] },
 			],
 		});
-		expect(emitted).toContain("@case_type='household'");
+		expect(emitted).toBe(
+			"instance('casedb')/casedb/case[@case_id=current()/index/parent and @case_type='household']/district",
+		);
 	});
 
 	it("preserves an explicit custom-index target on a scalar ancestor read", () => {
@@ -442,8 +449,9 @@ describe("emitOnDeviceExpression — scalar relation cardinality", () => {
 				{ name: "guardian", properties: [] },
 			],
 		});
-		expect(emitted).toContain("index/guardian_link");
-		expect(emitted).toContain("@case_type='guardian'");
+		expect(emitted).toBe(
+			"instance('casedb')/casedb/case[@case_id=current()/index/guardian_link and @case_type='guardian']/rating",
+		);
 	});
 });
 

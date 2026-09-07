@@ -10,6 +10,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid as asUuid } from "@/__tests__/helpers/uuid";
+import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
 import {
 	removeOrganizationLevelPlan,
 	setPersonaLocationsMutations,
@@ -25,7 +26,7 @@ import {
 	organizationLevelSchema,
 	type Persona,
 } from "@/lib/domain";
-import { fixedLocation, term } from "@/lib/domain/predicate";
+import { fixedLocation, literal, term } from "@/lib/domain/predicate";
 import { extractLocationReferenceTargets } from "@/lib/organization/commitIntegrity";
 import {
 	canonicalCoordinate,
@@ -39,18 +40,12 @@ import {
 import { planPersonaUnassignment } from "@/lib/organization/service";
 
 function docWithPersonas(personas: Persona[]): BlueprintDoc {
+	const base = structuredClone(makeCanonicalGenesisDoc("Organization", "app"));
+	// Tests author each complete fixture before any derived reference lookup.
+	delete base.refIndex;
 	return {
-		appId: "app",
-		appName: "Organization",
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
+		...base,
+		personaOrder: personas.map((persona) => persona.uuid),
 		personas: Object.fromEntries(
 			personas.map((persona) => [persona.uuid, persona]),
 		),
@@ -727,16 +722,22 @@ describe("extractLocationReferenceTargets", () => {
 
 	it("includes fixed case-owner terms in the same exact edge set", () => {
 		const locationUuid = asUuid("loc-fixed");
-		const formUuid = asUuid("form-owner");
-		const doc = {
-			...docWithPersonas([persona("p1", "Asha")]),
-			forms: {
-				[formUuid]: {
-					uuid: formUuid,
-					caseOperations: [{ owner: term(fixedLocation(locationUuid)) }],
+		const doc = docWithPersonas([persona("p1", "Asha")]);
+		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+		doc.forms[formUuid] = {
+			...doc.forms[formUuid],
+			caseOperations: [
+				{
+					uuid: asUuid("owner-operation"),
+					id: "create_visit",
+					caseType: "visit",
+					action: "create",
+					target: { kind: "new" },
+					name: term(literal("Visit")),
+					owner: term(fixedLocation(locationUuid)),
 				},
-			},
-		} as unknown as BlueprintDoc;
+			],
+		};
 		expect(extractLocationReferenceTargets(doc)).toEqual([locationUuid]);
 	});
 
@@ -766,7 +767,7 @@ describe("extractLocationReferenceTargets", () => {
 				},
 			},
 			automationOrder: [automationUuid],
-		} as unknown as BlueprintDoc;
+		} satisfies BlueprintDoc;
 		expect(extractLocationReferenceTargets(doc)).toEqual([locationUuid]);
 	});
 });

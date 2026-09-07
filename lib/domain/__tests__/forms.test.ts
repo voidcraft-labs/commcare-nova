@@ -1,9 +1,5 @@
-// lib/domain/__tests__/forms.test.ts
-//
-// Schema-level invariants for form entities. These tests pin
-// semantic invariants the runtime consumers rely on (e.g. session
-// emitter / expander agree on what "condition present" means) rather
-// than the shape of Zod's own combinator output.
+/** Domain form schema and navigation classifier boundaries. These tests do
+ * not execute the CommCare emitters/session consumer. */
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -26,11 +22,7 @@ describe("formSchema — formLinks", () => {
 	};
 	const linkUuid = testUuid("lnk-1");
 
-	it("accepts an empty condition expression — emitters read it as unconditional", () => {
-		// No commit boundary stores an empty condition (an empty commit
-		// clears the slot), and the projection collapses a degenerate empty
-		// expression to "unconditional" (`formLinkIsConditional` reads the
-		// printed text).
+	it("admits the degenerate empty XPath AST at this structural boundary", () => {
 		const result = formSchema.safeParse({
 			...baseForm,
 			formLinks: [
@@ -86,6 +78,37 @@ describe("formSchema — formLinks", () => {
 			formLinks: [{ uuid: linkUuid, target: linkTarget, datums: [] }],
 		});
 		expect(result.success).toBe(false);
+	});
+
+	it("admits distinct datum names and a module-only target", () => {
+		const form = {
+			...baseForm,
+			formLinks: [
+				{
+					uuid: linkUuid,
+					target: { type: "module", moduleUuid: linkTarget.moduleUuid },
+					datums: [
+						{ name: "case_id", xpath: opaqueXPathExpression("'a'") },
+						{ name: "parent_id", xpath: opaqueXPathExpression("'b'") },
+					],
+				},
+			],
+		};
+		expect(formSchema.parse(form)).toEqual(form);
+		expect(
+			formSchema.safeParse({
+				...form,
+				formLinks: [
+					{
+						...form.formLinks[0],
+						target: {
+							...form.formLinks[0].target,
+							formUuid: linkTarget.formUuid,
+						},
+					},
+				],
+			}).success,
+		).toBe(false);
 	});
 
 	it("refuses two datums with the same name on one link", () => {
@@ -150,9 +173,7 @@ describe("formSchema — displayCondition", () => {
 });
 
 describe("isCaseFirstModule", () => {
-	// Mirrors CommCareSession.getDataNeededByAllEntries: case-first iff every
-	// form needs the same case_id datum (all case-loading) and there's a case
-	// type to select from.
+	// Nova's classifier admits only case-loading forms with a case type.
 	it("is case-first when every form is case-loading (followup + close)", () => {
 		expect(isCaseFirstModule(["followup", "close"], true)).toBe(true);
 	});

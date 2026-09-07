@@ -436,7 +436,7 @@ export function deriveCaseSelectionDatum(args: {
 				? ""
 				: parentSelection.maxSelectValue === undefined
 					? `[index/*[not(@relationship='extension')]=instance('commcaresession')/session/data/${parentSelection.id}]`
-					: `[index/*[not(@relationship='extension')]=instance('${parentSelection.id}')/results/value]`;
+					: `[count(index/*[not(@relationship='extension')][selected(join(' ', instance('${parentSelection.id}')/results/value), .)]) > 0]`;
 		return `${base}${parentFilter}`;
 	};
 	return {
@@ -1019,8 +1019,9 @@ export function deriveEntryDefinition(
 		for (const d of datums) {
 			// A nodeset datum reads exactly one instance and names it in
 			// `instanceId`. A function datum reads none (case-create's `uuid()`)
-			// or several, and says so in `instanceIds`. A query reads what its
-			// data and prompts reach.
+			// or several. Resolve those dependencies from its final expression,
+			// including companion datums introduced by grouping projections.
+			// A query reads what its data and prompts reach.
 			if (d.instanceId && !seen.has(d.instanceId)) {
 				seen.add(d.instanceId);
 				instances.push({ id: d.instanceId, src: d.instanceSrc ?? "" });
@@ -1037,7 +1038,10 @@ export function deriveEntryDefinition(
 					src: instanceSourceFor(d.id, lookupNaming),
 				});
 			}
-			for (const id of d.instanceIds ?? []) {
+			for (const id of [
+				...(d.instanceIds ?? []),
+				...collectInstanceRefs(d.function ?? ""),
+			]) {
 				if (seen.has(id)) continue;
 				seen.add(id);
 				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
@@ -1149,13 +1153,15 @@ export function deriveEntryDefinition(
 						]),
 			];
 	for (const operation of operations) {
-		for (const child of operation.children) {
-			for (const expression of stackChildExpressions(child)) {
-				for (const id of collectInstanceRefs(expression)) {
-					if (seen.has(id)) continue;
-					seen.add(id);
-					instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
-				}
+		const expressions = [
+			...(operation.ifClause === undefined ? [] : [operation.ifClause]),
+			...operation.children.flatMap(stackChildExpressions),
+		];
+		for (const expression of expressions) {
+			for (const id of collectInstanceRefs(expression)) {
+				if (seen.has(id)) continue;
+				seen.add(id);
+				instances.push({ id, src: instanceSourceFor(id, lookupNaming) });
 			}
 		}
 	}
@@ -1275,7 +1281,10 @@ export function deriveCaseListEntryDefinition(
 				src: instanceSourceFor(datum.id, lookupNaming),
 			});
 		}
-		for (const id of datum.instanceIds ?? []) {
+		for (const id of [
+			...(datum.instanceIds ?? []),
+			...collectInstanceRefs(datum.function ?? ""),
+		]) {
 			if (seen.has(id)) continue;
 			seen.add(id);
 			instances.push({ id, src: instanceSourceFor(id, lookupNaming) });

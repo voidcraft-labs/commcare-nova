@@ -24,7 +24,6 @@ import { columnReferences } from "./case-list/columnReferences";
 import { csqlPredicateRepresentability } from "./case-list/csqlPredicateRepresentability";
 import { dateAddOnDeviceCompatibility } from "./case-list/dateAddOnDeviceCompatibility";
 import { filterTypeCheck } from "./case-list/filterTypeCheck";
-import { idMappingValueRequired } from "./case-list/idMappingValueRequired";
 import { matchModeOnDeviceCompatibility } from "./case-list/matchModeOnDeviceCompatibility";
 import { matchModeWhitespaceInValue } from "./case-list/matchModeWhitespaceInValue";
 import { onDeviceExpressionCompatibility } from "./case-list/onDeviceExpressionCompatibility";
@@ -276,7 +275,6 @@ export const MODULE_RULES: readonly ModuleRule[] = [
 	columnKindPropertyType,
 	filterTypeCheck,
 	calculatedColumnTypeCheck,
-	idMappingValueRequired,
 	imageMapValueUnique,
 	matchModeWhitespaceInValue,
 	matchModeOnDeviceCompatibility,

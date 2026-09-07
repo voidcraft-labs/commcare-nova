@@ -408,8 +408,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		`A calculated value in ${q(modName(e))} has a calculation that doesn't quite add up. Open it and fix the calculation.`,
 	CASE_LIST_FILTER_TYPE_ERROR: (e) =>
 		`The Cases available setting in ${q(modName(e))} compares values that don't go together. Open the condition and adjust the comparison.`,
-	CASE_LIST_ID_MAPPING_EMPTY_VALUE: (e) =>
-		`A value label in ${q(modName(e))} has no saved value to match. Enter a value or remove the row.`,
 	CASE_LIST_DUPLICATE_SORT_PRIORITY: (e) =>
 		`Two items in ${q(modName(e))}'s Default order use the same position. Move one of them or remove it from the order.`,
 	CASE_LIST_TILE_CELL_OUT_OF_GRID: (e) =>
@@ -589,8 +587,6 @@ const USER_MESSAGE_BY_CODE: Record<
 		`${q(formName(e))} opens when a search finds nothing. It can return to Results or App home, but cannot have after-submit links or a display condition. Clear those settings, or make it a menu form again.`,
 	SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN: (e) =>
 		`${q(formName(e))} registers one case, but ${q(modName(e))} selects several. Choose App home after submit, or change the module to one-case selection.`,
-	SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM: (e) =>
-		`${q(formName(e))} opens when a search finds nothing in ${q(modName(e))}, which picks a parent case first, but the module has no menu form to carry that parent into the registration. Add a menu form to the module, or make ${q(formName(e))} a menu form again.`,
 	CASE_SEARCH_RELATED_CALCULATION_UNREPRESENTABLE: (e) =>
 		`In ${q(modName(e))}, ${q(det(e, "columnHeader", "Calculated value"))} uses related-case information that Search can't show consistently. Show one parent property by itself, build the calculation from the current case, or delete this calculated item.`,
 
@@ -819,10 +815,14 @@ const USER_MESSAGE_BY_CODE: Record<
 		"Lookup data hasn't finished reconnecting yet. Wait a moment, then try that change again.",
 	LOOKUP_TABLE_NOT_AVAILABLE: () =>
 		"This setting uses a lookup table that isn't available in this Project. Choose an available table, or clear the setting.",
+	LOOKUP_TAG_RESERVED_BY_RUNTIME: (e) =>
+		`The export tag for ${q(det(e, "tableName", "this data table"))} is reserved by CommCare. You can rename the export tag in Project data, then try again.`,
 	LOOKUP_COLUMN_NOT_AVAILABLE: () =>
 		"This setting uses a lookup column that isn't available anymore. Choose another column, or clear the setting.",
 	LOOKUP_COLUMN_TYPE_MISMATCH: (e) =>
 		`This setting needs ${det(e, "acceptedColumnTypes", "a different kind of")} data, but the selected lookup column contains ${det(e, "actualColumnType", "incompatible")} data. Choose a compatible column.`,
+	LOOKUP_CELL_TEXT_CHANGED_BY_HQ: (e) =>
+		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "this data table"))} has leading or trailing whitespace that CommCare HQ would remove. You can remove that whitespace in Project data, or download the app to preserve these values.`,
 	LOOKUP_CELL_TEXT_UNREPRESENTABLE: (e) =>
 		`The ${q(det(e, "columnLabel", "affected"))} column in ${q(det(e, "tableName", "the data table"))} contains characters Nova can't preserve. You can remove them or retype the affected values in Project data.`,
 	LOOKUP_SELECT_SOURCE_VALUE_BLANK: (e) =>
@@ -837,6 +837,10 @@ const USER_MESSAGE_BY_CODE: Record<
 		"This app references more lookup data than it can bundle at once. Shrink or split the largest lookup tables and try again.",
 	LOOKUP_HQ_PUSH_TOO_LARGE: () =>
 		"This app references more lookup data than CommCare HQ accepts in one upload. Shrink or split the largest lookup tables and try again.",
+	HQ_NESTED_SELECTION_UNREPRESENTABLE: (e) =>
+		det(e, "reason", "") === "smaller-child-maximum"
+			? `CommCare HQ cannot preserve this child menu's limit of ${det(e, "targetMaximum", "fewer")} selected cases. You can download the app to keep this selection, or change the nested selection before uploading.`
+			: "CommCare HQ cannot preserve this child menu's selection from multiple parent cases. You can download the app to keep this selection, or change the nested selection before uploading.",
 	LOOKUP_TAG_TOO_LONG_FOR_HQ: (e) =>
 		`CommCare HQ addresses a lookup table by its export tag, and ${det(e, "tag", "one referenced table")} is too long for it. Shorten the tag to ${det(e, "tagAllowed", "31")} characters or fewer in Project data, then try again.`,
 	LOOKUP_TAG_RESERVED_BY_HQ: (e) =>

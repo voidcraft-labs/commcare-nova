@@ -1,86 +1,83 @@
 // @vitest-environment happy-dom
 
-import { fireEvent, render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { act, cleanup, render } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { AskQuestionsCard } from "./AskQuestionsCard";
 
+afterEach(cleanup);
 const input = {
-	header: "A few details",
+	header: "Visit details",
 	questions: [
-		{ question: "First?", options: [{ label: "One" }] },
-		{ question: "Second?", options: [{ label: "Two" }] },
+		{ question: "Who will use it?", options: [] },
+		{ question: "Where will they work?", options: [] },
 	],
 };
+function answerRoute() {
+	return { current: null as ((text: string) => void) | null };
+}
+function currentAnswer(route: ReturnType<typeof answerRoute>) {
+	if (!route.current)
+		throw new Error("Committed card did not register the answer route");
+	return route.current;
+}
 
-describe("AskQuestionsCard Project hydration gate", () => {
-	it("describes typing as the only path for a free-text question", () => {
-		render(
-			<AskQuestionsCard
-				toolCallId="tool-free-text"
-				input={{
-					header: "A few details",
-					questions: [{ question: "Who will use it?", options: [] }],
-				}}
-				state="input-available"
-				addToolOutput={vi.fn()}
-			/>,
-		);
-
-		expect(screen.getByText("Type your answer below")).toBeTruthy();
-		expect(screen.queryByText("or type your answer below")).toBeNull();
-	});
-
-	it("keeps typing as an alternative when the question has options", () => {
-		render(
-			<AskQuestionsCard
-				toolCallId="tool-options"
-				input={input}
-				state="input-available"
-				addToolOutput={vi.fn()}
-			/>,
-		);
-
-		expect(screen.getByText("or type your answer below")).toBeTruthy();
-	});
-
-	it("makes options inert while preserving partial app-owned answers", () => {
+describe("AskQuestionsCard committed composer binding", () => {
+	it("retires the typed route while disabled and resumes partial answers exactly once", () => {
+		const pendingAnswerRef = answerRoute();
 		const addToolOutput = vi.fn();
-		const view = render(
-			<AskQuestionsCard
-				toolCallId="tool-1"
-				input={input}
-				state="input-available"
-				addToolOutput={addToolOutput}
-				disabled
-			/>,
-		);
-
-		fireEvent.click(screen.getByRole("button", { name: "One" }));
-		expect(screen.getByText("Question 1 of 2")).toBeTruthy();
+		const props = {
+			toolCallId: "round",
+			input,
+			state: "input-available",
+			pendingAnswerRef,
+			addToolOutput,
+		};
+		const view = render(<AskQuestionsCard {...props} />);
+		act(() => currentAnswer(pendingAnswerRef)("Nurses"));
+		view.rerender(<AskQuestionsCard {...props} disabled />);
+		expect(pendingAnswerRef.current).toBeNull();
 		expect(addToolOutput).not.toHaveBeenCalled();
-
-		view.rerender(
+		view.rerender(<AskQuestionsCard {...props} />);
+		const finalAnswer = currentAnswer(pendingAnswerRef);
+		act(() => {
+			finalAnswer("Clinics");
+			finalAnswer("Duplicate completion");
+		});
+		expect(addToolOutput).toHaveBeenCalledExactlyOnceWith({
+			tool: "askQuestions",
+			toolCallId: "round",
+			output: { "0": "User Responded: Nurses", "1": "User Responded: Clinics" },
+		});
+		expect(pendingAnswerRef.current).toBeNull();
+	});
+	it("cleans up its route without removing a later committed card's registration", () => {
+		const pendingAnswerRef = answerRoute();
+		const addToolOutput = vi.fn();
+		const first = render(
 			<AskQuestionsCard
-				toolCallId="tool-1"
+				toolCallId="first"
 				input={input}
 				state="input-available"
+				pendingAnswerRef={pendingAnswerRef}
 				addToolOutput={addToolOutput}
 			/>,
 		);
-		fireEvent.click(screen.getByRole("button", { name: "One" }));
-		expect(screen.getByText("Question 2 of 2")).toBeTruthy();
-
-		view.rerender(
+		const firstRoute = currentAnswer(pendingAnswerRef);
+		const second = render(
 			<AskQuestionsCard
-				toolCallId="tool-1"
+				toolCallId="second"
 				input={input}
 				state="input-available"
+				pendingAnswerRef={pendingAnswerRef}
 				addToolOutput={addToolOutput}
-				disabled
 			/>,
 		);
-		expect(screen.getByText("Question 2 of 2")).toBeTruthy();
-		fireEvent.click(screen.getByRole("button", { name: "Two" }));
+		const secondRoute = currentAnswer(pendingAnswerRef);
+		expect(secondRoute).not.toBe(firstRoute);
+		first.unmount();
+		expect(pendingAnswerRef.current).toBe(secondRoute);
+		second.unmount();
+		expect(pendingAnswerRef.current).toBeNull();
 		expect(addToolOutput).not.toHaveBeenCalled();
 	});
 });

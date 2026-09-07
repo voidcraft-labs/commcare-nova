@@ -15,9 +15,8 @@
 //      entities" rule, so an invalid seed (a text `literal("")`
 //      opposite an ordered / non-text property) fails CI too.
 //
-// Both assert `checkPredicate(...).ok` modulo ONLY the two tolerated
-// COMPLETENESS states the editor leaves for the author to fill: an empty
-// property name and an empty `match` value. Pure: no React, no DOM.
+// This is a finite editor-to-type-checker consistency corpus, not proof of
+// complete document admission or device execution. No finding is tolerated.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -30,7 +29,6 @@ import {
 import {
 	ancestorPath,
 	and,
-	type CheckError,
 	checkExpression,
 	checkPredicate,
 	coalesce,
@@ -179,20 +177,6 @@ const CURRENTS: Predicate[] = [
 
 const ALL_ENTRIES = [...VERB_ENTRIES, ...STRUCTURE_ENTRIES];
 
-/** The two tolerated COMPLETENESS states ("fill this in"): every other
- *  finding is a soundness failure the editor must never author. */
-function isCompletenessOnly(errors: readonly CheckError[]): boolean {
-	return errors.every(
-		(e) =>
-			e.code === "match-value-empty" || // empty match value
-			e.code === "unknown-property", // empty property name in these seeds
-	);
-}
-
-function describeFindings(errors: readonly CheckError[]): string {
-	return errors.map((e) => e.message).join(" | ");
-}
-
 function subjectTypeOf(p: Predicate): ResolvedType | undefined {
 	const s = subjectOf(p);
 	if (s === undefined) return undefined;
@@ -224,11 +208,9 @@ describe("valid by construction — every admitted verb build type-checks", () =
 					`${entry.id} from ${current.kind} produced a schema-invalid AST`,
 				).toBe(true);
 				const result = checkPredicate(next, TYPE_CTX);
-				if (result.ok) continue;
-				expect(
-					isCompletenessOnly(result.errors),
-					`${entry.id} from ${current.kind}: ${describeFindings(result.errors)}`,
-				).toBe(true);
+				expect(result, `${entry.id} from ${current.kind}`).toEqual({
+					ok: true,
+				});
 			}
 		}
 	});
@@ -360,11 +342,9 @@ describe("valid by construction — every registry default seeds a valid AST", (
 					`${schema.kind} default (first=${firstType}) does not parse`,
 				).toBe(true);
 				const result = checkPredicate(seed, typeCtx);
-				if (result.ok) continue;
-				expect(
-					isCompletenessOnly(result.errors),
-					`${schema.kind} default (first=${firstType}): ${describeFindings(result.errors)}`,
-				).toBe(true);
+				expect(result, `${schema.kind} default (first=${firstType})`).toEqual({
+					ok: true,
+				});
 			}
 		}
 	});

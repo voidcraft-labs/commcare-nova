@@ -6,16 +6,14 @@
 // (`comparisonOperatorsFor` / `matchModesFor` / `compatibleTypesFor`)
 // and the reseed (`cards/reseed.ts`) directly to the type checker
 // (`checkPredicate`), so "the pickers only offer valid choices" is a
-// proven property, not a hope. Pure domain-level: no React, no DOM.
+// type-check consistency property. Complete document/carrier admission is
+// tested separately. No React or DOM renderer.
 
 import { describe, expect, it } from "vitest";
 import { type CaseType, casePropertyDataTypes } from "@/lib/domain";
 import {
-	ALL_RESOLVED_TYPES,
-	ANY_TYPE,
 	type ComparisonKind,
 	checkPredicate,
-	comparisonObjectConstraint,
 	comparisonOperatorsFor,
 	compatibleTypesFor,
 	eq,
@@ -23,6 +21,7 @@ import {
 	gte,
 	type Literal,
 	literal,
+	literalType,
 	lt,
 	lte,
 	MATCH_MODES,
@@ -132,7 +131,7 @@ describe("valid by construction — reseed always lands inside the constraint", 
 				const seeded = reseedLiteralForConstraint(old, accepts);
 				// The result is admissible: its type is in the accept-set, or
 				// it's the universally-compatible null literal.
-				const ok = accepts.has(literalTypeOf(seeded)) || seeded.value === null;
+				const ok = accepts.has(literalType(seeded)) || seeded.value === null;
 				expect(
 					ok,
 					`${JSON.stringify(old.value)} → ${JSON.stringify(seeded)}`,
@@ -161,24 +160,3 @@ describe("valid by construction — match admission ⟺ checker", () => {
 		}
 	});
 });
-
-describe("valid by construction — object-kind admission is non-trivial", () => {
-	it("a numeric subject's object slot rejects a text result kind", () => {
-		const intConstraint = comparisonObjectConstraint("eq", "int");
-		// `concat` resolves to text, not admitted opposite an int subject.
-		// (full per-kind coverage lives in slotConstraints.test.ts)
-		expect(ALL_RESOLVED_TYPES.includes(ANY_TYPE)).toBe(true);
-		expect(intConstraint.accepts).not.toBe("any");
-	});
-});
-
-// Local mirror of the checker's literal typing for the assertion above:
-// avoids importing the internal name while keeping the test self-checking.
-function literalTypeOf(lit: Literal): ResolvedType {
-	if (lit.data_type) return lit.data_type;
-	if (lit.value === null) return ANY_TYPE;
-	if (typeof lit.value === "number") {
-		return Number.isInteger(lit.value) ? "int" : "decimal";
-	}
-	return "text";
-}

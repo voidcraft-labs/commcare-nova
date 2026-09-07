@@ -115,17 +115,9 @@ export type { DistanceUnit } from "./distance";
 // shared declaration site at the cost of inverting the package
 // graph for two regular expressions.
 //
-// `lib/commcare/constants.ts` is the source of truth for CommCare's
-// identifier vocabulary. The patterns here mirror its
-// `CASE_TYPE_REGEX` / `CASE_PROPERTY_REGEX` / `XML_ELEMENT_NAME_REGEX`
-// constants. A drift guard in
-// `__tests__/types.test.ts` crosses the boundary at test time
-// (the `noRestrictedImports` rule's scope excludes `__tests__/**`)
-// and asserts the inlined patterns' `.source` equals the canonical
-// constants' `.source`. If the source-of-truth constants are
-// updated, the test fails until the inlined copies here are updated
-// to match. Each pattern is exported below so the guard test can
-// compare it.
+// These are Nova's authoring identifier constraints. Schema tests exercise
+// concrete accepted and refused payloads; native compatibility tests at the
+// emission boundary establish what the current wire consumers accept.
 
 /**
  * Permitted shape of a CommCare case type identifier — leading
@@ -743,8 +735,7 @@ export type Term = z.infer<typeof termSchema>;
 //   - `coalesce` — first-non-empty fallback chain. Empty values
 //     coerce to null at evaluation time, so every dialect's evaluator
 //     short-circuits on the first non-null / non-empty input.
-//   - `if` — boolean conditional with eager evaluation of both
-//     branches. The condition is a `Predicate` (cross-family
+//   - `if` — boolean conditional selecting a branch. The condition is a `Predicate` (cross-family
 //     reference); the branches are `ValueExpression`.
 //   - `switch` — value-driven multi-case selector. The discriminator
 //     value (`on`) compares against each case's `when` literal; the
@@ -760,8 +751,8 @@ export type Term = z.infer<typeof termSchema>;
 //     pattern string for advanced authors.
 //
 // **Cross-family cycle:** the `if` and `switch` arms carry
-// `Predicate` operands (`cond` and `cases[].when` respectively, with
-// `count.where` also predicate-typed), and Predicate operator schemas
+// `Predicate` operands (`if.cond` and `count.where`); `switch.cases[].when`
+// is a literal, and Predicate operator schemas
 // below (the eight widened operand sites — see the next section)
 // carry `ValueExpression` operands. The cycle goes through
 // `z.lazy(...)` on every cross-reference: each ValueExpression arm
@@ -1419,18 +1410,11 @@ const matchSchema = z
  * to encode the policy. Source citations live next to the
  * `.refine(...)` call below.
  *
- * Multi-word values stay intact on every wire path. CCHQ's
- * `selected_any` / `selected_all` whitelist entries on
- * `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_QUERY_FUNCTIONS`
- * dispatch through `case_property_text_query` at
- * `commcare-hq/corehq/apps/es/case_search.py::case_property_text_query`,
- * which forwards the value argument to ElasticSearch's `match` query
- * — `match` tokenizes on whitespace, so a single space-joined call
- * would silently break a multi-word author intent. Both CSQL and
- * on-device emitters compose multi-value predicates as
- * `or` / `and` over per-value `selected(prop, 'v')` calls, where
- * each `selected` call takes one value literal and CCHQ's matcher
- * treats it as one token regardless of internal whitespace.
+ * Containment uses the target's token semantics. On-device `selected()`
+ * compares one requested token against the stored token list, so a literal
+ * containing multiple words cannot match one stored option. The carrier
+ * validator owns that restriction; structural schema admission here does not
+ * establish device compatibility. CSQL text matching is a separate target.
  */
 const multiSelectContainsSchema = z
 	.object({

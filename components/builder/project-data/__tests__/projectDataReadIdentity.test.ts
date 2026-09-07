@@ -17,7 +17,7 @@ describe("projectDataReadForIdentity", () => {
 				resourceIdentity: "project-1 table-a",
 				ready: true,
 			}),
-		).toEqual({ ...read });
+		).toBe(read);
 	});
 
 	it("masks table A synchronously when the route already owns table B", () => {
@@ -32,7 +32,7 @@ describe("projectDataReadForIdentity", () => {
 				resourceIdentity: "project-1 table-b",
 				ready: true,
 			}),
-		).toEqual({ kind: "loading" });
+		).toStrictEqual({ kind: "loading" });
 	});
 
 	it("masks a stale failure as well as stale data", () => {
@@ -51,7 +51,7 @@ describe("projectDataReadForIdentity", () => {
 				resourceIdentity: "project-1 table-b",
 				ready: true,
 			}),
-		).toEqual({ kind: "loading" });
+		).toStrictEqual({ kind: "loading" });
 	});
 
 	it("returns idle, not loading, when the new identity is not authorized yet", () => {
@@ -66,6 +66,6 @@ describe("projectDataReadForIdentity", () => {
 				resourceIdentity: "project-2 table-a",
 				ready: false,
 			}),
-		).toEqual({ kind: "idle" });
+		).toStrictEqual({ kind: "idle" });
 	});
 });

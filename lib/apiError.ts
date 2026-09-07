@@ -90,9 +90,8 @@ export const PRESENCE_REQUEST_MAX_BYTES = 16 * 1024;
  * The cheap declared-size gate shared by every body-capped route: a request
  * that DECLARES (via `Content-Length`) a body over `maxBytes` is rejected
  * without touching the stream. A chunked request that omits `Content-Length`
- * isn't caught here — the platform's request-body limit (Cloud Run) is the
- * backstop for that case; this rejects the common declared-large case, it
- * doesn't re-implement a streaming byte counter. Pure predicate so routes
+ * isn't caught here; readBodyBytes enforces the same budget while reading
+ * native chunks. This predicate lets a route refuse before authorization. Pure predicate so routes
  * that don't use `readJsonBody` (bare-`Response` handlers like the chat and
  * client-error routes) can apply the same gate in their own error shape.
  */
@@ -107,34 +106,51 @@ export function declaredBodyTooLarge(req: Request, maxBytes: number): boolean {
 	return Number.isFinite(declared) && declared > maxBytes;
 }
 
-/**
- * Read a JSON request body, rejecting an oversized one with `ApiError(413)` for
- * routes that hand their `catch` to {@link handleApiError}; a non-JSON body
- * resolves to `null` (let the caller's Zod schema produce the field message).
- *
- * The cap is enforced TWICE: the cheap declared-size fast path
- * ({@link declaredBodyTooLarge}) rejects a `Content-Length`-large body without
- * reading the stream, and the ACTUAL byte length is re-checked after buffering.
- * The second check is load-bearing: a chunked request omits `Content-Length`
- * entirely, so the declared-size gate alone is advisory — it would wave a
- * headerless stream straight into the expensive `JSON.parse` + Zod. Buffering
- * is bounded by Cloud Run's ~32 MB inbound limit, so this can't itself be made
- * to hold unbounded memory.
- */
+/** Read bounded native body bytes, cancelling an over-budget stream before
+ * asking for another chunk. Callers retain their own JSON/CSV error envelopes. */
+export async function readBodyBytes(
+	req: Request,
+	maxBytes: number,
+): Promise<Uint8Array> {
+	const tooLargeMessage = `Request body is too large, this endpoint accepts at most ${maxBytes} bytes.`;
+	if (declaredBodyTooLarge(req, maxBytes))
+		throw new ApiError(tooLargeMessage, 413);
+	if (req.body === null) return new Uint8Array();
+	const reader = req.body.getReader();
+	const chunks: Uint8Array[] = [];
+	let byteLength = 0;
+	try {
+		for (;;) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			byteLength += value.byteLength;
+			if (byteLength > maxBytes) {
+				await reader.cancel();
+				throw new ApiError(tooLargeMessage, 413);
+			}
+			chunks.push(value);
+		}
+	} finally {
+		reader.releaseLock();
+	}
+	const bytes = new Uint8Array(byteLength);
+	let offset = 0;
+	for (const chunk of chunks) {
+		bytes.set(chunk, offset);
+		offset += chunk.byteLength;
+	}
+	return bytes;
+}
+
+/** Read JSON only after its native bytes fit the route budget. Invalid JSON
+ * resolves to null so the caller's schema can produce its field message. */
 export async function readJsonBody(
 	req: Request,
 	maxBytes: number,
 ): Promise<unknown> {
-	const tooLargeMessage = `Request body is too large, this endpoint accepts at most ${maxBytes} bytes of JSON.`;
-	if (declaredBodyTooLarge(req, maxBytes)) {
-		throw new ApiError(tooLargeMessage, 413);
-	}
-	const buf = await req.arrayBuffer();
-	if (buf.byteLength > maxBytes) {
-		throw new ApiError(tooLargeMessage, 413);
-	}
+	const bytes = await readBodyBytes(req, maxBytes);
 	try {
-		return JSON.parse(new TextDecoder().decode(buf));
+		return JSON.parse(new TextDecoder().decode(bytes));
 	} catch {
 		return null;
 	}

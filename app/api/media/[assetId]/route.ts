@@ -69,13 +69,23 @@ export async function GET(
 			throw new ApiError("Media asset not found.", 404);
 		}
 
+		if (req.signal.aborted) {
+			throw new DOMException("Client closed request", "AbortError");
+		}
 		const nodeStream = streamAsset(asset.gcsObjectKey);
 		// Destroy the underlying GCS read stream if the client aborts
 		// mid-transfer (seek, navigate-away, tab close). Without this
 		// the socket/file handle stays open per aborted request:
 		// which both leaks resources in production and trips the
 		// pre-push async-leak gate in tests.
-		req.signal.addEventListener("abort", () => nodeStream.destroy());
+		const abort = () => {
+			nodeStream.destroy();
+		};
+		req.signal.addEventListener("abort", abort, { once: true });
+		nodeStream.once("close", () =>
+			req.signal.removeEventListener("abort", abort),
+		);
+		if (req.signal.aborted) abort();
 		const webStream = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
 
 		return new Response(webStream, {

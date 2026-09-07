@@ -1,6 +1,7 @@
 "use client";
-import { useCallback } from "react";
+import { useCallback, useState } from "react";
 import { RefLabelInput } from "@/components/builder/RefLabelInput";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import {
 	EMPTY_PROSE_TEMPLATE,
 	type Field,
@@ -12,44 +13,22 @@ import type {
 } from "@/lib/domain/kinds";
 
 /**
- * TextEditor: declarative editor for structural prose-template field keys.
- *
- * Adapts the shared EditableText commit/blur UX to the
- * FieldEditorComponent contract:
- *   - Non-empty commits dispatch the trimmed string.
- *   - Empty commits route through `onEmpty` so the key is cleared
- *     via `onChange(undefined)`. The reducer treats `undefined` as a
- *     removal patch; persisting `""` would leave stale empty strings
- *     on the field.
- *   - Empty commits on a key whose value is already `undefined` are
- *     no-ops. `useCommitField`'s "delete on empty" path fires
- *     `onEmpty` for any focus-blur-without-typing or Esc-on-empty
- *     gesture; without the gate that maps to a redundant
- *     `onChange(undefined)` write: a passive interaction would
- *     stamp an undo-history entry the user never asked for. The
- *     gate is consumer-local (not at the EditableText primitive)
- *     because the primitive's `onEmpty` contract serves consumers
- *     whose callbacks bundle UI-state cleanup arms that must fire
- *     unconditionally: gating at the primitive would block those.
- *
- * The `K extends OptionalStringKeys<F>` constraint pins `K` to keys
- * whose declared type is exactly `string | undefined`. That makes
- * `string` and `undefined` each a value-level subtype of `F[K]`, so
- * the two casts below are tautological: TypeScript simply can't
- * prove that on its own because `F[K]` is an indexed access through
- * a generic. The constraint is the authoritative guarantee; the
- * casts are the syntactic shape TS requires to pass a narrower
- * value into a generic-keyed setter.
- *
- * `keyName` is threaded to `data-field-id` on the underlying input so
- * undo/redo focus hints, which encode the focused field key, land
- * back on this editor when the property is restored.
+ * Adapts optional prose-template slots to RefLabelInput. Absent empty slots
+ * are no-ops; clearing authored prose removes the key. Forward each actual
+ * commit outcome so a refusal preserves the local editor draft and focus,
+ * with one consumer-owned inline notice. The data-field-id restores focus
+ * after undo/redo. Generic casts bridge OptionalProseTemplateKeys to F[K].
  */
 export function TextEditor<
 	F extends Field,
 	K extends OptionalProseTemplateKeys<F>,
->(props: FieldEditorComponentProps<F, K>) {
-	const { value, onChange, label, autoFocus, keyName } = props;
+>(
+	props: FieldEditorComponentProps<F, K> & {
+		readonly onDismissEmpty?: () => void;
+	},
+) {
+	const { value, onChange, label, autoFocus, keyName, onDismissEmpty } = props;
+	const [rejection, setRejection] = useState<string | null>(null);
 	const current =
 		value && typeof value === "object" && "parts" in value
 			? (value as ProseTemplate)
@@ -58,8 +37,10 @@ export function TextEditor<
 	const handleSave = useCallback(
 		(next: ProseTemplate) => {
 			// Forward the gated outcome: a refused commit keeps the draft in
-			// the input and surfaces the finding inline (useCommitField).
-			return onChange(next as F[K]);
+			// the input and surfaces the finding inline.
+			const outcome = onChange(next as F[K]);
+			setRejection(outcome.ok ? null : outcome.messages.join(" "));
+			return outcome;
 		},
 		[onChange],
 	);
@@ -67,18 +48,26 @@ export function TextEditor<
 	const handleEmpty = useCallback(() => {
 		// Skip the dispatch when the key is already absent: there is
 		// nothing to clear. See the file header for the full rationale.
-		if (value === undefined) return;
-		onChange(undefined as F[K]);
-	}, [onChange, value]);
+		if (value === undefined) {
+			onDismissEmpty?.();
+			return;
+		}
+		const outcome = onChange(undefined as F[K]);
+		setRejection(outcome.ok ? null : outcome.messages.join(" "));
+		return outcome;
+	}, [onChange, value, onDismissEmpty]);
 
 	return (
-		<RefLabelInput
-			label={label}
-			dataFieldId={keyName}
-			value={current}
-			autoFocus={autoFocus}
-			onSave={handleSave}
-			onEmpty={handleEmpty}
-		/>
+		<div>
+			<RefLabelInput
+				label={label}
+				dataFieldId={keyName}
+				value={current}
+				autoFocus={autoFocus}
+				onSave={handleSave}
+				onEmpty={handleEmpty}
+			/>
+			<RejectionInline message={rejection} />
+		</div>
 	);
 }

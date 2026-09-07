@@ -23,6 +23,7 @@ import {
 	DEFAULT_CASE_SEARCH_BUTTON_LABEL,
 	DEFAULT_CASE_SEARCH_TITLE,
 	effectiveCaseSearchConfig,
+	isSelectSearchInput,
 	type Module,
 	SEARCH_INPUT_REQUIRED_DEFAULT_MESSAGE,
 } from "./modules";
@@ -193,13 +194,21 @@ export function collectTranslationCoverageDiagnostics(
 		(field) =>
 			"optionsSource" in field && field.optionsSource.kind === "lookup",
 	).length;
-	if (lookupFields > 0) {
+	const lookupSearchInputs = Object.values(doc.modules).reduce(
+		(count, module) =>
+			count +
+			(module.caseListConfig?.searchInputs.filter(isSelectSearchInput).length ??
+				0),
+		0,
+	);
+	const lookupCarriers = lookupFields + lookupSearchInputs;
+	if (lookupCarriers > 0) {
 		diagnostics.push({
 			code: "lookup-labels-need-localized-data",
 			title: "Lookup table choices come from your Project data",
 			explanation:
 				"These choices come from a lookup table, which is shared Project data rather than app text, so translations here can't reach them.",
-			affectedCount: lookupFields,
+			affectedCount: lookupCarriers,
 		});
 	}
 	const connectForms = Object.values(doc.forms).filter(

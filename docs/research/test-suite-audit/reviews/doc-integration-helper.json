@@ -1,0 +1,50 @@
+{
+	"owner": "doc",
+	"files": [],
+	"supplementalReviews": [
+		{
+			"file": "lib/doc/__tests__/fieldParent.test.ts",
+			"reviewedSha256": "09b1a4de166871fa290f902b7e7180d2ea2531b39d9aaabfd4b1996c1ea66419",
+			"review": "Re-read complete17case baseline and fieldParent production owner after aggregate13case failure. Root integration established DataCloneError in later strengthened admission helper, not field-parent behavior. Kept test unchanged; fixed test helper to clone exact persistence projection plus existing parent index, excluding store methods and derived refIndex without hydration/repair. Preserves cache-isolation intent. Original136 frozen report untouched."
+		}
+	],
+	"changedPaths": ["lib/doc/__tests__/admittedDoc.ts"],
+	"checks": [
+		{
+			"command": "Root full unit before helper correction",
+			"log": "/tmp/nova-root-integration-unit.log",
+			"result": "13 fieldParent cases fail DataCloneError at assertAdmittedDoc; four non-mutating cases pass"
+		},
+		{
+			"command": "fieldParent + caseListEmission exact files",
+			"log": "/tmp/nova-test-audit-parallel/doc/admission-helper-integration.log",
+			"result": "2 files26 tests passed"
+		},
+		{
+			"command": "101 direct unit consumers; exact paths in admission-helper-consumers.txt excluding one Postgres file",
+			"log": "/tmp/nova-test-audit-parallel/doc/admission-helper-consumers.log",
+			"result": "101 files1317 tests passed"
+		},
+		{
+			"command": "20 additional indirect unit consumers through submissionProgram/controllerDoc/admittedWorkspace fixtures",
+			"log": "/tmp/nova-test-audit-parallel/doc/admission-helper-indirect.log",
+			"result": "20 files451 tests passed"
+		},
+		{
+			"command": "Scoped Biome admission helper",
+			"log": "/tmp/nova-test-audit-parallel/doc/admission-helper-biome.log",
+			"result": "1 file passed"
+		}
+	],
+	"bugs": [],
+	"docsNeeded": [],
+	"blockedBy": [],
+	"sourceHashes": {
+		"lib/doc/__tests__/admittedDoc.ts": "2837867f94554c31039a10451e05487cf7b4e9a4737f4a6719091a0fb4d7673a"
+	},
+	"rootDatabaseConsumers": [
+		"lib/preview/engine/__tests__/caseDataBinding.postgres.test.ts",
+		"lib/preview/engine/__tests__/submissionProgramAcceptance.postgres.test.ts"
+	],
+	"verificationLimits": "121 distinct unit consumer files1768 tests passed; the initial26-test pair is included in that total, not additional coverage. Database consumers are part of root aggregate verification."
+}

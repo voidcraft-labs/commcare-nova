@@ -1,12 +1,12 @@
 /**
- * FormEngine tests — domain-shaped fixtures only.
+ * FormEngine runtime projections over schema-shaped field trees.
  *
  * The engine consumes a `FormEngineInput` (form + fields map + fieldOrder) —
  * the same domain shape produced by the normalized doc store. These tests
  * build fixtures directly in that shape via the `dTree` helper.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { parseXPathExpression } from "@/lib/commcare/xpath";
@@ -22,7 +22,7 @@ import type {
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
-import { USERCASE_CASE_TYPE } from "@/lib/domain";
+import { fieldSchema, USERCASE_CASE_TYPE } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
@@ -36,6 +36,22 @@ import {
 	type FormEngineInput,
 } from "../formEngine";
 import { previewAsMe } from "../identity";
+
+const runtimes = new Set<XPathRuntime>();
+function ownedRuntime(options: ConstructorParameters<typeof XPathRuntime>[0]) {
+	const runtime = new XPathRuntime(options);
+	runtimes.add(runtime);
+	return runtime;
+}
+beforeEach(() => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(new Date("2026-05-06T12:00:00Z"));
+});
+afterEach(() => {
+	for (const runtime of runtimes) runtime.dispose();
+	runtimes.clear();
+	vi.useRealTimers();
+});
 
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 
@@ -130,10 +146,12 @@ function dTree(
 			const uuid = testUuid(`${pathPrefix}.${n.id}`);
 			order.push(uuid);
 			const { children, ...rest } = n;
-			fieldMap[uuid as string] = {
+			fieldMap[uuid as string] = fieldSchema.parse({
 				uuid,
+				...(n.kind === "hidden" ? {} : { label: proseText(n.id) }),
+				...(n.kind === "repeat" ? { repeat_mode: "user_controlled" } : {}),
 				...rest,
-			} as Field;
+			});
 			// Containers get an entry in fieldOrder even when empty — the engine's
 			// tree builder treats the presence of an entry as the signal to recurse.
 			if (n.kind === "group" || n.kind === "repeat" || n.kind === "section") {
@@ -151,7 +169,7 @@ function dTree(
  * The returned runtime remains caller-owned so rejection tests can dispose it
  * in `finally` and stay clean under async-leak detection. */
 function fixedWorldEvaluator(engine: FormEngine, worldKey: string) {
-	const runtime = new XPathRuntime({
+	const runtime = ownedRuntime({
 		workerFactory: createInProcessXPathWorkerFactory(),
 	});
 	const world = engine.createWorkerWorld(worldKey);
@@ -200,7 +218,7 @@ describe("FormEngine", () => {
 			{ stagedAsync: true },
 		);
 		const calls: string[] = [];
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(
 				async (request, tools) => {
 					calls.push(request.source);
@@ -383,7 +401,7 @@ describe("FormEngine", () => {
 				undefined,
 				{ stagedAsync: true },
 			);
-			const runtime = new XPathRuntime({
+			const runtime = ownedRuntime({
 				workerFactory: createInProcessXPathWorkerFactory(),
 			});
 			let revision = 0;
@@ -877,9 +895,8 @@ describe("FormEngine", () => {
 				]),
 			);
 
-			expect(engine.getState("/data/echoed").value).toBe(
-				engine.getState("/data/wake_time").value,
-			);
+			expect(engine.getState("/data/echoed").value).toBe("07:30:00.000Z");
+			expect(engine.getState("/data/wake_time").value).toBe("07:30:00.000Z");
 		});
 
 		it("reaches a fixed point — resubmitting a preloaded time changes nothing", () => {
@@ -922,6 +939,7 @@ describe("FormEngine", () => {
 			if (mutation.kind !== "registration")
 				throw new Error("expected register");
 			const stored = mutation.primary.properties.wake_time;
+			expect(stored).toBe("07:30:00.000Z");
 
 			const followup = dTree(
 				[
@@ -1890,13 +1908,17 @@ describe("FormEngine", () => {
 			const engine = new FormEngine(input);
 
 			let called = false;
-			engine.store.subscribe(() => {
+			const unsubscribe = engine.store.subscribe(() => {
 				called = true;
 			});
 
-			engine.setValue("/data/name", "Test");
-			expect(called).toBe(true);
-			expect(engine.store.getState()["/data/name"]?.value).toBe("Test");
+			try {
+				engine.setValue("/data/name", "Test");
+				expect(called).toBe(true);
+				expect(engine.store.getState()["/data/name"]?.value).toBe("Test");
+			} finally {
+				unsubscribe();
+			}
 		});
 
 		it("allows unsubscribing from store", () => {
@@ -2878,7 +2900,7 @@ describe("FormEngine", () => {
 		});
 
 		describe("survey", () => {
-			it("emits the survey marker without walking the tree", () => {
+			it("emits the survey marker without ordinary case destinations", () => {
 				const input = boundInput([{ id: "name", kind: "text" }], "survey");
 				const engine = new FormEngine(input);
 
@@ -3150,6 +3172,40 @@ describe("FormEngine", () => {
 					"2026-05-06T12:34:56.000-04:00",
 				);
 			});
+
+			it.each([
+				["America/New_York", "2026-03-08T02:30", "2026-03-08T07:30:00.000Z"],
+				["Australia/Sydney", "2026-04-05T02:30", "2026-04-04T15:30:00.000Z"],
+				["Australia/Lord_Howe", "2026-04-05T01:45", "2026-04-04T14:45:00.000Z"],
+			])(
+				"submits %s daylight transition wall time as the compatible instant",
+				(viewerTimeZone, answer, expected) => {
+					const input = boundInput([
+						{
+							id: "case_name",
+							kind: "text",
+							caseWrite: { caseType: "patient", property: "case_name" },
+						},
+						{
+							id: "last_seen",
+							kind: "datetime",
+							caseWrite: { caseType: "patient", property: "last_seen" },
+						},
+					]);
+					const engine = new FormEngine(input, "patient");
+					engine.setValue("/data/case_name", "Alice");
+					engine.setValue("/data/last_seen", answer);
+					const mutation = engine.computeSubmissionMutation({
+						entryKey: ENTRY_KEY,
+						viewerTimeZone,
+					});
+					if (mutation.kind !== "registration")
+						throw new Error("Expected registration");
+					const stored = mutation.primary.properties.last_seen;
+					expect(typeof stored).toBe("string");
+					expect(new Date(String(stored)).toISOString()).toBe(expected);
+				},
+			);
 
 			it("tags a time for storage without claiming it is an instant", () => {
 				const input = boundInput([
@@ -3676,7 +3732,7 @@ describe("FormEngine", () => {
 				undefined,
 				{ stagedAsync: true },
 			);
-			const runtime = new XPathRuntime({
+			const runtime = ownedRuntime({
 				workerFactory: createInProcessXPathWorkerFactory(),
 			});
 			const world = asyncEngine.createWorkerWorld("scalar-query-bound-ids");
@@ -3738,7 +3794,7 @@ describe("FormEngine", () => {
 				undefined,
 				{ stagedAsync: true },
 			);
-			const runtime = new XPathRuntime({
+			const runtime = ownedRuntime({
 				workerFactory: createInProcessXPathWorkerFactory(),
 			});
 			const world = engine.createWorkerWorld("zero-bound-repeat");
@@ -3889,7 +3945,7 @@ describe("FormEngine", () => {
 				},
 				{ stagedAsync: true },
 			);
-			const runtime = new XPathRuntime({
+			const runtime = ownedRuntime({
 				workerFactory: createInProcessXPathWorkerFactory(),
 			});
 			const world = engine.createWorkerWorld("query-bound-ids");
@@ -3930,88 +3986,32 @@ describe("FormEngine", () => {
 			runtime.dispose();
 		});
 
-		it("matches FieldState.repeatCount with DataInstance.getRepeatCount on init", () => {
-			const input = dTree([
-				{
-					id: "members",
-					kind: "repeat",
-					children: [{ id: "name", kind: "text" }],
-				},
-			]);
-			const engine = new FormEngine(input);
-
-			expect(engine.getState("/data/members").repeatCount).toBe(
-				engine.getRepeatCount("/data/members"),
+		it("keeps the public count and rendered state at each exact lifecycle count", () => {
+			const engine = new FormEngine(
+				dTree([
+					{
+						id: "members",
+						kind: "repeat",
+						children: [{ id: "name", kind: "text" }],
+					},
+				]),
 			);
-		});
-
-		it("matches after addRepeat", () => {
-			const input = dTree([
-				{
-					id: "members",
-					kind: "repeat",
-					children: [{ id: "name", kind: "text" }],
-				},
-			]);
-			const engine = new FormEngine(input);
-
-			engine.addRepeat("/data/members");
-			expect(engine.getState("/data/members").repeatCount).toBe(
+			const counts = () => [
+				engine.getState("/data/members").repeatCount,
 				engine.getRepeatCount("/data/members"),
-			);
-		});
-
-		it("matches after removeRepeat", () => {
-			const input = dTree([
-				{
-					id: "members",
-					kind: "repeat",
-					children: [{ id: "name", kind: "text" }],
-				},
-			]);
-			const engine = new FormEngine(input);
-
+			];
+			expect(counts()).toEqual([1, 1]);
 			engine.addRepeat("/data/members");
 			engine.addRepeat("/data/members");
-			engine.removeRepeat("/data/members", 0);
-			expect(engine.getState("/data/members").repeatCount).toBe(
-				engine.getRepeatCount("/data/members"),
-			);
-		});
-
-		it("matches after setValue (a leaf write should not touch repeat count)", () => {
-			const input = dTree([
-				{
-					id: "members",
-					kind: "repeat",
-					children: [{ id: "name", kind: "text" }],
-				},
-			]);
-			const engine = new FormEngine(input);
-
-			engine.addRepeat("/data/members");
+			expect(counts()).toEqual([3, 3]);
 			engine.setValue("/data/members[1]/name", "Bob");
-			expect(engine.getState("/data/members").repeatCount).toBe(
-				engine.getRepeatCount("/data/members"),
-			);
-		});
-
-		it("matches after reset", () => {
-			const input = dTree([
-				{
-					id: "members",
-					kind: "repeat",
-					children: [{ id: "name", kind: "text" }],
-				},
-			]);
-			const engine = new FormEngine(input);
-
-			engine.addRepeat("/data/members");
-			engine.addRepeat("/data/members");
+			expect(counts()).toEqual([3, 3]);
+			engine.removeRepeat("/data/members", 0);
+			expect(counts()).toEqual([2, 2]);
+			expect(engine.getState("/data/members[0]/name").value).toBe("Bob");
 			engine.reset();
-			expect(engine.getState("/data/members").repeatCount).toBe(
-				engine.getRepeatCount("/data/members"),
-			);
+			expect(counts()).toEqual([1, 1]);
+			expect(engine.getState("/data/members[0]/name").value).toBe("");
 		});
 	});
 

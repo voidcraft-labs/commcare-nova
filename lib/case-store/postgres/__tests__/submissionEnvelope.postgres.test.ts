@@ -2728,7 +2728,8 @@ describe("transaction-captured case database patch", () => {
 				case_id: ACTOR,
 				case_type: USERCASE_CASE_TYPE,
 				case_name: "Worker one",
-				properties: JSON.stringify({ role: "nurse" }),
+				status: "open",
+				properties: JSON.stringify({ hq_user_id: ACTOR, role: "nurse" }),
 			},
 		});
 		const receipt: SubmissionReceiptClaim = {
@@ -2762,13 +2763,17 @@ describe("transaction-captured case database patch", () => {
 		const replay = await store.applySubmission(args);
 		expect(replay).toEqual(first);
 		expect(replay.caseDatabasePatch?.rows[0]?.properties).toEqual({
+			hq_user_id: ACTOR,
 			role: "supervisor",
 		});
 		const current = await store.query({
 			appId: APP_ID,
 			caseType: USERCASE_CASE_TYPE,
 		});
-		expect(current[0]?.properties).toEqual({ role: "director" });
+		expect(current[0]?.properties).toEqual({
+			hq_user_id: ACTOR,
+			role: "director",
+		});
 	});
 });
 

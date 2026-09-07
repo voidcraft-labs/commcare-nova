@@ -8,7 +8,9 @@
  * test never touches Cloud Logging.
  */
 
+import { NextRequest } from "next/server";
 import { describe, expect, it, vi } from "vitest";
+import { CLIENT_ERROR_MAX_BYTES } from "@/lib/apiError";
 import { normalizeClientErrorPayload } from "@/lib/clientErrorContract";
 
 const logError = vi.hoisted(() => vi.fn());
@@ -134,4 +136,50 @@ describe("POST /api/log/error", () => {
 		);
 		expect(res.status).toBe(413);
 	});
+});
+
+it("stops an oversized native request stream before reading more bytes", async () => {
+	const continued = Promise.withResolvers<void>();
+	const finish = Promise.withResolvers<void>();
+	let pulls = 0;
+	const cancel = vi.fn();
+	const stream = new ReadableStream<Uint8Array>(
+		{
+			async pull(controller) {
+				pulls++;
+				if (pulls === 1)
+					controller.enqueue(new Uint8Array(CLIENT_ERROR_MAX_BYTES + 1));
+				else {
+					continued.resolve();
+					await finish.promise;
+					controller.close();
+				}
+			},
+			cancel,
+		},
+		{ highWaterMark: 0 },
+	);
+	const request = new NextRequest("http://localhost/api/log/error", {
+		method: "POST",
+		body: stream,
+	});
+	const handling = POST(request);
+	try {
+		expect(
+			await Promise.race([
+				handling.then(() => "response"),
+				continued.promise.then(() => "continued"),
+			]),
+		).toBe("response");
+		expect((await handling).status).toBe(413);
+		expect(pulls).toBe(1);
+		expect(cancel).toHaveBeenCalledOnce();
+		expect(logError).not.toHaveBeenCalled();
+	} finally {
+		finish.resolve();
+		continued.resolve();
+		await continued.promise;
+		const response = await handling;
+		if (!response.bodyUsed) await response.body?.cancel();
+	}
 });

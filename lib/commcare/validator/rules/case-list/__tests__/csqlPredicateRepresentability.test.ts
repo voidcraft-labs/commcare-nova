@@ -9,6 +9,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { emitCsql } from "@/lib/commcare/predicate/csqlEmitter";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
@@ -56,10 +57,11 @@ const standardForm = {
 };
 
 const standardCaseTypes = [
+	{ name: "visit", parent_type: "patient", properties: [] },
 	{
 		name: "patient",
+		parent_type: "household",
 		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
 			{ name: "age", label: "Age", data_type: "int" as const },
 			{ name: "score", label: "Score", data_type: "int" as const },
 			{
@@ -71,9 +73,7 @@ const standardCaseTypes = [
 	},
 	{
 		name: "household",
-		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
-		],
+		properties: [],
 	},
 ];
 
@@ -85,7 +85,7 @@ function docWithFilter(
 		appName: "Clinic",
 		modules: [
 			{
-				uuid: "module-clients",
+				uuid: testUuid("module-clients"),
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
@@ -104,9 +104,10 @@ function docWithFilter(
 }
 
 function csqlFindings(doc: ReturnType<typeof docWithFilter>) {
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-		(error) => error.code === CODE,
-	);
+	const all = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	const hits = all.filter((error) => error.code === CODE);
+	if (hits.length === 0) expectAdmittedDoc(doc);
+	return hits;
 }
 
 function docWithAdvancedPredicate(predicate: Predicate) {
@@ -114,7 +115,7 @@ function docWithAdvancedPredicate(predicate: Predicate) {
 		appName: "Clinic",
 		modules: [
 			{
-				uuid: "module-clients",
+				uuid: testUuid("module-clients"),
 				name: "Clients",
 				caseType: "patient",
 				caseListConfig: {
@@ -172,10 +173,14 @@ describe("csqlPredicateRepresentability", () => {
 	});
 
 	it("uses the same search-only restriction at the mutation commit gate", () => {
-		const searchable = docWithFilter(eq(prop("patient", "age"), literal(18)));
-		const onDevice = docWithFilter(eq(prop("patient", "age"), literal(18)), {
-			searchEnabled: false,
-		});
+		const searchable = expectAdmittedDoc(
+			docWithFilter(eq(prop("patient", "age"), literal(18))),
+		);
+		const onDevice = expectAdmittedDoc(
+			docWithFilter(eq(prop("patient", "age"), literal(18)), {
+				searchEnabled: false,
+			}),
+		);
 		const unsupported = eq(prop("patient", "age"), prop("patient", "score"));
 		const mutation = (moduleUuid: (typeof searchable.moduleOrder)[number]) => [
 			{
@@ -378,7 +383,7 @@ describe("csqlPredicateRepresentability", () => {
 
 	it("accepts a child-case count as the CSQL query anchor", () => {
 		const doc = docWithFilter(
-			gt(count(subcasePath("parent", "household")), literal(0)),
+			gt(count(subcasePath("parent", "visit")), literal(0)),
 		);
 
 		expect(csqlFindings(doc)).toEqual([]);
@@ -419,7 +424,7 @@ describe("csqlPredicateRepresentability", () => {
 			appName: "Clinic",
 			modules: [
 				{
-					uuid: "module-clients",
+					uuid: testUuid("module-clients"),
 					name: "Clients",
 					caseType: "patient",
 					caseListConfig: {

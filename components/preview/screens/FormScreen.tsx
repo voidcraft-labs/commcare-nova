@@ -67,7 +67,6 @@ import {
 	viewerTimeZone,
 } from "@/lib/preview/engine/caseDataBindingClient";
 import type {
-	CreatedChildCaseReceipt,
 	SubmissionMutation,
 	SubmissionResult,
 } from "@/lib/preview/engine/caseDataBindingTypes";
@@ -140,6 +139,7 @@ import { SectionStepper } from "../form/sections/SectionPagerControls";
 import { useSectionPaging } from "../form/sections/useSectionPaging";
 import {
 	afterSubmitRoute,
+	carriedChildCasesFromReceipt,
 	type PreviewTargetCaseCollection,
 	previewMenuSelectionsAfterTargetCases,
 	previewTargetHasSelectedCase,
@@ -328,55 +328,6 @@ interface FormScreenProps {
 	screen: Extract<PreviewScreen, { type: "form" }>;
 	/** BuilderLayout's back handler: also the fallback post-submit destination for `previous` forms. */
 	onBack: () => void;
-}
-
-/** Join concrete created-child ids to their authored metadata through the
- * durable receipt's explicit authored-child index. `undefined` is the
- * deliberate historical-receipt path: the old flat ids are replayable but do
- * not prove metadata, so they contribute no carried child cases. */
-export function carriedChildCasesFromReceipt(args: {
-	readonly createdChildren: readonly CreatedChildCaseReceipt[] | undefined;
-	readonly authoredChildren: readonly {
-		readonly caseType: string;
-		readonly caseName?: string;
-	}[];
-	readonly parentCaseIds: readonly string[];
-}): CarriedSubmission["childCases"] {
-	if (args.createdChildren === undefined) return [];
-	const expectedCount =
-		args.authoredChildren.length * args.parentCaseIds.length;
-	if (args.createdChildren.length !== expectedCount) {
-		throw new Error(
-			"The accepted submission returned an incomplete created-child receipt.",
-		);
-	}
-	const expectedPairs = new Set(
-		args.authoredChildren.flatMap((_child, authoredChildIndex) =>
-			args.parentCaseIds.map(
-				(parentCaseId) => `${authoredChildIndex}\u0000${parentCaseId}`,
-			),
-		),
-	);
-	const seenPairs = new Set<string>();
-	return args.createdChildren.map((createdChild) => {
-		const child = args.authoredChildren[createdChild.authoredChildIndex];
-		const pair = `${createdChild.authoredChildIndex}\u0000${createdChild.parentCaseId}`;
-		if (
-			child === undefined ||
-			!expectedPairs.has(pair) ||
-			seenPairs.has(pair)
-		) {
-			throw new Error(
-				"The accepted submission returned an invalid created-child receipt.",
-			);
-		}
-		seenPairs.add(pair);
-		return {
-			caseType: child.caseType,
-			caseId: createdChild.caseId,
-			...(child.caseName !== undefined && { caseName: child.caseName }),
-		};
-	});
 }
 
 function previewCaseChoiceIdsEqual(

@@ -1,0 +1,201 @@
+{
+	"owner": "doc",
+	"files": [],
+	"supplementalReview": [
+		{
+			"file": "lib/doc/__tests__/hooks-useBlueprintMutations.test.tsx",
+			"status": "removed",
+			"review": "Command behavior previously executed through a rendered hook now calls the actual createBlueprintMutations production owner directly with an actual document store. Fifty Node cases retain command admission, immutable command capture, anchored ordering, history, case-property, media, Connect, automation and stale-review behavior. Removed one duplicate useMaterialize UUID assertion. React context/memo adapter remains used by the retained active-search subscription test and native browser integration.",
+			"replacements": ["lib/doc/__tests__/blueprintMutationCommands.test.ts"],
+			"priorSha256": "22f480406e5cd7bb2eaaf5c9ac9c7867670a471bdb9803fab352a7d02ea15005",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/caseListSurfaceMoveHook.test.tsx",
+			"status": "removed",
+			"review": "Two index-to-anchor cases now call the real command factory directly in Node and verify the captured single anchored mutation and actual independent Results/Details order. Rendering had no ownership role in these command assertions. No browser gesture claim.",
+			"replacements": ["lib/doc/__tests__/caseListSurfaceMoveCommands.test.ts"],
+			"priorSha256": "bbdd4c86ffa1096b9ec8b9155fb0cfd94ffbeb8e55deb8078a49ce0816d61452",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useSearchFilter.test.tsx",
+			"status": "revised",
+			"review": "Nine search business cases now call the real deriveSearchFilter production projection directly over admitted documents and actual localized-domain values. One retained React test proves idle non-subscription, fresh snapshot upon activation, and active update invalidation using the actual mutation hook. No DOM matching or layout claim.",
+			"replacements": [
+				"lib/doc/__tests__/searchFilterProjection.test.ts",
+				"lib/doc/__tests__/searchFilterFixture.ts"
+			],
+			"priorSha256": "4c1526f3c7de829eed1e7496cf6788ca9992d49b4c4a7638ba0c3351de5dd866",
+			"reviewedSha256": "1786f5197ad822b8fa40643ed631451a13e8d9b2a225a51ff50daee401f95a1b"
+		},
+		{
+			"file": "lib/doc/__tests__/hooks.test.tsx",
+			"status": "revised",
+			"review": "Retains four React subscription/memo invalidation cases, each observing both unrelated quiet changes and relevant updates. Removed initial primitive/missing-value mappings and organization ordering assertions that did not require React. Three threshold and populated nested-container cases now call the actual largeFormInitialCollapsedUuids production projection directly in Node.",
+			"replacements": ["lib/doc/__tests__/largeFormCollapseProjection.test.ts"],
+			"priorSha256": "0d97d9df472e09d68b336e9483e09607d380aaef007f7f4721d7b5628811768a",
+			"reviewedSha256": "634c03b6f54333cf90b5aa40d0cda76535b17add049176f7fefac77711b895b9"
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useAppConnectIds.test.tsx",
+			"status": "revised",
+			"review": "Retains one actual structural subscription identity case over admitted same-store Connect mode transitions and unrelated edits. The exclusion helper business assertion moved to one direct Node case with explicit located IDs.",
+			"replacements": ["lib/doc/__tests__/connectIdsExcept.test.ts"],
+			"priorSha256": "65c8f1df4de8ccd2acef7a0efc19e5ad769b87746a0c1a64da2f5f58a06fed5b",
+			"reviewedSha256": "ab97c737074c5861cbdcde39f552cd5497a404f9fca87b4595926cd88fa453c8"
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useConnectType.test.tsx",
+			"status": "removed",
+			"review": "Removed five primitive one-line selector mapping cases without an independent behavior claim. Admitted Connect business transitions and the actual structural selector lifecycle are owned by the command/projection and Connect subscription tests.",
+			"replacements": [],
+			"priorSha256": "dfb1d421a33c8c7da997cdf8278c6528407e2fc01db282025c48e1ea11be2c07",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-selectorSubscriptions.test.tsx",
+			"status": "revised",
+			"review": "Removed two initial absent-selection mapping cases. Retains four actual React subscription cases: history-state publication, paired entity/order projection invalidation, primitive selector invalidation, and stable imperative callback reading the latest committed document without subscription.",
+			"replacements": [],
+			"priorSha256": "065637c77d961d4818fcdaf63f3f6a607515bbcd0f9e8a62b4caad7c199bc490",
+			"reviewedSha256": "2ff254f638b1d51f3bbdacfbd7c79fb0fc2ff9603334ab6c782d8a26213d9c46"
+		},
+		{
+			"file": "lib/doc/__tests__/useCaseWriteChoices.test.tsx",
+			"status": "retained",
+			"review": "Five retained cases exercise actual effect-owned choice proof lifecycle: worker request/receipt binding, field-context and document invalidation, cancellation/unmount, and late or post-close completion. Controlled transport executes the actual evaluateCaseWriteVerdictBatch; receipts prove real gate admission. Worker transport control is an external boundary, and browser ErrorEvent callback delivery is not claimed as native browser proof.",
+			"replacements": [],
+			"priorSha256": "5cef7190dc60e66fe1e7e968a0b32484b41c7704c682df32a7350d94de9fb464",
+			"reviewedSha256": "5cef7190dc60e66fe1e7e968a0b32484b41c7704c682df32a7350d94de9fb464"
+		},
+		{
+			"file": "lib/doc/hooks/__tests__/useAutoSave.runtime.test.tsx",
+			"status": "retained",
+			"review": "Four actual React effect-owned autosave cases exercise the production store, reconciler, queue and gates. Only external transport is deferred. They prove observer subscription/status publication, timer/task ownership, unmount cancellation and prevention of late queued dispatch. Reconciliation business rules retain their direct Node tests; these cases make no native browser networking claim.",
+			"replacements": [],
+			"priorSha256": "5ed5f28d9d6ee2cdefce01e2296f39342847e3df7eb31b1ceea12ac725024b27",
+			"reviewedSha256": "5ed5f28d9d6ee2cdefce01e2296f39342847e3df7eb31b1ceea12ac725024b27"
+		}
+	],
+	"changedPaths": [
+		"lib/doc/__tests__/hooks-useBlueprintMutations.test.tsx",
+		"lib/doc/__tests__/caseListSurfaceMoveHook.test.tsx",
+		"lib/doc/__tests__/hooks-useSearchFilter.test.tsx",
+		"lib/doc/__tests__/hooks.test.tsx",
+		"lib/doc/__tests__/hooks-useAppConnectIds.test.tsx",
+		"lib/doc/__tests__/hooks-useConnectType.test.tsx",
+		"lib/doc/__tests__/hooks-selectorSubscriptions.test.tsx",
+		"lib/doc/__tests__/blueprintMutationCommands.test.ts",
+		"lib/doc/__tests__/caseListSurfaceMoveCommands.test.ts",
+		"lib/doc/__tests__/searchFilterProjection.test.ts",
+		"lib/doc/__tests__/searchFilterFixture.ts",
+		"lib/doc/__tests__/largeFormCollapseProjection.test.ts",
+		"lib/doc/__tests__/connectIdsExcept.test.ts",
+		"lib/doc/hooks/useBlueprintMutations.ts",
+		"lib/doc/hooks/useSearchFilter.ts",
+		"lib/doc/hooks/useOrderedFields.ts",
+		"lib/doc/CLAUDE.md"
+	],
+	"checks": [
+		{
+			"command": "Scoped Vitest run of eleven revised/replacement/retained React-boundary files through the shared one-worker admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/doc/react-boundaries-first.log",
+			"result": "11 files, 84 tests passed; 65 direct Node cases and 19 actual React subscription/effect cases."
+		},
+		{
+			"command": "Scoped Vitest run of direct mutation commands and case-list surface commands",
+			"log": "/tmp/nova-test-audit-parallel/doc/mutation-commands-first.log",
+			"result": "2 files, 52 tests passed."
+		},
+		{
+			"command": "Scoped Biome check --write on thirteen changed source/test files",
+			"log": "/tmp/nova-test-audit-parallel/doc/react-boundaries-biome-second.log",
+			"result": "13 files passed; no diagnostics remained."
+		},
+		{
+			"command": "Final Biome check on three extracted production owners and hooks.test.tsx",
+			"result": "4 files passed; no fixes applied."
+		},
+		{
+			"command": "Babel AST comparison of former useMemo bodies with extracted production bodies",
+			"log": "/tmp/nova-test-audit-parallel/doc/react-source-extraction.json",
+			"result": "All three bodies unchanged after excluding positions/comments. Structural check supports behavior-preserving extraction; runtime evidence is the actual tests and root native browser integration."
+		},
+		{
+			"command": "Scoped one-worker Vitest searchFilterProjection.test.ts following fixture type correction",
+			"log": "/tmp/nova-test-audit-parallel/doc/search-projection-typefix.log",
+			"result": "1 file, 9 tests passed."
+		},
+		{
+			"command": "Scoped Biome check searchFilterProjection.test.ts",
+			"log": "/tmp/nova-test-audit-parallel/doc/search-projection-typefix-biome.log",
+			"result": "Passed; no fixes applied."
+		}
+	],
+	"bugs": [],
+	"docsNeeded": [],
+	"blockedBy": [],
+	"priorHashes": {
+		"lib/doc/__tests__/hooks-useSearchFilter.test.tsx": "4c1526f3c7de829eed1e7496cf6788ca9992d49b4c4a7638ba0c3351de5dd866",
+		"lib/doc/__tests__/hooks.test.tsx": "0d97d9df472e09d68b336e9483e09607d380aaef007f7f4721d7b5628811768a",
+		"lib/doc/__tests__/hooks-useAppConnectIds.test.tsx": "65c8f1df4de8ccd2acef7a0efc19e5ad769b87746a0c1a64da2f5f58a06fed5b",
+		"lib/doc/__tests__/hooks-useBlueprintMutations.test.tsx": "22f480406e5cd7bb2eaaf5c9ac9c7867670a471bdb9803fab352a7d02ea15005",
+		"lib/doc/__tests__/hooks-useConnectType.test.tsx": "dfb1d421a33c8c7da997cdf8278c6528407e2fc01db282025c48e1ea11be2c07",
+		"lib/doc/__tests__/hooks-selectorSubscriptions.test.tsx": "065637c77d961d4818fcdaf63f3f6a607515bbcd0f9e8a62b4caad7c199bc490",
+		"lib/doc/__tests__/useCaseWriteChoices.test.tsx": "5cef7190dc60e66fe1e7e968a0b32484b41c7704c682df32a7350d94de9fb464",
+		"lib/doc/__tests__/caseListSurfaceMoveHook.test.tsx": "bbdd4c86ffa1096b9ec8b9155fb0cfd94ffbeb8e55deb8078a49ce0816d61452",
+		"lib/doc/hooks/__tests__/useAutoSave.runtime.test.tsx": "5ed5f28d9d6ee2cdefce01e2296f39342847e3df7eb31b1ceea12ac725024b27",
+		"lib/doc/hooks/useBlueprintMutations.ts": "5748c2c83387cdcecfcad5d68d83d95350104be4cd0e9104f0445851ff7878bc",
+		"lib/doc/hooks/useSearchFilter.ts": "4f185ddc8f4cd746d788734f2cabbd1f5e4223c224131156c3fb1687ca8f2d0c",
+		"lib/doc/hooks/useOrderedFields.ts": "c1c3247f3ed6a6352dcba6514e759c0ac9befe812dedccc518b9c8a70e170009"
+	},
+	"inProgress": [],
+	"sourceExtractions": [
+		{
+			"file": "lib/doc/hooks/useBlueprintMutations.ts",
+			"owner": "useBlueprintMutations",
+			"factory": "createBlueprintMutations",
+			"commandBodyAstUnchanged": true
+		},
+		{
+			"file": "lib/doc/hooks/useSearchFilter.ts",
+			"owner": "useSearchFilter",
+			"factory": "deriveSearchFilter",
+			"commandBodyAstUnchanged": true
+		},
+		{
+			"file": "lib/doc/hooks/useOrderedFields.ts",
+			"owner": "useLargeFormInitialCollapsedUuids",
+			"factory": "largeFormInitialCollapsedUuids",
+			"commandBodyAstUnchanged": true
+		}
+	],
+	"hashes": {
+		"lib/doc/__tests__/hooks-useBlueprintMutations.test.tsx": null,
+		"lib/doc/__tests__/caseListSurfaceMoveHook.test.tsx": null,
+		"lib/doc/__tests__/hooks-useSearchFilter.test.tsx": "1786f5197ad822b8fa40643ed631451a13e8d9b2a225a51ff50daee401f95a1b",
+		"lib/doc/__tests__/hooks.test.tsx": "634c03b6f54333cf90b5aa40d0cda76535b17add049176f7fefac77711b895b9",
+		"lib/doc/__tests__/hooks-useAppConnectIds.test.tsx": "ab97c737074c5861cbdcde39f552cd5497a404f9fca87b4595926cd88fa453c8",
+		"lib/doc/__tests__/hooks-useConnectType.test.tsx": null,
+		"lib/doc/__tests__/hooks-selectorSubscriptions.test.tsx": "2ff254f638b1d51f3bbdacfbd7c79fb0fc2ff9603334ab6c782d8a26213d9c46",
+		"lib/doc/__tests__/blueprintMutationCommands.test.ts": "dc393872ea74ac24b6e6c37db4161a77c6722e96fdb08280b5f286190e65ba13",
+		"lib/doc/__tests__/caseListSurfaceMoveCommands.test.ts": "fcceeb44feaddf963e75f4f5068f8a70bab7607ad386af3b17503c1e23a2c822",
+		"lib/doc/__tests__/searchFilterProjection.test.ts": "39b479c6e51eab274cbbc5690b5b9b82f993a77c96b6ddda53f48106d8cb868f",
+		"lib/doc/__tests__/searchFilterFixture.ts": "b185f23f226d25ae59462b0d141cf73600671b413e442aaaf6819682ee9fa8e9",
+		"lib/doc/__tests__/largeFormCollapseProjection.test.ts": "828746be87df7ae6e66bea042e62b1241cca69ce4303cb59db8bff6b6bc3592e",
+		"lib/doc/__tests__/connectIdsExcept.test.ts": "62e957731456248d96c647ceb999da68a727de82b0f21141db367c581a12d2c2",
+		"lib/doc/hooks/useBlueprintMutations.ts": "5bcadf1fee730831b37672aa69849af9ebc6fc7f462853c831e436ccc09eb24c",
+		"lib/doc/hooks/useSearchFilter.ts": "37f63f2b276f6d5960d9dbacd3da303cd738b9b09f331e8674558c565c7b86c9",
+		"lib/doc/hooks/useOrderedFields.ts": "92a6b15d637ecf65be61724564ed291323ea14d830cca03c498a36976d34f24f",
+		"lib/doc/CLAUDE.md": "9f6546ac75081a6090be29b85209d5ab1e22c2f6b5f017f87b15b688e91b2835"
+	},
+	"integrationFollowups": [
+		{
+			"file": "lib/doc/__tests__/searchFilterProjection.test.ts",
+			"priorSha256": "c21edd20ed21d5d48de640a9718263fa9e61aabc14805b96b1b43123e2481537",
+			"reviewedSha256": "39b479c6e51eab274cbbc5690b5b9b82f993a77c96b6ddda53f48106d8cb868f",
+			"review": "Global TypeScript validation found that spreading BlueprintDoc preserved optional userProperties whereas SearchEntityData requires the property with an undefined-capable value. The direct fixture now explicitly sets userProperties: doc.userProperties, exactly matching the actual hook selector. No cast, type weakening, production change, or behavioral test alteration."
+		}
+	]
+}

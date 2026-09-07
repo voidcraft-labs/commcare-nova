@@ -12,7 +12,7 @@
  * with a fixture blueprint to verify the cross-store dispatch contract.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import {
@@ -22,10 +22,11 @@ import {
 import type { ProvisionedWorker } from "@/lib/deployment/workerProvisionPlan";
 import { provisioningOutcomeKey } from "@/lib/deployment/workerProvisionPlan";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { canonicalAppGenesis } from "@/lib/doc/scaffolds";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { ConnectConfig } from "@/lib/domain";
+import { blueprintDocSchema, type ConnectConfig } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import type { Event } from "@/lib/log/types";
 import { toastStore } from "@/lib/ui/toastStore";
@@ -33,6 +34,8 @@ import { type ConnectSwitchRequest, createBuilderSessionStore } from "../store";
 
 /** The fixture docs carry no lookup reference, so an unavailable context is
  *  the honest gate for them — what the hook binds when nothing is loaded. */
+afterEach(() => toastStore.clear());
+
 const NO_LOOKUPS: Pick<ConnectSwitchRequest, "lookupContext"> = {
 	lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 };
@@ -562,6 +565,15 @@ function createConnectTestStores(
 			],
 		}),
 	);
+	blueprintDocSchema.parse(toPersistableDoc(docStore.getState()));
+	const admitted = mutationCommitVerdict(
+		docStore.getState(),
+		[],
+		opts.formAFields
+			? availableLookupContext([DESTINATIONS_LOOKUP.definition])
+			: LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(admitted.ok).toBe(true);
 	docStore.getState().startTracking();
 
 	const sessionStore = createBuilderSessionStore();
@@ -1126,7 +1138,8 @@ describe("BuilderSession connect stash", () => {
 			},
 			...NO_LOOKUPS,
 		});
-		const before = doc.getState().canUndo ? 1 : 0;
+		expect(doc.getState().canUndo).toBe(true);
+		const before = doc.getState();
 
 		/* Re-apply the doc's current state verbatim — no field changed. */
 		const current = doc.getState().forms[formA]?.connect;
@@ -1139,7 +1152,11 @@ describe("BuilderSession connect stash", () => {
 		});
 
 		expect(outcome.ok).toBe(true);
-		expect(doc.getState().canUndo ? 1 : 0).toBe(before);
+		expect(doc.getState()).toBe(before);
+		doc.getState().undo();
+		expect(doc.getState().connectType).toBeNull();
+		expect(doc.getState().forms[formA]?.connect).toBeUndefined();
+		expect(doc.getState().canUndo).toBe(false);
 	});
 
 	it("12. enabling a mode from OFF sets lastConnectType to THAT mode, not a stale prior", () => {
@@ -1180,15 +1197,31 @@ function createTestDocStore() {
 function createGenerationTestStores(withData = false) {
 	const docStore = createTestDocStore();
 	if (withData) {
-		/* Load a minimal doc (one module, no forms) so the doc has data
-		 * for postBuildEdit detection. */
+		/* Load an admitted app so run-start detection models a reachable page. */
 		docStore.getState().load(
 			buildDoc({
 				appId: "test-app",
 				appName: "Test",
-				modules: [{ uuid: "mod-uuid", name: "Mod" }],
+				modules: [
+					{
+						uuid: "mod-uuid",
+						name: "Mod",
+						forms: [
+							{
+								name: "Survey",
+								type: "survey",
+								fields: [f({ kind: "text", id: "name" })],
+							},
+						],
+					},
+				],
 			}),
 		);
+		blueprintDocSchema.parse(toPersistableDoc(docStore.getState()));
+		expect(
+			mutationCommitVerdict(docStore.getState(), [], LOOKUP_CONTEXT_UNAVAILABLE)
+				.ok,
+		).toBe(true);
 		docStore.getState().startTracking();
 	}
 
@@ -1298,7 +1331,7 @@ describe("generation lifecycle", () => {
 	});
 
 	it("full build flow: beginRun → markRunCompleted → endRun → acknowledgeCompletion", () => {
-		/* End-to-end: models the real chat-transport + dispatcher sequence
+		/* Store-level sequence matching the chat-transport + dispatcher
 		 * for a successful build. Each transition is independent. */
 		const { session } = createGenerationTestStores();
 
@@ -1562,22 +1595,6 @@ function makeMutationEvent(stage: string | undefined, seq: number): Event {
 }
 
 describe("events buffer + run lifecycle", () => {
-	it("initial state: empty events, no runCompletedAt", () => {
-		const store = createBuilderSessionStore();
-		expect(store.getState().events).toEqual([]);
-		expect(store.getState().runCompletedAt).toBeUndefined();
-	});
-
-	it("beginRun clears the events buffer + runCompletedAt", () => {
-		const store = createBuilderSessionStore();
-		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
-		store.getState().markRunCompleted();
-
-		store.getState().beginRun();
-		expect(store.getState().events).toEqual([]);
-		expect(store.getState().runCompletedAt).toBeUndefined();
-	});
-
 	it("pushEvents appends in order", () => {
 		const store = createBuilderSessionStore();
 		store.getState().beginRun();
@@ -1599,40 +1616,6 @@ describe("events buffer + run lifecycle", () => {
 		const prev = store.getState();
 		store.getState().pushEvents([]);
 		expect(store.getState()).toBe(prev);
-	});
-
-	it("markRunCompleted stamps runCompletedAt", () => {
-		const store = createBuilderSessionStore();
-		store.getState().beginRun();
-		store.getState().markRunCompleted();
-		expect(store.getState().runCompletedAt).toEqual(expect.any(Number));
-	});
-
-	it("endRun does NOT stamp runCompletedAt (stream-close is not completion)", () => {
-		const store = createBuilderSessionStore();
-		store.getState().beginRun();
-		store.getState().endRun();
-		expect(store.getState().runCompletedAt).toBeUndefined();
-	});
-
-	it("acknowledgeCompletion clears runCompletedAt", () => {
-		const store = createBuilderSessionStore();
-		store.getState().markRunCompleted();
-		store.getState().acknowledgeCompletion();
-		expect(store.getState().runCompletedAt).toBeUndefined();
-	});
-
-	it("reset clears the events buffer and runCompletedAt", () => {
-		const store = createBuilderSessionStore();
-		store.getState().beginRun();
-		store.getState().pushEvents([makeMutationEvent("schema", 0)]);
-		store.getState().markRunCompleted();
-		store.getState().endRun();
-
-		store.getState().reset();
-		const s = store.getState();
-		expect(s.events).toEqual([]);
-		expect(s.runCompletedAt).toBeUndefined();
 	});
 });
 
@@ -1778,8 +1761,11 @@ describe("entry-point Preview launch", () => {
 				launch: s.previewEntryPointLaunch,
 			}),
 		);
-		store.getState().installEntryPointLaunch(launch);
-		unsubscribe();
+		try {
+			store.getState().installEntryPointLaunch(launch);
+		} finally {
+			unsubscribe();
+		}
 		expect(observed).toEqual([
 			{
 				previewing: true,

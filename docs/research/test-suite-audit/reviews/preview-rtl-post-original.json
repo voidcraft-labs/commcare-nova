@@ -1,0 +1,168 @@
+{
+	"owner": "preview",
+	"phase": "post-original-method-reassessment",
+	"files": [
+		{
+			"file": "components/preview/form/fields/attachment/__tests__/AttachmentField.test.tsx",
+			"previousReviewSha256": "74dc4d730b971fb50e48e747ff5a79b4e2b0150b2e1a44781f621c1c3c63315a",
+			"status": "revised",
+			"review": "Replaced 2205 lines of synthetic file changes, click/retry/clear assertions, copied transport results and accessibility checks with one direct React adapter lifecycle. Seed the real attachment coordinator with an already confirmed capture; actual control unmount/remount preserves ownership, and a supplied empty answer schedules the real HTTP DELETE without inventing an answer edit. No fake DOM gestures, canvas geometry or wrapper-stage mocks remain. Native attachment and FormScreen peers prove real file selection, upload bytes, confirmed answer publication and native controls; attachmentClient/attachmentHttp and controller migration owners retain queue, authority, retry and retarget rules.",
+			"reviewedSha256": "70a6ba65c9d11c5735d4faa9c8375a3c34b7759dd495c7bcfdb2259cd5db06c2"
+		},
+		{
+			"file": "components/preview/form/fields/attachment/__tests__/SignaturePad.test.tsx",
+			"previousReviewSha256": "5e4fd7dcf3c26d3b36e8e60fd10bb5d42cc00b0a795039e0a949e228001d8c20",
+			"status": "revised",
+			"review": "Replaced 1426 lines of invented pointer geometry, drawing, clear/undo gestures and mocked pixels with three React encoder-lifetime adapter cases. Seed real retained ink programmatically; control only the native toBlob callback boundary, proving old-entry rejection, abandoned-encoding/remount resumption and null-encoding submission refusal. Real queue/barrier cleanup remains owned and timers are cancelled on teardown. Existing native attachment journey owns actual pointer drawing, PNG bytes/pixels, resizing, clear and undo.",
+			"reviewedSha256": "74f4e669ea6804c058290ef67fe358f5d9adcbad3adb44cabb087a6618da865b"
+		},
+		{
+			"file": "components/preview/form/virtual/__tests__/useFormRows.test.tsx",
+			"previousReviewSha256": "86ae338daa4820264ae80c2cdd352ad3f918f06f4a923d8b20b171baf4426cf1",
+			"status": "revised",
+			"review": "Removed static insertion-row projection restatement already owned by rowModel. Kept only actual doc-store subscription, unrelated-mutation reference stability and collapse-prop dependency updates. Mutations apply to admitted documents through the real store; no browser interaction claims.",
+			"reviewedSha256": "de100c40cb20a156e62114d8cce1a1810ab3c585dcca7fceca1c9296397f73b2"
+		},
+		{
+			"file": "components/preview/screens/__tests__/CaseListScreen.test.tsx",
+			"previousReviewSha256": "fe1d3dcd3a56074473f38b6fd2c9475f09f2e183ece2b352514b8413c2302af9",
+			"status": "removed",
+			"review": "Removed 3979-line synthetic DOM workflow suite. Pure orderedCaseSelection, menuProjection, display-condition/search evaluation and runtime search owners prove state decisions; useCaseDataBinding retains actual resource/scope/reload binding. Native preview-cases peer proves independent cell actions, responsive card/detail geometry, paginated selection order, real review dialog, rejection of a held old-Project validation response and ordered continuation despite reversed transport row order. Existing authenticated case-change/search-first/grouped-tile/after-submit journeys prove application composition. No fake click, focus, geometry or substring workflow is counted as browser evidence.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/preview/screens/__tests__/FormScreen.test.tsx",
+			"previousReviewSha256": "8b36bd2fe6a765b3f5d12270087e784d40fc87b67c99f58ff91f5c0a828f8582",
+			"status": "removed",
+			"review": "Removed 4088-line synthetic DOM workflow suite and copied action/error arms. Moved its genuine created-child receipt projection unchanged into existing afterSubmitRouting production owner and tested it directly. Existing FormEngine, controller async/snapshot, attachment coordinator, action/Postgres submission and form-link/routing owners remain authoritative. Added actual FormScreen/provider/controller native journey for required-field focus, real file upload barrier, disabled form while queued, paired submission digest/ref payload, error/Clear entry rotation, same-Project answer preservation and automatic changed-Project answer/entry teardown. Application native repeats and authenticated after-submit/case-change journeys cover structure and workflow composition. Fixture never reenacts a Project remount.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/preview/shared/__tests__/SearchInputForm.test.tsx",
+			"previousReviewSha256": "1e73cd0812af913fddcb02b7da7f4a9ae1b4bb57cd95493f086461e86ac88654",
+			"status": "removed",
+			"review": "Removed 1116 lines of synthetic typing/calendar/dialog events, widget dispatch and copied validation results. The existing native search peer now binds the real useSearchInputRunState owner and proves narrow/wide calendar geometry, incomplete-range validation, preserving the other date bound and complete submitted values. A second native journey controls only camera/detector APIs while using actual MediaStream tracks and native dialog/input interactions: late camera permission after cancellation, ordinary cancel and successful detection all end every track, and detected code reaches the actual submitted search. Domain date-range/search validation and new searchRunState tests own business rules.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/preview/engine/__tests__/provider.test.tsx",
+			"previousReviewSha256": "615068026b6d9d598440d25dce24fa7161b148c070fe99c0ac9baa7ea00114f4",
+			"status": "revised",
+			"review": "Removed four provider smoke/instance/passthrough tests. Retained only React-specific initialization before child effects, warm identity binding, Strict Mode runtime replay, unavailable-persona controller binding and confirmed Project/app/authority lifetime. These operate actual controller/session stores and do not pretend to prove browser navigation.",
+			"reviewedSha256": "fd7829e213c2cdfabcbadc990ab830c3732117ef477c5e588b4adbeb7bfdc748"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/useCaseDatabaseSnapshot.lifecycle.test.tsx",
+			"previousReviewSha256": "be481760520f7429a62d3bf5a99e2fbd7fd299cd2db6ec2ec0861d8c8e512775",
+			"status": "retained",
+			"review": "Reassessed all 105 lines. Retained a narrow positive/negative React commit adapter pair: the same loading snapshot mutates the controller after a committed layout phase but not when a descendant throws and React abandons that render. Controlled resource/controller boundaries intentionally isolate commit timing; SQL/snapshot contents and browser visibility are not claimed.",
+			"reviewedSha256": "be481760520f7429a62d3bf5a99e2fbd7fd299cd2db6ec2ec0861d8c8e512775"
+		},
+		{
+			"file": "lib/preview/hooks/__tests__/useCaseDataBinding.test.tsx",
+			"previousReviewSha256": "9f65432df87ccd17adce3d60a326c96bf3793b37df57bc05799f3001fa7d474c",
+			"status": "revised",
+			"review": "Removed eight thin curry, typed-error passthrough and no-provider smoke tests. Retained 21 direct React resource-lifetime cases against actual session/invalidation/reload owners: synchronous old-scope masking, delayed-response retirement, page/rule dependency identity, same-query dedupe, persona/revision/parent population changes and mutation invalidation. Controlled Server Action promises are the explicit transport boundary; no fake DOM interactions or SQL claims.",
+			"reviewedSha256": "3f4e3335c40c1502101ed4b21083818d1f77befc45e5d5d66c6a7e8107338e03"
+		},
+		{
+			"file": "lib/preview/hooks/__tests__/useCasePropertyRenamePreflight.test.tsx",
+			"previousReviewSha256": "0462fa1811a9dbec04d949754498d17476e6714444d22c0200aaa8a8076b0eb1",
+			"status": "revised",
+			"review": "Removed viewer argument passthrough and fixed-copy restatements. Kept only six direct request lifetime adapters: Project refresh, revocation, app change, unmount, newest response wins and refusing a send during refresh. Actual session store changes and owned deferred transport operations distinguish stale continuations; no browser gestures.",
+			"reviewedSha256": "b0b09474f0d3187d558ca8c9facbdac8159bc8b786a7f8536d85dd86600778a5"
+		},
+		{
+			"file": "lib/preview/hooks/__tests__/useEntryPointLaunch.test.tsx",
+			"previousReviewSha256": "b9791d3d6f8dfa885890f755962416b05023cd9037bca9f914de520a49cf08ed",
+			"status": "retained",
+			"review": "Reassessed the complete launch hook and 272-line suite. Its direct callbacks exercise actual admitted doc/session state and save-barrier/transport promises: route expiry, exact target installation, document generation and scope refusal, request settlement. This is a narrow asynchronous React adapter contract, with no DOM event fabrication. Native deep-link and Shell journeys separately own routing/UI evidence.",
+			"reviewedSha256": "b9791d3d6f8dfa885890f755962416b05023cd9037bca9f914de520a49cf08ed"
+		},
+		{
+			"file": "lib/preview/hooks/__tests__/useSearchInputRunState.test.tsx",
+			"previousReviewSha256": "646a98bfb93d120582b8c078163d1662554d25649af29bf319d7f5e6f752e912",
+			"status": "revised",
+			"review": "Moved search draft/submission/reconciliation rules into the production searchRunState owner and replaced 382-line hook business suite with two React adapter checks: stable submitted identity plus immediate scope masking; latest prospective hidden-value resolver after a session-only update while standing submitted values remain frozen. The latter catches and fixes the preexisting stale current.resolveHidden callback; the hook now exposes desired.resolveHidden. Six direct Node state cases cover default/edit/clear/scope reconciliation, explicit blank submits, forged hidden values versus restored searches, widget incompatibility/final-prompt removal, hidden rename/removal and fresh per-submit time.",
+			"reviewedSha256": "630dd56307fea7ccb5750f126baca6028d47cdc7c814c66bbfa8f953a14df447"
+		},
+		{
+			"file": "components/preview/__tests__/formScreenAfterSubmit.test.ts",
+			"previousReviewSha256": "701c5d5fa9aa2c7d074918f5369ba043eb1b9582e8078ccb4390e9a43a8a212c",
+			"status": "revised",
+			"review": "Supplement to the previously fully reviewed pure routing owner: moved FormScreen created-child receipt projection here unchanged. Direct 2-child x 2-parent expectations preserve authored index/parent mapping; added incomplete and duplicate receipt refusals before routing. Existing routing and menu context tests remain unchanged. This is a later pass over an already counted baseline file, not a new baseline completion.",
+			"reviewedSha256": "268b1c60d25543c07a17f19102e9563e11769df6309f1c44ebde5b692dacbb49"
+		}
+	],
+	"delegatedBaselineFiles": [
+		"components/preview/__tests__/PreviewShell.integration.test.tsx",
+		"components/preview/__tests__/PreviewShell.test.tsx",
+		"components/preview/form/__tests__/InteractiveFormRenderer.a11y.test.tsx",
+		"components/preview/form/fields/geopoint/__tests__/projectScopeContinuations.test.tsx"
+	],
+	"additionalSourceHashes": {
+		"lib/preview/engine/searchRunState.ts": "caff18e0f367f9e0536905e4165ddd01528bc0b082cdd30ed313079b6eb16342",
+		"lib/preview/hooks/useSearchInputRunState.ts": "a6408b596c59260420050dc286e564dfc7523fbd88f98803f6e491a79dd6c267",
+		"components/preview/screens/FormScreen.tsx": "33c7a070c0d2b07ec53dfe9d3c67eceb68dc6ffa49ad801451cf3cc9ec841c93",
+		"components/preview/screens/afterSubmitRouting.ts": "ab6422d72aad12430e8f4f50f08da270d284619e2a6a75506a735b07b12f33d5",
+		"lib/preview/CLAUDE.md": "22ac936fd90bcefcdd69f4a8e10b5c300ba18dfdd4caa8abcc06865b17497709",
+		"content/docs/case-workspace.mdx": "b488aaa2cd16b20fce9ca3f575ec90a5c61148ab5c64928e9a5ea5050dbaff54",
+		"content/docs/mcp/tools.mdx": "6e4cefa2193fbc8598b1be96377d6c7a8ed2c580c49346cffe18f6b9228e2684"
+	},
+	"newArtifactsOutsideOriginalDenominator": {
+		"lib/preview/engine/__tests__/searchRunState.test.ts": "c0fadd27702f5e3e1af3075b78f4b26e39e2353b866bfa29b45cdcd61ab0569e",
+		"e2e/lib/preview-form-lifecycle-client.tsx": "71359553e14b36cbb94f9dfd42a5e1dd8dc1f87c940c6a08f80f7a6f4b75fc53",
+		"e2e/lib/preview-form-lifecycle-boundary.ts": "0c8d1352b88fb05710c5b6913e98a3dad3efc5e68584b0e9d05859107beafaf2",
+		"e2e/tests/preview-form-lifecycle-audit.spec.ts": "b9ce80d0c4a6751d92e4900d27deaea3dfea8f0a8f4155dc1c03cc88835edf6a"
+	},
+	"updatedNativeArtifactHashes": {
+		"e2e/lib/preview-search-client.tsx": "722641cac2473def368b601291747e44a78a233e008ffc72654e24b322407694",
+		"e2e/tests/preview-search-audit.spec.ts": "239cf60e80be5e9e1586421c20959bfd1a7aa61b94871f0a06a35db905ae1748",
+		"e2e/lib/preview-cases-client.tsx": "47178294eeda56fa271ff759a420359f1a69546858e1d426a5301acbefd3f70f",
+		"e2e/lib/preview-cases-boundary.ts": "02b112ba221dc05a79cf82217012c186ff67182d4eb3dae5398d6b3bda5f5e1e",
+		"e2e/tests/preview-cases-audit.spec.ts": "bde70b20c32c0ea7b94d32e418b6a4ecf1f775c48d362bbcf8b5f757b35a085b"
+	},
+	"checks": [
+		{
+			"scope": "7 revised/new search, provider, preflight, row and attachment adapters",
+			"result": "26 tests passed; scoped leak detector used once while validating actual owned timer/encoder lifecycle"
+		},
+		{
+			"scope": "pure after-submit routing plus unchanged entry-point and snapshot commit adapters",
+			"result": "3 files passed in 4-file run; 34 tests passed. Fourth file had an empty describe after removal; fixed and rerun separately."
+		},
+		{
+			"scope": "useCaseDataBinding final revised file",
+			"result": "21 tests passed, 3.47 seconds"
+		},
+		{
+			"scope": "native search calendar and real-media barcode lifecycle",
+			"result": "2 tests passed, 1.3 seconds and 725 ms interactions"
+		},
+		{
+			"scope": "native case layout and new paginated ordered-selection/stale-Project response",
+			"result": "2 tests passed, 2.7 seconds total"
+		},
+		{
+			"scope": "native FormScreen lifecycle with final fail-closed unexpected snapshot boundary",
+			"result": "1 test passed, 1.8 seconds total"
+		},
+		{
+			"scope": "changed code Biome",
+			"result": "21-file initial check fixed formatting/imports; one helper named useSeveralCasePopulation falsely appeared to be a hook, renamed configureSeveralCasePopulation; final 8-file and final boundary checks passed"
+		}
+	],
+	"bugs": [
+		{
+			"file": "lib/preview/hooks/useSearchInputRunState.ts",
+			"finding": "A session-only or lookup-only change can preserve authored revision, leaving current.resolveHidden captured against an obsolete context. Prospective Search validation uses that callback although submit already resolves desired inputs.",
+			"fix": "Return desired.resolveHidden while preserving stored submittedHidden and stable submitted map until a new Search. Direct React discriminator changes worker only and observes new prospective value alongside frozen previous search."
+		}
+	],
+	"docsUpdated": [
+		"lib/preview/CLAUDE.md",
+		"content/docs/case-workspace.mdx",
+		"content/docs/mcp/tools.mdx"
+	],
+	"blockedBy": []
+}

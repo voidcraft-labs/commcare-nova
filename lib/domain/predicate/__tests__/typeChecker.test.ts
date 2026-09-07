@@ -3,9 +3,8 @@
 // Acceptance tests for the schema-driven predicate type checker. Each
 // `it` pins one operand-type rule by constructing a small predicate via
 // the builders and asserting the type checker's verdict on it. The
-// fixtures double as documentation for the rules themselves — changing
-// a test's expected verdict or message regex is the deliberate signal
-// that the rule changed at the code layer.
+// catalog is structural input to this checker. Carrier compatibility and
+// complete document admission are separate gates, not established here.
 //
 // Coverage spans three concentric layers: (1) comparison-operator
 // rules (resolution, ordering, compatibility), (2) recursion through
@@ -16,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { CaseType } from "@/lib/domain";
+import { type CaseType, caseTypeSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	ancestorPath,
@@ -86,7 +85,7 @@ import { MATCH_MODES, MULTI_SELECT_QUANTIFIERS } from "../types";
 // ordered-temporal arm of `ORDERED_TYPES`), single_select and
 // multi_select (string-coerced, with options — covers both arms of the
 // match text-shaped allow-list and the select-to-text widening).
-const PATIENT: CaseType = {
+const PATIENT = caseTypeSchema.parse({
 	name: "patient",
 	properties: [
 		{ name: "case_name", label: proseText("Case name"), data_type: "text" },
@@ -118,7 +117,7 @@ const PATIENT: CaseType = {
 			],
 		},
 	],
-};
+});
 
 // Default context — no declared search inputs. Tests that exercise
 // input-ref behavior shadow `knownInputs` locally so the default fixture
@@ -2310,7 +2309,7 @@ describe("checkExpression — count + format-date", () => {
 				properties: [
 					{ name: "age", label: proseText("Age"), data_type: "int" as const },
 					{
-						name: "name",
+						name: "case_name",
 						label: proseText("Name"),
 						data_type: "text" as const,
 					},

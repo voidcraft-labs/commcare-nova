@@ -1,13 +1,16 @@
-// @vitest-environment happy-dom
-
 import * as Sentry from "@sentry/nextjs";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
 	CLIENT_ERROR_LIMITS,
 	clientErrorUtf8Bytes,
 	normalizeClientErrorPayload,
 } from "@/lib/clientErrorContract";
-import { reportClientError } from "@/lib/clientErrorReporter";
+import { createClientErrorReporter } from "@/lib/clientErrorReporter";
+
+let reportClientError: ReturnType<typeof createClientErrorReporter>;
+beforeEach(() => {
+	reportClientError = createClientErrorReporter();
+});
 
 afterEach(() => {
 	vi.clearAllMocks();
@@ -16,7 +19,7 @@ afterEach(() => {
 
 describe("client error reporting", () => {
 	it("preserves the original Error and adds bounded structured Sentry context", () => {
-		const sendBeacon = vi.fn(() => true);
+		const sendBeacon = vi.fn((_url: string, _body: Blob) => true);
 		vi.stubGlobal("navigator", { sendBeacon });
 		const original = new Error("native failure");
 
@@ -102,7 +105,7 @@ describe("client error reporting", () => {
 		expect((captured as Error).stack).toBe(suppliedStack);
 	});
 
-	it("falls back to keepalive fetch when sendBeacon declines the report", () => {
+	it("falls back to keepalive fetch when sendBeacon declines the report", async () => {
 		const fetchMock = vi.fn(async () => new Response(null, { status: 204 }));
 		vi.stubGlobal("navigator", { sendBeacon: vi.fn(() => false) });
 		vi.stubGlobal("fetch", fetchMock);
@@ -113,6 +116,10 @@ describe("client error reporting", () => {
 			url: "https://app.example/build/app-3",
 		});
 
+		await expect(fetchMock.mock.results[0]?.value).resolves.toHaveProperty(
+			"status",
+			204,
+		);
 		expect(fetchMock).toHaveBeenCalledWith(
 			"/api/log/error",
 			expect.objectContaining({ method: "POST", keepalive: true }),
@@ -120,7 +127,7 @@ describe("client error reporting", () => {
 	});
 
 	it("deduplicates varying details by stable category and app", () => {
-		const sendBeacon = vi.fn(() => true);
+		const sendBeacon = vi.fn((_url: string, _body: Blob) => true);
 		vi.stubGlobal("navigator", { sendBeacon });
 		const common = {
 			message: "reporter-stable-dedup",
@@ -211,3 +218,47 @@ describe("client error reporting", () => {
 		);
 	});
 });
+
+it("bounds one document lifetime without sharing its budget with another document", () => {
+	const sendBeacon = vi.fn((_url: string, _body: Blob) => true);
+	vi.stubGlobal("navigator", { sendBeacon });
+	for (let index = 0; index < 11; index++) {
+		expect(
+			reportClientError({
+				message: `unique error ${index}`,
+				source: "manual",
+				url: "http://localhost/build/app",
+			}),
+		).toBe(index < 10);
+	}
+	expect(sendBeacon).toHaveBeenCalledTimes(10);
+	const nextDocument = createClientErrorReporter();
+	expect(
+		nextDocument({
+			message: "unique error 0",
+			source: "manual",
+			url: "http://localhost/build/app",
+		}),
+	).toBe(true);
+	expect(sendBeacon).toHaveBeenCalledTimes(11);
+});
+
+it.each(["window.onerror", "unhandledrejection"] as const)(
+	"relays %s once without duplicating the SDK capture",
+	async (source) => {
+		const sendBeacon = vi.fn((_url: string, _body: Blob) => true);
+		vi.stubGlobal("navigator", { sendBeacon });
+		const payload = {
+			message: "native global error",
+			source,
+			url: "http://localhost/build/app",
+		};
+		expect(reportClientError(payload)).toBe(true);
+		expect(reportClientError(payload)).toBe(false);
+		expect(Sentry.captureException).not.toHaveBeenCalled();
+		expect(sendBeacon).toHaveBeenCalledOnce();
+		const blob = sendBeacon.mock.calls[0][1] as Blob;
+		expect(blob.type).toBe("application/json");
+		expect(JSON.parse(await blob.text())).toMatchObject(payload);
+	},
+);

@@ -1,206 +1,155 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	type BlueprintDoc,
+	blueprintDocSchema,
 	collectTranslationUnits,
 	proseText,
+	type TranslationEntry,
+	type TranslationUnitId,
 	translationUnitIdSchema,
 } from "@/lib/domain";
 import { runValidation } from "../runner";
 
-describe("translation overlay validation", () => {
-	it("rejects orphan units, wrong value kinds, and changed current references", () => {
-		const answerUuid = testUuid("translation-answer");
-		const doc = buildDoc({
-			appName: "Clinic",
-			modules: [
-				{
-					name: "Intake",
-					forms: [
-						{
-							name: "Register",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "name", uuid: answerUuid }),
-								f({
-									kind: "label",
-									id: "greeting",
-									label: {
-										parts: [
-											{ kind: "text", text: "Hello " },
-											{ kind: "field-ref", uuid: answerUuid },
-										],
-									},
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const units = collectTranslationUnits(doc);
-		const appName = units.find((unit) => unit.role === "app-name");
-		const greeting = units.find(
-			(unit) =>
-				unit.role === "field-label" && unit.context.fieldId === "greeting",
-		);
-		expect(appName).toBeDefined();
-		expect(greeting).toBeDefined();
-		if (appName === undefined || greeting === undefined) return;
-		const orphan = translationUnitIdSchema.parse("tu1:orphan");
-		doc.localization = {
-			sourceLanguage: "eng",
-			defaultLanguage: "eng",
-			languageOrder: ["eng", "spa"],
-			translations: {
-				spa: {
-					[orphan]: {
-						value: "orphan",
-						sourceFingerprint: "old",
-						origin: "human",
-						review: "reviewed",
-						translatedFrom: "eng",
+const ANSWER = testUuid("translation-answer");
+function fixture() {
+	const doc = buildDoc({
+		appName: "Clinic",
+		modules: [
+			{
+				name: "Intake",
+				forms: [
+					{
+						name: "Register",
+						type: "survey",
+						fields: [
+							f({ kind: "text", id: "name", uuid: ANSWER }),
+							f({
+								kind: "label",
+								id: "greeting",
+								label: {
+									parts: [
+										{ kind: "text", text: "Hello " },
+										{ kind: "field-ref", uuid: ANSWER },
+									],
+								},
+							}),
+						],
 					},
-					[appName.id]: {
-						value: proseText("Clínica"),
-						sourceFingerprint: appName.sourceFingerprint,
-						origin: "human",
-						review: "reviewed",
-						translatedFrom: "eng",
-					},
-					[greeting.id]: {
-						value: proseText("Hola"),
-						sourceFingerprint: greeting.sourceFingerprint,
-						origin: "human",
-						review: "reviewed",
-						translatedFrom: "eng",
-					},
-				},
+				],
 			},
-		};
-
-		const codes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
-			(error) => error.code,
-		);
-		expect(codes).toEqual(
-			expect.arrayContaining([
-				"TRANSLATION_UNIT_UNKNOWN",
-				"TRANSLATION_VALUE_KIND_MISMATCH",
-				"TRANSLATION_PROTECTED_CONTENT_CHANGED",
-			]),
-		);
+		],
 	});
-
-	it("allows old protected tokens on an out-of-date entry because it is never emitted", () => {
-		const answerUuid = testUuid("translation-stale-answer");
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "Module",
-					forms: [
-						{
-							name: "Form",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "answer", uuid: answerUuid }),
-								f({ kind: "label", id: "copy", label: "New copy" }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const unit = collectTranslationUnits(doc).find(
-			(candidate) =>
-				candidate.role === "field-label" &&
-				candidate.context.fieldId === "copy",
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	const units = collectTranslationUnits(doc);
+	const app = units.find((u) => u.role === "app-name"),
+		greeting = units.find(
+			(u) => u.context.fieldId === "greeting" && u.role === "field-label",
 		);
-		expect(unit).toBeDefined();
-		if (unit === undefined) return;
-		doc.localization = {
-			sourceLanguage: "eng",
-			defaultLanguage: "eng",
-			languageOrder: ["eng", "spa"],
-			translations: {
-				spa: {
-					[unit.id]: {
-						value: {
-							parts: [{ kind: "field-ref", uuid: answerUuid }],
-						},
-						sourceFingerprint: "an-older-source-fingerprint",
-						origin: "human",
-						review: "reviewed",
-						translatedFrom: "eng",
-					},
+	if (!app || !greeting) throw new Error("Missing translation units");
+	return { doc, app, greeting };
+}
+function overlay(
+	doc: BlueprintDoc,
+	id: TranslationUnitId,
+	value: TranslationEntry["value"],
+	fingerprint: string,
+) {
+	doc.localization = {
+		sourceLanguage: "eng",
+		defaultLanguage: "eng",
+		languageOrder: ["eng", "spa"],
+		translations: {
+			spa: {
+				[id]: {
+					value,
+					sourceFingerprint: fingerprint,
+					origin: "human",
+					review: "reviewed",
+					translatedFrom: "eng",
 				},
 			},
-		};
-		const codes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
-			(error) => error.code,
+		},
+	};
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+}
+describe("translation overlay commit validation", () => {
+	it.each(["unknown", "kind", "reference", "blank", "locale-escape"] as const)(
+		"rejects one isolated %s defect from an admitted document",
+		(defect) => {
+			const { doc, app, greeting } = fixture();
+			const id =
+				defect === "unknown"
+					? translationUnitIdSchema.parse("tu1:orphan")
+					: defect === "reference"
+						? greeting.id
+						: app.id;
+			const value =
+				defect === "kind"
+					? proseText("Clínica")
+					: defect === "reference"
+						? proseText("Hola")
+						: defect === "blank"
+							? "  "
+							: defect === "locale-escape"
+								? String.raw`Clínica \n literal`
+								: "Unknown";
+			const expected = {
+				unknown: "TRANSLATION_UNIT_UNKNOWN",
+				kind: "TRANSLATION_VALUE_KIND_MISMATCH",
+				reference: "TRANSLATION_PROTECTED_CONTENT_CHANGED",
+				blank: "TRANSLATION_REQUIRED_CONTENT_BLANK",
+				"locale-escape": "APP_STRING_VALUE_UNREPRESENTABLE",
+			};
+			overlay(
+				doc,
+				id,
+				value,
+				defect === "reference"
+					? greeting.sourceFingerprint
+					: app.sourceFingerprint,
+			);
+			const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+			expect(errors.map((e) => e.code)).toEqual([expected[defect]]);
+			expect(errors[0].details).toMatchObject({ language: "spa", unitId: id });
+		},
+	);
+	it("admits the same protected-content difference only when its fingerprint is stale", () => {
+		const { doc, greeting } = fixture();
+		overlay(
+			doc,
+			greeting.id,
+			proseText("Old plain copy"),
+			"older-source-fingerprint",
 		);
-		expect(codes).not.toContain("TRANSLATION_PROTECTED_CONTENT_CHANGED");
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		overlay(
+			doc,
+			greeting.id,
+			proseText("Old plain copy"),
+			greeting.sourceFingerprint,
+		);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code),
+		).toEqual(["TRANSLATION_PROTECTED_CONTENT_CHANGED"]);
 	});
-
-	it("rejects a blank target for a slot whose worker-facing content is required", () => {
-		const doc = buildDoc({ appName: "Clinic" });
-		const unit = collectTranslationUnits(doc).find(
-			(candidate) => candidate.role === "app-name",
-		);
-		expect(unit).toBeDefined();
-		if (unit === undefined) return;
-		doc.localization = {
-			sourceLanguage: "eng",
-			defaultLanguage: "eng",
-			languageOrder: ["eng", "spa"],
-			translations: {
-				spa: {
-					[unit.id]: {
-						value: "  ",
-						sourceFingerprint: unit.sourceFingerprint,
-						origin: "human",
-						review: "reviewed",
-						translatedFrom: "eng",
-					},
-				},
+	it("admits a translated template that preserves the actual reference identity", () => {
+		const { doc, greeting } = fixture();
+		overlay(
+			doc,
+			greeting.id,
+			{
+				parts: [
+					{ kind: "text", text: "Hola " },
+					{ kind: "field-ref", uuid: ANSWER },
+				],
 			},
-		};
-		const codes = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
-			(error) => error.code,
+			greeting.sourceFingerprint,
 		);
-		expect(codes).toContain("TRANSLATION_REQUIRED_CONTENT_BLANK");
-	});
-
-	it("rejects a current app-string value that Core cannot round-trip", () => {
-		const doc = buildDoc({ appName: "Clinic" });
-		const unit = collectTranslationUnits(doc).find(
-			(candidate) => candidate.role === "app-name",
-		);
-		if (unit === undefined) throw new Error("Expected app-name unit.");
-		doc.localization = {
-			sourceLanguage: "eng",
-			defaultLanguage: "eng",
-			languageOrder: ["eng", "spa"],
-			translations: {
-				spa: {
-					[unit.id]: {
-						value: String.raw`Clínica \n literal`,
-						sourceFingerprint: unit.sourceFingerprint,
-						origin: "human",
-						review: "reviewed",
-						translatedFrom: "eng",
-					},
-				},
-			},
-		};
-
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors).toEqual(
-			expect.arrayContaining([
-				expect.objectContaining({
-					code: "APP_STRING_VALUE_UNREPRESENTABLE",
-				}),
-			]),
-		);
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 	});
 });

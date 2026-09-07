@@ -8,6 +8,7 @@ import {
 	LOOKUP_MAX_ROWS,
 	LOOKUP_MAX_TABLE_BYTES,
 } from "@/lib/lookup/constants";
+import { lookupRevisionSchema } from "@/lib/lookup/schema";
 import type {
 	LookupColumn,
 	LookupRevision,
@@ -36,7 +37,6 @@ import {
 	reconcileConflictDraft,
 	reconcileRevisionedTextDraft,
 	reconcileRowDraft,
-	replacementConflictVerdict,
 	retainedRowRecoveries,
 	rowAdditionRefusal,
 	rowDraftToValues,
@@ -106,7 +106,7 @@ function row(entries: Record<string, string | number>): LookupRow {
 	};
 }
 
-const revision = (value: string) => value as LookupRevision;
+const revision = (value: string) => lookupRevisionSchema.parse(value);
 const draft = (entries: Record<string, string | undefined>) =>
 	Object.fromEntries(
 		Object.entries(entries).map(([key, text]) => [key, { text }]),
@@ -227,8 +227,8 @@ describe("filterRows", () => {
 	});
 
 	it("matches the text the grid shows, case-insensitively, across columns", () => {
-		expect(filterRows(rows, columns, "kitgum")).toHaveLength(1);
-		expect(filterRows(rows, columns, "22")).toHaveLength(1);
+		expect(filterRows(rows, columns, "kitgum")).toStrictEqual([rows[0]]);
+		expect(filterRows(rows, columns, "22")).toStrictEqual([rows[1]]);
 	});
 
 	it("never matches a missing cell against the empty string", () => {
@@ -265,7 +265,7 @@ describe("rowWriteConflictVerdict", () => {
 				current: row({ [nameColumnId]: "Kitgum" }),
 				columnsChanged: false,
 			}),
-		).toEqual({ kind: "retry" });
+		).toStrictEqual({ kind: "retry" });
 	});
 
 	it("asks when this row changed underneath — never overwriting silently", () => {
@@ -275,7 +275,7 @@ describe("rowWriteConflictVerdict", () => {
 				current: row({ [nameColumnId]: "Kitgum Health Centre" }),
 				columnsChanged: false,
 			}),
-		).toEqual({ kind: "ask", reason: "row-changed" });
+		).toStrictEqual({ kind: "ask", reason: "row-changed" });
 	});
 
 	it("asks when the definition moved, even if the row's cells did not", () => {
@@ -287,7 +287,7 @@ describe("rowWriteConflictVerdict", () => {
 				current: row({ [nameColumnId]: "Kitgum" }),
 				columnsChanged: true,
 			}),
-		).toEqual({ kind: "ask", reason: "columns-changed" });
+		).toStrictEqual({ kind: "ask", reason: "columns-changed" });
 	});
 
 	it("reports a vanished row as gone rather than asking about nothing", () => {
@@ -297,7 +297,7 @@ describe("rowWriteConflictVerdict", () => {
 				current: undefined,
 				columnsChanged: false,
 			}),
-		).toEqual({ kind: "gone" });
+		).toStrictEqual({ kind: "gone" });
 	});
 });
 
@@ -313,7 +313,7 @@ describe("captureRowEditBaseline", () => {
 		openedRow.values[nameColumnId] = "Kitgum Health Centre";
 		opened.columns[0] = { ...nameColumn, label: "Facility name" };
 
-		expect(baseline).toEqual({
+		expect(baseline).toStrictEqual({
 			tableRevision: revision("1"),
 			row: row({ [nameColumnId]: "Kitgum" }),
 			columns: [nameColumn, codeColumn],
@@ -336,13 +336,13 @@ describe("row conflict resolution inputs", () => {
 				draft: mine,
 				resolution,
 			}),
-		).toEqual({
+		).toStrictEqual({
 			tableId,
 			expectedTableRevision: revision("9"),
 			rowId,
 			values: mine,
 		});
-		expect(conflictDeleteInput({ tableId, rowId, resolution })).toEqual({
+		expect(conflictDeleteInput({ tableId, rowId, resolution })).toStrictEqual({
 			tableId,
 			expectedTableRevision: revision("9"),
 			rowId,
@@ -356,20 +356,11 @@ describe("row conflict resolution inputs", () => {
 				draft: mine,
 				resolution,
 			}),
-		).toEqual({
+		).toStrictEqual({
 			tableId,
 			expectedTableRevision: revision("9"),
 			toIndex: 4,
 			values: mine,
-		});
-	});
-});
-
-describe("replacementConflictVerdict", () => {
-	it("never retries — a replacement over changed data is the destructive case", () => {
-		expect(replacementConflictVerdict()).toEqual({
-			kind: "ask",
-			reason: "table-replaced",
 		});
 	});
 });
@@ -384,7 +375,7 @@ describe("suggestWireName", () => {
 		expect(suggestWireName("Établissement")).toBe("etablissement");
 	});
 
-	it("never suggests a name the boundary would refuse", () => {
+	it("prefixes numeric and reserved xml names with a valid identifier start", () => {
 		// Must start with a letter or underscore…
 		expect(suggestWireName("2024 total")).toBe("c_2024_total");
 		// …and must not start with `xml`, which the wire rejects outright.
@@ -405,7 +396,7 @@ describe("rowDraftToValues", () => {
 			draft({ [nameColumnId]: "  ", [codeColumnId]: undefined }),
 			columns,
 		);
-		expect(result).toEqual({
+		expect(result).toStrictEqual({
 			ok: true,
 			values: { [nameColumnId]: "  " },
 		});
@@ -416,7 +407,7 @@ describe("rowDraftToValues", () => {
 			draft({ [nameColumnId]: "Kitgum", [codeColumnId]: "42" }),
 			columns,
 		);
-		expect(result).toEqual({
+		expect(result).toStrictEqual({
 			ok: true,
 			values: { [nameColumnId]: "Kitgum", [codeColumnId]: 42 },
 		});
@@ -446,7 +437,7 @@ describe("rowDraftToValues", () => {
 		const result = rowDraftToValues(draft({ [codeColumnId]: "2:30 PM" }), [
 			timeColumn,
 		]);
-		expect(result).toEqual({
+		expect(result).toStrictEqual({
 			ok: true,
 			values: { [codeColumnId]: "14:30:00Z" },
 		});
@@ -461,7 +452,7 @@ describe("rowDraftToValues", () => {
 		};
 		expect(
 			rowDraftToValues(draft({ [codeColumnId]: "14:30:05.125" }), [timeColumn]),
-		).toEqual({
+		).toStrictEqual({
 			ok: true,
 			values: { [codeColumnId]: "14:30:05.125Z" },
 		});
@@ -478,6 +469,25 @@ describe("rowDraftToValues", () => {
 			stampColumn,
 		]);
 		expect(result.ok).toBe(false);
+	});
+
+	it("refuses retained date-time text after a second separator instead of silently discarding it", () => {
+		const column: LookupColumn = {
+			id: datetimeColumnId,
+			wireName: "seen_at",
+			label: "Seen at",
+			dataType: "datetime",
+		};
+		const result = rowDraftToValues(
+			draft({ [datetimeColumnId]: "2026-03-04T14:30:00Textra" }),
+			[column],
+		);
+		expect(result.ok).toBe(false);
+		if (result.ok)
+			throw new Error("An incomplete timestamp cannot be committed");
+		expect(result.errors.get(datetimeColumnId)).toBe(
+			"Enter both a date and a time. Nova saves it with a timezone.",
+		);
 	});
 
 	it("does not trim numeric text into a different value", () => {
@@ -525,9 +535,9 @@ describe("rowValuesToDraft", () => {
 	it("round-trips through the draft without inventing values", () => {
 		const stored = values({ [nameColumnId]: "Kitgum" });
 		const draft = rowValuesToDraft(stored, [nameColumn, codeColumn]);
-		expect(draft[nameColumnId]).toEqual({ text: "Kitgum" });
-		expect(draft[codeColumnId]).toEqual({ text: undefined });
-		expect(rowDraftToValues(draft, [nameColumn, codeColumn])).toEqual({
+		expect(draft[nameColumnId]).toStrictEqual({ text: "Kitgum" });
+		expect(draft[codeColumnId]).toStrictEqual({ text: undefined });
+		expect(rowDraftToValues(draft, [nameColumn, codeColumn])).toStrictEqual({
 			ok: true,
 			values: stored,
 		});
@@ -573,7 +583,7 @@ describe("rowValuesToDraft", () => {
 
 		expect(
 			rowDraftToValues(rowValuesToDraft(stored, allColumns), allColumns),
-		).toEqual({ ok: true, values: stored });
+		).toStrictEqual({ ok: true, values: stored });
 	});
 
 	it("keeps a temporal cell's offset when its visible clock changes", () => {
@@ -595,7 +605,7 @@ describe("rowValuesToDraft", () => {
 			},
 		};
 
-		expect(rowDraftToValues(edited, [timeColumn])).toEqual({
+		expect(rowDraftToValues(edited, [timeColumn])).toStrictEqual({
 			ok: true,
 			values: { [codeColumnId]: "15:45:00+05:30" },
 		});
@@ -619,7 +629,9 @@ describe("rowValuesToDraft", () => {
 		);
 		const back = editRowDraftCellText(away, "time", "14:30:00.125");
 
-		expect(rowDraftToValues({ [codeColumnId]: back }, [timeColumn])).toEqual({
+		expect(
+			rowDraftToValues({ [codeColumnId]: back }, [timeColumn]),
+		).toStrictEqual({
 			ok: true,
 			values: { [codeColumnId]: "14:30:00.125+0530" },
 		});
@@ -655,12 +667,12 @@ describe("reconcileConflictDraft", () => {
 			[renamedName, retypedCode, newColumn],
 		);
 
-		expect(reconciled.draft[nameColumnId]).toEqual({
+		expect(reconciled.draft[nameColumnId]).toStrictEqual({
 			text: "  Kitgum\nHC  ",
 		});
-		expect(reconciled.draft[codeColumnId]).toEqual({ text: "42" });
-		expect(reconciled.draft[dateColumnId]).toEqual({ text: undefined });
-		expect(reconciled.removed).toEqual([
+		expect(reconciled.draft[codeColumnId]).toStrictEqual({ text: "42" });
+		expect(reconciled.draft[dateColumnId]).toStrictEqual({ text: undefined });
+		expect(reconciled.removed).toStrictEqual([
 			{
 				column: {
 					id: timeColumnId,
@@ -683,7 +695,7 @@ describe("reconcileConflictDraft", () => {
 			[nameColumn, codeColumn],
 			[nameColumn, codeColumn],
 		);
-		expect(result.draft).toEqual(
+		expect(result.draft).toStrictEqual(
 			draft({
 				[nameColumnId]: "  draft\n",
 				[codeColumnId]: "not-a-number",
@@ -785,12 +797,16 @@ describe("unavailable row recovery", () => {
 			},
 		});
 
-		expect(merged.draft).toMatchObject({
+		expect(merged.draft).toStrictEqual({
 			[nameColumnId]: { text: "reconciled name" },
 			[codeColumnId]: { text: "still-not-a-date" },
 			[timeColumnId]: { text: "reconciled removed value" },
 		});
-		expect(merged.columns).toEqual([nameColumn, freshCode, removedColumn]);
+		expect(merged.columns).toStrictEqual([
+			nameColumn,
+			freshCode,
+			removedColumn,
+		]);
 	});
 
 	it("lists every retained row and lets a conflict supersede its earlier edit", () => {
@@ -822,7 +838,7 @@ describe("unavailable row recovery", () => {
 			],
 		});
 
-		expect(recoveries).toEqual([
+		expect(recoveries).toStrictEqual([
 			{
 				projectId: "project-1",
 				tableId,
@@ -861,7 +877,7 @@ describe("unavailable row recovery", () => {
 			unavailableTableIds: new Set([tableId]),
 		});
 
-		expect(recoveries).toEqual([
+		expect(recoveries).toStrictEqual([
 			expect.objectContaining({
 				tableId,
 				rowId,
@@ -900,7 +916,7 @@ describe("unavailable row recovery", () => {
 			unavailableTableIds: new Set([tableId]),
 		});
 
-		expect(recoveries.map((recovery) => recovery.state)).toEqual([
+		expect(recoveries.map((recovery) => recovery.state)).toStrictEqual([
 			"table-unavailable",
 			"table-unavailable",
 		]);
@@ -912,7 +928,15 @@ describe("revisioned text drafts", () => {
 		const draft = createRevisionedTextDraft("Facilities", revision("1"));
 		expect(
 			reconcileRevisionedTextDraft(draft, "Clinics", revision("2")),
-		).toEqual(createRevisionedTextDraft("Clinics", revision("2")));
+		).toStrictEqual({
+			text: "Clinics",
+			baseText: "Clinics",
+			baseRevision: revision("2"),
+			latestText: "Clinics",
+			latestRevision: revision("2"),
+			dirty: false,
+			conflicted: false,
+		});
 	});
 
 	it("keeps a dirty draft and requires an explicit drift decision", () => {
@@ -937,9 +961,15 @@ describe("revisioned text drafts", () => {
 			baseRevision: revision("2"),
 			conflicted: false,
 		});
-		expect(discardRevisionedTextDraft(conflicted)).toEqual(
-			createRevisionedTextDraft("Clinics", revision("2")),
-		);
+		expect(discardRevisionedTextDraft(conflicted)).toStrictEqual({
+			text: "Clinics",
+			baseText: "Clinics",
+			baseRevision: revision("2"),
+			latestText: "Clinics",
+			latestRevision: revision("2"),
+			dirty: false,
+			conflicted: false,
+		});
 	});
 });
 

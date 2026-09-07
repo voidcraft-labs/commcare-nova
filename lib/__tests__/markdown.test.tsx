@@ -51,8 +51,7 @@ describe("ChatMarkdown", () => {
 		const output = html(
 			<ChatMarkdown>{"closing the <mother> case"}</ChatMarkdown>,
 		);
-		expect(output).toContain("closing the");
-		expect(output).toContain("case");
+		expect(output).toContain("closing the &lt;mother&gt; case");
 		expect(output).not.toContain("<mother");
 	});
 
@@ -273,5 +272,32 @@ describe("withChipInjection", () => {
 			<Markdown options={options}>{"line 1\nline 2"}</Markdown>,
 		);
 		expect(output).toContain("<br/>");
+	});
+});
+
+describe("untrusted HTML stays literal in both renderers", () => {
+	it.each([ChatMarkdown, PreviewMarkdown])(
+		"escapes elements and preserves author text",
+		(Renderer) => {
+			const output = html(
+				<Renderer>
+					{
+						'<img src=x onerror="run()"><iframe src="https://evil.test">literal</iframe>'
+					}
+				</Renderer>,
+			);
+			expect(output).not.toContain("<img");
+			expect(output).not.toContain("<iframe");
+			expect(output).toContain("&lt;img");
+			expect(output).toContain("&lt;iframe");
+			expect(output).toContain("literal");
+		},
+	);
+	it("preserves newlines inside code blocks instead of injecting breaks", () => {
+		const output = html(
+			<ChatMarkdown>{"```text\nfirst\nsecond\n```"}</ChatMarkdown>,
+		);
+		expect(output).toContain("first\nsecond");
+		expect(output).not.toContain("<br");
 	});
 });

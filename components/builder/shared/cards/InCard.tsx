@@ -39,6 +39,7 @@ import {
 	tableRowInScope,
 } from "../editorSchemas";
 import { removeAndRestoreFocus } from "../focusAfterRemoval";
+import { membershipLiteralContext } from "../membershipLiteralContext";
 import { appendSlot, appendSlotIndex, type EditorPath } from "../path";
 import { InlineError } from "../primitives/CardShell";
 import { ExpressionPicker } from "../primitives/ExpressionPicker";
@@ -100,13 +101,11 @@ export function InCard({ value, onChange, path }: InCardProps) {
 	const ctx = usePredicateEditContext();
 	const rowIdentity = useStableListIdentity(value.values);
 
-	// Anchor property name for typed-input switching in each value
-	// row. Pulled from the LEFT-slot AST shape; only meaningful
-	// when the left is a property reference.
-	const propertyName =
-		value.left.kind === "term" && value.left.term.kind === "prop"
-			? value.left.term.property
-			: undefined;
+	const { propertyName, caseTypeName } = membershipLiteralContext(
+		value,
+		ctx.currentCaseType,
+		ctx.caseTypes,
+	);
 
 	// The subject (left) drives each membership value: the value
 	// widgets are typed against the `in` value constraint (compatible
@@ -194,7 +193,7 @@ export function InCard({ value, onChange, path }: InCardProps) {
 						onChange={(next) => setValueAt(i, next)}
 						onRemove={() => removeAt(i)}
 						isOnlyOne={value.values.length === 1}
-						caseTypeName={ctx.currentCaseType}
+						caseTypeName={caseTypeName}
 						propertyName={propertyName}
 						accepts={valueAccepts}
 						indexPath={appendSlotIndex(path, "values", i)}

@@ -1,33 +1,9 @@
-/**
- * Regression test for the SA's tool-execution serializer.
- *
- * The SA exposes its tools to the AI SDK through wrappers that close
- * over a single mutable `let doc: BlueprintDoc`. The AI SDK invokes
- * parallel `tool_use` blocks from one assistant turn concurrently
- * (`Promise.all(toolCalls.map(executeToolCall))`), so without a
- * serializer two branches each read the same pre-batch `doc` snapshot,
- * each compute their own `newDoc`, and the last to resolve writes back
- * — silently dropping the earlier branch's mutation from the SA's
- * working state. The wire/UI sees both because mutations stream
- * unconditionally; only the SA's *own* doc is corrupted, which surfaces
- * later when the SA's next read tool reports the just-applied state as
- * missing and the SA bursts into a wasteful "edits aren't sticking"
- * rework loop (real incident: app FhFwcuDu2b7ztXAllX6I, run
- * 47e1fe7d…).
- *
- * The fix: a promise-chain mutex (`chain` + `serial<T>`) wraps every
- * tool body so only one runs at a time per agent instance. This file
- * exists to pin the property — without it, a future refactor that
- * inlined the wrappers, dropped `serial` on the read path "because
- * reads can't race," or otherwise removed the chain would silently
- * regress and only show up in production logs.
- */
-
-import { produce } from "immer";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/** Per-SA invocation ordering through real provider HTTP decoding and SDK
+ * sibling dispatch. Controlled persistence receipts do not prove SQL locking. */
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { caseListConfig } from "@/lib/__tests__/docHelpers";
-import { applyMutations } from "@/lib/doc/mutations";
+import type { Mutation } from "@/lib/doc/types";
 import type {
 	Automation,
 	BlueprintDoc,
@@ -38,44 +14,28 @@ import type {
 import { proseText } from "@/lib/domain/prose";
 import type { GenerationContext } from "../generationContext";
 import { createSolutionsArchitect } from "../solutionsArchitect";
+import { expectAdmittedDoc } from "./admittedFixture";
 import { makeTestContext } from "./fixtures";
+import { withResponsesPeer } from "./responsesPeer";
+import { receiptWriter, runSaTool as runTool } from "./saHarness";
 
-/* The SA commits every batch through `commitGuardedBatch` (kind:'chat'). Mock
- * it to re-apply the batch onto a TRACKED server doc and return the hydrated
- * result — mirroring the real writer, so the SA's working doc advances across
- * serialized tool calls exactly as it would against Postgres. `__seedServerDoc`
- * seeds the tracked doc to the SA's initial doc per test. */
-const {
-	commitGuardedBatchMock,
-	readOrganizationAuthoringSnapshotMock,
-	seedServerDoc,
-} = vi.hoisted(() => {
-	let serverDoc: unknown = null;
-	let seq = 0;
-	return {
-		seedServerDoc: (doc: unknown) => {
-			serverDoc = doc;
-			seq = 0;
-		},
-		commitGuardedBatchMock: vi.fn(async (args: { mutations: unknown[] }) => {
-			// biome-ignore lint/suspicious/noExplicitAny: test re-applies onto the tracked doc.
-			serverDoc = produce(serverDoc as any, (draft: any) => {
-				// biome-ignore lint/suspicious/noExplicitAny: mutation union threaded verbatim.
-				applyMutations(draft, args.mutations as any);
-			});
-			seq += 1;
-			return {
-				seq,
-				committedDoc: serverDoc,
-				deduped: false,
-			};
-		}),
+/** Only persistence/organization receipts are controlled; workspace and tools run normally. */
+const { commitGuardedBatchMock, readOrganizationAuthoringSnapshotMock } =
+	vi.hoisted(() => ({
+		commitGuardedBatchMock: vi.fn(),
 		readOrganizationAuthoringSnapshotMock: vi.fn(),
-	};
-});
+	}));
+let receipts: ReturnType<typeof receiptWriter>;
+function seedServerDoc(doc: BlueprintDoc) {
+	receipts = receiptWriter(doc);
+	commitGuardedBatchMock.mockImplementation(
+		async (args: { mutations: Mutation[] }) => receipts.commit(args.mutations),
+	);
+}
 
 vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
+	refreshBuildLiveness: vi.fn().mockResolvedValue(undefined),
+	refreshEditLease: vi.fn().mockResolvedValue(undefined),
 	commitGuardedBatch: commitGuardedBatchMock,
 }));
 
@@ -112,7 +72,7 @@ function makeDoc(): BlueprintDoc {
 		kind: "text",
 		label: proseText("Patient name"),
 		caseWrite: { caseType: "patient", property: "case_name" },
-	} as Field;
+	};
 	return {
 		appId: "test-app",
 		appName: "Concurrency Test",
@@ -133,21 +93,6 @@ function makeDoc(): BlueprintDoc {
 	};
 }
 
-const EXEC_OPTS = { toolCallId: "test-call", messages: [] };
-
-/** Invoke a wrapped tool's `execute` directly. The SA's tool record is
- *  a heterogeneous `ToolSet`; cast through `any` so the test harness can
- *  reach `execute` without re-deriving every input/output type. */
-async function runTool(
-	agent: ReturnType<typeof createSolutionsArchitect>,
-	name: string,
-	input: Record<string, unknown>,
-): Promise<unknown> {
-	// biome-ignore lint/suspicious/noExplicitAny: SA tool set is heterogeneous; test harness invokes execute directly.
-	const tool = (agent.tools as Record<string, any>)[name];
-	return tool.execute(input, EXEC_OPTS);
-}
-
 describe("solutionsArchitect — tool execution serializer", () => {
 	let ctx: GenerationContext;
 
@@ -155,64 +100,140 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		ctx = makeTestContext().ctx;
 	});
 
-	it("serializes parallel mutating tools so neither write to the SA's working doc is lost", async () => {
-		const doc = makeDoc();
-		seedServerDoc(doc);
-		const sa = createSolutionsArchitect(ctx, doc);
-
-		// Fire two `addFields` execute callbacks without awaiting between
-		// them — this matches what the AI SDK does when the model emits
-		// two tool_use blocks in one assistant turn. Without the
-		// serializer, both bodies read the same pre-batch `doc` snapshot
-		// inside the wrapper closure and the later resolver clobbers the
-		// earlier resolver's `doc = newDoc` write; with the serializer,
-		// the chain forces them to run end-to-end one after the other.
-		const inFlightA = runTool(sa, "addFields", {
-			moduleUuid: MOD,
-			formUuid: FORM,
-			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
-		});
-		const inFlightB = runTool(sa, "addFields", {
-			moduleUuid: MOD,
-			formUuid: FORM,
-			fields: [{ id: "phone", kind: "text", label: proseText("Phone") }],
-		});
-		await Promise.all([inFlightA, inFlightB]);
-
-		// `getForm` reads the SA's working doc. If either parallel
-		// addFields was lost from the closure, this read will be missing
-		// it — the seed field plus only one of the two new fields.
-		const formResult = (await runTool(sa, "getForm", {
-			moduleUuid: MOD,
-			formUuid: FORM,
-		})) as { form: { fields: Array<{ id: string }> } };
-
-		const fieldIds = formResult.form.fields.map((f) => f.id).sort();
-		expect(fieldIds).toEqual(["case_name", "dob", "phone"]);
+	afterEach(async () => {
+		await ctx.stopRunLeaseHeartbeat();
 	});
 
-	it("a read tool issued in parallel with a write observes the post-write state", async () => {
-		// Validates that `wrapRead` is also in the chain — a parallel
-		// [addFields, getForm] would otherwise let `getForm` race past
-		// `addFields` and report stale state, which is the read-side
-		// equivalent of the write-side data-loss race.
+	it("holds native SDK sibling writes and reads behind the first commit", async () => {
+		const entered = Promise.withResolvers<void>();
+		const release = Promise.withResolvers<void>();
 		const doc = makeDoc();
 		seedServerDoc(doc);
-		const sa = createSolutionsArchitect(ctx, doc);
-
-		const inFlightWrite = runTool(sa, "addFields", {
-			moduleUuid: MOD,
-			formUuid: FORM,
-			fields: [{ id: "dob", kind: "date", label: proseText("Date of birth") }],
-		});
-		const inFlightRead = runTool(sa, "getForm", {
-			moduleUuid: MOD,
-			formUuid: FORM,
-		}) as Promise<{ form: { fields: Array<{ id: string }> } }>;
-
-		const [, readResult] = await Promise.all([inFlightWrite, inFlightRead]);
-		const fieldIds = readResult.form.fields.map((f) => f.id).sort();
-		expect(fieldIds).toEqual(["case_name", "dob"]);
+		commitGuardedBatchMock.mockImplementationOnce(
+			async (args: { mutations: Mutation[] }) => {
+				entered.resolve();
+				await release.promise;
+				return receipts.commit(args.mutations);
+			},
+		);
+		const observedBodies: Array<{
+			input: Array<{ type?: string; call_id?: string; output?: string }>;
+		}> = [];
+		await withResponsesPeer(
+			(request, response) => {
+				let body = "";
+				request.setEncoding("utf8");
+				request.on("data", (chunk) => {
+					body += chunk;
+				});
+				request.on("end", () => {
+					observedBodies.push(JSON.parse(body));
+					const calls = [
+						{
+							name: "addFields",
+							input: {
+								moduleUuid: MOD,
+								formUuid: FORM,
+								fields: [
+									{
+										id: "dob",
+										kind: "date",
+										label: proseText("Date of birth"),
+									},
+								],
+							},
+						},
+						{
+							name: "addFields",
+							input: {
+								moduleUuid: MOD,
+								formUuid: FORM,
+								fields: [
+									{ id: "phone", kind: "text", label: proseText("Phone") },
+								],
+							},
+						},
+						{ name: "getForm", input: { moduleUuid: MOD, formUuid: FORM } },
+					];
+					response.writeHead(200, { "content-type": "application/json" });
+					response.end(
+						JSON.stringify({
+							id: "resp_local",
+							created_at: 1,
+							model: "local-model",
+							output:
+								observedBodies.length === 1
+									? calls.map((call, index) => ({
+											type: "function_call",
+											id: `fc_${index}`,
+											call_id: `call_${index}`,
+											name: call.name,
+											arguments: JSON.stringify(call.input),
+										}))
+									: [
+											{
+												type: "message",
+												role: "assistant",
+												id: "msg_done",
+												content: [
+													{
+														type: "output_text",
+														text: "Edits complete.",
+														annotations: [],
+													},
+												],
+											},
+										],
+							usage: { input_tokens: 11, output_tokens: 7 },
+						}),
+					);
+				});
+			},
+			async (_provider, transport) => {
+				ctx = makeTestContext({ transport }).ctx;
+				const sa = createSolutionsArchitect(ctx, doc);
+				const work = sa.generate({
+					prompt: "Add date of birth and phone, then read the form.",
+				});
+				// Observe failure promptly without leaving a rejection unhandled while waiting for entry.
+				const settled = work.then(
+					(value) => ({ ok: true as const, value }),
+					(error) => ({ ok: false as const, error }),
+				);
+				try {
+					await Promise.race([
+						entered.promise,
+						settled.then((result) => {
+							if (!result.ok) throw result.error;
+							throw new Error("Run ended before committing");
+						}),
+					]);
+					// A macrotask gives every SDK sibling dispatch an opportunity to enter.
+					await new Promise<void>((resolve) => setImmediate(resolve));
+					expect(commitGuardedBatchMock).toHaveBeenCalledTimes(1);
+					expect(observedBodies).toHaveLength(1);
+					expect(receipts.currentDoc()).toEqual(doc);
+					release.resolve();
+					const result = await work;
+					expect(result.text).toBe("Edits complete.");
+					expect(commitGuardedBatchMock).toHaveBeenCalledTimes(2);
+					const read = observedBodies[1]?.input.find(
+						(item) =>
+							item.type === "function_call_output" && item.call_id === "call_2",
+					);
+					expect(read?.output).toBeDefined();
+					const output = JSON.parse(read?.output ?? "null");
+					expect(
+						output.form.fields.map((field: { id: string }) => field.id),
+					).toEqual(["case_name", "dob", "phone"]);
+					expectAdmittedDoc(receipts.currentDoc());
+				} finally {
+					release.resolve();
+					await settled;
+					await ctx.stopRunLeaseHeartbeat();
+				}
+			},
+		);
 	});
 
 	it("adopts an authoritative zero-diff automation snapshot in the chat working doc", async () => {
@@ -257,7 +278,7 @@ describe("solutionsArchitect — tool execution serializer", () => {
 		if (authoritativeForm === undefined) throw new Error("missing form");
 		authoritativeForm.name = "Peer-renamed follow-up";
 		readOrganizationAuthoringSnapshotMock.mockResolvedValue({
-			blueprint: authoritativeDoc,
+			blueprint: expectAdmittedDoc(authoritativeDoc),
 			blueprintSeq: 4,
 			organization: { revision: "3", locations: [] },
 		});

@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, withUserSequences } from "@/lib/__tests__/docHelpers";
+import { withUserSequences } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
 import { summarizeBlueprint } from "../summarizeBlueprint";
+import { expectAdmittedDoc, surveyFixture } from "./admittedFixture";
 
 describe("summarizeBlueprint users projection", () => {
 	it("keeps complete organization level settings visible for replacement edits", () => {
 		const rootUuid = testUuid("summary-root-level");
 		const leafUuid = testUuid("summary-leaf-level");
-		const doc = buildDoc() as BlueprintDoc;
+		const doc = surveyFixture();
 		doc.organizationLevels = {
 			[rootUuid]: {
 				uuid: rootUuid,
@@ -36,7 +37,7 @@ describe("summarizeBlueprint users projection", () => {
 		};
 		doc.organizationLevelOrder = [rootUuid, leafUuid];
 
-		const summary = summarizeBlueprint(doc);
+		const summary = summarizeBlueprint(expectAdmittedDoc(doc));
 		expect(summary).toContain(
 			`case_flow=${JSON.stringify(doc.organizationLevels[rootUuid]?.caseFlow)}`,
 		);
@@ -50,7 +51,7 @@ describe("summarizeBlueprint users projection", () => {
 		const roleUuid = testUuid("role-chw");
 		const personaUuid = testUuid("persona-asha");
 		const doc: BlueprintDoc = withUserSequences({
-			...buildDoc(),
+			...surveyFixture(),
 			userProperties: {
 				[propertyUuid]: {
 					uuid: propertyUuid,
@@ -78,7 +79,7 @@ describe("summarizeBlueprint users projection", () => {
 			},
 		});
 
-		const summary = summarizeBlueprint(doc);
+		const summary = summarizeBlueprint(expectAdmittedDoc(doc));
 		expect(summary).toContain(`region: "Region" [uuid ${propertyUuid}]`);
 		expect(summary).toContain(`"Community health worker" [uuid ${roleUuid}]`);
 		expect(summary).toContain('description="Visits households"');

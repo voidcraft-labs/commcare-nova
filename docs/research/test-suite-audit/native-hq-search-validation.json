@@ -1,0 +1,21 @@
+{
+	"checks": [
+		"previous workflow rejected only with inline case loading",
+		"submenu under inline Search duplicates actual native result-instance names",
+		"parent selection from inline Search duplicates actual native result-instance names",
+		"case-list form must resolve to a registration of the host case type with default capability"
+	],
+	"sourceSha256": {
+		"/Users/braxtonperry/work/commcare/code/commcare-hq/corehq/apps/app_manager/helpers/validators.py": "344257ef646f821a085800d0c78a009cb08bd4b484fc8ec254e28e1a9ac75066",
+		"/Users/braxtonperry/work/commcare/code/commcare-hq/corehq/apps/app_manager/views/modules.py": "f5e8a457a4ef372cf8fe6c6624d6abf2d7a39493454e25f262f10dd6803e11fa",
+		"/Users/braxtonperry/work/commcare/code/commcare-hq/corehq/apps/app_manager/util.py": "b5441f053582701587e77b457c881b76f41c44776907743b6cb2bb122c7ab542",
+		"/Users/braxtonperry/work/commcare/code/commcare-hq/corehq/apps/app_manager/models/case_search.py": "e97f1627ee99c72cc5283ac792800b334649b1efc0354f4aed901b7a76ad9a2f",
+		"/Users/braxtonperry/work/personal/code/commcare-nova-test-audit/scripts/fixtures/hq/search-validation-proof.py": "91428868dc9fbfb29c6be1952f276ae14f47dd6a6201154afb6cc99665ff00d9"
+	},
+	"artifacts": {
+		"inline": "4575cc44931a8d9b291b63630111e6ac6b03266540280600572114785fdd8e58",
+		"parent": "76b9d20ab541fcc1c0df7412b7a40704f892ce48ebae42defeee1a04588dbe22",
+		"registration-link": "cfe0d0f543bbc66432f0a358cdc4aeb3b7131abe0b53cc86878ce0b885bca171"
+	},
+	"limits": "Actual HQ Application import and selected validator methods. Native models mutated for paired wire counterexamples; no whole-build acceptance claim. Default build supplied and FOLLOWUP_FORMS_AS_CASE_LIST_FORM disabled; no network or writes."
+}

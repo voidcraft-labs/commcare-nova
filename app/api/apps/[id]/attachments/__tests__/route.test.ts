@@ -1,5 +1,10 @@
-import type { NextRequest } from "next/server";
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { blueprintDocSchema } from "@/lib/domain";
 import { POST } from "../route";
 
 const mocks = vi.hoisted(() => ({
@@ -7,11 +12,7 @@ const mocks = vi.hoisted(() => ({
 	resolveAuthorizedAppSnapshot: vi.fn(),
 	createPending: vi.fn(),
 	compensatePending: vi.fn(),
-	purgeExpired: vi.fn(),
 	createSignedUploadUrl: vi.fn(),
-	captureExtensionFor: vi.fn(),
-	deleteAsset: vi.fn(),
-	deleteAssetGeneration: vi.fn(),
 	error: vi.fn(),
 	warn: vi.fn(),
 }));
@@ -27,33 +28,11 @@ vi.mock("@/lib/db/appAccess", () => ({
 vi.mock("@/lib/db/formAttachments", () => ({
 	compensatePendingFormAttachmentInitiation: mocks.compensatePending,
 	createPendingFormAttachment: mocks.createPending,
-	purgeExpiredFormAttachments: mocks.purgeExpired,
 	FormAttachmentWriteRejectedError: class extends Error {},
-}));
-
-vi.mock("@/lib/domain", async (importOriginal) => {
-	const actual = await importOriginal<typeof import("@/lib/domain")>();
-	return {
-		...actual,
-		isCaptureFieldKind: vi.fn(() => true),
-	};
-});
-
-vi.mock("@/lib/domain/captureFormats", () => ({
-	CAPTURE_EXTENSIONS_BY_KIND: { image: [".jpg"] },
-	MAX_CAPTURE_BYTES: 4_000_000,
-	captureContentType: vi.fn(() => "image/jpeg"),
-	captureExtensionFor: mocks.captureExtensionFor,
-	captureInstancePathMatchesTemplate: vi.fn(() => true),
-	committedCapturePath: vi.fn(() => ({
-		instancePathTemplate: "/data/photo",
-	})),
 }));
 
 vi.mock("@/lib/storage/media", () => ({
 	createSignedUploadUrl: mocks.createSignedUploadUrl,
-	deleteAsset: mocks.deleteAsset,
-	deleteAssetGeneration: mocks.deleteAssetGeneration,
 }));
 
 vi.mock("@/lib/logger", () => ({
@@ -67,8 +46,11 @@ const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
 const FIELD_UUID = "22222222-2222-4222-8222-222222222222";
 const ATTACHMENT_ID = "33333333-3333-4333-8333-333333333333";
 
-function request(signal?: AbortSignal): NextRequest {
-	return new Request("http://localhost/api/apps/app-1/attachments", {
+function request(
+	signal?: AbortSignal,
+	changes: Record<string, unknown> = {},
+): NextRequest {
+	return new NextRequest("http://localhost/api/apps/app-1/attachments", {
 		method: "POST",
 		headers: { "Content-Type": "application/json" },
 		...(signal === undefined ? {} : { signal }),
@@ -78,8 +60,9 @@ function request(signal?: AbortSignal): NextRequest {
 			instancePath: "/data/photo",
 			filename: "photo.jpg",
 			sizeBytes: 17,
+			...changes,
 		}),
-	}) as NextRequest;
+	});
 }
 
 const params = { params: Promise.resolve({ id: "app-1" }) };
@@ -93,11 +76,7 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 			projectId: "project-1",
 			baseSeq: 7,
 			app: {
-				blueprint: {
-					fields: {
-						[FIELD_UUID]: { uuid: FIELD_UUID, kind: "image" },
-					},
-				},
+				blueprint: captureBlueprint(),
 			},
 		});
 		mocks.createPending.mockResolvedValue({
@@ -106,26 +85,65 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 			objectKey: `captures-staged/project-1/${ATTACHMENT_ID}.jpg`,
 		});
 		mocks.createSignedUploadUrl.mockRejectedValue(signingError);
-		mocks.captureExtensionFor.mockReturnValue(".jpg");
 		mocks.compensatePending.mockResolvedValue(true);
-		mocks.purgeExpired.mockResolvedValue({
-			processed: 0,
-			transitioned: 0,
-			objects: [],
-		});
 	});
 
-	it("uses the correct article for an image-format rejection", async () => {
-		mocks.captureExtensionFor.mockReturnValue(undefined);
-
-		const response = await POST(request(), params);
+	it("rejects a real unsupported image extension before creating a pending row", async () => {
+		const response = await POST(
+			request(undefined, { filename: "photo.exe" }),
+			params,
+		);
 
 		expect(response.status).toBe(400);
 		expect(await response.json()).toEqual({
-			error: "An image question accepts .jpg. Attach one of those instead.",
+			error:
+				"An image question accepts .jpg, .jpeg, .png. Attach one of those instead.",
 		});
 		expect(mocks.createPending).not.toHaveBeenCalled();
 	});
+
+	it("returns the signed upload binding after an admitted capture proposal", async () => {
+		mocks.createSignedUploadUrl.mockResolvedValue({
+			url: "https://storage.example.test/upload",
+			requiredHeaders: { "x-goog-if-generation-match": "0" },
+		});
+		const response = await POST(request(), params);
+		expect(response.status).toBe(200);
+		expect(await response.json()).toEqual({
+			attachmentId: ATTACHMENT_ID,
+			attachmentName: `${ATTACHMENT_ID}.jpg`,
+			uploadUrl: "https://storage.example.test/upload",
+			uploadContentType: "image/jpeg",
+			uploadHeaders: { "x-goog-if-generation-match": "0" },
+		});
+		expect(mocks.createPending).toHaveBeenCalledWith(
+			expect.objectContaining({
+				appId: "app-1",
+				projectId: "project-1",
+				expectedAppMutationSeq: 7,
+				fieldUuid: FIELD_UUID,
+				instancePath: "/data/photo",
+				contentType: "image/jpeg",
+				sizeBytes: 17,
+			}),
+		);
+		expect(mocks.compensatePending).not.toHaveBeenCalled();
+	});
+	it.each([
+		{ instancePath: "/data/different" },
+		{ fieldUuid: "44444444-4444-4444-8444-444444444444" },
+		{ filename: "photo.exe" },
+		{ foreign: true },
+	])(
+		"rejects a malformed capture proposal before persistence: %j",
+		async (changes) => {
+			const response = await POST(request(undefined, changes), params);
+			expect(response.status).toBe(400);
+			await response.json();
+			expect(mocks.createPending).not.toHaveBeenCalled();
+			expect(mocks.createSignedUploadUrl).not.toHaveBeenCalled();
+		},
+	);
 
 	it("removes the exact pending row when URL signing fails", async () => {
 		const response = await POST(request(), params);
@@ -194,34 +212,33 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 		await response.json();
 	});
 
-	it("compensates the pending row when the request aborts during URL signing", async () => {
+	it("compensates on abort while a noncancellable signer settles later", async () => {
 		const controller = new AbortController();
-		mocks.createSignedUploadUrl.mockReturnValue(
-			new Promise<never>((_resolve, reject) => {
-				controller.signal.addEventListener(
-					"abort",
-					() => reject(controller.signal.reason),
-					{ once: true },
-				);
-			}),
-		);
-
+		const entered = Promise.withResolvers<void>();
+		const signed = Promise.withResolvers<never>();
+		mocks.createSignedUploadUrl.mockImplementation(() => {
+			entered.resolve();
+			return signed.promise;
+		});
 		const responsePromise = POST(request(controller.signal), params);
-		await vi.waitFor(() =>
-			expect(mocks.createSignedUploadUrl).toHaveBeenCalled(),
-		);
-		controller.abort(new DOMException("Worker left the form", "AbortError"));
-		const response = await responsePromise;
-
-		expect(response.status).toBe(499);
-		expect(mocks.compensatePending).toHaveBeenCalledWith(
-			expect.objectContaining({
-				attachmentId: ATTACHMENT_ID,
-				appId: "app-1",
-				projectId: "project-1",
-			}),
-		);
-		await response.json();
+		try {
+			await entered.promise;
+			controller.abort(new DOMException("Worker left the form", "AbortError"));
+			const response = await responsePromise;
+			expect(response.status).toBe(499);
+			await response.json();
+			expect(mocks.compensatePending).toHaveBeenCalledWith(
+				expect.objectContaining({
+					attachmentId: ATTACHMENT_ID,
+					appId: "app-1",
+					projectId: "project-1",
+				}),
+			);
+		} finally {
+			controller.abort();
+			signed.reject(new Error("Signer failed after disconnect"));
+			await Promise.allSettled([signed.promise, responsePromise]);
+		}
 	});
 
 	it("does not create an unobserved rejecting signer promise for an already-aborted request", async () => {
@@ -243,8 +260,27 @@ describe("POST /api/apps/[id]/attachments initiation compensation", () => {
 			}),
 		);
 		await response.json();
-		// Give Vitest an unhandled-rejection checkpoint. The test runner would
-		// fail this test if the rejecting signer promise had been constructed.
-		await Promise.resolve();
 	});
 });
+
+function captureBlueprint() {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Evidence",
+				forms: [
+					{
+						name: "Evidence",
+						type: "survey",
+						fields: [f({ uuid: FIELD_UUID, id: "photo", kind: "image" })],
+					},
+				],
+			},
+		],
+	});
+	const wire = toPersistableDoc(doc);
+	blueprintDocSchema.parse(wire);
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	return wire;
+}

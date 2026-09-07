@@ -48,6 +48,9 @@ export function useCasePropertyRenamePreflight(): {
 		void scopeEpoch;
 		requestIdRef.current += 1;
 		setState(IDLE);
+		return () => {
+			requestIdRef.current += 1;
+		};
 	}, [accessPhase, appId, scopeEpoch]);
 
 	const preflight = useCallback(

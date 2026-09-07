@@ -80,6 +80,8 @@ const DEFAULT_SEED: AccumulatorSeed = {
 };
 
 export interface MakeTestContextOptions {
+	/** Native HTTP boundary override; retains the real provider and SDK. */
+	transport?: typeof globalThis.fetch;
 	/** Override specific accumulator seed fields (runId, promptMode, etc.). */
 	seed?: Partial<AccumulatorSeed>;
 	/** Override the appId passed into `GenerationContext`. Defaults to
@@ -111,10 +113,9 @@ export interface TestContextHandles {
  * Build a `GenerationContext` wired to vi.fn stubs for both write surfaces
  * and a real `UsageAccumulator` seeded deterministically. Safe to call
  * once per test — nothing in the ctx reaches out to Postgres as long as
- * the test mocks `@/lib/db/apps` (or never calls
- * `emitMutations`). Tests that exercise `emitMutations` MUST install a
- * `vi.mock("@/lib/db/apps", ...)` at module scope so the fire-and-forget
- * intermediate save has a stub to call.
+ * the test mocks `@/lib/db/apps` (or never records mutations or finishes a model step). Tests invoking
+ * persistence must control the specific writer/lease boundary they reach.
+ * Always await `stopRunLeaseHeartbeat()` after step handling.
  *
  * `appId` defaults to `"test-app"` (matching the seed). Every
  * `GenerationContext` has a valid persistence target — the chat route
@@ -134,6 +135,7 @@ export function makeTestContext(
 	const session = { user: { id: "user-1" } } as unknown as Session;
 	const ctx = new GenerationContext({
 		apiKey: "sk-test",
+		transport: opts.transport,
 		writer: writerStub,
 		logWriter: logWriterStub,
 		usage,
@@ -158,11 +160,9 @@ export function makeTestContext(
 }
 
 /**
- * Minimal `BlueprintDoc` suitable as the `doc` argument to `emitMutations`
- * in tests that don't care about the doc's content — they only need a
- * value that type-checks against `BlueprintDoc` so the signature is
- * satisfied. The assertion surfaces (writer.write mock, logWriter.logEvent
- * mock) don't read from this doc.
+ * Defensive empty in-memory context for boundary tests. It is not a legal
+ * persisted app; use makeCanonicalGenesisDoc or an admitted fixture for tool
+ * and persistence behavior.
  *
  * Kept here (not duplicated per test file) so any future `BlueprintDoc`
  * shape change touches one place.
@@ -308,6 +308,7 @@ export interface ToolWorkspaceHarness {
 	 * workspace adopts each commit, so consecutive calls compose. */
 	runTool<T>(
 		tool: {
+			inputSchema: { parse(input: unknown): unknown };
 			execute(input: never, ctx: ToolInvocationContext): Promise<T>;
 		},
 		input: unknown,
@@ -393,6 +394,7 @@ export function echoLookupDefinitions(
 
 export interface MakeToolWorkspaceHarnessOptions {
 	appId?: string;
+	projectId?: string;
 	userId?: string;
 	runId?: string;
 	conversionImpact?: ConversionImpactFn;
@@ -417,9 +419,9 @@ export interface MakeToolWorkspaceHarnessOptions {
  * prepared candidate's `nextDoc` as the committed doc. That models the
  * no-concurrent-peer-edit case: the workspace continues against exactly the
  * doc the batch produced, which is what every single-surface tool test
- * asserts. (Concurrent-merge behavior — the committed doc differing from the
- * local candidate — is covered against the real writer in the
- * `commitGuardedBatch` emulator suite and `generationContext-recordMutations`.)
+ * asserts. Inputs cross the actual tool schema before dispatch, retaining
+ * defaults and refusals that a direct handler cast would skip. (Real Postgres writer suites own concurrent merge and persistence. Context
+ * tests use controlled receipts only to prove state adoption and fan-out.)
  */
 export function makeToolWorkspaceHarness(
 	initialDoc: BlueprintDoc,
@@ -447,7 +449,7 @@ export function makeToolWorkspaceHarness(
 	);
 	const host: CanonicalMutationHost = {
 		appId: opts.appId ?? "test-app",
-		projectId: "project-test",
+		projectId: opts.projectId ?? "project-test",
 		userId: opts.userId ?? "user-1",
 		runId: opts.runId ?? "run-1",
 		...(opts.chatRunHolder !== undefined && {
@@ -473,7 +475,8 @@ export function makeToolWorkspaceHarness(
 		runTool: (tool, input) =>
 			workspace.invoke({
 				toolName: "test-tool",
-				execute: (ctx) => tool.execute(input as never, ctx),
+				execute: (ctx) =>
+					tool.execute(tool.inputSchema.parse(input) as never, ctx),
 			}),
 		currentDoc: () => workspace.currentSnapshot().doc,
 		recordMutations,

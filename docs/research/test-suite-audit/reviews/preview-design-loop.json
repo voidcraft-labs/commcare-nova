@@ -1,0 +1,59 @@
+{
+	"owner": "preview",
+	"scope": "final transferred semantic design-loop baseline",
+	"status": "complete",
+	"assignedBaselineTotal": 119,
+	"files": [
+		{
+			"file": "lib/agent/design/__tests__/designLoop.postgres.test.ts",
+			"status": "revised",
+			"reviewedSha256": "f289e8ced96fd9a5946238426d5d4a50339e397aa03eeb9f94e97bca63dba3dd",
+			"review": "Read all 964 original baseline lines and the actual semantic factory, admission/resolution queue, finalizers, reviewer, structured generation adapter, durable artifact/workspace/binding writers, relevant runner recovery and Project-evidence paths. Replaced schema.safeParse scripted model success with the actual DesignGenerationContext, streamObjectWith, installed Responses decoder, strict generated output grammar and native usage metering over an owned local HTTP peer. Source packages now come from the real builder with actual media metadata reads; reviewer capability input comes from the production catalog. All semantic authoring stage results must succeed, using the authoritative CONTRACT_COLLECTIONS including lookupTables. Wire objects remain unknown/structurally checked; resolved contract expectations pass the actual domain schema. The former fabricated lookup rejection now creates two real values, inspects them through the real registered tool and authorized Project reader, proves the inspection is initially valid, changes a saved row, and requires finalization to refuse with zero draft rows. Successful clean design now includes ordinary and designed-lookup cases, exact accepted contract readback and deterministic plan. The historical draft remains an explicitly seeded legacy storage boundary and is independently reviewed natively. Actual memo priming plus subsequent semantic transitions proves invalidation without repeating isolated memo tests. Provider reservation order is registered first and callbacks attached in reverse; allSettled joins every operation and the exact PostgreSQL step order plus last-write actor state proves ordering. Readable and eager handles check actual bindings, forward declarations upgrade the existing identity, and reserved/raw/duplicate identities leave complete workspace/step/handle snapshots unchanged. Blocking-question coverage now includes the full real runner: its native required question card persists server authorization, a premature semantic update is refused without a write, the person answers that actual card, and a replacement runner applies the assumption/question resolution, persists the draft, performs a native independent review and reaches a matching persisted accepted revision and plan. Correction coverage verifies the complete final contract, immutable initial draft, exact resulting revision/review/finding/status/rationale relation and plan. Real root-plus-charter replay uncovered the contextual eager-binding digest bug; two passing states cover still-referenced versus later-declared workflows, and changed operation, unknown binding, wrong identity and wrong kind all refuse without changing original digest/operation/step/workspace/handle rows."
+		}
+	],
+	"changedPaths": [
+		"lib/agent/design/__tests__/designLoop.postgres.test.ts",
+		"lib/agent/design/__tests__/designLoopPeer.ts",
+		"lib/agent/design/artifactWorkspaceStore.ts",
+		"lib/agent/design/CLAUDE.md",
+		"lib/agent/CLAUDE.md"
+	],
+	"productionChanges": [
+		{
+			"file": "lib/agent/design/artifactWorkspaceStore.ts",
+			"finding": "An identical semantic tool call containing eager forward references was rejected on replay after those references entered the ledger. The historical input digest includes a binding batch that gets smaller on replay although the semantic operation is identical. The original id-only test never exercised that dependency.",
+			"reproduction": "/tmp/nova-test-audit-parallel/preview/design-loop-replay-before.log: native PostgreSQL root-plus-charter replay returned a different-staged-input collision, while the neighboring native required-question recovery passed.",
+			"fix": "Preserves every stored input digest and the existing fast path. On mismatch, the duplicate path compares the exact stored operation envelope to the prepared current operation and proves all supplied handle bindings already have the same identity and compatible kind in the session ledger. It performs no writes or upgrades and refuses changed operation, unknown binding, wrong identity or wrong kind. Raw envelope comparison prevents legacy normalization from hiding a change in meaning. Root reviewed and approved this source approach before final integration.",
+			"evidence": "Both eager reference states and all four negative controls pass; full original database rows remain equal on every replay/refusal."
+		}
+	],
+	"checks": [
+		{
+			"command": "vitest run designLoop.postgres.test.ts --project postgres --maxWorkers=1 --detect-async-leaks",
+			"result": "18/18 passed with actual production catalog; 16 PROMISE-only diagnostics",
+			"log": "/tmp/nova-test-audit-parallel/preview/design-loop-complete.log"
+		},
+		{
+			"command": "vitest run designLoop.postgres.test.ts --project postgres --maxWorkers=1 -t deduplicates --detect-async-leaks",
+			"result": "2/2 passed across referenced and declared recovery states; no diagnostics",
+			"log": "/tmp/nova-test-audit-parallel/preview/design-loop-replay-controls.log"
+		},
+		{
+			"command": "vitest run designLoop.postgres.test.ts --project postgres --maxWorkers=1 -t reserved response order --detect-async-leaks",
+			"result": "1/1 passed after final allSettled ownership improvement; no diagnostics",
+			"log": "/tmp/nova-test-audit-parallel/preview/design-loop-queue-final.log"
+		},
+		{
+			"command": "vitest run designLoop.postgres.test.ts --project postgres --maxWorkers=1 -t genuinely changed Project choice evidence --detect-async-leaks",
+			"result": "1/1 passed after routing inspection through actual registered tool; no diagnostics",
+			"log": "/tmp/nova-test-audit-parallel/preview/design-loop-lookup-final.log"
+		},
+		{
+			"command": "biome check --write owned source and two test files; git diff --check owned changes",
+			"result": "Pass"
+		}
+	],
+	"resourceReview": "The fixture owns and joins the real Responses transport/server. Every native structured request reaches EOF and meters decoded usage. The full runner owns its UI drain and producer lifecycle. The out-of-order semantic operations use allSettled so all callbacks are joined even when one unexpectedly rejects. PostgreSQL harness teardown owns connections/database. Full-file diagnostics are exclusively PROMISE records from the installed SDK and a native queue continuation, with no timer/socket/database handle diagnostics; no suppression added.",
+	"pending": "Root integration typecheck/lint only; no owned functional task remains.",
+	"previousReportFollowup": "design-agent-report.json was updated after its typecheck fixes and 3/3 native compaction rerun: excess convert-input id removed, nonexistent completedSteps.messages equality replaced by nonempty exact durable response items and completed-step identity/usage equality. Root maintains formatting overlays for earlier frozen Preview files."
+}

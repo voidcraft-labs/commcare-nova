@@ -1,11 +1,5 @@
-// @vitest-environment happy-dom
-
-import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import {
-	ChatActivityStatus,
-	deriveChatActivity,
-} from "@/components/chat/ChatActivityStatus";
+import { deriveChatActivity } from "@/components/chat/ChatActivityStatus";
 import { BuilderPhase } from "@/lib/session/builderTypes";
 import { GenerationStage } from "@/lib/session/types";
 
@@ -101,30 +95,5 @@ describe("deriveChatActivity", () => {
 				streamOpen: true,
 			}),
 		).toEqual({ state: "progress", label: "Reading your documents" });
-	});
-});
-
-describe("ChatActivityStatus", () => {
-	it("renders nothing for an idle state", () => {
-		const { container } = render(<ChatActivityStatus state="idle" label="" />);
-		expect(container.childElementCount).toBe(0);
-	});
-
-	it("announces progress politely in one compact row", () => {
-		render(<ChatActivityStatus state="progress" label="Building your app" />);
-		const status = screen.getByRole("status");
-		expect(status.getAttribute("aria-live")).toBe("polite");
-		expect(status.getAttribute("data-chat-activity-status")).toBe("progress");
-		expect(status.className).toContain("min-h-10");
-		expect(status.textContent).toContain("Building your app");
-	});
-
-	it("announces a fatal outcome immediately", () => {
-		render(
-			<ChatActivityStatus state="error" label="Couldn't build your app" />,
-		);
-		const alert = screen.getByRole("alert");
-		expect(alert.getAttribute("aria-live")).toBe("assertive");
-		expect(alert.textContent).toContain("Couldn't build your app");
 	});
 });

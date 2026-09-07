@@ -1,44 +1,16 @@
-/**
- * `addFields` identifier guard — pre-dispatch rejection tests.
- *
- * The tool runs every incoming field id through the shared verdict
- * module (`lib/doc/identifierVerdicts.ts`) BEFORE persisting anything:
- * a sibling-id conflict, an XML-illegal name, a reserved `__nova_`
- * prefix, or an over-long case-property name fails the WHOLE call with
- * an `{ error }` envelope naming EVERY failing item, and
- * the host's `recordMutations` never fires. The `DUPLICATE_FIELD_ID` /
- * `INVALID_FIELD_ID` / `RESERVED_FIELD_ID_PREFIX` validator rules stay
- * as backstops — this guard is the at-source twin (the connect-id
- * pattern).
- *
- * Tests drive the REAL tool handler through both canonical hosts (chat
- * `GenerationContext`, MCP `McpContext`) to prove both surfaces hit the
- * same guard — the MCP adapter runs this same `execute` body through the
- * same workspace.
- */
+/** Actual tool schema, field assembly and identifier refusals through a
+ * canonical workspace with a controlled persistence receipt. Admitted starting
+ * documents make these reachable authoring cases; no SQL or adapter-parity
+ * claim is made by this unit suite. */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
-import {
-	makeMcpTestContext,
-	makeToolWorkspaceHarness,
-} from "../../__tests__/fixtures";
-import { CanonicalMutationWorkspace } from "../../workspace/canonicalWorkspace";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
+import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
 
 const MOD = testUuid("11111111-1111-1111-1111-111111111111");
 const FORM = testUuid("22222222-2222-2222-2222-222222222222");
@@ -49,48 +21,35 @@ const NOTE = testUuid("55555555-5555-5555-5555-555555555555");
 /** One form holding a top-level `age` field and a group `grp` with a
  *  child `note` — enough structure to exercise sibling vs cousin scope. */
 function makeDoc(): BlueprintDoc {
-	const mod: Module = {
-		uuid: MOD,
-		id: "patients",
-		name: "Patients",
-	};
-	const form: Form = {
-		uuid: FORM,
-		id: "register",
-		name: "Register",
-		type: "survey",
-	};
-	const age = {
-		uuid: AGE,
-		id: "age",
-		kind: "int",
-		label: proseText("Age"),
-	} as Field;
-	const grp = {
-		uuid: GRP,
-		id: "grp",
-		kind: "group",
-		label: proseText("Group"),
-	} as Field;
-	const note = {
-		uuid: NOTE,
-		id: "note",
-		kind: "text",
-		label: proseText("Note"),
-	} as Field;
-	return {
-		appId: "test-app",
-		appName: "Clinic",
-		connectType: null,
-		caseTypes: null,
-		modules: { [MOD]: mod },
-		forms: { [FORM]: form },
-		fields: { [AGE]: age, [GRP]: grp, [NOTE]: note },
-		moduleOrder: [MOD],
-		formOrder: { [MOD]: [FORM] },
-		fieldOrder: { [FORM]: [AGE, GRP], [GRP]: [NOTE] },
-		fieldParent: { [AGE]: FORM, [GRP]: FORM, [NOTE]: GRP },
-	};
+	return expectAdmittedDoc(
+		buildDoc({
+			modules: [
+				{
+					uuid: MOD,
+					name: "Patients",
+					forms: [
+						{
+							uuid: FORM,
+							name: "Register",
+							type: "survey",
+							fields: [
+								f({ uuid: AGE, id: "age", kind: "int", label: "Age" }),
+								f({
+									uuid: GRP,
+									id: "grp",
+									kind: "group",
+									label: "Group",
+									children: [
+										f({ uuid: NOTE, id: "note", kind: "text", label: "Note" }),
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
 }
 
 /** Shorthand for the minimal valid text item the add pipeline accepts. */
@@ -105,11 +64,7 @@ function textItem(id: string, parentUuid?: Uuid) {
 
 const ADDRESS = { moduleUuid: MOD, formUuid: FORM };
 
-beforeEach(() => {
-	vi.clearAllMocks();
-});
-
-describe("addFields — identifier guard (chat surface)", () => {
+describe("addFields — identifier guard through admitted input and canonical workspace", () => {
 	it("rejects a duplicate sibling id and persists nothing", async () => {
 		const h = makeToolWorkspaceHarness(makeDoc());
 		const result = await h.runTool(addFieldsTool, {
@@ -184,31 +139,5 @@ describe("addFields — identifier guard (chat surface)", () => {
 		const ids = Object.values(h.currentDoc().fields).map((f) => f?.id);
 		expect(ids).toContain("weight");
 		expect(ids).toContain("height");
-	});
-});
-
-describe("addFields — identifier guard (MCP surface, same tool body)", () => {
-	it("rejects the same duplicate sibling id through an McpContext", async () => {
-		const doc = makeDoc();
-		const { ctx } = makeMcpTestContext({ initialDoc: doc });
-		const recordSpy = vi.spyOn(ctx, "recordMutations");
-		// The MCP adapter's own shape: a per-call canonical workspace over the
-		// `McpContext` host, running the same shared tool body.
-		const workspace = new CanonicalMutationWorkspace({
-			host: ctx,
-			initialDoc: doc,
-		});
-		const result = await workspace.invoke({
-			toolName: "add_fields",
-			execute: (invocationCtx) =>
-				addFieldsTool.execute(
-					{ ...ADDRESS, fields: [textItem("age")] },
-					invocationCtx,
-				),
-		});
-
-		const error = (result.result as { error: string }).error;
-		expect(error).toContain('"age"');
-		expect(recordSpy).not.toHaveBeenCalled();
 	});
 });

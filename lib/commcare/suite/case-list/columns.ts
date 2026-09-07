@@ -1001,21 +1001,19 @@ function resolveSortElement(
 }
 
 /**
- * Re-lower the calc-arm directive's xpath against the target
- * detail's instance root. The case-target directive's xpath is
- * already lowered against `instance('casedb')` (the
- * `buildSortDirectives` default), so the case-target arm returns the
- * directive unchanged; the search-target arm re-emits the column's
- * expression against `instance('results')` and returns a fresh
- * directive carrying the rewritten xpath. The property arm is
- * instance-root-agnostic and passes through.
+ * Re-lower calculated sorting against the detail's actual case source.
+ * Ordinary lists use the directive's default casedb root. Remote Search
+ * uses results; inline Search still has the case target but reads
+ * results:inline. Display and sorting must resolve supporting cases in
+ * the same instance. Property-only directives remain relative to the row.
  */
 function retargetSortDirective(
 	directive: ResolvedSortDirective,
 	column: Column,
 	ctx: CaseListEmitContext,
 ): ResolvedSortDirective {
-	if (ctx.target === "case" || directive.kind === "property") return directive;
+	if (instanceRootFor(ctx) === "casedb" || directive.kind === "property")
+		return directive;
 	if (column.kind !== "calculated") {
 		// Structural invariant: a calc-arm directive always pairs with
 		// a calculated column. The `buildSortDirectives` pipeline

@@ -1,0 +1,29 @@
+{
+	"kind": "independent-final-production-review",
+	"reviewer": "commcare",
+	"findingCount": 0,
+	"scope": "Bounded review of latest usercase integration, Doc command/projection extraction, and Preview search-state extraction. Existing arithmetic strict-number and field-type changes excluded.",
+	"sourceHashes": {
+		"lib/db/syncUsercaseRow.ts": "46a37b7df96e0835797eebffce9a193c0dac4b45e3a1e5130b47bcca415f2696",
+		"lib/db/applyBlueprintChange.ts": "2f32a13de70015b10398f255b721d54a8e2eeeee2c35f84b86ed2773cb5b123c",
+		"lib/case-store/postgres/submissionEnvelope.ts": "a949a849833210a7c7622397a8c62f206d77f586b0fec517821685ff9114d628",
+		"lib/case-store/postgres/store.ts": "d778e436bef12addec9bb0c310d05d726263495af7789edf247593e5253b7358",
+		"lib/doc/hooks/useBlueprintMutations.ts": "5bcadf1fee730831b37672aa69849af9ebc6fc7f462853c831e436ccc09eb24c",
+		"lib/doc/hooks/useSearchFilter.ts": "37f63f2b276f6d5960d9dbacd3da303cd738b9b09f331e8674558c565c7b86c9",
+		"lib/doc/hooks/useOrderedFields.ts": "92a6b15d637ecf65be61724564ed291323ea14d830cca03c498a36976d34f24f",
+		"lib/preview/hooks/useSearchInputRunState.ts": "a6408b596c59260420050dc286e564dfc7523fbd88f98803f6e491a79dd6c267",
+		"lib/preview/engine/searchRunState.ts": "caff18e0f367f9e0536905e4165ddd01528bc0b082cdd30ed313079b6eb16342"
+	},
+	"evidence": [
+		"syncUsercaseRow.ts:35-77: new identity includes app and worker but excludes Project; lookup uses commcare-user plus hq_user_id, limit 2, held-inclusive, and explicit owner match. Actual store query 854-884 has app/type/Project scope without implicit open-status filtering.",
+		"syncUsercaseRow.ts:158-240: retained IDs are used for updates; 23505/cases_pkey retry runs after owned insert transaction rollback and accepts only exact generated case identity.",
+		"applyBlueprintChange.ts:347-363: removal uses prior worker schema and tenant-bound semantic identity, then closes the actual returned case ID.",
+		"submissionEnvelope.ts:751-827 and store.ts:1792-1874: usercase resolves before effects within authorized submission transaction after app/Project relationship advisory lock, rejects missing/closed/duplicate/wrong-owner rows; actual ID reaches post-effect patch and durable receipt; replay returns before new effects. Host worker identity comes from requireOwnerId, separately from membership actor.",
+		"Doc three hooks: whitespace-insensitive diffs preserve original computation/command bodies and complete memo dependencies; command get accessor still reads current store at dispatch.",
+		"Preview hook and extracted searchRunState: render-time scope reconciliation retained; submitted maps stay frozen/stable during draft and identity refresh; prospective hidden resolver uses desired state, including submit command, avoiding stale session/lookup closure. Existing two hook tests cover stale-scope render masking and current prospective identity with standing query preserved."
+	],
+	"verification": "Read-only source/diff/caller/contract review and inspected application/report-usercase-identity.json. No duplicate heavy tests run. Existing native evidence is attributed to its owning report, not claimed as rerun.",
+	"limitations": [
+		"Root-owned final native browser scenarios and global integration checks remain separate gates. This bounded review does not claim a fresh audit of all unchanged content in the large shared store."
+	]
+}

@@ -35,7 +35,6 @@ import {
 	appendKindSlot,
 	appendSlot,
 	appendSlotIndex,
-	deserializePath,
 	serializePath,
 } from "../path";
 import {
@@ -120,31 +119,16 @@ describe("path helpers — append shapes", () => {
 	});
 });
 
-describe("path serialization — round-trip", () => {
-	it("serializes and deserializes empty paths", () => {
+describe("validity index path keys", () => {
+	it("keeps neighboring and nested slots distinct while canonicalizing numeric segments", () => {
 		expect(serializePath([])).toBe("");
-		expect(deserializePath("")).toEqual([]);
-	});
-
-	it("preserves segment types across round-trips", () => {
-		const path = ["and", 0, "or", 1, "left"];
-		const serialized = serializePath(path);
-		expect(deserializePath(serialized)).toEqual(path);
-	});
-
-	it("serializes numeric and equal-string segments to the same key", () => {
-		// `["values", 0]` and `["values", "0"]` collapse to the same
-		// serialized form: `String(0) === "0"` and the join
-		// produces identical bytes. This collapse is acceptable
-		// because the editor only ever constructs paths with
-		// numeric indices in array slots; the string form does not
-		// arise in production code, and the validity-index lookup
-		// would route an error attached to either to the same card.
-		const numeric = serializePath(["values", 0]);
-		const stringy = serializePath(["values", "0"]);
-		expect(numeric).toBe(stringy);
-		// Round-trip prefers the numeric reading.
-		expect(deserializePath(numeric)).toEqual(["values", 0]);
+		expect(serializePath(["and", 0, "left"])).not.toBe(
+			serializePath(["and", 0, "right"]),
+		);
+		expect(serializePath(["and", 0, "left"])).not.toBe(
+			serializePath(["and", 1, "left"]),
+		);
+		expect(serializePath(["values", 0])).toBe(serializePath(["values", "0"]));
 	});
 });
 
@@ -381,5 +365,38 @@ describe("focused expression constraints mirror inline branch rules", () => {
 		const datetimeAccepts = concreteAccepts(["right", "date"], datetimeRoot);
 		expect(datetimeAccepts.has("datetime")).toBe(true);
 		expect(datetimeAccepts.has("date")).toBe(false);
+	});
+});
+
+describe("stale and wrong-family paths", () => {
+	it("refuses deleted indices and wrong node families without modifying the source", () => {
+		const root = eq(
+			prop("patient", "score"),
+			coalesce(term(literal(1)), term(literal(2))),
+		);
+		const before = structuredClone(root);
+		for (const index of [-1, 2, 0.5]) {
+			const path = ["right", "values", index];
+			expect(locateRuleNode(root, path, NAVIGATION_CONTEXT)).toBeUndefined();
+			expect(() =>
+				replaceRuleNodeAtPath(root, path, {
+					family: "expression",
+					value: term(literal(9)),
+				}),
+			).toThrow("editable node");
+		}
+		expect(() =>
+			replaceRuleNodeAtPath(root, ["right"], {
+				family: "predicate",
+				value: matchAll(),
+			}),
+		).toThrow("Cannot replace a expression");
+		expect(() =>
+			replaceRuleNodeAtPath(root, [], {
+				family: "expression",
+				value: term(literal(9)),
+			}),
+		).toThrow("Cannot replace a predicate");
+		expect(root).toEqual(before);
 	});
 });

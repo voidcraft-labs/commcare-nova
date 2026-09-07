@@ -562,8 +562,9 @@ export const INLINE_SEARCH_INPUT_INSTANCE_ID = "search-input:results:inline";
  */
 export function searchInputXPathInstance(
 	answers: ReadonlyMap<string, string>,
+	instanceId: string = INLINE_SEARCH_INPUT_INSTANCE_ID,
 ): XPathInstance {
-	return new StaticXPathInstance(INLINE_SEARCH_INPUT_INSTANCE_ID, {
+	return new StaticXPathInstance(instanceId, {
 		name: "input",
 		childTemplates: ["field"],
 		children: [...answers].map(([name, value]) => ({

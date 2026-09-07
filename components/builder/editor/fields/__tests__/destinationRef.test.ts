@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from "vitest";
 import { USERCASE_CASE_TYPE } from "@/lib/domain";
-import { destinationRef } from "../CaseWriteEditor";
+import { destinationRef } from "../caseWritePresentation";
 
 describe("destinationRef", () => {
 	it("prints an ordinary destination as its own case type", () => {
@@ -19,10 +19,7 @@ describe("destinationRef", () => {
 	});
 
 	it("prints the worker's own record as #user/, the namespace that resolves", () => {
-		// `lib/commcare/hashtags.ts` maps `#user/` to the commcare-user case;
-		// `#commcare-user/` is not a namespace anything reads, and no author
-		// is ever asked to name that case type.
+		// This proves the visible label projection, not wire or parser acceptance.
 		expect(destinationRef(USERCASE_CASE_TYPE, "cadre")).toBe("#user/cadre");
-		expect(USERCASE_CASE_TYPE).toBe("commcare-user");
 	});
 });

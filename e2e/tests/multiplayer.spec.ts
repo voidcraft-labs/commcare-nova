@@ -9,6 +9,7 @@ import {
 } from "@playwright/test";
 import { Pool } from "pg";
 import { attachErrorGuard } from "../lib/errorGuard";
+import { requireScenarioSeed } from "../lib/scenarioSeeds";
 import { applyPageZoom, type TileSlot, tileWindow } from "../lib/windowTiling";
 
 /**
@@ -44,13 +45,14 @@ import { applyPageZoom, type TileSlot, tileWindow } from "../lib/windowTiling";
  *
  * The single `page` fixture (`lib/fixtures.ts`) can't drive two users, so this
  * spec opens its own contexts and applies the identical strict error guard
- * (`attachErrorGuard`) to each page. The suite shares ONE seeded app and mutates
- * it cumulatively, so tests assert the CHANGE they make (unique markers), never a
- * seed starting value a prior test may have already edited.
+ * (`attachErrorGuard`) to each page. Native discovery allocates a separate app,
+ * Project, four users and sessions to every test/repeat/retry. All peers WITHIN
+ * a scenario share one app; unrelated scenarios cannot mutate its baseline.
  */
 
 interface MultiplayerManifest {
 	appId: string;
+	projectId: string;
 	moduleUuid: string;
 	moduleName: string;
 	formUuid: string;
@@ -127,6 +129,13 @@ async function openBuilder(
 		storageState,
 		baseURL: mp.baseUrl,
 	});
+	ownedContexts.set(context, async () => {
+		try {
+			await context.close();
+		} finally {
+			ownedContexts.delete(context);
+		}
+	});
 	const page = await context.newPage();
 	if (TILED) {
 		const content = await tileWindow(
@@ -140,19 +149,21 @@ async function openBuilder(
 		}
 	}
 	const guard = await attachErrorGuard(page, mp.baseUrl);
-	await page.goto(`/build/${mp.appId}${subPath}`);
-	return {
-		page,
-		context,
-		close: async () => {
+	const close = async () => {
+		try {
+			await page.close();
+			await guard.assertNoErrors();
+		} finally {
 			try {
-				await page.close();
-				await guard.assertNoErrors();
-			} finally {
 				await context.close();
+			} finally {
+				ownedContexts.delete(context);
 			}
-		},
+		}
 	};
+	ownedContexts.set(context, close);
+	await page.goto(`/build/${mp.appId}${subPath}`);
+	return { page, context, close };
 }
 
 /**
@@ -178,10 +189,18 @@ async function openCrew(
 		"bottom-left",
 		"bottom-right",
 	];
-	return Promise.all(
+	const results = await Promise.allSettled(
 		states.map((state, i) =>
 			openBuilder(browser, state, subPaths[i], slots[i]),
 		),
+	);
+	const failures = results.flatMap((result) =>
+		result.status === "rejected" ? [result.reason] : [],
+	);
+	if (failures.length)
+		throw new AggregateError(failures, "Multiplayer page opening failed");
+	return results.flatMap((result) =>
+		result.status === "fulfilled" ? [result.value] : [],
 	);
 }
 
@@ -213,19 +232,33 @@ function followButton(page: Page, peerName: string) {
 	return page.getByRole("button", { name: `Follow ${peerName}` });
 }
 
-// SERIAL: the suite shares ONE seeded app and mutates it cumulatively, so tests
-// must run in declaration order (the global config sets `fullyParallel: true`,
-// which would otherwise schedule them in any order and let one test's field
-// edit be observed by another before it runs).
-test.describe.configure({ mode: "serial" });
+// Run one crowd at a time to bound local browser memory. Unlike serial mode,
+// a failure does not skip later independently seeded scenarios.
+test.describe.configure({ mode: "default" });
 
-test.describe("two-user multiplayer builder", () => {
-	test.beforeAll(() => {
-		mp = JSON.parse(
+const ownedContexts = new Map<BrowserContext, () => Promise<void>>();
+test.afterEach(async () => {
+	const results = await Promise.allSettled(
+		[...ownedContexts.values()].map((close) => close()),
+	);
+	const failures = results.flatMap((result) =>
+		result.status === "rejected" ? [result.reason] : [],
+	);
+	if (failures.length)
+		throw new AggregateError(failures, "Multiplayer context teardown failed");
+});
+
+test.describe("two-user multiplayer builder", { tag: "@multiplayer" }, () => {
+	test.beforeEach(() => {
+		const manifest = JSON.parse(
 			readFileSync(
 				path.join(process.cwd(), "e2e", ".auth", "multiplayer.json"),
 				"utf8",
 			),
+		);
+		mp = requireScenarioSeed(
+			manifest.scenarios as Record<string, MultiplayerManifest>,
+			test.info(),
 		);
 		mkdirSync(SHOTS_DIR, { recursive: true });
 	});
@@ -572,6 +605,21 @@ test.describe("two-user multiplayer builder", () => {
 			// history. Asserting it on GRACE's own screen (she never navigated) proves
 			// the collaborative-undo isolation without a reload on either side.
 			await expect(graceId).toHaveValue(graceEdited);
+			await expect
+				.poll(async () => {
+					const response = await ada.context.request.get(
+						`/api/apps/${mp.appId}`,
+					);
+					expect(response.ok()).toBe(true);
+					const snapshot = (await response.json()) as {
+						blueprint: { fields: Record<string, { id: string }> };
+					};
+					return [
+						snapshot.blueprint.fields[mp.fieldOneUuid].id,
+						snapshot.blueprint.fields[mp.fieldTwoUuid].id,
+					];
+				})
+				.toEqual([adaStart, graceEdited]);
 			await ada.page.screenshot({
 				path: path.join(SHOTS_DIR, "09-undo-keeps-peer-edit.png"),
 			});
@@ -583,8 +631,8 @@ test.describe("two-user multiplayer builder", () => {
 	test("a removed member's stream is revoked and drops from the roster", async ({
 		browser,
 	}) => {
-		// This test MUTATES shared auth state (removes Grace's membership), so it
-		// restores it in `finally` — the seed runs once for the whole suite.
+		// This test removes only its own Project membership and restores it
+		// explicitly. A restoration failure must fail the test.
 		const ada = await openBuilder(browser, mp.stateFileA, `/${mp.moduleUuid}`);
 		const grace = await openBuilder(
 			browser,
@@ -601,15 +649,23 @@ test.describe("two-user multiplayer builder", () => {
 			// Remove Grace's membership → she loses `view` on the app's Project. The
 			// stream's revocation cadence closes her stream, and her presence POSTs
 			// start 404ing, so Ada's roster stale-hides her.
-			await pool.query(`DELETE FROM auth_member WHERE "userId" = $1`, [
-				mp.userB.id,
-			]);
+			await pool.query(
+				`DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2`,
+				[mp.userB.id, mp.projectId],
+			);
 
 			// Ada's roster drops Grace. The stream cadence (~10 s) + presence stale
 			// window (~2 heartbeats) means this resolves within ~40 s.
 			await expect(followButton(ada.page, mp.userB.name)).toHaveCount(0, {
 				timeout: 60_000,
 			});
+			await expect(
+				grace.page.getByRole("heading", {
+					name: "This app is no longer available",
+					exact: true,
+				}),
+			).toBeVisible({ timeout: 60_000 });
+			await expect(titleInput(grace.page)).toHaveCount(0);
 			await ada.page.screenshot({
 				path: path.join(SHOTS_DIR, "08-revoked-ada-roster-drops-grace.png"),
 			});
@@ -617,18 +673,16 @@ test.describe("two-user multiplayer builder", () => {
 			// Both pages retain the strict guard through teardown. Expected access
 			// revocation and 404 responses do not emit application errors.
 		} finally {
-			// Restore Grace's membership so a retry / later run starts clean. The
-			// shared Project's slug is fixed by the seed (`mp-shared-<userA.id>`).
-			await pool
-				.query(
-					`INSERT INTO auth_member (id, "organizationId", "userId", role, "createdAt")
-					 SELECT $1, o.id, $2, 'editor', NOW()
-					 FROM auth_organization o WHERE o.slug = $3
-					 ON CONFLICT DO NOTHING`,
-					[crypto.randomUUID(), mp.userB.id, `mp-shared-${mp.userA.id}`],
-				)
-				.catch(() => {});
-			await pool.end().catch(() => {});
+			// Restore the exact scenario membership; other scenarios have different users.
+			try {
+				const restored = await pool.query(
+					`INSERT INTO auth_member (id, "organizationId", "userId", role, "createdAt") VALUES ($1, $2, $3, 'editor', NOW()) ON CONFLICT DO NOTHING`,
+					[crypto.randomUUID(), mp.projectId, mp.userB.id],
+				);
+				expect(restored.rowCount).toBe(1);
+			} finally {
+				await pool.end();
+			}
 			await closePages([ada, grace]);
 		}
 	});
@@ -645,17 +699,20 @@ test.describe("two-user multiplayer builder", () => {
  * All four members are seeded editors of the shared Project; in watch mode
  * each takes a quadrant of the screen.
  *
- * Runs AFTER the two-user suite (serial file order) — the revocation test
- * restores Grace's membership in its `finally`, so the crew is whole again
- * here. Same cumulative-marker discipline: every test asserts values IT set.
+ * Each test has its own four-member Project and app, independent of the
+ * two-user scenarios and any previous failed attempt.
  */
-test.describe("four-user co-editing storm", () => {
-	test.beforeAll(() => {
-		mp = JSON.parse(
+test.describe("four-user co-editing storm", { tag: "@multiplayer" }, () => {
+	test.beforeEach(() => {
+		const manifest = JSON.parse(
 			readFileSync(
 				path.join(process.cwd(), "e2e", ".auth", "multiplayer.json"),
 				"utf8",
 			),
+		);
+		mp = requireScenarioSeed(
+			manifest.scenarios as Record<string, MultiplayerManifest>,
+			test.info(),
 		);
 		mkdirSync(SHOTS_DIR, { recursive: true });
 	});

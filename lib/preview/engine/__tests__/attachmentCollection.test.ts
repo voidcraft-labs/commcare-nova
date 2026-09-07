@@ -15,16 +15,11 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
-import type {
-	Field,
-	Form,
-	ProseTemplate,
-	Uuid,
-	XPathExpression,
-} from "@/lib/domain";
+import { buildDoc, type FieldSpec } from "@/lib/__tests__/docHelpers";
+import type { Field, ProseTemplate, XPathExpression } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { FormEngine, type FormEngineInput } from "../formEngine";
 
 const ENTRY_KEY = "11111111-1111-4111-8111-111111111111";
@@ -33,35 +28,45 @@ type Spec = {
 	id: string;
 	kind: Field["kind"];
 	label?: ProseTemplate;
-	relevant?: XPathExpression;
+	relevant?: XPathExpression | string;
 	repeat_mode?: string;
 	children?: Spec[];
 };
 
-/** Build a `FormEngineInput` from a nested spec, mirroring `dTree`. */
+/** Build a real admitted survey while keeping deterministic field identities. */
 function input(fields: Spec[]): FormEngineInput {
+	const identify = (nodes: Spec[], prefix: string): FieldSpec[] =>
+		nodes.map(({ children, ...node }) => ({
+			...node,
+			uuid: testUuid(`${prefix}.${node.id}`),
+			...(children
+				? { children: identify(children, `${prefix}.${node.id}`) }
+				: {}),
+		}));
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Capture",
+				forms: [
+					{
+						uuid: testUuid("form"),
+						name: "Capture",
+						type: "survey",
+						fields: identify(fields, "form"),
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedPreviewDoc(doc);
 	const formUuid = testUuid("form");
-	const form: Form = {
-		uuid: formUuid,
-		id: "f",
-		name: "F",
-		type: "survey",
+	return {
+		form: doc.forms[formUuid],
+		formUuid,
+		fields: doc.fields,
+		fieldOrder: doc.fieldOrder,
+		caseTypes: [],
 	};
-	const fieldMap: Record<string, Field> = {};
-	const fieldOrder: Record<string, Uuid[]> = {};
-	const walk = (nodes: Spec[], parentUuid: Uuid, prefix: string) => {
-		const order: Uuid[] = [];
-		for (const node of nodes) {
-			const uuid = testUuid(`${prefix}.${node.id}`);
-			order.push(uuid);
-			const { children, ...rest } = node;
-			fieldMap[uuid as string] = { uuid, ...rest } as unknown as Field;
-			if (children) walk(children, uuid, `${prefix}.${node.id}`);
-		}
-		fieldOrder[parentUuid as string] = order;
-	};
-	walk(fields, formUuid, "form");
-	return { form, formUuid, fields: fieldMap, fieldOrder, caseTypes: [] };
 }
 
 function referenceNames(engine: FormEngine): string[] {
@@ -150,7 +155,7 @@ describe("collectAttachmentReferences", () => {
 					id: "photo",
 					kind: "image",
 					label: proseText("Photo"),
-					relevant: xp("/data/gate = 'yes'"),
+					relevant: "/data/gate = 'yes'",
 				},
 			]),
 		);
@@ -173,7 +178,7 @@ describe("collectAttachmentReferences", () => {
 					id: "section",
 					kind: "group",
 					label: proseText("Section"),
-					relevant: xp("/data/gate = 'yes'"),
+					relevant: "/data/gate = 'yes'",
 					children: [{ id: "photo", kind: "image", label: proseText("Photo") }],
 				},
 			]),
@@ -200,7 +205,7 @@ describe("collectAttachmentReferences", () => {
 					kind: "repeat",
 					label: proseText("Visits"),
 					repeat_mode: "user_controlled",
-					relevant: xp("/data/gate = 'yes'"),
+					relevant: "/data/gate = 'yes'",
 					children: [{ id: "photo", kind: "image", label: proseText("Photo") }],
 				},
 			]),

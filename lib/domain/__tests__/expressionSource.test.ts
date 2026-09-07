@@ -1,467 +1,339 @@
-// lib/domain/__tests__/expressionSource.test.ts
-//
-// Pins the expression-source read accessor against the reference-slot
-// registry at the VALUE level (the audit test in
-// `referenceSlots.test.ts` proves the registry against the Zod
-// schemas at the TYPE level):
-//
-//   1. Every xpath/prose registry slot resolves on a schema-valid
-//      fixture field of EVERY kind (and repeat mode) it claims —
-//      nested paths (`data_source.ids_query`) and fan-out paths
-//      (`options[].label`, with pairing indices) included.
-//   2. The single-slot reads are TOTAL over the typed AST/template shapes
-//      (including an empty printed expression) without applicability gating,
-//      while `expressionSurfaceReads` IS gated by the per-kind projection.
-//      Neither surface activates a raw string parked in a structured slot.
-//   3. The form-level Connect slots resolve on a schema-valid form.
-
+// Concrete source projections from structurally admitted fields/forms. Registry
+// completeness is a separate schema audit; these witnesses do not use registry
+// paths to manufacture their own expected reads.
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
-	CONNECT_XPATH_SLOT_IDS,
+	expressionInspectionSource,
 	expressionSource,
 	expressionSourceEntries,
 	expressionSurfaceReads,
-	type FieldExpressionSlotId,
+	fieldProseTemplate,
 	formExpressionSource,
+	formExpressionSourceEntries,
+	formExpressionValue,
 	isScalarFieldExpressionSlotId,
-	type ScalarFieldExpressionSlotId,
 } from "../expressionSource";
-import type { Field, FieldKind, RepeatMode } from "../fields";
-import { repeatModes } from "../fields";
-import { audioFieldSchema } from "../fields/audio";
-import { barcodeFieldSchema } from "../fields/barcode";
-import { dateFieldSchema } from "../fields/date";
-import { datetimeFieldSchema } from "../fields/datetime";
-import { decimalFieldSchema } from "../fields/decimal";
-import { fileFieldSchema } from "../fields/file";
-import { geopointFieldSchema } from "../fields/geopoint";
-import { groupFieldSchema } from "../fields/group";
-import { hiddenFieldSchema } from "../fields/hidden";
-import { imageFieldSchema } from "../fields/image";
-import { intFieldSchema } from "../fields/int";
-import { labelFieldSchema } from "../fields/label";
-import { multiSelectFieldSchema } from "../fields/multiSelect";
-import {
-	countBoundRepeatSchema,
-	queryBoundRepeatSchema,
-	userControlledRepeatSchema,
-} from "../fields/repeat";
-import { secretFieldSchema } from "../fields/secret";
-import { sectionFieldSchema } from "../fields/section";
-import { signatureFieldSchema } from "../fields/signature";
-import { singleSelectFieldSchema } from "../fields/singleSelect";
-import { textFieldSchema } from "../fields/text";
-import { timeFieldSchema } from "../fields/time";
-import { videoFieldSchema } from "../fields/video";
-import { type Form, formSchema } from "../forms";
+import { fieldSchema } from "../fields";
+import { formSchema } from "../forms";
 import { proseText } from "../prose";
-import {
-	FIELD_REFERENCE_SLOTS,
-	type FieldReferenceSlot,
-} from "../referenceSlots";
-import { opaqueXPathExpression } from "../xpath";
+import { opaqueXPathExpression as xp } from "../xpath";
 
-// ── Fixtures ──────────────────────────────────────────────────────
-
-/** Planted values are strings or opaque ASTs — nothing resolves, so an
- *  empty print surface suffices for every read in this file. */
+const FIELD = testUuid("expression-field");
+const FORM = testUuid("expression-form");
 const EMPTY_DOC = { forms: {}, fields: {}, fieldOrder: {} };
+const base = {
+	uuid: FIELD,
+	id: "answer",
+	kind: "text",
+	label: proseText("Answer"),
+};
 
-const KIND_SCHEMAS = {
-	text: textFieldSchema,
-	int: intFieldSchema,
-	decimal: decimalFieldSchema,
-	date: dateFieldSchema,
-	time: timeFieldSchema,
-	datetime: datetimeFieldSchema,
-	single_select: singleSelectFieldSchema,
-	multi_select: multiSelectFieldSchema,
-	geopoint: geopointFieldSchema,
-	image: imageFieldSchema,
-	audio: audioFieldSchema,
-	video: videoFieldSchema,
-	file: fileFieldSchema,
-	barcode: barcodeFieldSchema,
-	signature: signatureFieldSchema,
-	label: labelFieldSchema,
-	hidden: hiddenFieldSchema,
-	secret: secretFieldSchema,
-	group: groupFieldSchema,
-	section: sectionFieldSchema,
-} as const;
+describe("field expression source", () => {
+	it("reads each authored input expression and prose slot with its original value", () => {
+		const field = fieldSchema.parse({
+			...base,
+			relevant: xp("true()"),
+			validate: xp(". != ''"),
+			default_value: xp("'Ada'"),
+			required: xp("false()"),
+			hint: proseText("A hint"),
+			help: proseText("More help"),
+			validate_msg: proseText("Try again"),
+		});
+		expect(expressionSurfaceReads(field, "xpath", EMPTY_DOC)).toEqual([
+			{ slot: "relevant", indices: [], text: "true()", expr: xp("true()") },
+			{ slot: "validate", indices: [], text: ". != ''", expr: xp(". != ''") },
+			{ slot: "default_value", indices: [], text: "'Ada'", expr: xp("'Ada'") },
+			{ slot: "required", indices: [], text: "false()", expr: xp("false()") },
+		]);
+		expect(
+			expressionSurfaceReads(field, "prose", EMPTY_DOC).map(
+				({ slot, text }) => ({ slot, text }),
+			),
+		).toEqual([
+			{ slot: "label", text: "Answer" },
+			{ slot: "hint", text: "A hint" },
+			{ slot: "help", text: "More help" },
+			{ slot: "validate_msg", text: "Try again" },
+		]);
+		expect(expressionSource(field, "default_value", EMPTY_DOC)).toBe("'Ada'");
+		expect(fieldProseTemplate(field, "hint")).toEqual(proseText("A hint"));
+	});
 
-const REPEAT_SCHEMAS = {
-	user_controlled: userControlledRepeatSchema,
-	count_bound: countBoundRepeatSchema,
-	query_bound: queryBoundRepeatSchema,
-} as const;
-
-/** Minimal schema-valid raw fixture for a kind (+ repeat mode). */
-function rawFixture(
-	kind: FieldKind,
-	mode?: RepeatMode,
-): Record<string, unknown> {
-	const base = { uuid: crypto.randomUUID(), id: "fixture_field" };
-	switch (kind) {
-		case "hidden":
-		case "group":
-			return { ...base, kind };
-		case "repeat": {
-			const repeatMode = mode ?? "user_controlled";
-			if (repeatMode === "count_bound") {
-				return {
-					...base,
-					kind,
-					repeat_mode: repeatMode,
-					repeat_count: opaqueXPathExpression("3"),
-				};
-			}
-			if (repeatMode === "query_bound") {
-				return {
-					...base,
-					kind,
-					repeat_mode: repeatMode,
-					data_source: {
-						ids_query: opaqueXPathExpression(
-							"instance('casedb')/casedb/case/@case_id",
-						),
+	it("preserves option positions including an empty label", () => {
+		const field = fieldSchema.parse({
+			...base,
+			kind: "single_select",
+			optionsSource: {
+				kind: "inline",
+				options: [
+					{
+						uuid: testUuid("expression-option-1"),
+						value: "a",
+						label: proseText("First"),
 					},
-				};
-			}
-			return { ...base, kind, repeat_mode: repeatMode };
-		}
-		case "single_select":
-		case "multi_select":
-			return {
-				...base,
-				kind,
-				label: proseText("Pick one"),
-				optionsSource: {
-					kind: "inline",
-					options: [
-						{
-							uuid: crypto.randomUUID(),
-							value: "a",
-							label: proseText("Option A"),
-						},
-						{
-							uuid: crypto.randomUUID(),
-							value: "b",
-							label: proseText("Option B"),
-						},
-					],
-				},
-			};
-		default:
-			return { ...base, kind, label: proseText("Fixture") };
-	}
-}
-
-/** Parse a raw fixture through the kind's real Zod schema — the proof
- *  that the planted slot value is schema-legal on that kind. */
-function parseFixture(
-	raw: Record<string, unknown>,
-	kind: FieldKind,
-	mode?: RepeatMode,
-): Field {
-	const schema =
-		kind === "repeat"
-			? REPEAT_SCHEMAS[mode ?? "user_controlled"]
-			: KIND_SCHEMAS[kind];
-	return schema.parse(raw) as Field;
-}
-
-/** Set a value at a registry slot path on a raw fixture, fanning out
- *  over `[]` segments — the planting mirror of `readSlotStrings`. */
-function plantAtPath(
-	entity: Record<string, unknown>,
-	path: string,
-	make: (indices: readonly number[]) => unknown,
-): void {
-	const walk = (
-		node: Record<string, unknown>,
-		segments: readonly string[],
-		indices: readonly number[],
-	): void => {
-		const head = segments[0];
-		if (head === undefined) return;
-		const fanOut = head.endsWith("[]");
-		const key = fanOut ? head.slice(0, -2) : head;
-		const rest = segments.slice(1);
-		if (fanOut) {
-			const elements = node[key] as Record<string, unknown>[];
-			elements.forEach((element, index) => {
-				walk(element, rest, [...indices, index]);
-			});
-			return;
-		}
-		if (rest.length === 0) {
-			node[key] = make(indices);
-			return;
-		}
-		if (node[key] === undefined) node[key] = {};
-		walk(node[key] as Record<string, unknown>, rest, indices);
-	};
-	walk(entity, path.split("."), []);
-}
-
-function plantedText(slot: string, indices: readonly number[]): string {
-	return indices.length === 0
-		? `planted ${slot}`
-		: `planted ${slot} [${indices.join(".")}]`;
-}
-
-// ── Every registry expression slot resolves on every claimed kind ──
-
-const fieldSlots: readonly FieldReferenceSlot[] = FIELD_REFERENCE_SLOTS;
-const expressionSlots = fieldSlots.filter(
-	(slot) => slot.kind === "xpath-ast" || slot.kind === "prose",
-);
-
-describe("expressionSource resolves every registry xpath/prose slot", () => {
-	for (const slot of expressionSlots) {
-		for (const kind of slot.appliesTo) {
-			const modes: readonly (RepeatMode | undefined)[] =
-				kind === "repeat" ? (slot.repeatModes ?? repeatModes) : [undefined];
-			for (const mode of modes) {
-				it(`${slot.slot} on ${kind}${mode ? ` (${mode})` : ""}`, () => {
-					const raw = rawFixture(kind, mode);
-					// AST slots store the expression structurally; the planted
-					// opaque run projects back to the same text on read.
-					plantAtPath(raw, slot.path, (indices) =>
-						slot.kind === "xpath-ast"
-							? opaqueXPathExpression(plantedText(slot.slot, indices))
-							: proseText(plantedText(slot.slot, indices)),
-					);
-					const field = parseFixture(raw, kind, mode);
-
-					const entries = expressionSourceEntries(
-						field,
-						slot.slot as FieldExpressionSlotId,
-						EMPTY_DOC,
-					);
-					expect(entries.length).toBeGreaterThan(0);
-					for (const entry of entries) {
-						expect(entry.text).toBe(plantedText(slot.slot, entry.indices));
-					}
-
-					if (!slot.path.includes("[]")) {
-						expect(entries).toHaveLength(1);
-						expect(
-							expressionSource(
-								field,
-								slot.slot as ScalarFieldExpressionSlotId,
-								EMPTY_DOC,
-							),
-						).toBe(plantedText(slot.slot, []));
-					}
-				});
-			}
-		}
-	}
-
-	it("fans out option_label with pairing indices, one per option", () => {
-		const raw = rawFixture("single_select");
-		plantAtPath(raw, "optionsSource.options[].label", (indices) =>
-			proseText(plantedText("option_label", indices)),
-		);
-		const field = parseFixture(raw, "single_select");
+					{
+						uuid: testUuid("expression-option-2"),
+						value: "b",
+						label: proseText(""),
+					},
+					{
+						uuid: testUuid("expression-option-3"),
+						value: "c",
+						label: proseText("Third"),
+					},
+				],
+			},
+		});
 		expect(expressionSourceEntries(field, "option_label", EMPTY_DOC)).toEqual([
-			{ indices: [0], text: "planted option_label [0]" },
-			{ indices: [1], text: "planted option_label [1]" },
+			{ indices: [0], text: "First" },
+			{ indices: [1], text: "" },
+			{ indices: [2], text: "Third" },
 		]);
 	});
-});
 
-// ── Total-read contract ───────────────────────────────────────────
+	it.each([
+		{ raw: { repeat_mode: "user_controlled" }, expected: [] },
+		{
+			raw: { repeat_mode: "count_bound", repeat_count: xp("3") },
+			expected: [{ slot: "repeat_count", text: "3" }],
+		},
+		{
+			raw: {
+				repeat_mode: "query_bound",
+				data_source: { ids_query: xp("'case-id'") },
+			},
+			expected: [{ slot: "ids_query", text: "'case-id'" }],
+		},
+	])(
+		"reads the active $raw.repeat_mode repeat carrier",
+		({ raw, expected }) => {
+			const field = fieldSchema.parse({
+				uuid: FIELD,
+				id: "visits",
+				kind: "repeat",
+				...raw,
+			});
+			expect(
+				expressionSurfaceReads(field, "xpath", EMPTY_DOC).map(
+					({ slot, text }) => ({ slot, text }),
+				),
+			).toEqual(expected);
+		},
+	);
 
-describe("single-slot reads are total", () => {
-	it("absent slot reads as undefined / zero entries", () => {
-		const field = parseFixture(rawFixture("text"), "text");
+	it("distinguishes an absent slot from a stored empty expression", () => {
+		const absent = fieldSchema.parse(base);
+		const empty = fieldSchema.parse({ ...base, relevant: xp("") });
+		expect(expressionSource(absent, "relevant", EMPTY_DOC)).toBeUndefined();
+		expect(expressionSourceEntries(absent, "relevant", EMPTY_DOC)).toEqual([]);
+		expect(expressionSource(empty, "relevant", EMPTY_DOC)).toBe("");
+		expect(expressionSourceEntries(empty, "relevant", EMPTY_DOC)).toEqual([
+			{ indices: [], text: "" },
+		]);
+	});
+
+	it("does not interpret raw strings as stored AST or prose", () => {
+		const field = fieldSchema.parse(base);
+		Object.assign(field, { relevant: "true()", label: "Raw label" });
+		expect(fieldSchema.safeParse(field).success).toBe(false);
 		expect(expressionSource(field, "relevant", EMPTY_DOC)).toBeUndefined();
-		expect(expressionSourceEntries(field, "relevant", EMPTY_DOC)).toEqual([]);
-		expect(expressionSource(field, "calculate", EMPTY_DOC)).toBeUndefined();
-	});
-
-	it("the empty expression is a stored value, projecting as the empty string", () => {
-		const raw = rawFixture("text");
-		plantAtPath(raw, "relevant", () => opaqueXPathExpression(""));
-		const field = parseFixture(raw, "text");
-		expect(expressionSource(field, "relevant", EMPTY_DOC)).toBe("");
-	});
-
-	it("does not activate a raw string parked in an AST-only slot", () => {
-		const field = parseFixture(rawFixture("text"), "text");
-		(field as Record<string, unknown>).calculate = "1 + 1";
-		expect(expressionSource(field, "calculate", EMPTY_DOC)).toBeUndefined();
-	});
-});
-
-// ── Registry-projection iteration (gated) ─────────────────────────
-
-describe("expressionSurfaceReads", () => {
-	it("does not activate raw strings parked in AST-only or prose slots", () => {
-		const field = parseFixture(rawFixture("text"), "text");
-		const malformed = field as unknown as Record<string, unknown>;
-		malformed.relevant = "1 = 1";
-		malformed.label = "Raw label";
-
 		expect(expressionSurfaceReads(field, "xpath", EMPTY_DOC)).toEqual([]);
 		expect(expressionSurfaceReads(field, "prose", EMPTY_DOC)).toEqual([]);
 	});
 
-	it("walks xpath slots in registry order", () => {
-		const raw = rawFixture("text");
-		for (const path of ["relevant", "validate", "default_value"]) {
-			plantAtPath(raw, path, () => opaqueXPathExpression(`expr ${path}`));
-		}
-		plantAtPath(raw, "required", () => opaqueXPathExpression("expr required"));
-		const field = parseFixture(raw, "text");
-		expect(
-			expressionSurfaceReads(field, "xpath", EMPTY_DOC).map((r) => r.slot),
-		).toEqual(["relevant", "validate", "default_value", "required"]);
+	it("gates an otherwise readable AST by field kind in the surface walk", () => {
+		const field = fieldSchema.parse(base);
+		Object.assign(field, { calculate: xp("1 + 1") });
+		expect(fieldSchema.safeParse(field).success).toBe(false);
+		// The scalar accessor reads a named carrier; the surface walk decides
+		// which carriers this kind may execute. An AST isolates applicability
+		// from the unrelated raw-string shape refusal.
+		expect(expressionSource(field, "calculate", EMPTY_DOC)).toBe("1 + 1");
+		expect(expressionSurfaceReads(field, "xpath", EMPTY_DOC)).toEqual([]);
 	});
 
-	it("walks prose slots in registry order, options fanned out last", () => {
-		const raw = rawFixture("single_select");
-		for (const path of ["hint", "help", "validate_msg"]) {
-			plantAtPath(raw, path, () => proseText(`text ${path}`));
-		}
-		const field = parseFixture(raw, "single_select");
-		expect(
-			expressionSurfaceReads(field, "prose", EMPTY_DOC).map((r) => [
-				r.slot,
-				...r.indices,
-			]),
-		).toEqual([
-			["label"],
-			["hint"],
-			["help"],
-			["validate_msg"],
-			["option_label", 0],
-			["option_label", 1],
+	it("prints field identities against the current name without altering the stored reference", () => {
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Intake",
+							type: "survey",
+							fields: [
+								f({ uuid: FIELD, id: "answer", kind: "text", label: "Answer" }),
+								f({ id: "copy", kind: "hidden", calculate: "#form/answer" }),
+							],
+						},
+					],
+				},
+			],
+		});
+		expectAdmittedDoc(doc);
+		const copy = Object.values(doc.fields).find((field) => field.id === "copy");
+		if (!copy) throw new Error("Missing copy fixture");
+		const stored = structuredClone(copy);
+		expect(expressionSource(copy, "calculate", doc)).toBe("#form/answer");
+		const renamed = {
+			...doc,
+			fields: {
+				...doc.fields,
+				[FIELD]: { ...doc.fields[FIELD], id: "renamed" },
+			},
+		};
+		expectAdmittedDoc(renamed);
+		expect(expressionSource(copy, "calculate", renamed)).toBe("#form/renamed");
+		expect(copy).toEqual(stored);
+	});
+
+	it("keeps unresolved identities as inspection state and refuses strict execution text", () => {
+		const expr = {
+			parts: [{ kind: "field-ref", uuid: testUuid("missing-source-field") }],
+		};
+		const field = fieldSchema.parse({ ...base, relevant: expr });
+		expect(() => expressionSource(field, "relevant", EMPTY_DOC)).toThrow();
+		expect(expressionInspectionSource(field, "relevant", EMPTY_DOC)).toContain(
+			"reference needs repair",
+		);
+		expect(expressionSurfaceReads(field, "xpath", EMPTY_DOC)).toEqual([
+			{
+				slot: "relevant",
+				indices: [],
+				text: expect.stringContaining("reference needs repair"),
+				expr,
+			},
 		]);
 	});
 
-	it("narrows the repeat projection by mode", () => {
-		const countBound = parseFixture(
-			rawFixture("repeat", "count_bound"),
-			"repeat",
-			"count_bound",
+	it("keeps hashtag-looking prose literal", () => {
+		const field = fieldSchema.parse({
+			...base,
+			label: proseText("Ask #form/answer"),
+		});
+		expect(expressionSource(field, "label", EMPTY_DOC)).toBe(
+			"Ask #form/answer",
 		);
-		expect(
-			expressionSurfaceReads(countBound, "xpath", EMPTY_DOC).map((r) => r.slot),
-		).toEqual(["repeat_count"]);
-
-		const queryBound = parseFixture(
-			rawFixture("repeat", "query_bound"),
-			"repeat",
-			"query_bound",
-		);
-		expect(
-			expressionSurfaceReads(queryBound, "xpath", EMPTY_DOC).map((r) => r.slot),
-		).toEqual(["ids_query"]);
-
-		const userControlled = parseFixture(
-			rawFixture("repeat", "user_controlled"),
-			"repeat",
-			"user_controlled",
-		);
-		expect(expressionSurfaceReads(userControlled, "xpath", EMPTY_DOC)).toEqual(
-			[],
-		);
-	});
-
-	it("does not surface a value parked on a kind whose schema lacks the slot", () => {
-		// …while the gated projection walk skips it (the per-kind
-		// applicability the validator's scans rely on).
-		const field = parseFixture(rawFixture("text"), "text");
-		(field as Record<string, unknown>).calculate = "1 + 1";
-		expect(
-			expressionSurfaceReads(field, "xpath", EMPTY_DOC).map((r) => r.slot),
-		).not.toContain("calculate");
 	});
 });
 
-// ── Form-level slots ──────────────────────────────────────────────
-
-describe("formExpressionSource", () => {
-	it("resolves each Connect xpath slot on a schema-valid form", () => {
-		const assessmentForm: Form = formSchema.parse({
-			uuid: crypto.randomUUID(),
-			id: "assessment_form",
-			name: "Assessment",
-			type: "followup",
-			connect: {
-				assessment: {
-					id: "assessment",
-					user_score: opaqueXPathExpression("#form/score"),
-				},
-			},
+describe("form expression source", () => {
+	const formBase = { uuid: FORM, id: "intake", name: "Intake", type: "survey" };
+	it("reads the separate Connect expression carriers", () => {
+		const assessment = formSchema.parse({
+			...formBase,
+			connect: { assessment: { id: "assessment", user_score: xp("7") } },
 		});
-		const deliverForm: Form = formSchema.parse({
-			uuid: crypto.randomUUID(),
-			id: "deliver_form",
-			name: "Deliver",
-			type: "followup",
+		const deliver = formSchema.parse({
+			...formBase,
 			connect: {
 				deliver_unit: {
-					id: "deliver_unit",
+					id: "unit",
 					name: "Unit",
-					entity_id: opaqueXPathExpression("#form/entity"),
-					entity_name: opaqueXPathExpression("#form/entity_name"),
+					entity_id: xp("'id'"),
+					entity_name: xp("'Name'"),
 				},
 			},
 		});
 		expect(
-			formExpressionSource(assessmentForm, "assessment_user_score", EMPTY_DOC),
-		).toBe("#form/score");
+			formExpressionSource(assessment, "assessment_user_score", EMPTY_DOC),
+		).toBe("7");
+		expect(formExpressionValue(assessment, "assessment_user_score")).toEqual(
+			xp("7"),
+		);
+		expect(formExpressionSource(deliver, "deliver_entity_id", EMPTY_DOC)).toBe(
+			"'id'",
+		);
 		expect(
-			formExpressionSource(deliverForm, "deliver_entity_id", EMPTY_DOC),
-		).toBe("#form/entity");
+			formExpressionSource(deliver, "deliver_entity_name", EMPTY_DOC),
+		).toBe("'Name'");
+		const absent = formSchema.parse(formBase);
 		expect(
-			formExpressionSource(deliverForm, "deliver_entity_name", EMPTY_DOC),
-		).toBe("#form/entity_name");
+			formExpressionSource(absent, "assessment_user_score", EMPTY_DOC),
+		).toBeUndefined();
+		expect(formExpressionValue(absent, "deliver_entity_name")).toBeUndefined();
 	});
 
-	it("reads undefined when the connect block is absent", () => {
-		const form: Form = formSchema.parse({
-			uuid: crypto.randomUUID(),
-			id: "fixture_form",
-			name: "Fixture",
-			type: "survey",
+	it("preserves both link and datum indices while skipping absent carriers", () => {
+		const target = {
+			type: "module",
+			moduleUuid: testUuid("expression-target-module"),
+		};
+		const form = formSchema.parse({
+			...formBase,
+			formLinks: [
+				{
+					uuid: testUuid("expression-link-1"),
+					target,
+					condition: xp("true()"),
+					datums: [
+						{ name: "a", xpath: xp("'first'") },
+						{ name: "b", xpath: xp("'second'") },
+					],
+				},
+				{ uuid: testUuid("expression-link-2"), target },
+				{
+					uuid: testUuid("expression-link-3"),
+					target,
+					condition: xp("false()"),
+					datums: [{ name: "c", xpath: xp("'third'") }],
+				},
+			],
 		});
 		expect(
-			formExpressionSource(form, "assessment_user_score", EMPTY_DOC),
-		).toBeUndefined();
+			formExpressionSourceEntries(form, "form_link_condition", EMPTY_DOC),
+		).toEqual([
+			{
+				slot: "form_link_condition",
+				indices: [0],
+				text: "true()",
+				expr: xp("true()"),
+			},
+			{
+				slot: "form_link_condition",
+				indices: [2],
+				text: "false()",
+				expr: xp("false()"),
+			},
+		]);
 		expect(
-			formExpressionSource(form, "deliver_entity_id", EMPTY_DOC),
-		).toBeUndefined();
-	});
-
-	it("CONNECT_XPATH_SLOT_IDS is the registry's connect projection in order", () => {
-		expect(CONNECT_XPATH_SLOT_IDS).toEqual([
-			"assessment_user_score",
-			"deliver_entity_id",
-			"deliver_entity_name",
+			formExpressionSourceEntries(form, "form_link_datum_xpath", EMPTY_DOC),
+		).toEqual([
+			{
+				slot: "form_link_datum_xpath",
+				indices: [0, 0],
+				text: "'first'",
+				expr: xp("'first'"),
+			},
+			{
+				slot: "form_link_datum_xpath",
+				indices: [0, 1],
+				text: "'second'",
+				expr: xp("'second'"),
+			},
+			{
+				slot: "form_link_datum_xpath",
+				indices: [2, 0],
+				text: "'third'",
+				expr: xp("'third'"),
+			},
 		]);
 	});
 });
 
-// ── Slot-id narrowing for `readFieldString` delegation ────────────
-
-describe("isScalarFieldExpressionSlotId", () => {
-	it("admits every scalar expression slot id, including the nested ids_query", () => {
-		for (const slot of expressionSlots) {
-			if (slot.path.includes("[]")) continue;
-			expect(isScalarFieldExpressionSlotId(slot.slot)).toBe(true);
-		}
-	});
-
-	it("rejects fan-out slots and non-expression keys", () => {
-		expect(isScalarFieldExpressionSlotId("option_label")).toBe(false);
-		expect(isScalarFieldExpressionSlotId("caseWrite")).toBe(false);
-		expect(isScalarFieldExpressionSlotId("id")).toBe(false);
-		expect(isScalarFieldExpressionSlotId("options")).toBe(false);
-	});
+it.each([
+	["relevant", true],
+	["ids_query", true],
+	["calculate", true],
+	["label", true],
+	["option_label", false],
+	["caseWrite", false],
+	["id", false],
+	["options", false],
+])("classifies scalar source key %s", (key, expected) => {
+	expect(isScalarFieldExpressionSlotId(String(key))).toBe(expected);
 });

@@ -3,7 +3,8 @@ import {
 	lookupColumnIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import type { LookupRevision, LookupTableSnapshot } from "@/lib/lookup/types";
+import { lookupRevisionSchema } from "@/lib/lookup/schema";
+import type { LookupTableSnapshot } from "@/lib/lookup/types";
 import {
 	buildLookupCsvSelection,
 	currentLookupCsvTable,
@@ -20,7 +21,7 @@ const otherTableId = lookupTableIdSchema.parse(
 const columnId = lookupColumnIdSchema.parse(
 	"01912d68-783e-7000-8000-00000000c001",
 );
-const revision = (value: string) => value as LookupRevision;
+const revision = (value: string) => lookupRevisionSchema.parse(value);
 
 function table(
 	overrides: Partial<LookupTableSnapshot> = {},
@@ -93,16 +94,18 @@ describe("CSV import selection", () => {
 
 	it("freezes bytes, file, row count, schema, Project, and revisions together", () => {
 		const source = new TextEncoder().encode("name\nKitgum\nGulu\n");
+		const snapshot = table();
 		const result = buildLookupCsvSelection({
 			generation: 2,
 			projectId: "project-a",
-			table: table(),
+			table: snapshot,
 			file,
 			bytes: source,
 		});
 		expect(result.ok).toBe(true);
 		if (!result.ok) return;
 		source[0] = 0;
+		snapshot.columns[0].label = "Renamed after review";
 		expect(result.selection).toMatchObject({
 			generation: 2,
 			projectId: "project-a",
@@ -117,7 +120,9 @@ describe("CSV import selection", () => {
 		expect(new TextDecoder().decode(result.selection.bytes)).toBe(
 			"name\nKitgum\nGulu\n",
 		);
-		expect(result.selection.schema).toEqual(table().columns);
+		expect(result.selection.schema).toStrictEqual([
+			{ id: columnId, wireName: "name", label: "Name", dataType: "text" },
+		]);
 	});
 
 	it("drops an out-of-order file read settle", () => {

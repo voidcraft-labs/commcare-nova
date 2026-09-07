@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
+import { caseListConfig, xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import {
 	type CaseOperation,
@@ -14,11 +14,42 @@ import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
+import type { XPathWorkerFactory } from "../../xpath/workerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
 import type { XPathWorkerEvaluateRequest } from "../../xpath/workerProtocol";
 import { EngineController } from "../engineController";
 import type { ResolvedPreviewIdentity } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
+import {
+	admittedControllerDoc,
+	applyControllerEdit,
+} from "./fixtures/controllerDoc";
+
+const controllers = new Set<EngineController>();
+function ownedController(
+	...args: ConstructorParameters<typeof EngineController>
+) {
+	const ctrl = new EngineController(...args);
+	controllers.add(ctrl);
+	return ctrl;
+}
+
+/** Observe the actual host protocol while the default dispatcher executes every expression. */
+function observedFactory(
+	requests: XPathWorkerEvaluateRequest[],
+): XPathWorkerFactory {
+	const factory = createInProcessXPathWorkerFactory();
+	return () => {
+		const port = factory();
+		return {
+			...port,
+			postMessage(message) {
+				if (message.operation === "evaluate") requests.push(message);
+				port.postMessage(message);
+			},
+		};
+	};
+}
 
 const MODULE_UUID = testUuid("async-module");
 const FORM_UUID = testUuid("async-form");
@@ -56,12 +87,12 @@ function docWith(...fields: Field[]): PersistableDoc {
 
 function controller(...fields: Field[]): EngineController {
 	const store = createBlueprintDocStore();
-	store.getState().load(docWith(...fields));
+	store.getState().load(admittedControllerDoc(docWith(...fields)));
 	store.getState().startTracking();
 	const runtime = new XPathRuntime({
 		workerFactory: createInProcessXPathWorkerFactory(),
 	});
-	const result = new EngineController(runtime);
+	const result = ownedController(runtime);
 	result.setDocStore(store);
 	return result;
 }
@@ -69,19 +100,28 @@ function controller(...fields: Field[]): EngineController {
 function controllerForDoc(
 	doc: PersistableDoc,
 	evaluate?: Parameters<typeof createInProcessXPathWorkerFactory>[0],
+	requests?: XPathWorkerEvaluateRequest[],
 ): EngineController {
 	const store = createBlueprintDocStore();
-	store.getState().load(doc);
+	store.getState().load(admittedControllerDoc(doc));
 	store.getState().startTracking();
 	const runtime = new XPathRuntime({
-		workerFactory: createInProcessXPathWorkerFactory(evaluate),
+		workerFactory:
+			requests === undefined
+				? createInProcessXPathWorkerFactory(evaluate)
+				: observedFactory(requests),
 	});
-	const result = new EngineController(runtime);
+	const result = ownedController(runtime);
 	result.setDocStore(store);
 	return result;
 }
 
-afterEach(() => vi.useRealTimers());
+afterEach(async () => {
+	for (const ctrl of controllers) ctrl.dispose();
+	await Promise.all([...controllers].map((ctrl) => ctrl.awaitSettled()));
+	controllers.clear();
+	vi.useRealTimers();
+});
 
 describe("EngineController async runtime", () => {
 	it("retains every rapid raw edit and reconciles their shared async DAG once", async () => {
@@ -383,10 +423,8 @@ describe("EngineController async runtime", () => {
 					calculate: xp("/data/copy"),
 				},
 			),
-			(request) => {
-				requests.push(request);
-				return request.source === "/data/answer" ? "computed" : "done";
-			},
+			undefined,
+			requests,
 		);
 		await ctrl.activateFormAsync(FORM_UUID);
 		requests.length = 0;
@@ -446,20 +484,18 @@ describe("EngineController async runtime", () => {
 		doc.modules[MODULE_UUID] = {
 			...doc.modules[MODULE_UUID],
 			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 		};
 		doc.forms[FORM_UUID] = {
 			...doc.forms[FORM_UUID],
 			type: "registration",
 		};
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		store.getState().load(admittedControllerDoc(doc));
 		store.getState().startTracking();
-		const ctrl = new EngineController(
+		const ctrl = ownedController(
 			new XPathRuntime({
-				workerFactory: createInProcessXPathWorkerFactory((request) => {
-					requests.push(request);
-					return "ready";
-				}),
+				workerFactory: observedFactory(requests),
 			}),
 		);
 		ctrl.setDocStore(store);
@@ -469,7 +505,7 @@ describe("EngineController async runtime", () => {
 		requests.length = 0;
 		const before = store.getState();
 
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "updateField",
 				uuid: FIELD_UUID,
@@ -501,7 +537,7 @@ describe("EngineController async runtime", () => {
 			kind: "registration",
 			primary: {
 				caseType: "patient",
-				caseName: "ready",
+				caseName: "Patient",
 				properties: { nickname: "ready" },
 			},
 		});
@@ -514,23 +550,25 @@ describe("EngineController async runtime", () => {
 		vi.useFakeTimers();
 		const store = createBlueprintDocStore();
 		store.getState().load(
-			docWith(
-				{
-					uuid: FIELD_UUID,
-					id: "answer",
-					kind: "text",
-					label: proseText("Answer"),
-				},
-				{
-					uuid: RESULT_FIELD_UUID,
-					id: "copy",
-					kind: "hidden",
-					calculate: xp("sleep(20, /data/answer)"),
-				},
+			admittedControllerDoc(
+				docWith(
+					{
+						uuid: FIELD_UUID,
+						id: "answer",
+						kind: "text",
+						label: proseText("Answer"),
+					},
+					{
+						uuid: RESULT_FIELD_UUID,
+						id: "copy",
+						kind: "hidden",
+						calculate: xp("sleep(20, /data/answer)"),
+					},
+				),
 			),
 		);
 		store.getState().startTracking();
-		const ctrl = new EngineController(
+		const ctrl = ownedController(
 			new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
 		);
 		ctrl.setDocStore(store);
@@ -542,7 +580,7 @@ describe("EngineController async runtime", () => {
 
 		const firstEdit = ctrl.onValueChangeAsync(FIELD_UUID, "first");
 		await vi.advanceTimersByTimeAsync(0);
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "updateField",
 				uuid: FIELD_UUID,
@@ -597,6 +635,7 @@ describe("EngineController async runtime", () => {
 		doc.modules[MODULE_UUID] = {
 			...doc.modules[MODULE_UUID],
 			caseType: "patient",
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 		};
 		doc.forms[FORM_UUID] = {
 			...doc.forms[FORM_UUID],
@@ -610,7 +649,14 @@ describe("EngineController async runtime", () => {
 			caseOperations: [operation],
 		};
 		doc.formOrder[MODULE_UUID] = [FORM_UUID, OTHER_FORM_UUID];
-		doc.fieldOrder[OTHER_FORM_UUID] = [];
+		const otherNote = testUuid("other-form-note");
+		doc.fields[otherNote] = {
+			uuid: otherNote,
+			id: "notes",
+			kind: "text",
+			label: proseText("Notes"),
+		};
+		doc.fieldOrder[OTHER_FORM_UUID] = [otherNote];
 		doc.caseTypes = [
 			{
 				name: "patient",
@@ -619,9 +665,9 @@ describe("EngineController async runtime", () => {
 		];
 
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		store.getState().load(admittedControllerDoc(doc));
 		store.getState().startTracking();
-		const ctrl = new EngineController(
+		const ctrl = ownedController(
 			new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
 		);
 		ctrl.setDocStore(store);
@@ -631,7 +677,7 @@ describe("EngineController async runtime", () => {
 
 		const firstEdit = ctrl.onValueChangeAsync(FIELD_UUID, "7");
 		await vi.advanceTimersByTimeAsync(0);
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "updateForm",
 				uuid: OTHER_FORM_UUID,
@@ -790,22 +836,24 @@ describe("EngineController async runtime", () => {
 		vi.useFakeTimers();
 		const store = createBlueprintDocStore();
 		store.getState().load(
-			docWith({
-				uuid: FIELD_UUID,
-				id: "answer",
-				kind: "text",
-				label: proseText("Answer"),
-				default_value: xp("sleep(10, 'old-default')"),
-			}),
+			admittedControllerDoc(
+				docWith({
+					uuid: FIELD_UUID,
+					id: "answer",
+					kind: "text",
+					label: proseText("Answer"),
+					default_value: xp("sleep(10, 'old-default')"),
+				}),
+			),
 		);
 		store.getState().startTracking();
-		const ctrl = new EngineController(
+		const ctrl = ownedController(
 			new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
 		);
 		ctrl.setDocStore(store);
 
 		const activation = ctrl.activateFormAsync(FORM_UUID);
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "updateField",
 				uuid: FIELD_UUID,
@@ -851,9 +899,9 @@ describe("EngineController async runtime", () => {
 			usercase: { assigned_region: "north", supervision_area: "south" },
 		};
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		store.getState().load(admittedControllerDoc(doc));
 		store.getState().startTracking();
-		const ctrl = new EngineController(
+		const ctrl = ownedController(
 			new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
 		);
 		ctrl.setDocStore(store);
@@ -861,7 +909,7 @@ describe("EngineController async runtime", () => {
 		await ctrl.activateFormAsync(FORM_UUID);
 		expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe("north");
 
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "updateUserProperty",
 				uuid: propertyUuid,
@@ -878,21 +926,23 @@ describe("EngineController async runtime", () => {
 	it("applies worker defaults added, edited, and retyped into a live form", async () => {
 		const store = createBlueprintDocStore();
 		store.getState().load(
-			docWith({
-				uuid: FIELD_UUID,
-				id: "answer",
-				kind: "text",
-				label: proseText("Answer"),
-			}),
+			admittedControllerDoc(
+				docWith({
+					uuid: FIELD_UUID,
+					id: "answer",
+					kind: "text",
+					label: proseText("Answer"),
+				}),
+			),
 		);
 		store.getState().startTracking();
-		const ctrl = new EngineController(
+		const ctrl = ownedController(
 			new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
 		);
 		ctrl.setDocStore(store);
 		await ctrl.activateFormAsync(FORM_UUID);
 
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "updateField",
 				uuid: FIELD_UUID,
@@ -904,15 +954,13 @@ describe("EngineController async runtime", () => {
 		expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe("edited-default");
 
 		await ctrl.onValueChangeAsync(FIELD_UUID, "typed");
-		store
-			.getState()
-			.applyMany([
-				{ kind: "convertField", uuid: FIELD_UUID, toKind: "secret" },
-			]);
+		applyControllerEdit(store, [
+			{ kind: "convertField", uuid: FIELD_UUID, toKind: "secret" },
+		]);
 		await ctrl.awaitSettled();
 		expect(ctrl.store.getState()[FIELD_UUID]?.value).toBe("edited-default");
 
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "addField",
 				parentUuid: FORM_UUID,
@@ -967,14 +1015,14 @@ describe("EngineController async runtime", () => {
 			},
 		);
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		store.getState().load(admittedControllerDoc(doc));
 		store.getState().startTracking();
 		const unitId = makeTranslationUnitId("field", SECOND_FIELD_UUID, "label");
 		const unit = collectTranslationUnits(store.getState()).find(
 			(candidate) => candidate.id === unitId,
 		);
 		if (unit === undefined) throw new Error("Expected translation unit");
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{ kind: "addLanguage", language: { language: "spa" } },
 			{
 				kind: "setTranslation",
@@ -989,7 +1037,7 @@ describe("EngineController async runtime", () => {
 				},
 			},
 		]);
-		const ctrl = new EngineController(
+		const ctrl = ownedController(
 			new XPathRuntime({ workerFactory: createInProcessXPathWorkerFactory() }),
 		);
 		ctrl.setDocStore(store);
@@ -998,7 +1046,7 @@ describe("EngineController async runtime", () => {
 		await ctrl.onValueChangeAsync(FIELD_UUID, "Amina");
 		const entryKey = ctrl.entryKey;
 
-		store.getState().applyMany([
+		applyControllerEdit(store, [
 			{
 				kind: "setTranslation",
 				language: "spa",

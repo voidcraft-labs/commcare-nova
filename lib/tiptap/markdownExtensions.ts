@@ -31,12 +31,7 @@
 import type { Extensions } from "@tiptap/core";
 import { Image } from "@tiptap/extension-image";
 import Mention from "@tiptap/extension-mention";
-import {
-	Table,
-	TableCell,
-	TableHeader,
-	TableRow,
-} from "@tiptap/extension-table";
+import { TableCell, TableHeader, TableRow } from "@tiptap/extension-table";
 import StarterKit from "@tiptap/starter-kit";
 import { Markdown } from "tiptap-markdown";
 import {
@@ -50,6 +45,7 @@ import {
 	decodeProseReferencePart,
 	serializedProseReferencePart,
 } from "./commcareRefNode";
+import { MarkdownTable } from "./markdownTable";
 import { createRefSuggestion } from "./refSuggestion";
 
 /**
@@ -79,7 +75,7 @@ export function createMarkdownEditorExtensions(): Extensions {
 		Image.configure({ inline: true }),
 		/* GFM pipe tables — `| col | col |` syntax. Requires all four table
 		 * node types (table, row, header cell, body cell) for ProseMirror. */
-		Table.configure({ resizable: false }),
+		MarkdownTable.configure({ resizable: false }),
 		TableRow,
 		TableHeader,
 		TableCell,

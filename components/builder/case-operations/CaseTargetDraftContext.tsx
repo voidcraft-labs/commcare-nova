@@ -9,13 +9,8 @@ import {
 	useState,
 } from "react";
 import type { Uuid } from "@/lib/doc/types";
-import { literal, term, type ValueExpression } from "@/lib/domain/predicate";
-
-interface CaseTargetDraft {
-	readonly formUuid: Uuid;
-	readonly operationUuid: Uuid;
-	readonly expression: ValueExpression;
-}
+import type { ValueExpression } from "@/lib/domain/predicate";
+import { type CaseTargetDraft, reduceCaseTargetDraft } from "./caseTargetDraft";
 
 interface CaseTargetDraftStore {
 	readonly draft: CaseTargetDraft | null;
@@ -48,33 +43,33 @@ export function CaseTargetDraftProvider({
 
 	const begin = useCallback((formUuid: Uuid, operationUuid: Uuid) => {
 		setDraft((current) =>
-			current?.formUuid === formUuid && current.operationUuid === operationUuid
-				? current
-				: {
-						formUuid,
-						operationUuid,
-						expression: term(literal("")),
-					},
+			reduceCaseTargetDraft(current, {
+				type: "begin",
+				formUuid,
+				operationUuid,
+			}),
 		);
 	}, []);
-
 	const update = useCallback(
 		(formUuid: Uuid, operationUuid: Uuid, expression: ValueExpression) => {
 			setDraft((current) =>
-				current?.formUuid === formUuid &&
-				current.operationUuid === operationUuid
-					? { formUuid, operationUuid, expression }
-					: current,
+				reduceCaseTargetDraft(current, {
+					type: "update",
+					formUuid,
+					operationUuid,
+					expression,
+				}),
 			);
 		},
 		[],
 	);
-
 	const clear = useCallback((formUuid: Uuid, operationUuid: Uuid) => {
 		setDraft((current) =>
-			current?.formUuid === formUuid && current.operationUuid === operationUuid
-				? null
-				: current,
+			reduceCaseTargetDraft(current, {
+				type: "clear",
+				formUuid,
+				operationUuid,
+			}),
 		);
 	}, []);
 

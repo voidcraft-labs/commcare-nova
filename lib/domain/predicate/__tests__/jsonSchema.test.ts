@@ -1,303 +1,181 @@
-// lib/domain/predicate/__tests__/jsonSchema.test.ts
-//
-// Acceptance tests for the CaseType -> JSON Schema generator. These pin
-// every `data_type` variant in the blueprint enum, plus the
-// no-data_type-default and empty-options edge cases. The schema this
-// generator produces is the contract enforced at the case database's
-// write boundary; a regression here would silently let mistyped
-// payloads land on disk.
-//
-// The geopoint test compiles the emitted regex and exercises it against
-// real CommCare wire-format strings (4 space-separated decimals, single
-// ASCII space) sourced from `corehq/ex-submodules/couchforms/geopoint.py`.
-// Asserting the literal pattern string would be tautological with the
-// implementation; running it as a regex catches format bugs that a
-// snapshot can't.
-
+// Execute generated schemas with AJV, the case-store's validator. This proves
+// admission of JSON-representable values, not Postgres constraints or full HQ
+// geopoint compatibility. Nonfinite JavaScript numbers belong to the store
+// boundary tests because they change to null during JSON serialization.
+import Ajv2020 from "ajv/dist/2020";
+import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
-import type { CaseType } from "@/lib/domain";
+import {
+	type CasePropertyDataType,
+	type CaseType,
+	caseTypeSchema,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { caseTypeToJsonSchema } from "../jsonSchema";
 
-describe("caseTypeToJsonSchema", () => {
-	it("maps a text property", () => {
-		const ct: CaseType = {
+function validator(caseType: CaseType) {
+	const admitted = caseTypeSchema.parse(caseType);
+	const ajv = new Ajv2020({ strict: false });
+	addFormats(ajv);
+	return ajv.compile(caseTypeToJsonSchema(admitted));
+}
+
+const shapes: Array<{
+	kind: CasePropertyDataType | undefined;
+	valid: unknown[];
+	invalid: unknown[];
+}> = [
+	{ kind: undefined, valid: ["", "note"], invalid: [1, null] },
+	{ kind: "text", valid: ["", "note"], invalid: [true, [], {}] },
+	{
+		kind: "int",
+		valid: [-2147483648, 0, 2147483647],
+		invalid: [-2147483649, 2147483648, 1.5, "1"],
+	},
+	{ kind: "decimal", valid: [-1.5, 0, 3], invalid: ["3.2", null, []] },
+	{
+		kind: "date",
+		valid: ["2024-02-29"],
+		invalid: ["2023-02-29", "2024-13-01", "not-a-date"],
+	},
+	{
+		kind: "time",
+		valid: ["12:30:00Z", "12:30:00+02:00"],
+		invalid: ["25:30:00Z", "12:30"],
+	},
+	{
+		kind: "datetime",
+		valid: ["2024-02-29T12:30:00Z"],
+		invalid: ["2023-02-29T12:30:00Z", "2024-02-29"],
+	},
+	{
+		kind: "single_select",
+		valid: ["retired-option", ""],
+		invalid: [["current"], 1],
+	},
+	{
+		kind: "multi_select",
+		valid: [["retired-option", "current"], []],
+		invalid: ["current", [1], null],
+	},
+];
+
+describe("case property JSON schema admission", () => {
+	it.each(shapes)(
+		"validates $kind through AJV without coercion",
+		({ kind, valid, invalid }) => {
+			const validate = validator({
+				name: "patient",
+				properties: [
+					{
+						name: "answer",
+						label: proseText("Answer"),
+						...(kind ? { data_type: kind } : {}),
+					},
+				],
+			});
+			expect(validate({})).toBe(true); // newly declared properties can be absent from existing rows
+			for (const value of valid)
+				expect(validate({ answer: value }), JSON.stringify(value)).toBe(true);
+			for (const value of invalid)
+				expect(validate({ answer: value }), String(value)).toBe(false);
+			expect(validate({ unknown: "value" })).toBe(false);
+		},
+	);
+
+	it.each(["single_select", "multi_select"] as const)(
+		"keeps historical %s values valid after choices change",
+		(kind) => {
+			const property = {
+				name: "answer",
+				label: proseText("Answer"),
+				data_type: kind,
+			};
+			const historical = { answer: kind === "single_select" ? "old" : ["old"] };
+			for (const options of [
+				undefined,
+				[],
+				[{ value: "new", label: proseText("New") }],
+			]) {
+				expect(
+					validator({
+						name: "patient",
+						properties: [{ ...property, ...(options ? { options } : {}) }],
+					})(historical),
+				).toBe(true);
+			}
+			if (kind === "single_select")
+				expect(
+					caseTypeToJsonSchema({ name: "patient", properties: [property] })
+						.properties.answer,
+				).toMatchObject({ "x-novaDataType": "single_select" });
+		},
+	);
+
+	it("excludes scalar columns from the JSON property bag", () => {
+		const names = [
+			"case_id",
+			"case_type",
+			"case_name",
+			"date_opened",
+			"last_modified",
+			"owner_id",
+			"external_id",
+			"status",
+		];
+		const ct = caseTypeSchema.parse({
 			name: "patient",
-			properties: [
-				{ name: "nickname", label: proseText("Nickname"), data_type: "text" },
-			],
-		};
-		expect(caseTypeToJsonSchema(ct)).toEqual({
-			type: "object",
-			properties: {
-				nickname: { type: "string" },
-			},
-			additionalProperties: false,
+			properties: [...names, "notes"].map((name) => ({
+				name,
+				label: proseText(name),
+			})),
 		});
+		const validate = validator(ct);
+		expect(validate({ notes: "a note" })).toBe(true);
+		for (const name of names)
+			expect(validate({ [name]: "scalar" }), name).toBe(false);
 	});
 
-	it("maps int / decimal / date / time / datetime", () => {
-		const ct: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "age", label: proseText("Age"), data_type: "int" },
-				{ name: "bmi", label: proseText("BMI"), data_type: "decimal" },
-				{ name: "dob", label: proseText("DOB"), data_type: "date" },
-				{ name: "appointment_at", label: proseText("When"), data_type: "time" },
-				{
-					name: "registered_at",
-					label: proseText("When"),
-					data_type: "datetime",
-				},
-			],
-		};
-		const schema = caseTypeToJsonSchema(ct);
-		expect(schema.properties.age).toEqual({
-			type: "integer",
-			minimum: -2_147_483_648,
-			maximum: 2_147_483_647,
-		});
-		expect(schema.properties.bmi).toEqual({ type: "number" });
-		expect(schema.properties.dob).toEqual({ type: "string", format: "date" });
-		expect(schema.properties.appointment_at).toEqual({
-			type: "string",
-			format: "time",
-		});
-		expect(schema.properties.registered_at).toEqual({
-			type: "string",
-			format: "date-time",
-		});
+	it("admits the empty property bag but refuses arbitrary keys", () => {
+		const validate = validator({ name: "patient", properties: [] });
+		expect(validate({})).toBe(true);
+		expect(validate({ unknown: "value" })).toBe(false);
 	});
 
-	it("maps single_select to a plain string — options are never a value constraint", () => {
-		// Deliberately NO enum over the option values: the write path
-		// validates the MERGED row document, so an option-value enum turns
-		// every option edit or text→select conversion into a row poisoner
-		// (a case holding yesterday's legal value would fail validation on
-		// its next write of ANY property). Values outside the current
-		// options are legitimate history.
-		const ct: CaseType = {
-			name: "patient",
-			properties: [
-				{
-					name: "condition",
-					label: proseText("Condition"),
-					data_type: "single_select",
-					options: [
-						{ value: "open", label: proseText("Open") },
-						{ value: "closed", label: proseText("Closed") },
-					],
-				},
-			],
-		};
-		expect(caseTypeToJsonSchema(ct).properties.condition).toEqual({
-			type: "string",
-			// The annotation is data-type provenance, not a constraint — ajv
-			// ignores it; the case-store's transition detection reads it.
-			"x-novaDataType": "single_select",
-		});
-	});
-
-	it("maps multi_select to an array of unconstrained strings", () => {
-		const ct: CaseType = {
-			name: "patient",
-			properties: [
-				{
-					name: "languages",
-					label: proseText("Languages"),
-					data_type: "multi_select",
-					options: [
-						{ value: "en", label: proseText("English") },
-						{ value: "fr", label: proseText("French") },
-					],
-				},
-			],
-		};
-		expect(caseTypeToJsonSchema(ct).properties.languages).toEqual({
-			type: "array",
-			items: { type: "string" },
-		});
-	});
-
-	it("emits the same shape whether a select property has options or none", () => {
-		// Options never reach the schema, so a select property mid-edit
-		// (no options yet) and a fully-authored one validate identically.
-		const ct: CaseType = {
-			name: "patient",
-			properties: [
-				{
-					name: "condition",
-					label: proseText("Condition"),
-					data_type: "single_select",
-				},
-				{
-					name: "languages",
-					label: proseText("Languages"),
-					data_type: "multi_select",
-					options: [],
-				},
-			],
-		};
-		const schema = caseTypeToJsonSchema(ct);
-		expect(schema.properties.condition).toEqual({
-			type: "string",
-			"x-novaDataType": "single_select",
-		});
-		expect(schema.properties.languages).toEqual({
-			type: "array",
-			items: { type: "string" },
-		});
-	});
-
-	it("omits every scalar-backed case value even when explicitly declared", () => {
-		const ct: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "case_id", label: proseText("Case ID"), data_type: "text" },
-				{
-					name: "case_type",
-					label: proseText("Case type"),
-					data_type: "text",
-				},
-				{
-					name: "case_name",
-					label: proseText("Case name"),
-					data_type: "text",
-				},
-				{
-					name: "date_opened",
-					label: proseText("Date opened"),
-					data_type: "datetime",
-				},
-				{
-					name: "last_modified",
-					label: proseText("Last modified"),
-					data_type: "datetime",
-				},
-				{ name: "owner_id", label: proseText("Owner"), data_type: "text" },
-				{
-					name: "external_id",
-					label: proseText("External ID"),
-					data_type: "text",
-				},
-				{ name: "status", label: proseText("Status"), data_type: "text" },
-				{ name: "notes", label: proseText("Notes"), data_type: "text" },
-			],
-		};
-
-		expect(caseTypeToJsonSchema(ct).properties).toEqual({
-			notes: { type: "string" },
-		});
-	});
-
-	it("emits a geopoint pattern that matches CommCare's 4-element wire format", () => {
-		// Positive and negative cases mirror CCHQ's parser test suite at
-		// corehq/ex-submodules/couchforms/tests/test_geopoint.py — we
-		// accept exactly the strings CCHQ accepts on the strict 4-element
-		// path, and reject every string CCHQ rejects (modulo range
-		// validation, which is an application-layer concern, not regex).
-		const ct: CaseType = {
+	it("checks Nova's four-number geopoint storage grammar", () => {
+		const validate = validator({
 			name: "clinic",
 			properties: [
-				{ name: "location", label: proseText("Loc"), data_type: "geopoint" },
+				{
+					name: "location",
+					label: proseText("Location"),
+					data_type: "geopoint",
+				},
 			],
-		};
-		const schema = caseTypeToJsonSchema(ct);
-		const propSchema = schema.properties.location;
-		if (propSchema.type !== "string" || !propSchema.pattern) {
-			throw new Error("expected string + pattern for geopoint property");
-		}
-		const re = new RegExp(propSchema.pattern);
-
-		// Real CommCare wire-format values from
-		// `corehq/ex-submodules/couchforms/tests/test_geopoint.py::test_valid_geopoint_properties`.
-		expect(re.test("42.3739063 -71.1109113 0.0 886.0")).toBe(true);
-		expect(re.test("-7.130 -41.563 7.53E-4 8.0")).toBe(true);
-		expect(re.test("-7.130 -41.563 -2.2709742188453674E-4 8.0")).toBe(true);
-		expect(re.test("-7.130 -41.563 1.2E-3 0")).toBe(true);
-		expect(re.test("-7.130 -41.563 0.0 1.0")).toBe(true);
-		// Lower-case 'e' (CCHQ's _to_decimal accepts both cases).
-		expect(re.test("1.23e-5 2.0e10 0 0")).toBe(true);
-
-		// Things the regex must reject — values from
-		// `corehq/ex-submodules/couchforms/tests/test_geopoint.py::test_invalid_geopoint_properties`
-		// plus structural negatives (wrong separator, etc).
-		expect(re.test("these are not decimals")).toBe(false);
-		expect(re.test("42.3739063 -71.1109113 0.0 whoops")).toBe(false);
-		expect(re.test("42.3739063 -71.1109113 0.0")).toBe(false); // 3 elements
-		expect(re.test("-7.130 -41.563")).toBe(false); // 2 elements (flexible only)
-		expect(re.test("14.7 -17.4 0 0 0")).toBe(false); // 5 elements
-		expect(re.test("14.7,-17.4,0,0")).toBe(false); // commas
-		expect(re.test("14.7\t-17.4 0 0")).toBe(false); // tab
-		expect(re.test("")).toBe(false);
-		// Forms CCHQ might accept post-parse (range-validated separately)
-		// but that we deliberately do NOT accept at the structural-regex
-		// layer because CCHQ's emission set doesn't include them.
-		expect(re.test("+1.0 -17.4 0 0")).toBe(false); // leading `+`
-		expect(re.test(".5 -17.4 0 0")).toBe(false); // bare leading `.`
-		expect(re.test("5. -17.4 0 0")).toBe(false); // bare trailing `.`
-		expect(re.test("NaN -71.669 0.0 0.0")).toBe(false); // bare NaN
-	});
-
-	it("defaults a property without data_type to string", () => {
-		const ct: CaseType = {
-			name: "patient",
-			properties: [{ name: "notes", label: proseText("Notes") }],
-		};
-		expect(caseTypeToJsonSchema(ct).properties.notes).toEqual({
-			type: "string",
 		});
-	});
-
-	it("forbids unknown properties via additionalProperties:false", () => {
-		const ct: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "case_name", label: proseText("Case name"), data_type: "text" },
-			],
-		};
-		expect(caseTypeToJsonSchema(ct).additionalProperties).toBe(false);
-	});
-
-	it("emits a closed schema with no properties for an empty case type", () => {
-		// Boundary case: a freshly-created case type with no properties yet
-		// emits a schema that admits no writes (empty properties +
-		// additionalProperties:false). This is the right behavior — a case
-		// type without any declared fields shouldn't accept arbitrary blobs
-		// — and pinning it prevents a regression that, e.g., omits
-		// additionalProperties when properties is empty.
-		expect(caseTypeToJsonSchema({ name: "x", properties: [] })).toEqual({
-			type: "object",
-			properties: {},
-			additionalProperties: false,
-		});
-	});
-
-	it("excludes case_name from the property output even when declared on the case type", () => {
-		// `case_name` is a top-level scalar column on `cases`, not a
-		// JSONB-document key. The blueprint surface still admits the
-		// declaration on `CaseType.properties[]` (the SA + author UI
-		// carry the field's label / default-value config there), but
-		// the case-store stores `case_name` on its column. Emitting
-		// it here would force every write to land an unwanted JSONB
-		// key; `additionalProperties: false` would then reject every
-		// write that correctly routes `case_name` to the column. The
-		// non-empty CHECK constraint on `cases.case_name` is the
-		// structural guarantee for the field; the AJV schema covers
-		// user-defined properties only.
-		const ct: CaseType = {
-			name: "patient",
-			properties: [
-				{ name: "case_name", label: proseText("Name"), data_type: "text" },
-				{ name: "age", label: proseText("Age"), data_type: "int" },
-			],
-		};
-		const schema = caseTypeToJsonSchema(ct);
-		expect(schema.properties).not.toHaveProperty("case_name");
-		expect(schema.properties.age).toEqual({
-			type: "integer",
-			minimum: -2_147_483_648,
-			maximum: 2_147_483_647,
-		});
+		// First examples appear in couchforms/tests/test_geopoint.py. This corpus
+		// does not assert full Decimal syntax or geographical range validation.
+		for (const location of [
+			"42.3739063 -71.1109113 0.0 886.0",
+			"-7.130 -41.563 7.53E-4 8.0",
+			"-7.130 -41.563 -2.2709742188453674E-4 8.0",
+			"1.23e-5 2.0e10 0 0",
+		])
+			expect(validate({ location }), location).toBe(true);
+		for (const location of [
+			"these are not decimals",
+			"42 -71 0 whoops",
+			"42 -71 0",
+			"-7 -41",
+			"14 -17 0 0 0",
+			"14,-17,0,0",
+			"14\t-17 0 0",
+			"",
+			"+1 -17 0 0",
+			".5 -17 0 0",
+			"5. -17 0 0",
+			"NaN -71 0 0",
+		])
+			expect(validate({ location }), location).toBe(false);
 	});
 });

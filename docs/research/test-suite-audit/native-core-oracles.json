@@ -1,0 +1,20 @@
+{
+	"scope": "Finite exact Core parser corpus plus native session and localized detail runtime; no exhaustive compiler claim",
+	"sourceHashes": {
+		"lib/commcare/validator/xformOracle.ts": "19d0fdde9d281fe73ff565109ddd5c52fdbd0fe4376209b90b011733653176e6",
+		"lib/commcare/validator/xformDataModel.ts": "edd1cd08d80d587d77b681949c7fd626c5695c4005f0afd3539a6e1542b0b8ca",
+		"lib/commcare/validator/bindingResolutionOracle.ts": "3f422d22005e31a9904518d027ac176f401a8ecd618ab3f2af00372096a859c3",
+		"lib/commcare/validator/suiteOracle.ts": "cc7e7679399984df389f53e9b7cc72738ad26b9c5be1366bd9a8292a82885246",
+		"lib/commcare/compiler.ts": "22cd6be90cb0c772e8489c9f5d1e2b745b7bffd6722817638513a090fcd4f994",
+		"lib/commcare/__tests__/xformOracleCorpus.ts": "4688145a978935f2c5434f4050d13e31428b5dee27b3919af06609ebccbc3d80",
+		"lib/commcare/__tests__/suiteOracleCorpus.ts": "df13f6e4515f8366b3165dd3ee06ecbc7c8a6c595bd5accef66587ec5bc3378f",
+		"scripts/fixtures/javarosa/XFormOracleRuntimeTest.java": "5fa8d85f9189a57db0af70b9c37915345ac9102901e56629358913da1a60541e",
+		"scripts/fixtures/javarosa/SuiteOracleRuntimeTest.java": "6bf62fda5bffc851e583e990a09a419a8304cda2cc17e68975a9a1c089fbdd03",
+		"scripts/fixtures/hq/emit-oracle-evidence.ts": "898eac4d5e41ec6bc3c3910ead94f5e6f9d36ddc4ee63c38f68b6c83308633af"
+	},
+	"artifactHashes": {
+		"/tmp/nova-test-audit-parallel/commcare/suite-native-second.junit.xml": "1d98725db7ce99a8206051f17dde8fcbbe809b5407f66b1bfe1f34cb33fa8bee",
+		"/tmp/nova-test-audit-parallel/commcare/xform-native-final.junit.xml": "85a058ece9a29ff350dc4050389f33c95a969d9947829c95a1afaecb0fbd8d2c"
+	},
+	"log": "/tmp/nova-test-audit-parallel/commcare/suite-native-second.log"
+}

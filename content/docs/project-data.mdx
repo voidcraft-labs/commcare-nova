@@ -59,6 +59,11 @@ A table has columns and rows. Each column carries three things:
 - **A type of value**: Text, Whole number, Decimal number, Date, Time, or Date
   and time.
 
+Table export tags cannot use names reserved for the app's own data. Nova names
+a conflict when you create or rename a table. If an older table has a conflicting
+tag, exporting an app that uses it pauses until an admin changes that tag. The
+table's rows and its references in Nova keep their identities.
+
 ## Find and edit a row
 
 Rows appear 50 at a time, with a search box that matches text in every column.
@@ -80,7 +85,12 @@ fractional seconds required by storage behind the clock control, so opening and
 saving a row does not change the moment, its precision, or its offset. If a
 column changes type and a date picker cannot display the old text, Nova shows
 that retained text beside the picker so you can copy it until you deliberately
-choose a replacement.
+choose a replacement. Malformed date-time text stays available for correction;
+Nova does not save only the part it recognizes.
+
+When you enter a local time that repeats as daylight saving ends, Nova uses its
+first occurrence. A time skipped as daylight saving begins moves forward by
+the size of that jump. A value with an explicit offset keeps that offset.
 
 An unsaved row stays with the table if you close Properties, press Escape, open
 another row or column, or leave and come back. Nova marks retained drafts in the
@@ -150,6 +160,8 @@ so the form cannot submit an answer hidden by its current filter.
 Switching between a table and a typed-in list replaces the question's complete
 choice source. Nova opens the new source for editing and saves the switch only
 after that source is complete; cancelling leaves the current source unchanged.
+If the saved table becomes unavailable, it stays selected with an explanation
+until you choose another source.
 
 ## Changes that other apps can block
 

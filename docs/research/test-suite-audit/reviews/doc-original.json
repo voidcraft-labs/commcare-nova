@@ -1,0 +1,1442 @@
+{
+	"owner": "doc",
+	"files": [
+		{
+			"file": "lib/collab/__tests__/appReadSnapshot.test.ts",
+			"status": "revised",
+			"review": "Read appReadSnapshot schema/decoder; strict runtime-parser boundary is appropriate. Replaced empty fixture with complete survey and covered malformed nested document, boolean, unsafe/negative/fractional cursors. Does not claim authorization semantics.",
+			"reviewedSha256": "7003e160aae710cb2de55d6bfbaef53489a133022ad50a345934e6af9ccc4298"
+		},
+		{
+			"file": "lib/collab/__tests__/appStatusFrame.test.ts",
+			"status": "retained",
+			"review": "Read status decoder and provider dispatch. Closed lifecycle parser exercises accepted values and unknown/missing/extra/non-JSON payloads directly. Session monotonic lifecycle behavior belongs to its state owner, not this decoder.",
+			"reviewedSha256": "2a9ba3ff73a4bf48839a858f78ba6f71f762ff7af3b61ccdb528e2d8f480aa12"
+		},
+		{
+			"file": "lib/collab/__tests__/lookupManifestFrame.test.ts",
+			"status": "revised",
+			"review": "Read full parser and broker implementation. Actual broker transitions prove revision lineage, project latch, reset failure fanout and subscriber isolation. Fixed unsubscribe tests that replayed identical revisions and therefore could pass without unsubscribe; now deliver two distinct newer revisions. Parser tests retain exact large clocks and malformed metadata.",
+			"reviewedSha256": "33d4172bbbf41da7b04f0abdfd143c7ec3913eb55afd4513bbe332448638159c"
+		},
+		{
+			"file": "lib/collab/__tests__/mutationFrame.test.ts",
+			"status": "revised",
+			"review": "Read mutation admission and provider reporter. Prior JSON.stringify assertion hid Error.message/stack. Direct error inspection reproduces raw JSON SyntaxError payload disclosure; production decoder now constructs a payload-free SyntaxError before reporting. Actual grammar and replay-kind refusal retained.",
+			"reviewedSha256": "f127e13efd79fe58191f31d74fe9988d92162bc3541f279d2a8768ad1704850d"
+		},
+		{
+			"file": "lib/collab/__tests__/presence.test.ts",
+			"status": "revised",
+			"review": "Read roster reduction, clock correction, gate and native projection owner. Removed duplicated handwritten server projection and test asserting malformed timestamps stay visible; actual DB presenceRoster suite owns that boundary. Retained real pure roster dedupe/staleness/order, offset, color and gate behavior, corrected fake UUID.",
+			"reviewedSha256": "42667c1cfe10d2a6bba0472a6026833f8a7c377e032b03b098551ff652d60d81"
+		},
+		{
+			"file": "lib/collab/__tests__/projectScopeReset.test.ts",
+			"status": "revised",
+			"review": "Read synchronous reset registry. Actual listeners prove all-cache reset before AggregateError, unsubscription and stale-generation refusal. Added stale, fractional, nonfinite and unsafe epoch transitions to ensure invalid epochs cannot poison current lineage.",
+			"reviewedSha256": "cb4059aaedfd4f199f1312db217cdcb0a12a109ca86c327a0bc25da5e0279a42"
+		},
+		{
+			"file": "lib/collab/__tests__/revocationFrame.test.ts",
+			"status": "retained",
+			"review": "Read strict decoder and provider malformed-control recovery. Parser directly covers four accepted reasons and malformed/missing/unknown/extra content; actual access recovery is separately exercised by runtime owner.",
+			"reviewedSha256": "a8cef0f002de17cc1434a112ad540a0571ae5c8afb46287b6b1c79936354efa2"
+		},
+		{
+			"file": "lib/collab/__tests__/usePeersAt.test.ts",
+			"status": "revised",
+			"review": "Read grouping owner, location contract and existing routing recovery tests. Retained direct most-specific target/grouping behavior. Removed duplicate follow recovery suite built from type-cast placeholder entities; routing owner already exercises actual documents and deletion fallback.",
+			"reviewedSha256": "b538c6de741c4f8933404cb17b94c9bb70a0c4dc823b8663c425ea2320a223a5"
+		},
+		{
+			"file": "lib/collab/__tests__/reconciler.test.ts",
+			"status": "revised",
+			"review": "Read complete 2833-line suite and 1670-line reconciler owner. Rebuilt missing-type/extra-key cast fixture as a schema- and absolute-gate-admitted app, fixed duplicate automation names, replaced invalid standalone Connect toggles with valid independent form-purpose edits, and routed every authored mutation through real candidate admission. Corrected impossible conflicting committed sequence fixture. Teardown now owns and joins PUT/reload/watcher promises and asserts no retry or active work instead of blanket timer cleanup. Added terminal disposal regression: late watches cancel and disposed dispatch retains original store queue. Controlled protocol outcomes prove client state behavior only, not server persistence.",
+			"reviewedSha256": "93209cefcbdc5b44e1771174c5d2307ef3f469bab57963d212c16be84a5bd15b"
+		},
+		{
+			"file": "lib/doc/__tests__/builderWriteAdmission.test.ts",
+			"status": "retained",
+			"review": "Read pre-verdict admission owner. Pure truth-table input tests independently establish viewer precedence, ready/unmanaged admission and loading/error refusal copy. This is intentionally a capability/loading decision boundary, not a mocked final commit verdict.",
+			"reviewedSha256": "ad71aacb62ceb16860c75b4bbb8c162ebebf1ef184b3c8726853640c88e53cd4"
+		},
+		{
+			"file": "lib/doc/__tests__/commitDocDroppedKey.test.ts",
+			"status": "revised",
+			"review": "Read store overlay and persistence projection. Replaced malformed cast-only empty app/logo strings with schema/absolute-gate-admitted survey and branded media identity. Actual store load and commit transitions prove cleared optional keys disappear and remote bracket bookkeeping survives.",
+			"reviewedSha256": "7e4a8192da8b3348175f37df624e771ecc0aa365d9610be0958df341eaebc779"
+		},
+		{
+			"file": "lib/doc/__tests__/connectTargetState.test.ts",
+			"status": "revised",
+			"review": "Read complete app-wide planner. Plans now enter actual mutationCommitVerdict and strict schema/absolute gate on both endpoints rather than raw reducer-only success. Cover enable, switch, replacement, disable and exact same-target no-op despite key ordering. Refusals remain local planner boundary claims.",
+			"reviewedSha256": "97913282fd851ca3509a413e57ed42cbab99d88139627007b2ebaa34f3a1abad"
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useAppConnectIds.test.tsx",
+			"status": "revised",
+			"review": "Read hook selector/comparator and Connect planner. Rewrote invalid fieldless fixtures and retired cross-mode-stray expectation into real complete mode transitions over admitted forms. Observe all located IDs, cross-form/co-located exclusion, comparator identity under unrelated mutation, delivery replacement and full disable through actual planner/gate/store. Integration follow-up: Retains one actual structural subscription identity case over admitted same-store Connect mode transitions and unrelated edits. The exclusion helper business assertion moved to one direct Node case with explicit located IDs.",
+			"reviewedSha256": "ab97c737074c5861cbdcde39f552cd5497a404f9fca87b4595926cd88fa453c8",
+			"preSupplementReviewedSha256": "65c8f1df4de8ccd2acef7a0efc19e5ad769b87746a0c1a64da2f5f58a06fed5b",
+			"supplementalEvidenceReport": "doc-react-boundaries.json"
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useConnectType.test.tsx",
+			"status": "removed",
+			"review": "Read raw/coerced selector owners. Replaced mode-on empty documents and invalid standalone mode write with admitted complete Connect apps and planner/gate/commit transition. Actual React subscriptions still prove nullable projection and update propagation. Integration follow-up: Removed five primitive one-line selector mapping cases without an independent behavior claim. Admitted Connect business transitions and the actual structural selector lifecycle are owned by the command/projection and Connect subscription tests.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "dfb1d421a33c8c7da997cdf8278c6528407e2fc01db282025c48e1ea11be2c07",
+			"supplementalEvidenceReport": "doc-react-boundaries.json"
+		},
+		{
+			"file": "lib/doc/__tests__/mutationPrevalidation.test.ts",
+			"status": "revised",
+			"review": "Read weak snapshot certificate cache and canonical keying. Prove fixture and certified candidate admission before recording certificates; retain exact document/context/value/broader-batch refusal and admitted object-order equivalence. Removed assertion coupling success to schema serialization key order. Cache identity tests do not claim independent validation enforcement.",
+			"reviewedSha256": "e5a3486629a24c5e6b0501e1dc333fb2da2d1de9eb5f99462f01e0cb2c98ac5e"
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useAppName.test.tsx",
+			"status": "removed",
+			"review": "Read entire baseline and corresponding selector owner. Consolidated trivial initial-render assertions and invalid empty fixtures into hooks-selectorSubscriptions.test.tsx: actual admitted document commits, stable selectors, label/move/convert/remove transitions, live imperative search and undo/redo branch semantics. React is retained only to prove subscription behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useAppStructure.test.tsx",
+			"status": "removed",
+			"review": "Read entire baseline and corresponding selector owner. Consolidated trivial initial-render assertions and invalid empty fixtures into hooks-selectorSubscriptions.test.tsx: actual admitted document commits, stable selectors, label/move/convert/remove transitions, live imperative search and undo/redo branch semantics. React is retained only to prove subscription behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useDocEntityMaps.test.tsx",
+			"status": "removed",
+			"review": "Read entire baseline and corresponding selector owner. Consolidated trivial initial-render assertions and invalid empty fixtures into hooks-selectorSubscriptions.test.tsx: actual admitted document commits, stable selectors, label/move/convert/remove transitions, live imperative search and undo/redo branch semantics. React is retained only to prove subscription behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useFieldKind.test.tsx",
+			"status": "removed",
+			"review": "Read entire baseline and corresponding selector owner. Consolidated trivial initial-render assertions and invalid empty fixtures into hooks-selectorSubscriptions.test.tsx: actual admitted document commits, stable selectors, label/move/convert/remove transitions, live imperative search and undo/redo branch semantics. React is retained only to prove subscription behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useFieldsAndOrder.test.tsx",
+			"status": "removed",
+			"review": "Read entire baseline and corresponding selector owner. Consolidated trivial initial-render assertions and invalid empty fixtures into hooks-selectorSubscriptions.test.tsx: actual admitted document commits, stable selectors, label/move/convert/remove transitions, live imperative search and undo/redo branch semantics. React is retained only to prove subscription behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useHasFieldsInForm.test.tsx",
+			"status": "removed",
+			"review": "Read entire baseline and corresponding selector owner. Consolidated trivial initial-render assertions and invalid empty fixtures into hooks-selectorSubscriptions.test.tsx: actual admitted document commits, stable selectors, label/move/convert/remove transitions, live imperative search and undo/redo branch semantics. React is retained only to prove subscription behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useSearchBlueprint.test.tsx",
+			"status": "removed",
+			"review": "Read entire baseline and corresponding selector owner. Consolidated trivial initial-render assertions and invalid empty fixtures into hooks-selectorSubscriptions.test.tsx: actual admitted document commits, stable selectors, label/move/convert/remove transitions, live imperative search and undo/redo branch semantics. React is retained only to prove subscription behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useUndoRedo.test.tsx",
+			"status": "removed",
+			"review": "Read entire baseline and corresponding selector owner. Consolidated trivial initial-render assertions and invalid empty fixtures into hooks-selectorSubscriptions.test.tsx: actual admitted document commits, stable selectors, label/move/convert/remove transitions, live imperative search and undo/redo branch semantics. React is retained only to prove subscription behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/hooks.test.tsx",
+			"status": "revised",
+			"review": "Read full store selector suite and owner. Require persisted-schema and absolute-gate fixture admission, correct registration scaffolding, and actual candidate admission before manual store commits. Selective rerender and stable action references remain observed React behavior. Integration follow-up: Retains four React subscription/memo invalidation cases, each observing both unrelated quiet changes and relevant updates. Removed initial primitive/missing-value mappings and organization ordering assertions that did not require React. Three threshold and populated nested-container cases now call the actual largeFormInitialCollapsedUuids production projection directly in Node.",
+			"reviewedSha256": "634c03b6f54333cf90b5aa40d0cda76535b17add049176f7fefac77711b895b9",
+			"preSupplementReviewedSha256": "0d97d9df472e09d68b336e9483e09607d380aaef007f7f4721d7b5628811768a",
+			"supplementalEvidenceReport": "doc-react-boundaries.json"
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useBlueprintMutations.test.tsx",
+			"status": "removed",
+			"review": "Read entire 2006-line suite and complete 1890-line hook owner. Admit fixture documents without cast or repair, supply required registration writer, correct stale targetKind in integer edits, preserve gate-backed atomic builders, stale-selection refusal, toast/inline rejection and undo behavior. Tests exercise actual hook/planners/gate/store rather than stubbing final verdicts. Integration follow-up: Command behavior previously executed through a rendered hook now calls the actual createBlueprintMutations production owner directly with an actual document store. Fifty Node cases retain command admission, immutable command capture, anchored ordering, history, case-property, media, Connect, automation and stale-review behavior. Removed one duplicate useMaterialize UUID assertion. React context/memo adapter remains used by the retained active-search subscription test and native browser integration.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "22f480406e5cd7bb2eaaf5c9ac9c7867670a471bdb9803fab352a7d02ea15005",
+			"supplementalEvidenceReport": "doc-react-boundaries.json"
+		},
+		{
+			"file": "lib/doc/__tests__/hooks-useSearchFilter.test.tsx",
+			"status": "revised",
+			"review": "Read entire search traversal and selector. Replaced invalid registration/empty submenu fixtures with admitted survey hierarchy; removed SEARCH_IDLE constant self-comparison and made it private. New real subscription trace proves idle entity edits do not render, starting search sees latest data, active label changes refresh highlights and query changes recompute. Existing localization and ancestor visibility run on admitted documents. Integration follow-up: Nine search business cases now call the real deriveSearchFilter production projection directly over admitted documents and actual localized-domain values. One retained React test proves idle non-subscription, fresh snapshot upon activation, and active update invalidation using the actual mutation hook. No DOM matching or layout claim.",
+			"reviewedSha256": "1786f5197ad822b8fa40643ed631451a13e8d9b2a225a51ff50daee401f95a1b",
+			"preSupplementReviewedSha256": "4c1526f3c7de829eed1e7496cf6788ca9992d49b4c4a7638ba0c3351de5dd866",
+			"supplementalEvidenceReport": "doc-react-boundaries.json"
+		},
+		{
+			"file": "lib/doc/__tests__/caseListSurfaceMoveHook.test.tsx",
+			"status": "removed",
+			"review": "Read actual hook/planner/reducer; admitted fixture and exact store command queue now prove moveColumn without using diffDocsToMutations as a circular oracle. Real hook transitions retain independent surface sequence checks. Integration follow-up: Two index-to-anchor cases now call the real command factory directly in Node and verify the captured single anchored mutation and actual independent Results/Details order. Rendering had no ownership role in these command assertions. No browser gesture claim.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "bbdd4c86ffa1096b9ec8b9155fb0cfd94ffbeb8e55deb8078a49ce0816d61452",
+			"supplementalEvidenceReport": "doc-react-boundaries.json"
+		},
+		{
+			"file": "lib/doc/__tests__/caseWriteChoices.test.ts",
+			"status": "revised",
+			"review": "Read candidate projection and real commit owner. Replaced self-comparison to mutationCommitVerdict with concrete allowed/duplicate rejection and added schema/absolute gate baseline admission.",
+			"reviewedSha256": "586910ea13d202daf2c11207350720a7d4445ead275869e33a7ef6ce7ffbd8d5"
+		},
+		{
+			"file": "lib/doc/__tests__/caseWriteVerdictWorkerRuntime.test.ts",
+			"status": "revised",
+			"review": "Read complete batch evaluator. Tests actual worker runtime over admitted input; concrete new property acceptance and duplicate case-name rejection replace same-function oracle.",
+			"reviewedSha256": "0239c3b3f81659b2276f3b96cb425a412ac7d501f8960d282fda99e0a64439b6"
+		},
+		{
+			"file": "lib/doc/__tests__/useCaseWriteChoices.test.tsx",
+			"status": "revised",
+			"review": "Read complete hook lifecycle and worker factory/protocol. Fake worker transports cloned requests into real evaluator and cloned responses back, proving prevalidation only after actual valid candidate. Added rejection and late-response-after-unmount; teardown joins owned promises and requires worker termination. Browser worker module loading remains outside this unit boundary. Integration follow-up: Five retained cases exercise actual effect-owned choice proof lifecycle: worker request/receipt binding, field-context and document invalidation, cancellation/unmount, and late or post-close completion. Controlled transport executes the actual evaluateCaseWriteVerdictBatch; receipts prove real gate admission. Worker transport control is an external boundary, and browser ErrorEvent callback delivery is not claimed as native browser proof.",
+			"reviewedSha256": "5cef7190dc60e66fe1e7e968a0b32484b41c7704c682df32a7350d94de9fb464",
+			"preSupplementReviewedSha256": "5cef7190dc60e66fe1e7e968a0b32484b41c7704c682df32a7350d94de9fb464",
+			"supplementalEvidenceReport": "doc-react-boundaries.json"
+		},
+		{
+			"file": "lib/doc/hooks/__tests__/useAutoSave.test.ts",
+			"status": "revised",
+			"review": "Read full autosave owner. Retained document change projection guard on admitted real doc with no placeholder casts. Added companion runtime suite composing actual hook, store and reconciler: first edit dispatch, real remote frame suppression, agent bracket author edits, late mount flush, unsubscribe behavior.",
+			"reviewedSha256": "50d422ed67cc07475fd564b8d6497d387fec477f3558376b21f20e50b73526fb"
+		},
+		{
+			"file": "lib/doc/__tests__/mutationAdmission.test.ts",
+			"status": "revised",
+			"review": "Read full admission parser. Actual canonical grammar, malformed JSON values and internal brand boundary are appropriate parser-level tests. Added nested mutation payload immutability and slice admission; these inputs intentionally exercise wire parsing rather than reachable app state.",
+			"reviewedSha256": "91c67d25368ca0e9f7fc0e22de40ef269e97fa13047e9f894e315fa532050628"
+		},
+		{
+			"file": "lib/doc/__tests__/mutationEnvelopeStrictness.test.ts",
+			"status": "revised",
+			"review": "Read complete types schema and strict mutation admission. Exact invalid action/kind/envelope parser tests retained. Moved expectTypeOf-only function to compiler-owned mutationEnvelopeStrictness.test-d.ts instead of empty runtime proof.",
+			"reviewedSha256": "7e08050d733bf3aa31000b0a786f56779f3602e88cc25df855a0477860fa189f"
+		},
+		{
+			"file": "lib/doc/__tests__/mutationTargetAdmission.test.ts",
+			"status": "revised",
+			"review": "Read full target scanner. Actual scalar fast-path tests now use schema/absolute-gate-admitted survey. Independently expected true/false verdicts establish live, absent, and wrong-kind field membership before candidate reduction.",
+			"reviewedSha256": "4c011a01d5dec3f9d4713e5cb1ac4eb406c337ceef7ee4e1ffc8d8adfa30449f"
+		},
+		{
+			"file": "lib/doc/__tests__/caseOperationIntents.test.ts",
+			"status": "revised",
+			"review": "Read all intent builders and target-identity comparison. Direct produced command assertions prove domain intent shape; schema rejection proves unsupported load patches fail. Moved static-only action-patch type assertions to .test-d.ts.",
+			"reviewedSha256": "f3862b1a091217e0cc2a7613045e4ff0a3ee345f89ddaaf80508ce8b96c5889e"
+		},
+		{
+			"file": "lib/doc/__tests__/modulePatchMutations.test.ts",
+			"status": "revised",
+			"review": "Read updateModule reducer and strict mutation schema. Direct reducer test owns omission vs explicit null clearing, using admitted baseline. Added unrelated patch preserving optional module slots; explicit null deletion remains observable.",
+			"reviewedSha256": "b7d71795d828d59167c4029d08f13a1e78dc4c794dd231c98456fd4b880c05cc"
+		},
+		{
+			"file": "lib/doc/__tests__/fieldPath.test.ts",
+			"status": "retained",
+			"review": "Read complete field-path utilities and callers. Direct split/join and prefix relation tests exercise concrete examples including empty and sibling paths; no mocked oracle or fixture domain claim is involved.",
+			"reviewedSha256": "d08063ff058e3a9ccc850128247055237def9e54fbc8ffc8d771fa6b8817c98a"
+		},
+		{
+			"file": "lib/doc/mutations/__tests__/sequence.test.ts",
+			"status": "revised",
+			"review": "Read sequence reducer. Extended move planning to all 720 permutations of six identities, both from and back to the starting order; independent imperative application verifies targets. Added missing-anchor and replay idempotence boundaries. Finite corpus is not claimed exhaustive for arbitrary length.",
+			"reviewedSha256": "7a9148b5b1dd649b76ba667ce9a74a7b5764f1a7e5746d43427a89be3a1bbd90"
+		},
+		{
+			"file": "lib/doc/__tests__/mutationWireRegistry.test.ts",
+			"status": "removed",
+			"review": "Read full 913-line registry and all consumers: production-shaped inventory was test-only duplicate of mutation schema/reducers and serialized a 1048-line snapshot. Removed registry, snapshot and suite with root authorization; actual grammar tests, admission tests and reducer behavior own contract.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/identifierVerdicts.test.ts",
+			"status": "revised",
+			"review": "Read entire identifier owner and suite. Replaced unreachable registration/bare-module fixtures with admitted survey documents; removed forbidden-property-set self-oracle in favor of explicit reserved destinations, and added 255/256 identifier length and duplicate collision boundaries.",
+			"reviewedSha256": "2927ef5075f3ad71977ee8c00db6730156a13c2645b579f6d8157c0e6dd88a42"
+		},
+		{
+			"file": "lib/doc/__tests__/store.test.ts",
+			"status": "revised",
+			"review": "Read full store/history/source and rebuilt fixtures as schema/absolute-gate-admitted survey/followup documents; ordinary authored edits go through real candidate gate. Replaced impossible standalone Connect toggle with independent form-purpose edit, stale replay remains explicit lower-level bypass. Added nested replay/birth-bracket regressions that failed before production fix and now pass; remote flag follows depth and pending birth release waits for all brackets. Corrected agent-history claim: generated changes do not become undo steps.",
+			"reviewedSha256": "b821ce3e4f623a7f3249b6d3baccfd5d84e29007ef990a5408c594a4bd4f58cc"
+		},
+		{
+			"file": "lib/doc/__tests__/commitVerdicts.test.ts",
+			"status": "revised",
+			"review": "Read complete commit composition and suite. Real gate/admission/reducer composition retained; valid fixtures now assert schema and absolute admission, unnecessary casts removed, and malformed XPath checks exact syntax code. Intentionally invalid imports continue proving empty/unrelated batches cannot carry preexisting invalidity.",
+			"reviewedSha256": "b6e32f127483525750c28c4aa44089edfcc9c1e398aad7667dbd5d944684c169"
+		},
+		{
+			"file": "lib/doc/__tests__/caseWorkspaceVerdicts.test.ts",
+			"status": "revised",
+			"review": "Read full workspace projection and shared runtime classifier. Invalid historical carriers are deliberate status inputs; unchanged baseline is now gate-admitted. Added real document snapshot transition proving cached clean status cannot hide a newly invalid filter; branded lookup ids parse instead of cast. Removed redundant empty id-mapping diagnostic after owner eliminated unreachable validator rule; 9 current tests pass.",
+			"reviewedSha256": "089607a0f5fbad8fd9ff978d257aa622dca0f5dd5775e64d3ab0d2a4e96ac392"
+		},
+		{
+			"file": "lib/doc/__tests__/expressionRuntimeEditVerdicts.test.ts",
+			"status": "revised",
+			"review": "Read date portability walker and related-case wire classifier. Removed purported reserved-path tests that actually asserted acceptance of unresolved graph paths. Replaced with real child-read refusal under a valid graph and added date versus datetime property typing; independent expected verdicts remain authoring projections, not native-wire acceptance proof.",
+			"reviewedSha256": "5eb33a74e71166aef32381dae286f8d061074de15cdee034d682c476f27841f1"
+		},
+		{
+			"file": "lib/doc/__tests__/mutationIdentityAdmission.test.ts",
+			"status": "revised",
+			"review": "Read complete identity scanner and authored identity enumeration. Added admitted base and automation fixtures; refusals preserve base by identity and bytes. Reproduced bug where successive whole-options replacements preserving live identities falsely collide. Production duplicate tracking now resets per mutation while tombstones retain batch scope; option and schedule full-gate regressions pass, existing duplicate/removal/cross-kind refusals remain.",
+			"reviewedSha256": "08bdd1d8132dd33d332ce7927597535f7b8e763cc523c43b7f26a96184502c7d"
+		},
+		{
+			"file": "lib/doc/__tests__/mutationSequenceAdmission.test.ts",
+			"status": "revised",
+			"review": "Read complete sequence simulator. Removed test-only sequence inventory and its schema-parity test; they classified strings without executing guards. Rebuilt fixture with valid case-operation targets, declared relation/writes and admitted app; actual missing-anchor cases plus real append operation gate/reducer order remain. Added case-property anchor refusal; lower-level birth-prefix tests explicitly cover sequence membership only.",
+			"reviewedSha256": "8c96f942de0df405e20a6643aebf7264003613522f446bb2e069cedee757b3e3"
+		},
+		{
+			"file": "lib/doc/__tests__/scalarWriterCatalog.test.ts",
+			"status": "revised",
+			"review": "Read field reducer catalog synthesis and scalar vocabulary. Replaced loop over production constant and impossible reserved-writer documents with admitted followup transitions for writable case_name/external_id; independently named platform scalar writes now prove actual gate rejection. Added custom property synthesis and preservation after writer clear.",
+			"reviewedSha256": "90ae1bdfea5262fa29cd3cae6c609c99ed3973b0b9668b48b3fcc243db57a798"
+		},
+		{
+			"file": "lib/doc/__tests__/searchBlueprintIdentity.test.ts",
+			"status": "revised",
+			"review": "Read full search traversal. Replaced invalid registration/undeclared catalog/empty reverse map with admitted followup. Exact address outputs remain; redundant serialized-name blacklist replaced by actual gated form/field rename proving stable follow-up addresses and updated display context.",
+			"reviewedSha256": "717f617db73dec7f76fdd1dec3aa45e20117238516d113ea1e36540e764879fd"
+		},
+		{
+			"file": "lib/doc/__tests__/unwrittenProperties.test.ts",
+			"status": "revised",
+			"review": "Read full informational derivation/rendering and index query contract. Replaced 459-line repeated invalid fixtures with compact admitted complete workflows, valid fallback navigation and typed catalog. Preserved field/module/form read families and added real cache transition on field write/clear, case-operation writer exclusion, and two actual display reads that deduplicate. Historical unknown reference is explicitly gate-refused before projection.",
+			"reviewedSha256": "068dfca0b40df2fe97be8785ba8581df8e15e8541e4e3e4aec8fe3b94c92a2fe"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-no-structured-logger.test.ts",
+			"status": "revised",
+			"review": "Read full policy and current logger mock behavior. Replaced raw source substring scan with TypeScript AST import/export/literal-loader detection and relative-path resolution using resource-owned existing parser helper. Actual repo rule plus positive/negative syntax examples prove comments cannot trigger and relative paths cannot bypass. Scope remains direct imports, not full transitive graph.",
+			"reviewedSha256": "46fbacf8bf8f60183496ca257d28cd2fb3b662a8d29544134be56a9a6bfa5de9"
+		},
+		{
+			"file": "lib/doc/__tests__/userMutationSafety.test.ts",
+			"status": "revised",
+			"review": "Read all user planners/reducers and full 2779-line diff owner. Removed inherited-key UUID diff claim because testUuid hashes the hostile name into a safe UUID, so it never exercised prototype behavior. Remaining semantic collection tests use admitted survey/user fixtures and full gate for each batch, preserve concurrent per-key changes, and refuse referenced-property removal. Added explicit collection orders and removed unchecked casts.",
+			"reviewedSha256": "08b84b8c589c6c1e718cba14946981889898143fb65ed701437bdf1bd6deebe4"
+		},
+		{
+			"file": "lib/doc/__tests__/fieldParent.test.ts",
+			"status": "revised",
+			"review": "Replaced 1150-line duplicated fixtures, vacuous invariant-only checks and flaky 100ms assertion with compact admitted tree and actual gate/store transitions. Independent complete expected parent maps cover add, reparent, subtree/form/module deletion, atomic rescue, duplicate identities, persistence and scalar identity retention; malformed topology refusal remains explicit boundary input.",
+			"reviewedSha256": "09b1a4de166871fa290f902b7e7180d2ea2531b39d9aaabfd4b1996c1ea66419"
+		},
+		{
+			"file": "lib/doc/__tests__/scaffolds.test.ts",
+			"status": "revised",
+			"review": "Read full scaffold owner and suite. Preserve real gate composition, add strict schema/absolute admission of endpoints, remove unchecked casts and production scalar-set self-oracle. Actual scalar/custom operation commit now verifies catalog prerequisites; historical empty module case explicitly proves refusal before repair. Removed stale fractional-order source comment.",
+			"reviewedSha256": "f366ddbb68a6881631612dcfe9e85b19810af1fd33f9443f3bfa996a43d89aea"
+		},
+		{
+			"file": "lib/doc/__tests__/prototypeSafeRecords.test.ts",
+			"status": "revised",
+			"review": "Read full own-record/hydration/reducer owner. Replaced sprawling unrelated diff/rename/index examples with admitted JSON hydration and ordinary RSC transport projection, identity preservation, real user-value mutation and input isolation. Hostile keys are deliberately malformed lower-normalizer input with prior schema refusal; testUuid no longer hides key intent.",
+			"reviewedSha256": "97d66d2d256346eb1af6861ba11c22c9e7cf4f5e44792e91c5f48768632ea8d2"
+		},
+		{
+			"file": "lib/doc/__tests__/reducerPayloadAliasing.test.ts",
+			"status": "revised",
+			"review": "Read dispatcher and nested operation reducers. Twice-applied batches now share the same admitted frozen command, use independent admitted initial docs, assert both final endpoints and unchanged original/admitted bytes. Replaced reserved status writer and registration session target with valid expression target and catalog; observe columns by UUID rather than catalog array position.",
+			"reviewedSha256": "83f074de3ffc2c4a5eda0691fc3083789c8fd6add6d849f6eae007218abcd882"
+		},
+		{
+			"file": "lib/doc/__tests__/caseOperationWriteTypes.test.ts",
+			"status": "revised",
+			"review": "Read full write-type projector. Fixtures now have actual case-list columns, complete forms, valid declared-date writes and schema/absolute admission. Added actual sole-writer text-to-date commit transition rather than asserting only the projector return value.",
+			"reviewedSha256": "26c3e08a66a72b206bc8b6f0b646111ac0c1b339a01fce6a7a5bde6f151d60be"
+		},
+		{
+			"file": "lib/doc/__tests__/referenceIndex.test.ts",
+			"status": "revised",
+			"review": "Read complete 1617-line production reference index and all baseline cases. Replaced unreachable references with admitted close forms, catalog types, organization case owners, explicit user sequences and available lookup metadata. Kept independent exact slot/target expectations and added legacy plain-record hydration query plus incremental replay; removed same-function rebuild comparison from direct extraction claims.",
+			"reviewedSha256": "b87cd4eaf0d4b428f06af4e09ecfa2d03553dbb0b843218f2d13972002ad691d"
+		},
+		{
+			"file": "lib/doc/__tests__/referenceIndex.fuzz.test.ts",
+			"status": "revised",
+			"review": "Replaced 811-line invalid fuzz fixture and nondeterministic crypto/global counter generator with seeded finite sequences of seven real admitted reference-changing operations. Value-based index-change counters ensure every claimed category actually changes references; incremental versus full rebuild is explicitly maintenance evidence because both share extraction. Exact extraction cases live in companion suite.",
+			"reviewedSha256": "2727bf7e9064b8d69206842b05919bfbe81dc5d6a41226c3993b5c759ace5dd3"
+		},
+		{
+			"file": "lib/doc/__tests__/diffDocsToMutations.fuzz.test.ts",
+			"status": "revised",
+			"review": "Replaced reducer-generated invalid target corpus with independently constructed schema/absolute-admitted endpoint pairs, stable identities and JSON/schema/real gate replay. 200 finite generated pairs cover module and form birth/death/ownership, parent topology, field topology/kinds and nested options/media. Added failed-before orphan-form regression and fixed projected form placement; explicit regressions use valid complete modules and catalog metadata.",
+			"reviewedSha256": "428daf42cf958ea5c479dcf9ed2ca64fbae88929f2fdac91ab563e97b9da4073"
+		},
+		{
+			"file": "lib/doc/__tests__/diffDocsToMutations.localization.test.ts",
+			"status": "revised",
+			"review": "Whole source and test review; localization endpoints now contain an admitted survey workflow, units selected by owner, missing units throw rather than skip, and diffs cross JSON, mutation schema and real commit gate. Both directions observe born/removed translated fields and source/target language changes.",
+			"reviewedSha256": "cd1e6a11df4ba7cfd448bf7f3227ca8fa7f005dd8c4df595fb7acc91a33427be"
+		},
+		{
+			"file": "lib/doc/__tests__/diffDocsToMutations.wireClear.test.ts",
+			"status": "revised",
+			"review": "Replaced invalid empty-case-list and formless targets with admitted case workflows and organization endpoints. Exact JSON/schema/real gate replay proves optional deletion and order-sensitive new-parent edits. Cleared case type now accompanies case-list removal while retaining a survey; explicitly rejected existing organization order remains admitted but unrepresentable.",
+			"reviewedSha256": "68032b68407e12d99b019e590d9286cbe492f55113e287f5b239dd636a72d11c"
+		},
+		{
+			"file": "lib/doc/__tests__/displayConditionMutations.test.ts",
+			"status": "revised",
+			"review": "Read planners and real module/form reducers. Admitted survey fixture and real gated JSON clears replace invalid empty followup. Removed vacuous case-operation absence test and hostile type casts; retained exact durable-null parser assertion and actual stored-key deletion. Corrected obsolete production autosave description.",
+			"reviewedSha256": "576ef64b65294a73f7664bbcb861be099091f3eb36494e15101c5e0bbcb4d1f2"
+		},
+		{
+			"file": "lib/doc/__tests__/entryPointMutations.test.ts",
+			"status": "revised",
+			"review": "Read full entry-point planners, reducer, identity/target admission and diff ownership. Added actual survey question and fixture admission; successful transitions now cross JSON mutation schema and real gate. Kept independently expected granular command edits and deliberate malformed-target/schema refusals; reverse diff is accurately named rather than claiming undo-store coverage.",
+			"reviewedSha256": "454c47cc1a866ded01bb50bbcf8a60ad04d8ddd81f2a0a898c614f5d19b6a5e9"
+		},
+		{
+			"file": "lib/doc/__tests__/renameReferencedField.test.ts",
+			"status": "revised",
+			"review": "Read update-field/identity and close-condition paths. Removed redundant Mutation cast, asserted strict persisted/absolute-valid baseline, and retained exact successful gated rename plus untouched UUID close reference. This is a focused identity invariant, not builder interaction proof.",
+			"reviewedSha256": "ed1d52581ba98b5835749c83d4b5c7f5cafc63a9d6337c7955d8ec9e4ff14ad1"
+		},
+		{
+			"file": "lib/doc/__tests__/caseSearchConfigProvenance.test.ts",
+			"status": "revised",
+			"review": "Read shared domain presence/provenance projectors and semantic module reducer. Replaced invalid raw module with catalog-backed admitted viewer with real column; real gate now owns input-add and stale owner intent. Exact authored Never condition and peer-preserving transition remain independent expectations; removed unnecessary object-reference identity pin.",
+			"reviewedSha256": "883380c6ec84dac1cefa5c5e3cd213358cc770e5d52fd0d717430d02c278a2e1"
+		},
+		{
+			"file": "lib/doc/__tests__/searchInputFinalShape.test.ts",
+			"status": "revised",
+			"review": "Read module collection reducer and diff planner. Added strict/absolute admission for independent endpoints and JSON mutation admission plus full forward/reverse commit gate. Corrected invalid date-range prompt whose name differed from target property. Verifies both exact search arms and real add/edit/delete/order changes without native-wire overclaim.",
+			"reviewedSha256": "cdbdc83b4141e5c3c4eca481219b4be798d72a6a4cf5f3ad260289c793a46324"
+		},
+		{
+			"file": "lib/doc/mutations/__tests__/searchFirstPostSubmit.test.ts",
+			"status": "revised",
+			"review": "Full domain projector, semantic reducer and documented Search-first behavior audit. Replaced reserved case type and invalid menu registration on Search-first host with admitted case forms and separate registration module. All transitions use real gate. Existing test blessed final-input cleanup turning Search first off; admitted regression fails before and now passes after reducer delegates to domain cleanup projector, retaining zero-prompt automatic Search.",
+			"reviewedSha256": "32c3bfbb9bc486806f1a6e1e9ea6fec2e8d9249a6047dd9008c627bb55f4890b"
+		},
+		{
+			"file": "lib/doc/__tests__/searchNoMatches.test.ts",
+			"status": "revised",
+			"review": "Read full creation/carry/dependent planners and search-input dependency owner. Fixtures now omit entry/default references together for menu registration, disable Search first when registration is on menu and assert strict/absolute admission. No-case refusal uses real survey; choice-name path has real available lookup definitions and gated plan. Search-first helper now observes actual successful gate plus idempotence. Other exact projections retain admitted inputs and real final commit checks; no UI or search-network claim.",
+			"reviewedSha256": "2527c31ee1ce682d537ea2d1908a8b0a067a60e73c4da4befb85eb91d53e23d9"
+		},
+		{
+			"file": "lib/doc/__tests__/lookupOptionsSourceMutations.test.ts",
+			"status": "revised",
+			"review": "Read complete source-switch planner and underlying field reducer. Replaced four command-shape/serialization restatements with actual admitted inline-to-lookup-to-inline commits for both select kinds through JSON schema. Available typed table definitions use parsed revisions; missing context refusal is real gate evidence.",
+			"reviewedSha256": "c17ac9f8c47fbd02689ae323366e4a945d8a3e24038c8cf5fc05d1e9d87cf2df"
+		},
+		{
+			"file": "lib/doc/__tests__/lookupFilterFormFieldAdmission.test.ts",
+			"status": "revised",
+			"review": "Read full field-entry and eligibility projector. Nested-repeat fixture is schema/absolute admitted; exact expected earlier answers establish root/current/enclosing versus later/child/sibling behavior. Reorder now executes real gated moveField before recomputing catalog. Removed redundant negative assertions already implied by exact array. Corrected obsolete fractional-order source commentary.",
+			"reviewedSha256": "7ab95a579098afcb350e3110ef3fc6b8a636dcf8b27b5cf6818cfba2f101465c"
+		},
+		{
+			"file": "lib/doc/__tests__/lookupCarrierMutations.test.ts",
+			"status": "revised",
+			"review": "Read field source reducer, diff and duplication planner. Complete survey fixture retains spare field during additions; available metadata uses globally distinct columns for two real table bindings. Every replay crosses JSON schema and real commit gate; exact persisted endpoint comparison omits derived cache rather than claiming internal cache equality. Kept deliberate rejected nonselect/legacy envelope shapes as parser boundary tests.",
+			"reviewedSha256": "ba32bc3e368d59790514232c5992226a6c6afaf803515bbca1be0e49783d7d3b"
+		},
+		{
+			"file": "lib/doc/__tests__/lookupReferences.test.ts",
+			"status": "revised",
+			"review": "Read complete 1067-line structural extractor. All production-carrier claims now use admitted workflow/catalog plus explicitly authored table metadata with parsed identities/revisions. Removed illegal nested lookup filters, case-free CSQL comparisons and update-only name facet; valid create and update operations have distinct owners. Exact paths remain independently expected, redundant slot/count inventories removed. Literal-negative test now uses production registry rather than empty registry. Synthetic registry tests remain narrowly scoped stamping/type-contract API proof, not production carrier coverage.",
+			"reviewedSha256": "009609b3ab24794e29ede74581395f94559bd12e54ac9bf76dfc8328adef325f"
+		},
+		{
+			"file": "lib/doc/__tests__/casePropertyRenameImpact.test.ts",
+			"status": "revised",
+			"review": "Read complete impact, semantic rename and registry rewriting owners. Replaced inadmissible duplicate session write with independently targeted operation and admitted baseline. Removed same-carrier-walker self-oracle; simultaneous swap now asserts six stored leaves and exact impact groups after real gate, including unchanged field IDs.",
+			"reviewedSha256": "558e48d72d3e1dc2013a911d60dc43f9005187315156e8472c80ee9eac008dd5"
+		},
+		{
+			"file": "lib/doc/__tests__/casePropertyRenameReview.test.ts",
+			"status": "revised",
+			"review": "Read full review, planner and impact ownership. Admitted registration baseline; positive swap now asserts exact three occurrences and per-rename counts instead of merely positive length. Occupied destination and reserved scalar refusals preserve exact intended messages.",
+			"reviewedSha256": "763fb1253f1459c64b92d26691067375d3d70fe6fceccbccb0e6e0084d6b71f5"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-forms.test.ts",
+			"status": "revised",
+			"review": "Replaced invalid empty-menu reducer fixtures with schema and full-gate admitted workflows. JSON batch replay proves atomic form creation, relocation, stale target refusal/no-op, and first operation write/link insertion. Reproduced missing-anchor orphaning and omitted-after empty-operation no-op, fixed source and verified 55 combined tests.",
+			"reviewedSha256": "cf8fd4a0bdab50ba9574f7a571290886c9f41ceebc7653e0d4cffa0674aec1e9"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-modules.test.ts",
+			"status": "revised",
+			"review": "Read complete module reducer and planning owners; replaced invalid bare module births with complete atomic workflows and gate-admitted hierarchy, column surface and cleanup transitions; stale targets assert gate refusal and raw replay identity.",
+			"reviewedSha256": "d17233fd1e4ec4bf77ea1acab6eb12b73d50a651acd4eab6653bb530f9cbccee"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-app.test.ts",
+			"status": "revised",
+			"review": "Read complete app reducers. Rebuilt admitted workflow fixtures and JSON batches for source-language changes, language birth/removal, translation stale review, logo/name and catalog edits; removed unreachable Connect root flag fixture in favor of existing real Connect planner suite. Eight tests pass.",
+			"reviewedSha256": "38d131c173a3d8757b207b6857ddfe2eb9e15e87db9c19e1d150b6745cb8cff7"
+		},
+		{
+			"file": "lib/doc/__tests__/casePropertyRenames.test.ts",
+			"status": "revised",
+			"review": "Read complete rename, rewrite, impact and reference owners. Every reachable rename starts schema/full-gate admitted and applies actual gated JSON batch. Replaced duplicated session targets, invalid alert/reset combination and incorrectly typed schedule properties with separately valid workflows. Exact simultaneous reference rewrite claims retained; explicit lower reducer malformed planner refusal is separated from commit rejection.",
+			"reviewedSha256": "81d5e75272be1cd1783fc152be3a7b8aeb3f61a9cf5bbceb611c443fd2ebb722"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-fields.test.ts",
+			"status": "revised",
+			"review": "Replaced 732 lines of invalid fieldless/undeclared-writer fixtures and repeated schema-shape assertions with actual admitted JSON batch edits, deep duplicate plans, AST identity projection and malformed grammar refusal. Reproduced stale add/move anchors and leaf-parent births causing orphan topology; reducer now preflights destination/anchor. All23 tests pass.",
+			"reviewedSha256": "34acf10e77e323c4fe17bf35589fc069ccc768271d4b1a3858be4fe36a6cf2da"
+		},
+		{
+			"file": "lib/doc/__tests__/navigation.test.ts",
+			"status": "revised",
+			"review": "Read all navigation and field walk owners. Descriptor fixtures now author strict schema-valid field kinds in complete admitted survey topology, including repeat mode and hidden expression. Existing exact projection assertions are independent expected DFS/sibling/cross-page targets, retained as pure projector proof, not keyboard/browser proof. All25 tests pass.",
+			"reviewedSha256": "a4cbec834cfaa411e4ad90622a3340a48ce5ddd1673c2aefa8418f8983ceed45"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-pathRewrite.test.ts",
+			"status": "removed",
+			"review": "Read obsolete path rewriter and all references: only this test imports it. Removed dead source and test; actual admitted move/rename suites prove UUID-reference projection at production store/gate boundaries. Preview owner notified of stale shared-helper comment.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-fields-move-xpath.test.ts",
+			"status": "revised",
+			"review": "Replaced invalid normalized/cast fixtures and warning-count proof with admitted store edit/undo/redo verifying exact XPath and prose projection while stored AST values remain unchanged; native load rejects actual orphan, gate/raw replay refuse cross-form/self/descendant/leaf moves. Seven tests pass.",
+			"reviewedSha256": "6b49f7894b1213b61ce1ee85f48757f41d8db2125cf1614c9290d9bb97ec738a"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-fields-convertField.test.ts",
+			"status": "revised",
+			"review": "Read actual reducer, field reconciler/key filter and kind planner. Replaced842-line unreachable registration/undeclared-binding and dangling-ref examples with admitted survey conversions, exact carried/dropped content, populated topology preservation, actual JSON option seeds and gate refusals.23tests pass after reproducing missing-source conversion accepted as no-op.",
+			"reviewedSha256": "b394650890314bf832f3aee6aa5b0562ac6d1f9f495129fccaca352f1c06d73f"
+		},
+		{
+			"file": "lib/doc/__tests__/kindConversionCascade.test.ts",
+			"status": "revised",
+			"review": "Full property-centric planner read; fixtures now fully admitted with real case columns and distinct runtime operation target instead of duplicate session writer. Successful conversion plans serialize and actually commit; resulting peer kinds and catalog types are asserted rather than only expected mutation names.7tests pass.",
+			"reviewedSha256": "41cd69a7bac7088da5844a1b167a9f161e8dc512e335094dbd783cf99ed10c6a"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations.test.ts",
+			"status": "revised",
+			"review": "Removed732-line copied positive mutation-shape inventory. All positive commands are parsed and committed in owning behavior suites. Retained nine direct parser refusals for ambiguous semantic/content alternatives, obsolete extensions and discriminated scalar/date-range mismatch; canonical batch admission must reject whole payload without stripping.9tests pass.",
+			"reviewedSha256": "60d0300da66bc3f0d2218697a7814857764188ef7bc5b56b4745c8b500a54af2"
+		},
+		{
+			"file": "lib/doc/__tests__/formLinkDependents.test.ts",
+			"status": "revised",
+			"review": "Full dependent scanner/planner read. Removed intrinsically invalid self-link and unreachable conditional-after-else from base fixture; all fixtures admitted. Exact incoming links, deleted-subtree exclusion, stable order, repair identities and singular/plural copy are independent expected outputs.7tests pass.",
+			"reviewedSha256": "4fff2d92d764927fac2a93340d936c52f50720673a035855ed6c169da1ebcca3"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-formLinks.test.ts",
+			"status": "revised",
+			"review": "Read complete reducers/admission/diff/reference paths. Rebuilt initial graph as fully admitted conditional links and reachable case-bound source. Normal transitions now use parsed JSON full gate, stale idempotent/absent target replay explicitly separated. Independent admitted diff endpoints; removed invalid unused datum and unreachable link-order assertions.17tests pass.",
+			"reviewedSha256": "f161df590da866f7f961d64eb55e2178ea43a23ea1a03be5717f4d0248be803b"
+		},
+		{
+			"file": "lib/doc/__tests__/formLinkReview.test.ts",
+			"status": "revised",
+			"review": "Full review and planner owners read. Every base and modified graph admitted; fixed cycle test that already contained the cycle. Replaced circular planner-vs-verdict parity (planner calls verdict) with independently enumerated legal positions and direct real commit attempts, including refused positions. Selection/runtime-retype fixtures admitted; projection expectations do not claim external wire acceptance.16tests pass.",
+			"reviewedSha256": "bd1f62e92637b10650e26c28f64db69e20d6e62516d413f639be73712b3ee647"
+		},
+		{
+			"file": "lib/doc/__tests__/formLinkMutations.test.ts",
+			"status": "revised",
+			"review": "Full planner and review source read. Baselines now admitted; malformed missing-fallback projector case explicitly isolated. Cycles start from acyclic graph. Successful plans use JSON commit result rather than second unchecked reducer application; removed as-never narrowed batch. Retarget rebase now commits and proves peer condition survives; minted UUID tested through actual commit.29tests pass.",
+			"reviewedSha256": "5fc1330a5ef4037b9851ea2194e3795ff046e32b1fe99b2fb77a6236cd7054a2"
+		},
+		{
+			"file": "lib/doc/__tests__/mutations-fields-rename-coverage.test.ts",
+			"status": "revised",
+			"review": "Replaced1055-line historical invalid slot fixtures with admitted compound field/repeat/option projection and whole-app Connect planner activation before rename/move. Removed invalid after-submit form-answer reference claims: these run after form closes and are forbidden; added actual gate refusal for condition/datum instead. Case-property semantic carriers consolidated into existing admitted rename suite.6tests pass.",
+			"reviewedSha256": "9d78ab8f7bae543b7ade107cc4ac9bda2a088ac1871d194b37f2f2c52340ed7a"
+		},
+		{
+			"file": "lib/doc/__tests__/formSectionMutations.test.ts",
+			"status": "revised",
+			"review": "Full planner and test inspection. Every reachable fixture is schema/absolute-gate admitted; planner mutations cross JSON/schema ingress and actual commit; idempotent replay compares complete persisted document instead of two-level shape. Malformed empty-form cases explicitly defensive. Reproduced flattening duplicate question IDs returning ok; added refusal preflight.22tests pass.",
+			"reviewedSha256": "20b12e090a42b829c58c0aa44997880b7790debe904b00406bb11058c422332e"
+		},
+		{
+			"file": "lib/doc/__tests__/formSectionVerdicts.test.ts",
+			"status": "revised",
+			"review": "Full projector/source inspection. Admitted fixtures and independent exact refusal copy; corrected false claim that section-only prechecks prove full commit admissibility (cross-form ownership is separate). Retained focused tree/section/repeat readers with explicit outcomes.7tests pass.",
+			"reviewedSha256": "4c6567b9b08d8abeaa829c22f2cb2fe30cd115ab111f9f7fe5f6e335d50ae911"
+		},
+		{
+			"file": "lib/doc/__tests__/automationCommitCanonicality.test.ts",
+			"status": "revised",
+			"review": "Full aggregate gate and automation reducer inspection. Fixtures now checked against persisted schema and absolute gate; concurrent individually-valid edits tested in both serialization orders, both reject actionless aggregate. Retained contextual granular invalid aggregate outcomes.7tests pass.",
+			"reviewedSha256": "7f515ab21caf5f57d2be6a4841a29185b6dff7ee6fd15c90e1253c3e4ea06637"
+		},
+		{
+			"file": "lib/doc/__tests__/searchInputRemovalDependencies.test.ts",
+			"status": "revised",
+			"review": "Full dependency owner/test inspection. Replaced invalid config fragments with complete admitted followup app fixtures and explicit occurrence paths. Removed unreachable search-input references in defaults, ordinary calculated columns and pre-search button visibility: actual admission showed those cannot exist, contrary to old tests. Four admitted dependency projections pass.",
+			"reviewedSha256": "6befdd5a48cfc8e02edad7a78db5843478eb16fb6ab42f073946e1131c50a155"
+		},
+		{
+			"file": "lib/doc/__tests__/caseOperationReview.test.ts",
+			"status": "revised",
+			"review": "Read full review, operation planner and 1032-line ordering owner. Removed circular projector-vs-planner and traversal parity assertions; explicit slot expectations from admitted fixtures and independent 3x3 legal-position matrix checked through real gate. Impossible self-link all-slot consumer replaced with separate admitted name/link/scalar cases.14 pass.",
+			"reviewedSha256": "7ab4eb8bb909719f346e73f66aadaa67daebe1105bb43c5c2541216f74709d35"
+		},
+		{
+			"file": "lib/doc/__tests__/caseOperationMutations.test.ts",
+			"status": "revised",
+			"review": "Read complete1122-line planner,1032-line order owner and1282-line test. Every normal planner input now admitted; JSON/schema and full commit execute all successful transitions and stale raw replay remains explicit. Corrected invalid retypes, missing creator, forbidden dependency inversions, underdeclared catalogs. Replaced false ingress negatives that always included an invalid retired update envelope; action-only empty scalar patch is legal, empty child edits refused.34pass.",
+			"reviewedSha256": "42a7c582c70f41cca41e32da470f94048642b3047714c12e1a90a931aaf1e3d3"
+		},
+		{
+			"file": "lib/doc/__tests__/incrementalValidationScope.test.ts",
+			"status": "revised",
+			"review": "Read full footprint owner and real prevalidation/scoped gate route. Admitted complete fixture snapshots replace missing case lists; retains independently expected scope sets and absolute/scoped outcome comparison, with explicit success/refusal control for field rename instead of agreement alone.15pass.",
+			"reviewedSha256": "e66dac12d4e2ebe1152074915301463d579914e6c8bc12ebd31944abc78d3348"
+		},
+		{
+			"file": "lib/doc/__tests__/absoluteGuardCoverage.test.ts",
+			"status": "removed",
+			"review": "Read complete1535-line mutation-kind census and commit owner. Removed compiler-total table containing assertion-free neverGates entries and unsupported claims that identifiers or catalog changes never gate. Replaced with commitCrossScopeRules.test.ts:5 admitted JSON-boundary scenarios for atomic name writer transfer, cross-form writer type mismatch, primary writer in repeat, case-free form type transition, and Connect completeness. Other grammar-specific probes belong to already-audited mutation suites.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/doc/__tests__/automations.test.ts",
+			"status": "revised",
+			"review": "Read complete automation reducer and575-line suite. Replaced fieldless invalid app with admitted followup; validates desired snapshots and diff replay through JSON/schema and actual gate, leaving stale-kind raw no-ops explicit. Replaced undeclared location criterion with admitted scalar criterion, declared all used properties; verifies actual committed move/removal and full-doc idempotence, gate checks store add/move and records undo preconditions.13pass.",
+			"reviewedSha256": "1934cd428c61752cd6794907b8f31ade10f85a4be4b54ab6198e81c9b98aa2a0"
+		},
+		{
+			"file": "lib/doc/__tests__/caseSelectionMutations.test.ts",
+			"status": "revised",
+			"review": "Read full selection planner and replaced empty, missing-case-list and impossible automatic cross-type fixtures with admitted single/multiple lists and structural ancestor handoffs. All ready or confirmed coordinated plans traverse JSON mutation admission and actual full commit gate; 18 tests pass.",
+			"reviewedSha256": "dab434796a4cd1105a4e9663464302ed7c1a90278d5f1df79c1db8fa0e17c366"
+		},
+		{
+			"file": "lib/doc/__tests__/caseTypeRetirement.test.ts",
+			"status": "revised",
+			"review": "Read full retirement scanner. Replaced unreachable ancestor ownership, registration reads, missing configs and invalid cross-case display fixtures with 17 admitted removal/retype scenarios. Real committed removal proves record retention or retirement; reachable typed XPath, prose, relation filter/search, owner projection, child writers and operation references are independently named. 17 tests pass.",
+			"reviewedSha256": "2c36cc3ada7cc67ac07b49b4e9f7ef9ed42e9a9a626a4a6bbeb5f5e74ed043d2"
+		},
+		{
+			"file": "lib/doc/__tests__/multiplayerMerge.test.ts",
+			"status": "revised",
+			"review": "Read entire 2204-line suite and real reducers, diff owner, target guard, search planners and agent adapters. Replaced absolute fractional-order and universal disjoint-move claims with JSON-admitted, full-gate serialized domain batches; both diff endpoints are admitted. Added three-field shared-anchor counterexample with independent exact outcomes for both serializations. Restored valid survey/viewer/config/retype fixtures, replaced forbidden calculated-column input reference with reachable guarded filter identity, and removed duplicate unreachable missing-catalog scaffold repair claims. Bare list birth now proves actual visible-field refusal; explicit stale reducer replay remains separate. 43 tests pass; proves serialized domain behavior, not server transactions or network concurrency.",
+			"reviewedSha256": "be89d94a2b2564d70f51214e373f56610b651f8a689bf1f849d9c35a42c10afb"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/ColumnInventory.test.ts",
+			"status": "retained",
+			"review": "Read columnLabel and shared propertyDisplay. Direct text projection boundary independently asserts standard fallbacks, authored-label priority and calculated fallback; deliberately blank labels exercise lower presentation behavior, not document admission.",
+			"reviewedSha256": "f056a2cddc501e3b7cfd45dd74584ae24259df5d16f26d927e44550f5063c417"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/moveAnnouncement.test.ts",
+			"status": "revised",
+			"review": "Read announcement owner and actual move callback contract. Retained independent accessible text projection; removed duplicate landed-index fixture that falsely claimed to prove caller reads committed position. Native keyboard wiring and doc surface-move hook own the actual placement observation.",
+			"reviewedSha256": "b2c5792105403acbf9f0ac30ce4a2dd6e3f735befdead9457aaf5ace0e39d0d4"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/preserveIdentity.test.ts",
+			"status": "revised",
+			"review": "Replaced arbitrary missing-UUID casts and incomplete faux columns with actual domain factories and schema-admitted value objects. Proves identity and tile/presentation retention through plain-to-date and simple-to-custom replacement without modifying inputs. Corrected stale wholesale-module source comment; document gate is separate tile/column plan proof.",
+			"reviewedSha256": "c4e2b0216ecf9076dddf28033f39eac91f0aee09c8deedbba53db0c4784e60b1"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/workspaceProjection.test.ts",
+			"status": "revised",
+			"review": "Read complete projection owner and workspace updateColumns call. Gave Results and Details genuinely different stored permutations; previous identical sequences could not detect coupling. Tests restore/hide actual visibility and retain immutable ordering; removed misleading append claim. Removed unused-semantic pruneStoppedSortOrphans source no-op and its tautological tests, passing next columns directly at its sole caller.",
+			"reviewedSha256": "814f218200226c365bcf3f700a334e52878bb4e8248896a71070810a43fccfb4"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/seeds.test.ts",
+			"status": "revised",
+			"review": "Read complete seeds and consumer calls. Removed obsolete automatic seedSearchInput/seedColumn functions whose only callers were their tests; actual UI chooser paths remain explicit. Rebuilt tests around admitted JSON-gated text/date/datetime/choice property Search births, repeated same-property adds, hidden-time births, calculated values, and genuinely different Results/Details insertion sequences. Fallback remains only for custom-to-standard recovery. 16 tests pass.",
+			"reviewedSha256": "9eaddae57dfef547c773f549bcd41a4d66d80446c7187816a57e49fe0e4a29ea"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/columnEditorSchemas.test.ts",
+			"status": "revised",
+			"review": "Read registry and actual ColumnEditor swap consumer. Removed redundant copied kind census; mapped type owns exhaustiveness. All eight actual factory outputs plus honest-unknown property seeds now enter complete admitted documents through JSON mutation grammar and full commit gate. Retained independent compatibility and missing-property checks, adding omitted Link. 16 tests pass.",
+			"reviewedSha256": "374f3f5c69c1992d771f56a6e5b926d694651fcaadb67888b943cdd6f853f259"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/searchInputResolution.test.ts",
+			"status": "revised",
+			"review": "Replaced invalid fuzzy-date-over-text fixtures and helper-only claims with complete schema/validator-admitted Search documents, JSON mutation updates for custom-condition conversions, own-input declaration negative control, effective range mode admission, and exact relation destination regressions. Canonical checkRelationPath replaces broken first-parent/origin fallback. Four admitted multihop/child/any-relation/custom relation paths resolve actual date metadata; malformed/ambiguous lower-level diagnostic paths fail unresolved. 15 tests pass in column-draft-before.log.",
+			"reviewedSha256": "2bf4ba9192a885bbf5db9d657322fbe9a8989719900f7ef24d10e1ed6a1d94a3"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/cards/column/IdMappingCard.test.tsx",
+			"status": "removed",
+			"review": "Replaced isolated spy callbacks, CSS tests and fake DOM clicks with native gated mapping insert/invalid draft/value Enter, node identity, reorder, removal focus and label edits. Native logs application/browser-workspace-third.log (17 passing), fourth.log (2), browser-workflows-fifth.log (2).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/cards/column/IntervalThresholdRow.test.tsx",
+			"status": "removed",
+			"review": "Native browser owns invalid empty/fractional/zero/negative number drafts, linked error, blur/Tab commit and unit changes with actual document gate. Native logs application/browser-workspace-third.log (17 passing), fourth.log (2), browser-workflows-fifth.log (2).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/cards/column/calculatedColumnSearchAdmission.test.tsx",
+			"status": "removed",
+			"review": "Native actual calculated-expression menu exercises related property number wrapping both with Search and without; committed expression is observed through the real gate. Native logs application/browser-workspace-third.log (17 passing), fourth.log (2), browser-workflows-fifth.log (2).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/cards/column/cardEdits.test.tsx",
+			"status": "removed",
+			"review": "Native all-eight-card common label edits and actual date preset/custom blur, interval mode/text, threshold/unit and link text edits preserve complete stored columns. Removed fake owner callbacks and mock controls. Native logs application/browser-workspace-third.log (17 passing), fourth.log (2), browser-workflows-fifth.log (2).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/cards/column/columnCards.smoke.test.tsx",
+			"status": "removed",
+			"review": "Removed standalone mount/parse census. Pure registry factory outputs and 68 admitted display swaps prove document birth; native all-eight-card label edits and real image-picker selection prove mounting plus interaction. Native logs application/browser-workspace-third.log (17 passing), fourth.log (2), browser-workflows-fifth.log (2).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/cards/column/preservedColumnSwap.test.tsx",
+			"status": "revised",
+			"review": "Replaced eight mounted callback harnesses with pure production display-state transitions: all 64 source-to-target pairs pass strict persisted schema and JSON mutation commit gate, with sort/visibility/tile preservation and unavailable/no-property choices. 68 tests pass column-swap-gate.log; native confirmation/cancel/focus/restoration independently proves UI wiring.",
+			"reviewedSha256": "b361863f59470e1f44135682a8d572bc92f9b2a8839be8214b632e6b22ecc004",
+			"preIntegrationReviewedSha256": "975b3c54e47e2ae265c35b4ae78fdb8138ad36cd8d5362be92d7544e54f24dd8",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/configValidity.test.ts",
+			"status": "revised",
+			"review": "Read full owner/test. Every clean candidate starts from strict schema/gate-admitted case workspace. Boundary state is computed by actual caseWorkspaceBoundaryVerdicts rather than mocked booleans. Malformed Search/range/ref diagnostics remain explicitly lower-boundary. 25 tests pass cell-summary-before.log.",
+			"reviewedSha256": "73890b651b7f67e2c2d8d490925209f9191ccb13f5f2fdfd677ecdc3d570fb08"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/predicateSummary.test.ts",
+			"status": "revised",
+			"review": "Read complete summarizer and context helpers. Kept pure prose projection cases at explicit lower boundary; removed impossible standard text-as-multiselect and date-as-geopoint label fixtures. Added admitted mixed OR-inside-AND filter proving grouping was lost. Compound clauses now retain parentheses, including negated nested groups. 19 tests pass cell-summary-before.log after admitted fail-before.",
+			"reviewedSha256": "5225f7564e073ef77f723d83d283f8130b648f0667190d2e5c6d5bd00e710e42"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/columnCellRenderer.test.ts",
+			"status": "revised",
+			"review": "Read entire renderer and Quick Filter actual consumer plus case row contract. Removed fake happy-dom click/CSS tap-target claims; native keyboard/popover and measured target proof now passes. Node-only pure display/SSR tests keep date/calendar/boundary/mapping/structured fallback checks, typed JSON rows without casts. Three admitted link-fallback regressions failed before fix, now Quick Filter matches visible raw invalid URL and ignores blank data/authored hidden label. 25 pass tiles-cells-final.log.",
+			"reviewedSha256": "7403d01446529af17a493265e9ca19c5602e476a6f8b01dc0226e03bebde5f32"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/tilePresets.test.ts",
+			"status": "revised",
+			"review": "Read full geometry owner. Removed copied label inventory/negative substring checks. Retained exact representative layouts, minimum/capacity edges, independently computed in-grid/non-overlap finite corpus, seed capacity and inverse preset recognition. 15 pass tiles-cells-final.log; actual mutation admission resides adjacent.",
+			"reviewedSha256": "09f7a6ac08466f5d7185126224ea3d59e3569b78220b1b9d0e8e6a957466834e"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/tileModel.test.ts",
+			"status": "revised",
+			"review": "Read complete 532-line pure placement owner and 503-line baseline. Retained geometric gesture/refusal and diagnostic formatter boundary tests. Removed union-cast column fixtures; replaced self-oracle placement recheck with independent exact first-free coordinates. Actual gate transitions and native drag tests independently own admission and browser mechanics. 39 pass tiles-cells-final.log.",
+			"reviewedSha256": "2ccf1bc1707397b42b27d11abc4978846ecd10f9969d02f7eabff89329f3b516"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/tileBornValid.test.ts",
+			"status": "revised",
+			"review": "Read complete integration and planner/model owners. Baselines now strictly schema/absolute-gate admitted and all mutation messages traverse JSON and mutationSchema. Repaired reveal fixture to explicit canonical true instead of undefined manufactured through union casts. Seed full144 grid, guard-negative enable/add, hidden-square recovery, disable restore and grouping cuts execute real gate. 12 pass tiles-cells-final.log.",
+			"reviewedSha256": "b140d47fb7efa4e18c634b5467b4dbd8b976a0f3a3f71803ccdb4c6739bf9d3d"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/tileMutationPlan.test.ts",
+			"status": "revised",
+			"review": "Rewrote entire mutation-array inventory test around actual admitted document transitions through JSON mutation grammar/full commit gate. Nine scenarios cover enable/disable/restore, gap filling, capacity/full refusal, real grouping/persist slot preservation replacing invented futureSlot cast, divergent Results/Details order preset, placement clear and stale target. 9 pass tiles-cells-final.log.",
+			"reviewedSha256": "8e6d9c59e7949b8fa46cd3568871b606edd6f0e20b304e51b87e798c66d2ec4c"
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/canvasChrome.test.tsx",
+			"status": "removed",
+			"review": "Read whole AuthoredDragPreviewLabel/CanvasNotice/AddGhostButton owner. Deleted a pure Tailwind class inventory that claimed measured wrapping from happy-dom. Rendering a span and checking its authored class names proves no browser geometry or drag behavior; native default-order and workspace journeys own meaningful interactions and layout. No replacement assertion restates this trivial wrapper implementation.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/cards/column/ColumnEditor.test.tsx",
+			"status": "removed",
+			"review": "Read full ColumnEditor suite and actual column owner, all cards, property selector and display transition coordinator. Removed callback-only happy-dom suite and invalid empty-doc provider. Native e2e/tests/case-workspace-audit.spec.ts now exercises actual schema/gate-admitted document commits through the production hook: cancel/confirm/focus and retained drafts, current Search scope revalidation, typed format choices, label edits across every card, invalid threshold/units, date format presets/custom draft, intervals, links, typed mapping rows, actual media HTTP library selection and inherited/duplicate labels. Baseline cross-column retained draft identity receives native exact DOM/document proof. 22 methods passed fifth batch; final identity passed seventh batch. These are actual browser authoring and offline HTTP peers, not external media service proof.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/cards/column/MappingRowIdentity.test.tsx",
+			"status": "removed",
+			"review": "Read full identity suite, LabelMappingRow and ImageMappingRow production owners, parent mapping cards and real media selection boundary. Removed fake components and fireEvent focus/class checks. Native mapping Enter edits/reorder assert stable actual row/input DOM and focus with real doc commits; invalid values remain drafts and removals focus surviving row/Add controls. Image mapping stages value until native media library HTTP selection succeeds, preserves row identity through edits and validates cancel/focus. Native browser fifth batch passes mapping methods. Device drag/drop data transfer compatibility remains owned by actual shared reorder harness.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/WorkspaceTabs.test.tsx",
+			"status": "removed",
+			"review": "Read full suite and WorkspaceTabs/controller owners. Removed copied CSS/layout inventory, mocked tooltip and callback click suite. Native full workspace scenario exercises actual URL-backed Results/Details navigation/current-page state, real column inspector edit and close focus (seventh batch passes). Production browser case-workspace composition test owns measured 560px viewport scroll containment, fixed tabs and preserved tab scroll with production build (production-smoke-second.log). Isolated CSS spelling and injected error booleans were not runtime behavior evidence.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/SearchFieldChooser.test.tsx",
+			"status": "removed",
+			"review": "Read complete chooser/seed suite and actual SearchCanvas/AddSearchFieldControl, SearchableChoiceCombobox and seeds owners. Removed callback-only happy-dom chooser and isolated seed restatements. Full native Search workspace now opens the actual chooser by keyboard, filters using underlying property name, recovers empty search focus, chooses the date with ArrowDown/Enter and verifies the actual admitted doc field plus inspector close focus. Expanded browser batch passed this method. Existing audited seeds.test.ts owns admitted text/numeric/date/datetime/select defaults, repeat naming with preexisting Search and Cases available, and hidden search-time births. Native column property chooser separately verifies duplicate authored labels. Disabled structural capacity stays owned by full gate; no assertion that a fake disabled prop proves capacity logic.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/CaseSelectionSetting.test.tsx",
+			"status": "removed",
+			"review": "Read complete draft component and controller transition owner. Removed simulated radio/blur events with onChange spies. Native admitted full workspace now exercises actual radio keyboard mode changes, range refusal and Escape reset, direct unlinked maximum commit, preserved dirty draft on actual peer mutation and stale overwrite refusal, read-only saved behavior, dialog focus/cancel/confirm and single-mode restoration. Second full workspace native batch passes these three methods. Limits requiring cross-module coordination are semantic planner coverage in admitted caseSelectionMutations tests; no claim that an injected onChange prop proves that orchestration.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/CaseSelectionReviewDialog.test.tsx",
+			"status": "removed",
+			"review": "Read all dialog content, controller consequence collection/review fingerprint and selection planner. Removed invented transition/blocker props and callback-only confirmation checks. Actual browser workspace starts from admitted follow-up default answers, file URL write, and persistent tile, names those real consequences, verifies cancel leaves exact saved doc unchanged, confirms actual many-case mutation and tile persistence removal with layout unchanged, and returns native focus. A fixture peer edits the real field through the actual gate during review; first confirmation recomputes/announces new consequences without committing, second applies them. Second native batch passes; admitted planner tests own linked coordination and real blockers.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/searchConditionCloneIdentity.test.tsx",
+			"status": "removed",
+			"review": "Read all mocked controller/reducer harness and actual SearchInputEditor/workspace/SearchConditionCanvas plus recursive workbench. Removed fake module/session/router/verdict/gate pipeline built around an invalid empty-column Search fixture. Native full workspace starts with schema/full-gate-admitted grouped date-and-region predicate and edits the real date input through production planner and reducer; asserts the same DOM node keeps focus and saved predicate differs only at the intended date value. Second native batch passes. Native production bundle is not a Strict Mode replay proof; owned React subscription/model suites separately cover lifecycle replay.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/CaseOrderingComposer.test.tsx",
+			"status": "removed",
+			"review": "Read full suite and SortPriorityStack/sortPriority/column mutation owners. Removed stateful fake onChange-controlled component with unattached doc provider, class-string layout checks and invented keyboard clicks. Native full workspace adds and changes a typed date order, adds previously undisplayed Region, reorders with actual Home/focus/stable DOM, removes with adjacent/Add focus, and checks both full display permutations retain existing order while the new hidden identity joins both. This exposed and fixed the production batch silently discarding new hidden carriers, which all prior onChange assertions missed. Third native batch passes; two independent admitted JSON/gate replay tests additionally prove births preserve peer rows/labels and omitted definitions. Invalid duplicate-priority fixture could not establish reachable author ordering.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/SearchableChoiceCombobox.test.tsx",
+			"status": "removed",
+			"review": "Read all chooser tests and complete production combobox/actual Search and Add information consumers. Removed callback-only synthetic keyboard/menu fixtures and CSS-token scroll claims. Native full workspace opens by Enter, checks actual focused search, filters by friendly label and underlying property name, recovers no-results with Clear while retaining focus, chooses via ArrowDown/Enter and observes gated document change, and Escape restores the actual trigger. Progressive Add information keeps the actual popup open across alternate choices, commits a separate column view with independent visibility, and resets its mode when reopened (third native batch passes). Production builder native composition test owns measured popup containment/fixed controls/scroll and long-list recovery. No claim that offline native peer proves external data service behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/filterAutomaticSearch.test.tsx",
+			"status": "removed",
+			"review": "Read full 883-line suite and CaseAvailabilityComposer/MatchCount, actual blueprint projection, session access epoch and case invalidation owners. Removed empty mocked doc, invented blueprint {}, stubbed action and callback-only predicate changes. Native full controller tests retain the actual projection/loading logic and control only typed Server Action transport via HTTP: inspect current admitted blueprint/config/assigned-owner payload, hold retry requests to prove status focus and failed-retry focus, reject stale prior-filter completions, refresh only the matching case partition, mask old counts during access refresh until authorized, and confirm/cancel actual filter removal without erasing Search/assigned-case settings. Third native batch passes all four lifecycle methods; production native workspace test owns full-width recursive predicate composition and real data count/cancel/replacement behavior. These client lifecycle proofs are explicitly distinct from Postgres count semantics and native wire portability.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/workspaceChrome.test.tsx",
+			"status": "removed",
+			"review": "Read complete 3026-line suite and all actual workspace/canvas/inspector owners. Removed invalid empty doc scaffolds, fake session and editor callbacks, CSS inventory, inaccessible simulated key presses and stale unsupported-choice expectation. Production browser workspace composition owns real viewport/scroll/recursive-filter/popup layout, Search condition canvas and return focus, actual case-data view and Details edits. New native full-controller workspace methods prove gated URL-backed tabs, chooser/typed/hidden creation, independent display views, keyboard movement, last-field confirmation, single/multiple selection consequences, date-range default clearing only after confirmation, compatible barcode state preservation, Search copy refusal and canonical default clearing, intentional zero-input action, aggregate HTTP retry/races/access invalidation and guarded filter removal. 19/21 third batch methods passed and corrected copy method passes fourth; separate 23-method native column suite owns real cards, property selection, mapping/media and retained drafts. Intentional missing/imported predicate metadata is tested at production domain/status boundaries rather than pretending an invalid authored app exists. Dependency-review navigation is separately audited in its own baseline and pending last focused method; not claimed by this file.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/dependencyReviewFocus.test.tsx",
+			"status": "removed",
+			"review": "Removed happy-dom focus simulation, fabricated isolated input predicates, mocked callbacks and console-array test. Real native Search dependency review now follows Cases available and sibling Region rules through URL navigation, asserts actual active visible editor heading focus and owning Search-answer card, recomputes use counts after admitted peer edits, and restores Remove focus after dependencies clear. Existing production authed native tests also cover new-condition and ordinary Back focus. No StrictMode claim from the production component peer.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-list-config/__tests__/searchRemoval.test.tsx",
+			"status": "removed",
+			"review": "Removed 1700-line mocked workspace/hooks/mutations/navigation and fabricated scroll clamp harness after full source and fixture audit. Native actual controller, document store, gate, URL routing, real dialog and inspector now prove final-input cancellation/confirmation and focus, preserved assigned-case/action settings, dependency review and live peer repairs, rename/clone identity, Search screen resets, independent Results/Details changes, zero-input action/availability independence. Actual production authed workspace tests own scroll and browser layout; admitted document reducer/planner suites own granular peer replay. Offline HTTP peer is limited to server data dependencies; no live backend or React StrictMode claim.",
+			"reviewedSha256": null
+		}
+	],
+	"changedPaths": [
+		"components/builder/case-list-config/__tests__/ColumnInventory.test.ts",
+		"components/builder/case-list-config/__tests__/cards/column/IdMappingCard.test.tsx",
+		"components/builder/case-list-config/__tests__/cards/column/IntervalThresholdRow.test.tsx",
+		"components/builder/case-list-config/__tests__/cards/column/calculatedColumnSearchAdmission.test.tsx",
+		"components/builder/case-list-config/__tests__/cards/column/cardEdits.test.tsx",
+		"components/builder/case-list-config/__tests__/cards/column/columnCards.smoke.test.tsx",
+		"components/builder/case-list-config/__tests__/cards/column/preservedColumnSwap.test.tsx",
+		"components/builder/case-list-config/__tests__/columnCellRenderer.test.ts",
+		"components/builder/case-list-config/__tests__/columnDisplayState.test.ts",
+		"components/builder/case-list-config/__tests__/columnEditorSchemas.test.ts",
+		"components/builder/case-list-config/__tests__/configValidity.test.ts",
+		"components/builder/case-list-config/__tests__/moveAnnouncement.test.ts",
+		"components/builder/case-list-config/__tests__/predicateSummary.test.ts",
+		"components/builder/case-list-config/__tests__/preserveIdentity.test.ts",
+		"components/builder/case-list-config/__tests__/searchInputResolution.test.ts",
+		"components/builder/case-list-config/__tests__/seeds.test.ts",
+		"components/builder/case-list-config/__tests__/tileBornValid.test.ts",
+		"components/builder/case-list-config/__tests__/tileModel.test.ts",
+		"components/builder/case-list-config/__tests__/tileMutationPlan.test.ts",
+		"components/builder/case-list-config/__tests__/tilePresets.test.ts",
+		"components/builder/case-list-config/__tests__/workspaceProjection.test.ts",
+		"components/builder/case-list-config/columnCellRenderer.tsx",
+		"components/builder/case-list-config/columnDisplayState.ts",
+		"components/builder/case-list-config/predicateSummary.ts",
+		"components/builder/case-list-config/searchInputResolution.ts",
+		"components/builder/case-list-config/tile/tileMutationPlan.ts",
+		"e2e/lib/case-workspace-client.tsx",
+		"e2e/tests/case-workspace-audit.spec.ts",
+		"lib/collab/ReconcilerProvider.tsx",
+		"lib/collab/__tests__/ReconcilerProvider.test.ts",
+		"lib/collab/__tests__/appReadSnapshot.test.ts",
+		"lib/collab/__tests__/lookupManifestFrame.test.ts",
+		"lib/collab/__tests__/mutationFrame.test.ts",
+		"lib/collab/__tests__/presence.test.ts",
+		"lib/collab/__tests__/projectScopeReset.test.ts",
+		"lib/collab/__tests__/reconciler.test.ts",
+		"lib/collab/__tests__/usePeersAt.test.ts",
+		"lib/collab/mutationFrame.ts",
+		"lib/collab/reconciler.ts",
+		"lib/doc/CLAUDE.md",
+		"lib/doc/__tests__/__snapshots__/mutationWireRegistry.test.ts.snap",
+		"lib/doc/__tests__/absoluteGuardCoverage.test.ts",
+		"lib/doc/__tests__/automationCommitCanonicality.test.ts",
+		"lib/doc/__tests__/automations.test.ts",
+		"lib/doc/__tests__/caseListSurfaceMoveHook.test.tsx",
+		"lib/doc/__tests__/caseOperationIntents.test-d.ts",
+		"lib/doc/__tests__/caseOperationIntents.test.ts",
+		"lib/doc/__tests__/caseOperationMutations.test.ts",
+		"lib/doc/__tests__/caseOperationReview.test.ts",
+		"lib/doc/__tests__/caseOperationWriteTypes.test.ts",
+		"lib/doc/__tests__/casePropertyRenameImpact.test.ts",
+		"lib/doc/__tests__/casePropertyRenameReview.test.ts",
+		"lib/doc/__tests__/casePropertyRenames.test.ts",
+		"lib/doc/__tests__/caseSearchConfigProvenance.test.ts",
+		"lib/doc/__tests__/caseSelectionMutations.test.ts",
+		"lib/doc/__tests__/caseTypeRetirement.test.ts",
+		"lib/doc/__tests__/caseWorkspaceVerdicts.test.ts",
+		"lib/doc/__tests__/caseWriteChoices.test.ts",
+		"lib/doc/__tests__/caseWriteVerdictWorkerRuntime.test.ts",
+		"lib/doc/__tests__/commitCrossScopeRules.test.ts",
+		"lib/doc/__tests__/commitDocDroppedKey.test.ts",
+		"lib/doc/__tests__/commitVerdicts.test.ts",
+		"lib/doc/__tests__/connectConfig.test.ts",
+		"lib/doc/__tests__/connectTargetState.test.ts",
+		"lib/doc/__tests__/diffDocsToMutations.fuzz.test.ts",
+		"lib/doc/__tests__/diffDocsToMutations.localization.test.ts",
+		"lib/doc/__tests__/diffDocsToMutations.wireClear.test.ts",
+		"lib/doc/__tests__/displayConditionMutations.test.ts",
+		"lib/doc/__tests__/entryPointMutations.test.ts",
+		"lib/doc/__tests__/expressionRuntimeEditVerdicts.test.ts",
+		"lib/doc/__tests__/fieldParent.test.ts",
+		"lib/doc/__tests__/formLinkDependents.test.ts",
+		"lib/doc/__tests__/formLinkMutations.test.ts",
+		"lib/doc/__tests__/formLinkReview.test.ts",
+		"lib/doc/__tests__/formSectionMutations.test.ts",
+		"lib/doc/__tests__/formSectionVerdicts.test.ts",
+		"lib/doc/__tests__/hooks-selectorSubscriptions.test.tsx",
+		"lib/doc/__tests__/hooks-useAppConnectIds.test.tsx",
+		"lib/doc/__tests__/hooks-useAppName.test.tsx",
+		"lib/doc/__tests__/hooks-useAppStructure.test.tsx",
+		"lib/doc/__tests__/hooks-useBlueprintMutations.test.tsx",
+		"lib/doc/__tests__/hooks-useConnectType.test.tsx",
+		"lib/doc/__tests__/hooks-useDocEntityMaps.test.tsx",
+		"lib/doc/__tests__/hooks-useFieldKind.test.tsx",
+		"lib/doc/__tests__/hooks-useFieldsAndOrder.test.tsx",
+		"lib/doc/__tests__/hooks-useHasFieldsInForm.test.tsx",
+		"lib/doc/__tests__/hooks-useSearchBlueprint.test.tsx",
+		"lib/doc/__tests__/hooks-useSearchFilter.test.tsx",
+		"lib/doc/__tests__/hooks-useUndoRedo.test.tsx",
+		"lib/doc/__tests__/hooks.test.tsx",
+		"lib/doc/__tests__/identifierVerdicts.test.ts",
+		"lib/doc/__tests__/incrementalValidationScope.test.ts",
+		"lib/doc/__tests__/kindConversionCascade.test.ts",
+		"lib/doc/__tests__/lookupCarrierMutations.test.ts",
+		"lib/doc/__tests__/lookupFilterFormFieldAdmission.test.ts",
+		"lib/doc/__tests__/lookupOptionsSourceMutations.test.ts",
+		"lib/doc/__tests__/lookupReferences.test.ts",
+		"lib/doc/__tests__/modulePatchMutations.test.ts",
+		"lib/doc/__tests__/multiplayerMerge.test.ts",
+		"lib/doc/__tests__/mutationAdmission.test.ts",
+		"lib/doc/__tests__/mutationEnvelopeStrictness.test-d.ts",
+		"lib/doc/__tests__/mutationEnvelopeStrictness.test.ts",
+		"lib/doc/__tests__/mutationIdentityAdmission.test.ts",
+		"lib/doc/__tests__/mutationPrevalidation.test.ts",
+		"lib/doc/__tests__/mutationSequenceAdmission.test.ts",
+		"lib/doc/__tests__/mutationTargetAdmission.test.ts",
+		"lib/doc/__tests__/mutationWireRegistry.test.ts",
+		"lib/doc/__tests__/mutations-app.test.ts",
+		"lib/doc/__tests__/mutations-fields-convertField.test.ts",
+		"lib/doc/__tests__/mutations-fields-move-xpath.test.ts",
+		"lib/doc/__tests__/mutations-fields-rename-coverage.test.ts",
+		"lib/doc/__tests__/mutations-fields.test.ts",
+		"lib/doc/__tests__/mutations-formLinks.test.ts",
+		"lib/doc/__tests__/mutations-forms.test.ts",
+		"lib/doc/__tests__/mutations-modules.test.ts",
+		"lib/doc/__tests__/mutations-no-structured-logger.test.ts",
+		"lib/doc/__tests__/mutations-pathRewrite.test.ts",
+		"lib/doc/__tests__/mutations.test.ts",
+		"lib/doc/__tests__/navigation.test.ts",
+		"lib/doc/__tests__/prototypeSafeRecords.test.ts",
+		"lib/doc/__tests__/reducerPayloadAliasing.test.ts",
+		"lib/doc/__tests__/referenceIndex.fuzz.test.ts",
+		"lib/doc/__tests__/referenceIndex.test.ts",
+		"lib/doc/__tests__/renameReferencedField.test.ts",
+		"lib/doc/__tests__/scaffolds.test.ts",
+		"lib/doc/__tests__/scalarWriterCatalog.test.ts",
+		"lib/doc/__tests__/searchBlueprintIdentity.test.ts",
+		"lib/doc/__tests__/searchInputFinalShape.test.ts",
+		"lib/doc/__tests__/searchInputRemovalDependencies.test.ts",
+		"lib/doc/__tests__/searchNoMatches.test.ts",
+		"lib/doc/__tests__/store.test.ts",
+		"lib/doc/__tests__/unwrittenProperties.test.ts",
+		"lib/doc/__tests__/useCaseWriteChoices.test.tsx",
+		"lib/doc/__tests__/userMutationSafety.test.ts",
+		"lib/doc/caseOperationMutations.ts",
+		"lib/doc/caseOperationReview.ts",
+		"lib/doc/diffDocsToMutations.ts",
+		"lib/doc/displayConditionMutations.ts",
+		"lib/doc/formFieldEntries.ts",
+		"lib/doc/formSectionMutations.ts",
+		"lib/doc/formSectionVerdicts.ts",
+		"lib/doc/hooks/__tests__/useAutoSave.runtime.test.tsx",
+		"lib/doc/hooks/__tests__/useAutoSave.test.ts",
+		"lib/doc/hooks/useCaseWriteChoices.ts",
+		"lib/doc/hooks/useSearchFilter.ts",
+		"lib/doc/mutationIdentityAdmission.ts",
+		"lib/doc/mutationSequenceAdmission.ts",
+		"lib/doc/mutationTargetAdmission.ts",
+		"lib/doc/mutationWireRegistry.ts",
+		"lib/doc/mutations/__tests__/searchFirstPostSubmit.test.ts",
+		"lib/doc/mutations/__tests__/sequence.test.ts",
+		"lib/doc/mutations/fields.ts",
+		"lib/doc/mutations/forms.ts",
+		"lib/doc/mutations/modules.ts",
+		"lib/doc/mutations/pathRewrite.ts",
+		"lib/doc/mutations/users.ts",
+		"lib/doc/scaffolds.ts",
+		"lib/doc/searchNoMatchesForm.ts",
+		"lib/doc/store.ts",
+		"lib/doc/types.ts",
+		"components/builder/case-list-config/__tests__/cards/column/ColumnEditor.test.tsx",
+		"components/builder/case-list-config/__tests__/cards/column/MappingRowIdentity.test.tsx",
+		"components/builder/case-list-config/__tests__/WorkspaceTabs.test.tsx",
+		"components/builder/case-list-config/__tests__/SearchFieldChooser.test.tsx",
+		"components/builder/case-list-config/__tests__/CaseSelectionSetting.test.tsx",
+		"components/builder/case-list-config/__tests__/CaseSelectionReviewDialog.test.tsx",
+		"components/builder/case-list-config/__tests__/searchConditionCloneIdentity.test.tsx",
+		"lib/doc/caseListColumnMutations.ts",
+		"lib/doc/__tests__/columnSnapshotBatchMutations.test.ts",
+		"components/builder/case-list-config/CaseListConfigWorkspace.tsx",
+		"e2e/lib/case-workspace-surface-client.tsx",
+		"e2e/lib/case-workspace-surface-boundary.ts",
+		"e2e/tests/case-workspace-surface.spec.ts",
+		"components/builder/case-list-config/__tests__/CaseOrderingComposer.test.tsx",
+		"components/builder/case-list-config/__tests__/SearchableChoiceCombobox.test.tsx",
+		"components/builder/case-list-config/__tests__/filterAutomaticSearch.test.tsx",
+		"lib/doc/__tests__/wireRoundTrip.ts",
+		"components/builder/case-list-config/__tests__/workspaceChrome.test.tsx",
+		"components/builder/case-list-config/__tests__/dependencyReviewFocus.test.tsx",
+		"components/builder/case-list-config/__tests__/searchRemoval.test.tsx"
+	],
+	"checks": [
+		{
+			"command": "Scoped mutationFrame unit run before production fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/mutation-frame-before.log",
+			"result": "Expected regression: 1 failed, 9 passed; native SyntaxError contains payload"
+		},
+		{
+			"command": "Scoped eight collaboration decoder/state files with async leak detection",
+			"log": "/tmp/nova-test-audit-parallel/doc/collab-small.log",
+			"result": "8 files, 71 tests passed"
+		},
+		{
+			"command": "Scoped seven reconciler/document/Connect suites with async leak detection",
+			"log": "/tmp/nova-test-audit-parallel/doc/doc-connect-admission.log",
+			"result": "7 files, 97 tests passed"
+		},
+		{
+			"command": "Provider malformed JSON direct reporter regression before fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/reload-json-before.log",
+			"result": "Expected failure: native reload SyntaxError retains secretPII"
+		},
+		{
+			"command": "Provider complete runtime suite after fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/provider-json-after.log",
+			"result": "29 tests passed"
+		},
+		{
+			"command": "Disposed reconciler late watch regression before fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/reconciler-dispose-before.log",
+			"result": "Expected failure: newly registered watch stays pending after disposal"
+		},
+		{
+			"command": "Scoped consolidated selectors and builder mutation hooks",
+			"log": "/tmp/nova-test-audit-parallel/doc/hooks-admission.log",
+			"result": "3 files, 72 tests passed"
+		},
+		{
+			"command": "Scoped search filter subscription suite",
+			"log": "/tmp/nova-test-audit-parallel/doc/search-hook.log",
+			"result": "1 file, 10 tests passed"
+		},
+		{
+			"command": "Scoped autosave runtime and eight admission/intent/path/sequence suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/admission-autosave.log",
+			"result": "9 files, 93 tests passed"
+		},
+		{
+			"command": "Case choices, worker runtime and hook scoped runs",
+			"log": "/tmp/nova-test-audit-parallel/doc/autosave-runtime.log",
+			"result": "Case choices and worker runtime passed 5 tests here; hook and surface move passed 6 tests in preceding choice-runtime.log run."
+		},
+		{
+			"command": "Identifier verdict scoped suite",
+			"log": "/tmp/nova-test-audit-parallel/doc/store-identifier-after.log",
+			"result": "Identifier 31 tests passed; store had three fixture-only failures being corrected"
+		},
+		{
+			"command": "Store and commit composition full scoped suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/store-commit-after.log",
+			"result": "2 files, 44 tests passed"
+		},
+		{
+			"command": "Workspace and expression-runtime verdicts",
+			"log": "/tmp/nova-test-audit-parallel/doc/workspace-runtime.log",
+			"result": "2 files, 17 tests passed"
+		},
+		{
+			"command": "Identity preservation regression before production fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/identity-before.log",
+			"result": "Expected failure: second preserving replacement falsely collided"
+		},
+		{
+			"command": "Identity full suite after fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/identity-after.log",
+			"result": "16 tests passed"
+		},
+		{
+			"command": "Sequence admission and scalar catalog suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/sequence-scalar-search.log",
+			"result": "35 tests in sequence/scalar passed; search expected context corrected in following run"
+		},
+		{
+			"command": "Search and import architecture suites after corrections",
+			"log": "/tmp/nova-test-audit-parallel/doc/unwritten-architecture-after.log",
+			"result": "Search and architecture 4 tests passed; unwritten fixture fallback corrected subsequently"
+		},
+		{
+			"command": "User collections and rewritten unwritten properties",
+			"log": "/tmp/nova-test-audit-parallel/doc/user-unwritten.log",
+			"result": "2 files, 20 tests passed"
+		},
+		{
+			"command": "Scoped Biome check/write on owned changes",
+			"log": "/tmp/nova-test-audit-parallel/doc/biome.log",
+			"result": "52 files checked, 26 formatted; no diagnostics"
+		},
+		{
+			"command": "Rewritten parent map and admitted scaffolds suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/parents-scaffolds-after.log",
+			"result": "2 files, 38 tests passed"
+		},
+		{
+			"command": "Own-record boundary and operation write-type suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/records-alias-types.log",
+			"result": "2 suites passed 14 tests; alias column assertion corrected subsequently"
+		},
+		{
+			"command": "Admitted payload alias replay full suite",
+			"log": "/tmp/nova-test-audit-parallel/doc/alias-final.log",
+			"result": "6 tests passed"
+		},
+		{
+			"command": "Independent admitted diff endpoint corpus",
+			"log": "/tmp/nova-test-audit-parallel/doc/diff-form-after.log",
+			"result": "21 tests passed, including 200 generated pairs; targeted new-form-order regression failed before fix"
+		},
+		{
+			"command": "Reference extraction/maintenance plus localized diff and wire clears",
+			"log": "/tmp/nova-test-audit-parallel/doc/diff-ref-admission.log",
+			"result": "Reference and localization 20 tests passed; wire-clear fixture correction verified in next batch"
+		},
+		{
+			"command": "User order, optional clears, display, deep links, identity and provenance",
+			"log": "/tmp/nova-test-audit-parallel/doc/sequence-display-search.log",
+			"result": "6 suites 34 tests passed; date-range endpoint corrected and passed in search-first-before-valid.log"
+		},
+		{
+			"command": "Search-first admitted regression and no-matches planners",
+			"log": "/tmp/nova-test-audit-parallel/doc/search-no-matches-after.log",
+			"result": "28 tests passed; final-input setting loss failed-before in search-first-before-valid.log"
+		},
+		{
+			"command": "Lookup source transition and no-matches suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/lookup-carrier-admission.log",
+			"result": "3 suites 38 tests passed, with moveField fixture typo corrected and checked separately"
+		},
+		{
+			"command": "Lookup field eligibility and carrier replay final",
+			"log": "/tmp/nova-test-audit-parallel/doc/lookup-carrier-final.log",
+			"result": "14 tests passed"
+		},
+		{
+			"command": "Full admitted lookup extraction",
+			"log": "/tmp/nova-test-audit-parallel/doc/lookup-references-admitted-final.log",
+			"result": "10 tests passed"
+		},
+		{
+			"command": "Case-property rename impact and review",
+			"log": "/tmp/nova-test-audit-parallel/doc/rename-impact-review.log",
+			"result": "5 tests passed"
+		},
+		{
+			"command": "forms/modules/property rename admitted suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/form-module-property-after.log",
+			"result": "55 tests passed"
+		},
+		{
+			"command": "app mutation admitted suite",
+			"log": "/tmp/nova-test-audit-parallel/doc/app-mutations-admission.log",
+			"result": "8 tests passed"
+		},
+		{
+			"command": "admitted field edits and navigation",
+			"log": "/tmp/nova-test-audit-parallel/doc/navigation-admitted.log",
+			"result": "25 navigation passed;23 field edits passed in fields-navigation-after.log"
+		},
+		{
+			"command": "convert and target admission",
+			"log": "/tmp/nova-test-audit-parallel/doc/conversion-target-after.log",
+			"result": "32tests in3files passed; kind cascade subsequently7passed rename-conversion-final.log"
+		},
+		{
+			"command": "mutation grammar",
+			"log": "/tmp/nova-test-audit-parallel/doc/mutation-grammar.log",
+			"result": "9tests passed"
+		},
+		{
+			"command": "form link dependents/reducers",
+			"log": "/tmp/nova-test-audit-parallel/doc/form-link-boundaries.log",
+			"result": "24tests passed"
+		},
+		{
+			"command": "form link review",
+			"log": "/tmp/nova-test-audit-parallel/doc/form-link-review.log",
+			"result": "16tests passed"
+		},
+		{
+			"command": "form link planners",
+			"log": "/tmp/nova-test-audit-parallel/doc/form-link-planners.log",
+			"result": "29tests passed"
+		},
+		{
+			"command": "rename projection and forbidden after-submit field refs",
+			"log": "/tmp/nova-test-audit-parallel/doc/rename-projection-final.log",
+			"result": "6tests pass"
+		},
+		{
+			"command": "section planner and verdict admission/replay",
+			"log": "/tmp/nova-test-audit-parallel/doc/sections-after.log",
+			"result": "29 tests pass"
+		},
+		{
+			"command": "automation aggregate and search dependency admission (alongside automation replay fixture failures, fixed separately)",
+			"log": "/tmp/nova-test-audit-parallel/doc/automation-search-admission.log",
+			"result": "these 11 tests pass; automation replay pending separate rerun"
+		},
+		{
+			"command": "case operation review and mutation admission (automation fixture final corrected separately)",
+			"log": "/tmp/nova-test-audit-parallel/doc/automation-operations-after.log",
+			"result": "48 operation tests pass"
+		},
+		{
+			"command": "incremental validation scope and selection admission (automation fixture final corrected separately)",
+			"log": "/tmp/nova-test-audit-parallel/doc/selection-scope-after.log",
+			"result": "15 scope tests pass"
+		},
+		{
+			"command": "cross-scope commit behavior",
+			"log": "/tmp/nova-test-audit-parallel/doc/commit-cross-scope.log",
+			"result": "5pass"
+		},
+		{
+			"command": "automation replay final (selection/workspace defects corrected separately)",
+			"log": "/tmp/nova-test-audit-parallel/doc/selection-automation-final.log",
+			"result": "13 automation tests pass"
+		},
+		{
+			"command": "caseSelectionMutations and caseWorkspaceVerdicts",
+			"log": "/tmp/nova-test-audit-parallel/doc/selection-retirement-final.log",
+			"result": "18 selection and 9 workspace tests pass; retirement corrected in subsequent focused run"
+		},
+		{
+			"command": "caseTypeRetirement final",
+			"log": "/tmp/nova-test-audit-parallel/doc/retirement-final.log",
+			"result": "17pass"
+		},
+		{
+			"command": "multiplayerMerge plus diff/reference-index property suites with async assertion ownership",
+			"log": "/tmp/nova-test-audit-parallel/doc/multiplayer-and-fuzz-final.log",
+			"result": "3files65tests pass"
+		},
+		{
+			"command": "scoped Biome114 owned files plus followup4 and multiplayer",
+			"log": "/tmp/nova-test-audit-parallel/doc/biome-followup.log",
+			"result": "All initial diagnostics corrected; last scoped4 and multiplayer checks pass"
+		},
+		{
+			"command": "ColumnInventory moveAnnouncement preserveIdentity workspaceProjection",
+			"log": "/tmp/nova-test-audit-parallel/doc/workspace-pure-first.log",
+			"result": "4files20tests pass"
+		},
+		{
+			"command": "explicit case workspace seeds",
+			"log": "/tmp/nova-test-audit-parallel/doc/workspace-seeds-registry.log",
+			"result": "16 seed tests pass; registry fixed missing test mutation anchors separately"
+		},
+		{
+			"command": "column registry admitted factory outputs final",
+			"log": "/tmp/nova-test-audit-parallel/doc/workspace-registry-final.log",
+			"result": "16 tests pass"
+		},
+		{
+			"command": "Scoped Search resolution + seeds + column draft regression",
+			"log": "/tmp/nova-test-audit-parallel/doc/column-draft-before.log",
+			"result": "Search and seeds 31 pass; new retained-calculation regression failed before fix. One draft regression passes after fix in column-draft-after.log."
+		},
+		{
+			"command": "Native column card production controls and commit owner",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workspace-third.log",
+			"result": "17 pass; remaining two assertion repairs pass fourth.log; actual media and malformed popover native cases pass browser-workflows-fifth.log"
+		},
+		{
+			"command": "Five scoped tile/cell methods after redesign",
+			"log": "/tmp/nova-test-audit-parallel/doc/tiles-cells-final.log",
+			"result": "5 files 100 tests pass, no async leaks"
+		},
+		{
+			"command": "Config boundary + predicate summary",
+			"log": "/tmp/nova-test-audit-parallel/doc/cell-summary-before.log",
+			"result": "config25 and summary19 pass; cell3 regressions fail before fix (now allpass tiles-cells-final)"
+		},
+		{
+			"command": "Scoped display-swap admitted matrix",
+			"log": "/tmp/nova-test-audit-parallel/doc/column-swap-gate.log",
+			"result": "68 pass"
+		},
+		{
+			"command": "Native case workspace focused browser batches fifth and seventh",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workspace-seventh.log",
+			"result": "Fifth batch 22 native column methods passed; after admitted fixture/default expectation correction seventh targeted cross-column identity and full workspace URL/edit/focus both passed."
+		},
+		{
+			"command": "vitest columnSnapshotBatchMutations.test.ts scoped wrapper",
+			"log": "/tmp/nova-test-audit-parallel/doc/column-birth-after.log",
+			"result": "2 actual gate and JSON replay tests pass; new hidden sort carriers retain independent permutations and peer edits/omitted definitions."
+		},
+		{
+			"command": "Native full case workspace second browser batch",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workspace-surface-second.log",
+			"result": "12 passed,6 failed; selection mode/limit/viewer/fresh review, grouped date identity and 3 matching-count lifecycle methods passed. Remaining failures diagnosed and corrected or pending native rerun; not all baselines reported complete."
+		},
+		{
+			"command": "Native full case workspace third browser batch",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workspace-surface-third.log",
+			"result": "19/21 methods pass, including order birth fix, complete matching-count lifecycle, selection, DOM clone identity, progressive chooser and actual removal cancel focus. Two remaining method fixtures/expectations corrected for optional-answer guard and canonical absent overrides; focused rerun pending."
+		},
+		{
+			"command": "Native fourth focused Search methods",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workspace-surface-fourth.log",
+			"result": "Search screen-copy real draft/refusal/default-clearing method passes; dependency review reaches real peer recomputation then test locator matches retained hidden Activity DOM, corrected to active body for final focused rerun."
+		},
+		{
+			"command": "Playwright case-workspace-surface.spec.ts final focused native Search dependency review",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workspace-surface-fifth.log",
+			"result": "1 passed; all 21 native surface methods now pass across third/fourth/fifth focused batches."
+		},
+		{
+			"command": "Agent/domain scoped media and automation tests after wireRoundTrip schema admission helper change",
+			"log": "/tmp/nova-test-audit-parallel/agent_domain/media-tools-2.log",
+			"result": "7 files, 76 tests pass, exit 0; agent_domain executed."
+		}
+	],
+	"bugs": [
+		{
+			"file": "lib/collab/mutationFrame.ts",
+			"description": "Malformed JSON error retained payload text in native SyntaxError; provider forwards error and stack to client reporting. Replaced with fresh payload-free error, no cause. Direct error inspection fails before and passes after."
+		},
+		{
+			"file": "lib/collab/ReconcilerProvider.tsx",
+			"description": "Native res.json SyntaxError retained response payload through ReconcilerReloadError.originalError and downstream reporter. Removed originalError from only invalid-json branch; direct full reporter regression fails before and passes after."
+		},
+		{
+			"file": "lib/collab/reconciler.ts",
+			"description": "canPut ignored disposal and dispatch could drain store-owned edits into an inert reconciler. Post-disposal watch registration also created a promise no future action could settle. Disposal now gates canPut and late watches resolve cancelled."
+		},
+		{
+			"file": "lib/doc/store.ts",
+			"description": "Nested replay close incorrectly dropped remote flag; nested deferred startTracking lost release request and left author undo paused. Both fail-before regressions now pass."
+		},
+		{
+			"file": "lib/doc/mutationIdentityAdmission.ts",
+			"description": "Batch-wide duplicate-claim tracking rejected successive identity-preserving option/schedule replacements. Duplicate detection is now per payload, with removed-in-batch and ownership checks unchanged."
+		},
+		{
+			"file": "lib/doc/diffDocsToMutations.ts",
+			"description": "New form birth anchored to retained form before evacuation into new module silently orphaned it and internal replay threw. Projected order now tracks actual insertion availability and final relocation/reorder."
+		},
+		{
+			"file": "lib/doc/diffDocsToMutations.ts",
+			"description": "User property, role and persona existing-item reorder silently emitted no diff. With no move dialect, now refuses using same invariant as organization collections. Three failed-before regressions pass."
+		},
+		{
+			"file": "lib/doc/mutations/modules.ts",
+			"description": "Final-input cleanup omitted searchFirst from meaningful action settings and silently disabled authored automatic Search. Delegation to existing domain projector preserves zero-prompt Search and after-submit destination. Admitted regression failed before and passes after."
+		},
+		{
+			"file": "lib/doc/mutations/forms.ts",
+			"description": "addForm/moveForm wrote entities or removed source membership before missing anchor refusal, orphaning live forms during stale replay. Both now preflight destination anchor and self-anchor before writes."
+		},
+		{
+			"file": "lib/doc/mutations/forms.ts",
+			"description": "First case-operation write/link with omitted after calculated index zero and was mistakenly treated as missing explicit anchor. Fixed guard to distinguish omitted/null append/front from a missing named anchor. Fail-before regression passes."
+		},
+		{
+			"file": "lib/doc/mutations/fields.ts",
+			"description": "Stale add/move anchor and add under a leaf caused orphan entities and fieldParent rebuild exceptions. Reducers now reject invalid parent/anchor before structural or catalog writes; three failures reproduced and all23 field mutation tests pass after fix."
+		},
+		{
+			"file": "lib/doc/mutationTargetAdmission.ts",
+			"description": "text to select conversion with missing option source was acknowledged by commit as successful unchanged doc because reducer skipped reconciliation. Target admission now refuses select birth without complete source. Missing-source regression failed before and23conversion tests pass after."
+		},
+		{
+			"file": "lib/doc/formSectionMutations.ts",
+			"bug": "Flattening sectioned form with duplicate root-bound IDs returned ok plan rejected by commit gate. Added root identifier preflight with actionable rename refusal.",
+			"evidence": "section-flatten-before.log fails expected refusal; sections-after.log passes29"
+		},
+		{
+			"file": "components/builder/case-list-config/searchInputResolution.ts",
+			"description": "Admitted multi-hop ancestor, child, any-relation and custom relation Search fields used origin/first-parent metadata; resolveDestinationCaseType now delegates to canonical graph resolver. Fail-before two admitted cases in search-resolution-before.log."
+		},
+		{
+			"file": "components/builder/case-list-config/columnDisplayState.ts",
+			"description": "An open inspector restored a related calculation after a peer enabled Search, offering a now-uncommittable draft. Retained calculations now pass canonical editor type checking and Search expression verdict before reuse. Fail-before and after logs column-draft-before/after."
+		},
+		{
+			"file": "components/builder/case-list-config/predicateSummary.ts",
+			"description": "Admitted nested OR group inside AND summary lost parentheses and implied incorrect precedence. Compound and negated groups retain boundaries. Fail-before predicate-group-admitted-before.log; all19afterpass cell-summary-before.log."
+		},
+		{
+			"file": "components/builder/case-list-config/columnCellRenderer.tsx",
+			"description": "Quick Filter used authored link label for invalid and whitespace-only saved addresses despite cells displaying raw fallback/empty. Projection now shares exact address trimming/scheme decision with rendering. Three admitted failures cell-summary-before.log;25afterpass tiles-cells-final.log."
+		},
+		{
+			"file": "lib/doc/hooks/useCaseWriteChoices.ts",
+			"description": "Terminating a worker during importScripts could forward a late error to window as uncaught. Retired workers detach result handlers but keep consuming terminal error events before termination. Two fail-before regressions worker-retire-before.log;5afterpass worker-retire-after.log. Application rechecks native profiling."
+		},
+		{
+			"file": "lib/doc/caseListColumnMutations.ts",
+			"description": "Actual native Default order chose previously undisplayed information but committed nothing: the column snapshot batch silently dropped newly authored UUIDs. Batch now emits addColumn births with distinct Results/Details predecessor positions while retaining granular existing-row edits and omission-preserves semantics. Native fail-before browser-workspace-surface-second.log; two admitted exact-permutation/peer-replay source regressions pass column-birth-after.log; native after-fix default-order method passes third batch."
+		}
+	],
+	"docsNeeded": [
+		"Testing diagnostics: inspect actual Error message/stack/cause when reporting owns an Error; JSON.stringify drops nonenumerable properties and cannot prove payload absence.",
+		"Reconciler disposal is terminal for command ownership: a late dispatch leaves the store queue intact and a late save watch resolves cancelled.",
+		"Connect and document subscription tests now require admitted baseline documents and actual planner/gate transitions; fieldless/stray cross-mode apps are not reachable fixtures.",
+		"Case workspace summary retains nested logical grouping; Quick Filter follows visible invalid-URL fallback text and ignores blank link values. Builder owns shared nearest CLAUDE addition.",
+		"Case workspace default order may add information not displayed in Results or Details. The new hidden column is born through columnSnapshotBatchMutations in the same gated batch as its sort; both stored display permutations gain the identity while visible rows stay unchanged. Exact nearest CLAUDE addition sent to Builder."
+	],
+	"blockedBy": [],
+	"adjacentRevisited": [
+		{
+			"file": "lib/collab/__tests__/ReconcilerProvider.test.ts",
+			"review": "Added direct malformed mutation and reload JSON reporter privacy regression to previously reviewed runtime suite; full 29-test file passes. Not re-counted as a pending baseline."
+		},
+		{
+			"file": "lib/doc/__tests__/useCaseWriteChoices.test.tsx",
+			"review": "Added ownership regressions for late worker error after in-flight cancellation and warm-worker unmount. Actual browser profiler produced cancelled runtime chunk failure; identical retry chunk succeeded. 5 tests pass worker-retire-after.log."
+		},
+		{
+			"file": "lib/doc/__tests__/wireRoundTrip.ts",
+			"review": "Admitted actual JSON-decoded mutation array through mutationSchema before reducer application; rejects malformed transport-shaped payloads instead of a type cast. Describes only JSON/schema/reducer proof, without claiming commit gate, SSE or reconciler behavior. All field/menu/option media consumers verified by agent_domain."
+		}
+	]
+}

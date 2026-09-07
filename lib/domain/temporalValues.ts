@@ -246,25 +246,34 @@ function formatZoneOffset(offsetMinutes: number): string {
  * the instant that wall clock denotes, not the offset in force today, so a
  * summer date entered in winter still gets its own side of DST.
  *
- * Resolved in two passes because the two facts are mutually dependent: the
- * offset depends on the instant, and the instant depends on the offset. The
- * first pass reads the offset as if the wall clock were UTC, the second
- * re-reads it at the instant that first offset implies.
+ * Resolve candidate instants using the offsets before and after the local
+ * date. A repeated clock can match both offsets: choose its earlier instant.
+ * A skipped clock matches neither: use the pre-transition offset, which moves
+ * its interpreted instant forward by the gap. This is compatible
+ * disambiguation, matching native Date and Temporal's default policy.
  *
- * That settles every wall clock except the hour a year a DST jump makes
- * nonexistent or ambiguous, where any implementation has to choose. This
- * one chooses the same readings `Temporal`'s default `compatible`
- * disambiguation does — pinned in the tests, so the day Temporal is
- * Baseline (Safari is the holdout; adopting it now would mean a polyfill in
- * a leaf module every client bundle imports) it can replace this function
- * as a proven no-op.
+ * The return value stamps the unchanged authored wall text, so a skipped
+ * 02:30 in New York uses -05:00 (07:30Z), not the -04:00 offset of the
+ * normalized 03:30 wall clock. Comparing offsets alone loses that distinction.
  */
 export function zoneDesignatorForWallTime(wall: string, zone: string): string {
 	const asIfUtc = Date.parse(`${wall}Z`);
 	if (Number.isNaN(asIfUtc)) return "Z";
-	const firstPass = zoneOffsetMinutesAt(zone, asIfUtc);
+	const dayMs = 86_400_000;
+	const offsets = [
+		...new Set([
+			zoneOffsetMinutesAt(zone, asIfUtc - dayMs),
+			zoneOffsetMinutesAt(zone, asIfUtc),
+			zoneOffsetMinutesAt(zone, asIfUtc + dayMs),
+		]),
+	];
+	const matching = offsets.filter(
+		(offset) => zoneOffsetMinutesAt(zone, asIfUtc - offset * 60_000) === offset,
+	);
+	// Larger offset subtracts to the earlier instant in a repeated clock;
+	// smaller offset advances a nonexistent clock across a forward gap.
 	return formatZoneOffset(
-		zoneOffsetMinutesAt(zone, asIfUtc - firstPass * 60_000),
+		matching.length > 0 ? Math.max(...matching) : Math.min(...offsets),
 	);
 }
 

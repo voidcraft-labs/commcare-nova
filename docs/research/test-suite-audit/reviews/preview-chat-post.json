@@ -1,0 +1,55 @@
+{
+	"owner": "preview",
+	"scope": "transferred native chat POST pair",
+	"files": [
+		{
+			"file": "app/api/chat/__tests__/clientCancel.postgres.test.ts",
+			"status": "revised",
+			"review": "Read the complete original 22-case POST file and actual route/SA/finalization owners. Replaced the hand-built ChunkFeed/fake StreamTextResult, manually generated usage and pause observer callbacks with the installed AI SDK and actual Solutions Architect speaking Responses HTTP to an owned loopback provider peer. Tool validation/execution, step barriers, streaming protocol projection, usage accounting and pause observer semantics now execute production code. Replaced simulated auth membership, case-schema and canonical genesis boundaries with the migrated shared Postgres harness, real Project members and the production canonical birth writer. Auth revocation deletes actual membership before calling the real snapshot resolver; wait admission observes a real other-member claim before releasing it. Build mode admission now actually claims/resumes/pauses and proves matching durable holder, 100-credit reservation and ledger rather than throwing at a mocked call-argument checkpoint. Pause loss uses real replacement/reaper transitions. The disconnect test cancels/releases the actual response reader, proves the producer stays active, then requires completed terminal outcome, 10/5 SDK usage and the kept edit charge. Large-input coverage sends 12051 JSON input characters in 756 provider deltas across three actual mutations, requires both live and logged streams to exclude partial inputs, fewer than 80 logged chunks, sequence 4 after canonical birth and all three mutations, and the final full transcript. EOF joins the producer rather than an arbitrary eight-second poll estimate. Persistence fault injection remains explicitly at snapshot/write boundaries; no actual process-kill claim survives. A real clean-release failure retains its answer and stranded charge until the exact-holder reaper refunds it; the old zero-usage fake incorrectly asserted immediate refund. All response bodies and provider transports are owned through finally, with body failures propagated and terminal logs joined.",
+			"reviewedSha256": "f5911899eb3ff970eb5a8178c54a47822fc6bf5deb6949ae7b8d26ed9eac8672"
+		},
+		{
+			"file": "app/api/chat/__tests__/designBuild.postgres.test.ts",
+			"status": "revised",
+			"review": "Read the complete original five-case file and actual design/materialization/finalization owners. Retained a typed build-orchestrator outcome boundary to isolate POST orchestration-result handling, while removing fake Project membership and runtime schema behavior. Native migrated Better Auth membership and actual session creation, credit reservation, pause writer, durable stream and thread writes remain active. The former direct SQL materialization facsimile is replaced by persisted accepted design/build-plan artifacts, a real slice attempt/private change set, canonical candidate admission and the production genesis materialization transfer. Completion now checks the complete receipt against canonical readback and immutable sequence-one scope, and recovers the receipt through the production committed-slice/fold reader before checking finishing order and retained charge. Added post-materialization orchestration failure coverage proving the app survives as error, the transferred reservation refunds once, no data-done appears and the session-targeted thread retires. The private-session case now creates the other member and its session through actual native writers. Both pre-app pause outcomes use the actual session pause writer and assert awaiting_input. Bodies are consumed/joined in finally. Scope is the POST outcome contract with controlled accepted design/candidate content, not proof that the full semantic design/build orchestration ran.",
+			"reviewedSha256": "66733d896164b929c2dd877bc84ba3a65b2eb27267cf15100962bb08c3e8a261"
+		}
+	],
+	"changedPaths": [
+		"app/api/chat/__tests__/clientCancel.postgres.test.ts",
+		"app/api/chat/__tests__/designBuild.postgres.test.ts",
+		"app/api/chat/__tests__/chatResponsesPeer.ts",
+		"app/api/chat/__tests__/materializeDesignFixture.ts"
+	],
+	"checks": [
+		{
+			"command": "wrapper heavy: vitest run both POST files --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/preview/post-final.log",
+			"result": "28/28 passed; 21 PROMISE-only diagnostic reports, no timer/socket resources. Before the final native membership/competing-holder and pre-app pause fixture refinements below."
+		},
+		{
+			"command": "wrapper heavy: clientCancel.postgres.test.ts -t serialize-with-wait authorized snapshot admission|a bailed POST --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/preview/post-native-access-final.log",
+			"result": "Final affected native membership/real competing-holder cases: 4/4 passed; 8 PROMISE-only diagnostic reports."
+		},
+		{
+			"command": "wrapper heavy: designBuild.postgres.test.ts -t hides an unmaterialized|pauses holding --project postgres --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/preview/post-native-pause-final.log",
+			"result": "Final affected actual session-pause cases: 2/2 passed; 8 PROMISE-only diagnostic reports."
+		},
+		{
+			"command": "mise exec -- npx biome check --write four owned POST paths",
+			"log": "/tmp/nova-test-audit-parallel/preview/post-biome-verified.log",
+			"result": "4 files checked; clean after formatting."
+		}
+	],
+	"bugs": [],
+	"docsNeeded": [],
+	"blockedBy": [],
+	"limits": [
+		"Signed-in request identity and provider destination are controlled; no paid or external model calls. Design-route tests use a typed orchestrator outcome boundary and controlled accepted design/canonical starter content; parent native orchestration tests own full semantic design execution.",
+		"PROMISE diagnostics are preserved, not suppressed. Reports include the explicitly inert Bluebird native-Promise probe and native/SDK WebStream creation/reaction paths after awaited body/terminal completion. The Application/agent-domain audit independently characterized native SDK stream sentinel reports. No zero-leak claim is made; no timers/sockets were reported in final checks.",
+		"The 12000 one-character incident reconstruction was too expensive under per-event async diagnostics. Final proof preserves 12051 input characters with 756 realistic provider deltas, over eleven times the 64-chunk durable flush threshold, and waits actual producer EOF."
+	],
+	"productionEdits": []
+}

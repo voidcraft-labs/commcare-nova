@@ -8,9 +8,9 @@
  * on load.
  */
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
+import { caseListConfig, xp } from "@/lib/__tests__/docHelpers";
 import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
@@ -26,6 +26,23 @@ import { proseText } from "@/lib/domain/prose";
 import { DEFAULT_RUNTIME_STATE, EngineController } from "../engineController";
 import { FormEngine } from "../formEngine";
 import { previewAsMe, type ResolvedPreviewIdentity } from "../identity";
+import {
+	admittedControllerDoc,
+	applyControllerEdit,
+} from "./fixtures/controllerDoc";
+
+const controllers = new Set<EngineController>();
+function ownedController() {
+	const ctrl = new EngineController();
+	controllers.add(ctrl);
+	return ctrl;
+}
+afterEach(async () => {
+	for (const ctrl of controllers) ctrl.dispose();
+	await Promise.all([...controllers].map((ctrl) => ctrl.awaitSettled()));
+	controllers.clear();
+	vi.restoreAllMocks();
+});
 
 // ── Fixtures ───────────────────────────────────────────────────────────
 
@@ -84,6 +101,11 @@ function makeDoc(
 /** Create a doc store loaded with the given doc. Undo tracking is resumed
  *  so mutations create live state changes. */
 function createLoadedStore(doc: PersistableDoc = makeDoc()) {
+	return loadRuntimeFixture(admittedControllerDoc(doc));
+}
+
+/** Fault containment deliberately bypasses the document gate. */
+function loadRuntimeFixture(doc: PersistableDoc) {
 	const store = createBlueprintDocStore();
 	store.getState().load(doc);
 	store.getState().startTracking();
@@ -95,7 +117,7 @@ function createLoadedStore(doc: PersistableDoc = makeDoc()) {
 describe("EngineController", () => {
 	describe("activateForm", () => {
 		it("waits for a required case database and resumes the requested form", () => {
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(createLoadedStore());
 			ctrl.setCaseDatabaseState({ required: true, status: "loading" });
 
@@ -151,10 +173,7 @@ describe("EngineController", () => {
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [],
-					listColumnOrder: [],
-					detailColumnOrder: [],
-					searchInputs: [],
+					...caseListConfig([{ field: "case_name", header: "Name" }]),
 					selection: { kind: "multiple", maximum: 1 },
 				},
 			};
@@ -163,7 +182,7 @@ describe("EngineController", () => {
 				type: "followup",
 			};
 
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(createLoadedStore(doc));
 			ctrl.activateForm(
 				FORM_UUID,
@@ -176,7 +195,7 @@ describe("EngineController", () => {
 		});
 
 		it("contains an impossible runtime activation fault and can open a valid form afterward", () => {
-			const invalidStore = createLoadedStore(
+			const invalidStore = loadRuntimeFixture(
 				makeDoc(
 					{
 						[Q1_UUID]: {
@@ -190,7 +209,7 @@ describe("EngineController", () => {
 					{ [FORM_UUID]: [Q1_UUID] },
 				),
 			);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			const report = vi.fn();
 			ctrl.setFaultReporter(report);
 			ctrl.setDocStore(invalidStore);
@@ -212,7 +231,7 @@ describe("EngineController", () => {
 		});
 
 		it("retires the active engine when live evaluation violates an invariant", () => {
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			const report = vi.fn();
 			ctrl.setFaultReporter(report);
 			ctrl.setDocStore(createLoadedStore());
@@ -238,12 +257,12 @@ describe("EngineController", () => {
 		});
 
 		it("keeps a failing telemetry seam inside the containment boundary", () => {
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setFaultReporter(() => {
 				throw new Error("telemetry unavailable");
 			});
 			ctrl.setDocStore(
-				createLoadedStore(
+				loadRuntimeFixture(
 					makeDoc(
 						{
 							[Q1_UUID]: {
@@ -268,7 +287,7 @@ describe("EngineController", () => {
 
 		it("initializes runtime state for every field in the form", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 
 			ctrl.activateForm(FORM_UUID);
@@ -283,7 +302,7 @@ describe("EngineController", () => {
 
 		it("preserves one entry key across cold rebuilds and rotates it only for a new entry", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			const entryKey = ctrl.entryKey;
@@ -335,7 +354,7 @@ describe("EngineController", () => {
 			);
 			expect(unit).toBeDefined();
 			if (unit === undefined) return;
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "addLanguage",
 					language: { language: "spa" },
@@ -354,7 +373,7 @@ describe("EngineController", () => {
 				},
 			]);
 
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.setValueAt("/data/name", "Amina");
@@ -366,7 +385,7 @@ describe("EngineController", () => {
 			expect(ctrl.store.getState()[Q1_UUID].value).toBe("Amina");
 			expect(ctrl.store.getState()[Q2_UUID].resolvedLabel).toBe("Hola Amina");
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "setTranslation",
 					language: "spa",
@@ -408,7 +427,7 @@ describe("EngineController", () => {
 
 		it("starts a fresh entry immediately without changing the active form", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.setValueAt("/data/name", "Old answer");
@@ -428,6 +447,12 @@ describe("EngineController", () => {
 			const store = createLoadedStore(
 				makeDoc(
 					{
+						[Q1_UUID]: {
+							uuid: Q1_UUID,
+							id: "notes",
+							kind: "text",
+							label: proseText("Notes"),
+						},
 						[captureUuid]: {
 							uuid: captureUuid,
 							id: "signature",
@@ -436,16 +461,16 @@ describe("EngineController", () => {
 							relevant: xp("false()"),
 						},
 					},
-					{ [FORM_UUID]: [captureUuid] },
+					{ [FORM_UUID]: [Q1_UUID, captureUuid] },
 				),
 			);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
 			expect(ctrl.attachmentPathDisposition("/data/signature")).toBe("dormant");
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "updateField",
 					uuid: captureUuid,
@@ -459,7 +484,7 @@ describe("EngineController", () => {
 				),
 			);
 
-			store.getState().applyMany([{ kind: "removeField", uuid: captureUuid }]);
+			applyControllerEdit(store, [{ kind: "removeField", uuid: captureUuid }]);
 			await vi.waitFor(() =>
 				expect(ctrl.attachmentPathDisposition("/data/signature")).toBe(
 					"removed",
@@ -493,7 +518,7 @@ describe("EngineController", () => {
 					},
 				),
 			);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
@@ -535,7 +560,7 @@ describe("EngineController", () => {
 					},
 				),
 			);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
@@ -554,7 +579,7 @@ describe("EngineController", () => {
 
 		it("returns early for an unknown form uuid", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 
 			ctrl.activateForm(testUuid("does-not-exist"));
@@ -577,21 +602,21 @@ describe("EngineController", () => {
 		});
 
 		it("returns early when no doc store is installed", () => {
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.activateForm(FORM_UUID);
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(0);
 		});
 	});
 
 	describe("per-field subscription", () => {
-		it("fires on field relevant update via doc mutation", async () => {
+		it("fires on field relevant update via doc mutation", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
 			/* Mutate the field's relevant expression to hide it */
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "updateField",
 					uuid: Q1_UUID,
@@ -599,10 +624,6 @@ describe("EngineController", () => {
 					patch: { relevant: xp("false()") },
 				},
 			]);
-
-			/* Zustand's subscribeWithSelector fires synchronously on the
-			 * next microtask — flush with a short wait. */
-			await new Promise((r) => setTimeout(r, 10));
 
 			const state = ctrl.store.getState()[Q1_UUID];
 			expect(state).toBeDefined();
@@ -612,9 +633,9 @@ describe("EngineController", () => {
 	});
 
 	describe("structural subscription", () => {
-		it("detects field addition via doc mutation", async () => {
+		it("detects field addition via doc mutation", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -622,7 +643,7 @@ describe("EngineController", () => {
 			expect(Object.keys(ctrl.store.getState())).toHaveLength(2);
 
 			const newUuid = testUuid("bbbbbbbb-0003-0003-0003-000000000003");
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "addField",
 					parentUuid: FORM_UUID,
@@ -635,29 +656,25 @@ describe("EngineController", () => {
 				},
 			]);
 
-			await new Promise((r) => setTimeout(r, 10));
-
 			/* The new field should appear in the runtime store */
 			const runtime = ctrl.store.getState();
 			expect(runtime[newUuid]).toBeDefined();
 			expect(runtime[newUuid].visible).toBe(true);
 		});
 
-		it("detects field removal via doc mutation", async () => {
+		it("detects field removal via doc mutation", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
 			/* Remove the first field */
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "removeField",
 					uuid: Q1_UUID,
 				},
 			]);
-
-			await new Promise((r) => setTimeout(r, 10));
 
 			/* The removed field should revert to the frozen default state */
 			const runtime = ctrl.store.getState();
@@ -666,9 +683,9 @@ describe("EngineController", () => {
 	});
 
 	describe("kind change (remote retype)", () => {
-		it("re-initializes the value on a same-id retype — no stale value resurfaces", async () => {
+		it("re-initializes the value on a same-id retype — no stale value resurfaces", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -678,18 +695,16 @@ describe("EngineController", () => {
 
 			/* A remote `convertField` retypes the field (uuid + id preserved).
 			 * The stale text value is meaningless under the new kind. */
-			store
-				.getState()
-				.applyMany([{ kind: "convertField", uuid: Q1_UUID, toKind: "secret" }]);
-
-			await new Promise((r) => setTimeout(r, 10));
+			applyControllerEdit(store, [
+				{ kind: "convertField", uuid: Q1_UUID, toKind: "secret" },
+			]);
 
 			/* The value is dropped and the field re-seeds empty — a same-id
 			 * retype must not leave the old answer in place. */
 			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
 		});
 
-		it("re-applies the new field's default value on retype", async () => {
+		it("reseeds the repeat count when a group converts to a repeat", () => {
 			const groupUuid = testUuid("dddddddd-0001-0001-0001-000000000001");
 			const doc = makeDoc(
 				{
@@ -703,26 +718,22 @@ describe("EngineController", () => {
 				{ [FORM_UUID]: [groupUuid], [groupUuid]: [] },
 			);
 			const store = createLoadedStore(doc);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
 			/* group → repeat is a valid convert target; the retype must not throw
 			 * and the container's state re-inits at the new kind. */
-			store
-				.getState()
-				.applyMany([
-					{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
-				]);
-
-			await new Promise((r) => setTimeout(r, 10));
+			applyControllerEdit(store, [
+				{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
+			]);
 
 			/* A repeat carries a `repeatCount` — its presence proves the field
 			 * was re-seeded under the new kind rather than left as a group. */
 			expect(ctrl.store.getState()[groupUuid].repeatCount).toBe(1);
 		});
 
-		it("preserves answered child values across a group→repeat conversion (re-path, not drop)", async () => {
+		it("preserves answered child values across a group→repeat conversion (re-path, not drop)", () => {
 			const groupUuid = testUuid("dddddddd-0002-0002-0002-000000000001");
 			const childAUuid = testUuid("dddddddd-0002-0002-0002-000000000002");
 			const childBUuid = testUuid("dddddddd-0002-0002-0002-000000000003");
@@ -753,7 +764,7 @@ describe("EngineController", () => {
 				},
 			);
 			const store = createLoadedStore(doc);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -765,12 +776,9 @@ describe("EngineController", () => {
 
 			/* A peer converts the group to a repeat — the child paths gain the
 			 * `[0]` template segment. The in-progress answers must survive. */
-			store
-				.getState()
-				.applyMany([
-					{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
-				]);
-			await new Promise((r) => setTimeout(r, 10));
+			applyControllerEdit(store, [
+				{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
+			]);
 
 			/* Children re-pathed to the reindexed repeat template, values intact. */
 			expect(ctrl.getPath(childAUuid)).toBe("/data/container[0]/child_a");
@@ -778,7 +786,7 @@ describe("EngineController", () => {
 			expect(ctrl.store.getState()[childBUuid].value).toBe("answer B");
 		});
 
-		it("preserves answered child values across a repeat→group conversion", async () => {
+		it("preserves answered child values across a repeat→group conversion", () => {
 			const repeatUuid = testUuid("dddddddd-0003-0003-0003-000000000001");
 			const childUuid = testUuid("dddddddd-0003-0003-0003-000000000002");
 			const doc = makeDoc(
@@ -803,7 +811,7 @@ describe("EngineController", () => {
 				},
 			);
 			const store = createLoadedStore(doc);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -812,18 +820,15 @@ describe("EngineController", () => {
 			expect(ctrl.getPath(childUuid)).toBe("/data/container[0]/child");
 
 			/* Convert the repeat back to a group — the `[0]` segment drops. */
-			store
-				.getState()
-				.applyMany([
-					{ kind: "convertField", uuid: repeatUuid, toKind: "group" },
-				]);
-			await new Promise((r) => setTimeout(r, 10));
+			applyControllerEdit(store, [
+				{ kind: "convertField", uuid: repeatUuid, toKind: "group" },
+			]);
 
 			expect(ctrl.getPath(childUuid)).toBe("/data/container/child");
 			expect(ctrl.store.getState()[childUuid].value).toBe("answer");
 		});
 
-		it("a converted group→repeat's child value reaches computeSubmissionMutation at the reindexed path", async () => {
+		it("a converted group→repeat's child value reaches computeSubmissionMutation at the reindexed path", () => {
 			/* A registration form whose primary case type is `patient`. The group
 			 * holds an admitted direct-child bucket; after group→repeat its values
 			 * must survive the re-path so submission materializes that same bucket
@@ -859,6 +864,9 @@ describe("EngineController", () => {
 						id: "patients",
 						name: "Patients",
 						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
 					},
 				},
 				forms: {
@@ -908,23 +916,33 @@ describe("EngineController", () => {
 					[groupUuid]: [childNameUuid, noteUuid],
 				},
 			};
+			const childModuleUuid = testUuid("note_entry-list");
+			doc.modules[childModuleUuid] = {
+				uuid: childModuleUuid,
+				id: "note_entry_list",
+				name: "Child cases",
+				caseListOnly: true,
+				caseType: "note_entry",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+			};
+			doc.moduleOrder.push(childModuleUuid);
+			doc.formOrder[childModuleUuid] = [];
 			const store = createBlueprintDocStore();
-			store.getState().load(doc);
+			store.getState().load(admittedControllerDoc(doc));
 			store.getState().startTracking();
 
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(formUuid);
 
 			ctrl.onValueChange(nameUuid, "Alice");
 			ctrl.onValueChange(noteUuid, "in-progress note");
 
-			store
-				.getState()
-				.applyMany([
-					{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
-				]);
-			await new Promise((r) => setTimeout(r, 10));
+			applyControllerEdit(store, [
+				{ kind: "convertField", uuid: groupUuid, toKind: "repeat" },
+			]);
 
 			/* The child value survived the re-path and lands in the canonical
 			 * direct-child bucket for this concrete repeat instance. */
@@ -944,22 +962,21 @@ describe("EngineController", () => {
 	});
 
 	describe("field removal drops the value", () => {
-		it("clears the value on remote delete, and a re-add seeds empty", async () => {
+		it("clears the value on remote delete, and a re-add seeds empty", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
 			/* Someone typed an answer, then the field is removed remotely. */
 			ctrl.onValueChange(Q1_UUID, "answer before delete");
-			store.getState().applyMany([{ kind: "removeField", uuid: Q1_UUID }]);
-			await new Promise((r) => setTimeout(r, 10));
+			applyControllerEdit(store, [{ kind: "removeField", uuid: Q1_UUID }]);
 			expect(ctrl.store.getState()[Q1_UUID]).toBe(DEFAULT_RUNTIME_STATE);
 
 			/* Re-adding a field at the SAME id/path must start empty — the delete
 			 * dropped the DataInstance value, so `addFieldState` seeds `""`
 			 * rather than resurrecting the pre-delete answer. */
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "addField",
 					parentUuid: FORM_UUID,
@@ -971,7 +988,6 @@ describe("EngineController", () => {
 					},
 				},
 			]);
-			await new Promise((r) => setTimeout(r, 10));
 			expect(ctrl.store.getState()[Q1_UUID].value).toBe("");
 		});
 	});
@@ -979,7 +995,7 @@ describe("EngineController", () => {
 	describe("deactivate", () => {
 		it("clears runtime store and subscriptions", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -996,7 +1012,7 @@ describe("EngineController", () => {
 	describe("public actions", () => {
 		it("onValueChange updates runtime state for a field", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -1006,7 +1022,7 @@ describe("EngineController", () => {
 
 		it("getPath returns the XForm path for a UUID", () => {
 			const store = createLoadedStore();
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -1067,7 +1083,7 @@ describe("EngineController", () => {
 
 		it("activation writes path-keyed entries for repeat children", () => {
 			const store = createLoadedStore(repeatDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -1080,7 +1096,7 @@ describe("EngineController", () => {
 
 		it("setValueAt keeps instances independent in the runtime store", () => {
 			const store = createLoadedStore(repeatDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -1097,7 +1113,7 @@ describe("EngineController", () => {
 
 		it("addRepeat syncs the new instance's states; removeRepeat unplugs them", () => {
 			const store = createLoadedStore(repeatDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -1118,7 +1134,7 @@ describe("EngineController", () => {
 
 		it("publishes positional repeat compaction from the controller owner", () => {
 			const store = createLoadedStore(repeatDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
@@ -1151,9 +1167,9 @@ describe("EngineController", () => {
 			]);
 		});
 
-		it("publishes capture field and ancestor renames by stable field UUID", async () => {
+		it("publishes capture field and ancestor renames by stable field UUID", () => {
 			const store = createLoadedStore(captureContainerDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			const events: Parameters<
@@ -1161,7 +1177,7 @@ describe("EngineController", () => {
 			>[0][] = [];
 			ctrl.subscribeAuthoredCapturePathMigration((event) => events.push(event));
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "updateField",
 					uuid: nameUuid,
@@ -1169,7 +1185,7 @@ describe("EngineController", () => {
 					patch: { id: "evidence" },
 				},
 			]);
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "updateField",
 					uuid: repeatUuid,
@@ -1177,7 +1193,6 @@ describe("EngineController", () => {
 					patch: { id: "encounters" },
 				},
 			]);
-			await new Promise((resolve) => setTimeout(resolve, 10));
 
 			expect(events.map((event) => event.moves)).toEqual([
 				[
@@ -1217,7 +1232,7 @@ describe("EngineController", () => {
 
 		it("publishes field deletion only through the explicit deleted variant", () => {
 			const store = createLoadedStore(captureContainerDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			const events: Parameters<
@@ -1225,7 +1240,7 @@ describe("EngineController", () => {
 			>[0][] = [];
 			ctrl.subscribeAuthoredCapturePathMigration((event) => events.push(event));
 
-			store.getState().applyMany([{ kind: "removeField", uuid: nameUuid }]);
+			applyControllerEdit(store, [{ kind: "removeField", uuid: nameUuid }]);
 
 			expect(events).toEqual([
 				{
@@ -1267,7 +1282,7 @@ describe("EngineController", () => {
 					{ [FORM_UUID]: [firstUuid, secondUuid] },
 				),
 			);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.setValueAt("/data/photo", "photo.png");
@@ -1277,7 +1292,7 @@ describe("EngineController", () => {
 			>[0][] = [];
 			ctrl.subscribeAuthoredCapturePathMigration((event) => events.push(event));
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "updateField",
 					uuid: firstUuid,
@@ -1367,7 +1382,7 @@ describe("EngineController", () => {
 					},
 				),
 			);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatParentUuid);
@@ -1379,7 +1394,7 @@ describe("EngineController", () => {
 				moves.push(...event.moves);
 			});
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "moveField",
 					uuid: captureUuid,
@@ -1390,7 +1405,7 @@ describe("EngineController", () => {
 			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/photo");
 			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "moveField",
 					uuid: captureUuid,
@@ -1466,7 +1481,7 @@ describe("EngineController", () => {
 					},
 				),
 			);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatParentUuid);
@@ -1478,7 +1493,7 @@ describe("EngineController", () => {
 				moves.push(...event.moves);
 			});
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "moveField",
 					uuid: ancestorUuid,
@@ -1489,7 +1504,7 @@ describe("EngineController", () => {
 			expect(ctrl.getPath(captureUuid)).toBe("/data/rounds[0]/visit/photo");
 			expect(ctrl.store.getState()[captureUuid].value).toBe("photo.png");
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "moveField",
 					uuid: ancestorUuid,
@@ -1531,9 +1546,9 @@ describe("EngineController", () => {
 			]);
 		});
 
-		it("publishes capture descendant moves for group↔repeat conversion", async () => {
+		it("publishes capture descendant moves for group↔repeat conversion", () => {
 			const store = createLoadedStore(captureContainerDoc("group"));
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			const moves: Parameters<
@@ -1543,17 +1558,12 @@ describe("EngineController", () => {
 				moves.push(...event.moves);
 			});
 
-			store
-				.getState()
-				.applyMany([
-					{ kind: "convertField", uuid: repeatUuid, toKind: "repeat" },
-				]);
-			store
-				.getState()
-				.applyMany([
-					{ kind: "convertField", uuid: repeatUuid, toKind: "group" },
-				]);
-			await new Promise((resolve) => setTimeout(resolve, 10));
+			applyControllerEdit(store, [
+				{ kind: "convertField", uuid: repeatUuid, toKind: "repeat" },
+			]);
+			applyControllerEdit(store, [
+				{ kind: "convertField", uuid: repeatUuid, toKind: "group" },
+			]);
 
 			expect(moves).toEqual([
 				expect.objectContaining({
@@ -1581,9 +1591,9 @@ describe("EngineController", () => {
 			]);
 		});
 
-		it("publishes incompatible capture-kind conversions at the stable path", async () => {
+		it("publishes incompatible capture-kind conversions at the stable path", () => {
 			const store = createLoadedStore(captureContainerDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			const moves: Parameters<
@@ -1593,10 +1603,9 @@ describe("EngineController", () => {
 				moves.push(...event.moves);
 			});
 
-			store
-				.getState()
-				.applyMany([{ kind: "convertField", uuid: nameUuid, toKind: "audio" }]);
-			await new Promise((resolve) => setTimeout(resolve, 10));
+			applyControllerEdit(store, [
+				{ kind: "convertField", uuid: nameUuid, toKind: "audio" },
+			]);
 
 			expect(moves).toEqual([
 				{
@@ -1616,15 +1625,15 @@ describe("EngineController", () => {
 			]);
 		});
 
-		it("a field added inside a repeat reaches every live instance", async () => {
+		it("a field added inside a repeat reaches every live instance", () => {
 			const store = createLoadedStore(repeatDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
 
 			const doseUuid = testUuid("eeeeeeee-0002-0002-0002-000000000001");
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "addField",
 					parentUuid: repeatUuid,
@@ -1636,23 +1645,22 @@ describe("EngineController", () => {
 					},
 				},
 			]);
-			await new Promise((r) => setTimeout(r, 10));
 
 			expect(ctrl.store.getState()["/data/orders[1]/dose"]).toBeDefined();
 			ctrl.setValueAt("/data/orders[1]/dose", "5mg");
 			expect(ctrl.store.getState()["/data/orders[1]/dose"].value).toBe("5mg");
 		});
 
-		it("renaming a repeat-child field carries every instance's value", async () => {
+		it("renaming a repeat-child field carries every instance's value", () => {
 			const store = createLoadedStore(repeatDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
 			ctrl.setValueAt("/data/orders[0]/name", "Hydrangea");
 			ctrl.setValueAt("/data/orders[1]/name", "Aspirin");
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "updateField",
 					uuid: nameUuid,
@@ -1660,7 +1668,6 @@ describe("EngineController", () => {
 					patch: { id: "medication" },
 				},
 			]);
-			await new Promise((r) => setTimeout(r, 10));
 
 			const runtime = ctrl.store.getState();
 			expect(runtime["/data/orders[0]/medication"].value).toBe("Hydrangea");
@@ -1668,15 +1675,15 @@ describe("EngineController", () => {
 			expect(runtime["/data/orders[1]/name"].path).toBe("");
 		});
 
-		it("renaming the repeat container keeps its instances and values", async () => {
+		it("renaming the repeat container keeps its instances and values", () => {
 			const store = createLoadedStore(repeatDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
 			ctrl.setValueAt("/data/orders[1]/name", "Aspirin");
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "updateField",
 					uuid: repeatUuid,
@@ -1684,38 +1691,34 @@ describe("EngineController", () => {
 					patch: { id: "meds" },
 				},
 			]);
-			await new Promise((r) => setTimeout(r, 10));
 
 			expect(ctrl.getRepeatCount(repeatUuid)).toBe(2);
 			expect(ctrl.store.getState()["/data/meds[1]/name"].value).toBe("Aspirin");
 		});
 
-		it("a retype clears every instance's stale value", async () => {
+		it("a retype clears every instance's stale value", () => {
 			const store = createLoadedStore(repeatDoc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
 			ctrl.setValueAt("/data/orders[1]/name", "abc");
 
-			store
-				.getState()
-				.applyMany([
-					{ kind: "convertField", uuid: nameUuid, toKind: "secret" },
-				]);
-			await new Promise((r) => setTimeout(r, 10));
+			applyControllerEdit(store, [
+				{ kind: "convertField", uuid: nameUuid, toKind: "secret" },
+			]);
 
 			expect(ctrl.store.getState()["/data/orders[1]/name"].value).toBe("");
 		});
 
-		it("removing a repeat-child field leaves no phantom state blocking submit", async () => {
+		it("removing a repeat-child field leaves no phantom state blocking submit", () => {
 			const doc = repeatDoc();
 			doc.fields[nameUuid] = {
 				...doc.fields[nameUuid],
 				required: xp("true()"),
 			} as Field;
 			const store = createLoadedStore(doc);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
@@ -1723,14 +1726,13 @@ describe("EngineController", () => {
 			// Both instances empty + required — submit blocked.
 			expect(ctrl.validateAll()).toBe(false);
 
-			store.getState().applyMany([{ kind: "removeField", uuid: nameUuid }]);
-			await new Promise((r) => setTimeout(r, 10));
+			applyControllerEdit(store, [{ kind: "removeField", uuid: nameUuid }]);
 
 			// The field is gone from every instance — nothing left to fail.
 			expect(ctrl.validateAll()).toBe(true);
 		});
 
-		it("an expression edit recomputes every live instance", async () => {
+		it("an expression edit recomputes every live instance", () => {
 			const tagUuid = testUuid("eeeeeeee-0003-0003-0003-000000000001");
 			const doc = repeatDoc();
 			doc.fields[tagUuid] = {
@@ -1741,13 +1743,13 @@ describe("EngineController", () => {
 			} as Field;
 			doc.fieldOrder[repeatUuid] = [nameUuid, tagUuid];
 			const store = createLoadedStore(doc);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 			ctrl.addRepeat(repeatUuid);
 			expect(ctrl.store.getState()["/data/orders[1]/tag"].value).toBe("A");
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "updateField",
 					uuid: tagUuid,
@@ -1755,7 +1757,6 @@ describe("EngineController", () => {
 					patch: { calculate: xp("'B'") },
 				},
 			]);
-			await new Promise((r) => setTimeout(r, 10));
 
 			expect(ctrl.store.getState()["/data/orders[0]/tag"].value).toBe("B");
 			expect(ctrl.store.getState()["/data/orders[1]/tag"].value).toBe("B");
@@ -1792,6 +1793,9 @@ describe("EngineController", () => {
 			doc.modules[MODULE_UUID] = {
 				...doc.modules[MODULE_UUID],
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 			};
 			doc.caseTypes = [
 				patientCaseType,
@@ -1807,8 +1811,21 @@ describe("EngineController", () => {
 					],
 				},
 			];
+			const childModuleUuid = testUuid("medication_order-list");
+			doc.modules[childModuleUuid] = {
+				uuid: childModuleUuid,
+				id: "medication_order_list",
+				name: "Child cases",
+				caseListOnly: true,
+				caseType: "medication_order",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+			};
+			doc.moduleOrder.push(childModuleUuid);
+			doc.formOrder[childModuleUuid] = [];
 			const store = createLoadedStore(doc);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(FORM_UUID);
 
@@ -1837,7 +1854,7 @@ describe("EngineController", () => {
 		};
 
 		it("throws when no engine is active", () => {
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			expect(() => ctrl.computeSubmissionMutation({})).toThrow(
 				/controller has no active engine/,
 			);
@@ -1860,6 +1877,9 @@ describe("EngineController", () => {
 						id: "patients",
 						name: "Patients",
 						caseType: "patient",
+						caseListConfig: caseListConfig([
+							{ field: "case_name", header: "Name" },
+						]),
 					},
 				},
 				forms: {
@@ -1891,10 +1911,10 @@ describe("EngineController", () => {
 				fieldOrder: { [formUuid]: [nameUuid, ageUuid] },
 			};
 			const store = createBlueprintDocStore();
-			store.getState().load(doc);
+			store.getState().load(admittedControllerDoc(doc));
 			store.getState().startTracking();
 
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.activateForm(formUuid);
 
@@ -1962,7 +1982,7 @@ describe("EngineController", () => {
 
 		it("an identity installed before activation resolves #user reads", () => {
 			const store = createLoadedStore(docWithUserCalc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.setPreviewIdentity(previewAsMe(ME));
 
@@ -1973,7 +1993,7 @@ describe("EngineController", () => {
 
 		it("an identity arriving after activation rebuilds the active engine", () => {
 			const store = createLoadedStore(docWithUserCalc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 
 			ctrl.activateForm(FORM_UUID);
@@ -1985,7 +2005,7 @@ describe("EngineController", () => {
 
 		it("a re-derived identical identity is a no-op preserving entered values", () => {
 			const store = createLoadedStore(docWithUserCalc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.setPreviewIdentity(previewAsMe(ME));
 			ctrl.activateForm(FORM_UUID);
@@ -1998,7 +2018,7 @@ describe("EngineController", () => {
 
 		it("an identity change rebuilds the evaluation world, discarding entered values", () => {
 			const store = createLoadedStore(docWithUserCalc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.setPreviewIdentity(previewAsMe(ME));
 			ctrl.activateForm(FORM_UUID);
@@ -2014,7 +2034,7 @@ describe("EngineController", () => {
 
 		it("a session resolving mid-entry preserves answers typed under the anonymous world", () => {
 			const store = createLoadedStore(docWithUserCalc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 
 			ctrl.activateForm(FORM_UUID);
@@ -2031,7 +2051,7 @@ describe("EngineController", () => {
 
 		it("a sign-out (identity to null) discards entered values with the world", () => {
 			const store = createLoadedStore(docWithUserCalc());
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.setPreviewIdentity(previewAsMe(ME));
 			ctrl.activateForm(FORM_UUID);
@@ -2095,7 +2115,7 @@ describe("EngineController", () => {
 				},
 			};
 			const store = createLoadedStore(doc);
-			const ctrl = new EngineController();
+			const ctrl = ownedController();
 			ctrl.setDocStore(store);
 			ctrl.setPreviewIdentity(identity);
 			ctrl.activateForm(FORM_UUID);
@@ -2106,7 +2126,7 @@ describe("EngineController", () => {
 			const storedAst = storedField.calculate;
 			expect(ctrl.store.getState()[WHO_UUID].value).toBe("north");
 
-			store.getState().applyMany([
+			applyControllerEdit(store, [
 				{
 					kind: "updateUserProperty",
 					uuid: REGION_UUID,

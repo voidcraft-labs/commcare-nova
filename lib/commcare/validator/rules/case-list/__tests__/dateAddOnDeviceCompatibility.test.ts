@@ -1,6 +1,9 @@
+// Full-runner carrier diagnostics with admitted accepted neighbors. Native
+// date arithmetic execution belongs to the separate Core wire corpus.
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { userFacingError } from "@/lib/doc/userFacingErrors";
 import {
@@ -47,7 +50,6 @@ const standardCaseTypes = [
 	{
 		name: "patient",
 		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
 			{ name: "dob", label: "Date of birth", data_type: "date" as const },
 			{
 				name: "visited_at",
@@ -64,7 +66,7 @@ const standardCaseTypes = [
 	},
 ];
 
-function errorsFor(
+function docFor(
 	caseListPatch: Partial<NonNullable<Module["caseListConfig"]>> = {},
 	caseSearchConfig?: Module["caseSearchConfig"],
 ) {
@@ -91,9 +93,13 @@ function errorsFor(
 		],
 		caseTypes: standardCaseTypes,
 	});
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-		(error) => error.code === CODE,
-	);
+	return doc;
+}
+function errorsFor(...args: Parameters<typeof docFor>) {
+	const doc = docFor(...args);
+	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	if (findings.length === 0) expectAdmittedDoc(doc);
+	return findings;
 }
 
 describe("dateAddOnDeviceCompatibility", () => {
@@ -148,13 +154,17 @@ describe("dateAddOnDeviceCompatibility", () => {
 	});
 
 	it("leaves an invalid null quantity to the ordinary expression type checker", () => {
-		const hits = errorsFor({
+		const doc = docFor({
 			filter: eq(
 				prop("patient", "dob"),
 				dateAdd(today(), "days", term(literal(null))),
 			),
 		});
-		expect(hits).toEqual([]);
+		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(hits.map((hit) => hit.code)).toEqual([
+			"CASE_LIST_FILTER_TYPE_ERROR",
+		]);
+		expect(hits.some((hit) => hit.code === CODE)).toBe(false);
 	});
 
 	it("finds nested date arithmetic but reports one repair target per slot", () => {
@@ -290,7 +300,12 @@ describe("dateAddOnDeviceCompatibility", () => {
 		);
 		const hits = errorsFor(
 			{ filter: dead },
-			{ searchButtonDisplayCondition: dead },
+			{
+				searchButtonDisplayCondition: or(
+					matchAll(),
+					eq(today(), dateAdd(today(), "months", term(literal(1)))),
+				),
+			},
 		);
 		expect(hits).toEqual([]);
 	});

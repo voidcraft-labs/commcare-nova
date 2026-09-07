@@ -342,7 +342,9 @@ async function runOrRecoverBatch(args: {
 		const running = claimed;
 		const result = await args.runner(args.input, args.signal);
 		const usage = normalizeTranslationUsage(result.usage);
-		if (result.object === null) {
+		// A parsed object can still be marked incomplete by Responses. Completion
+		// status owns acceptance even when every expected JSON field arrived.
+		if (result.finishReason === "length" || result.object === null) {
 			claimed = await completeTranslationBatch({
 				attempt: args.attempt,
 				authority: args.authority,

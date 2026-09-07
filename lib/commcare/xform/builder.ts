@@ -113,6 +113,7 @@ import {
 } from "@/lib/domain";
 import type { LookupOptionsSource } from "@/lib/domain/lookupCarriers";
 import { isMatchAll, simplifyForEmission } from "@/lib/domain/predicate";
+import { xpathPrintContext } from "@/lib/domain/xpath/print";
 
 /**
  * Build the ordered itext-value node list for one typed prose template, letting
@@ -514,6 +515,16 @@ export interface BuildXFormOptions {
 	attachmentTarget?: AttachmentUrlTarget;
 }
 
+function isRepeatCountSnapshot(element: Element): boolean {
+	const ref = element.attribs.ref;
+	if (ref === undefined || !ref.startsWith("/data/")) return false;
+	const leaf = FormPath.parse(ref).segments().at(-1);
+	return (
+		leaf?.kind === "element" &&
+		leaf.name.startsWith(`${RESERVED_XFORM_NODE_PREFIX}count_`)
+	);
+}
+
 /**
  * Emit the full XForm XML for `formUuid`. Walks the form's field order
  * (plus any container children), accumulates data / binds / setvalues /
@@ -613,7 +624,15 @@ export function buildXForm(
 	// `#<own_type>/case_id` rewrites to `/data/case/@case_id`
 	// (populated by the case-create scaffolding's setvalue chain); the
 	// case-loading lookup shape is reserved for forms that load an existing case.
+	const authoredPaths = xpathPrintContext(doc);
+	const formPaths = new Map<string, FormPath>();
+	for (const [uuid, location] of collectFieldLocations(doc, formUuid)) {
+		const segments = authoredPaths.fieldPathSegments(uuid);
+		if (segments !== undefined)
+			formPaths.set(segments.join("/"), location.path);
+	}
 	const formCtx: FormHashtagContext = {
+		formPaths,
 		formType: form.type,
 		caseTypeDepths,
 		...(opts.selectedCaseIdRef !== undefined && {
@@ -749,8 +768,8 @@ export function buildXForm(
 			instances,
 			// At the top level the form-root arrays ARE the "top" arrays.
 			// Inside containers these stay pointed at the root arrays (passed
-			// through unchanged) so a hoisted count node always lands at
-			// /data, never inside a group/repeat scope. See `dataElements`
+			// through unchanged) so non-repeating count snapshots can land at
+			// /data. Nested count snapshots stay in their parent row. See `dataElements`
 			// vs `topDataElements` in `buildFieldParts`.
 			dataElements,
 			binds,
@@ -821,7 +840,11 @@ export function buildXForm(
 		el("instance", {}, [dataEl]),
 		...instances.toElements(),
 		...binds,
-		...setvalues,
+		// Snapshot counts after answer defaults and parent query identities have
+		// initialized. Field order must not change the initial count. Generated
+		// count targets occupy a reserved structural namespace, not authored XPath.
+		...setvalues.filter((e) => !isRepeatCountSnapshot(e)),
+		...setvalues.filter(isRepeatCountSnapshot),
 		el("itext", {}, [
 			...localization.languages.map((language) =>
 				el(
@@ -938,10 +961,9 @@ function readFieldMedia(field: Field, key: string): Media | undefined {
  * `topDataElements` / `topBinds` always reference the FORM-ROOT data and
  * bind arrays, threaded through every recursion unchanged. They are the
  * landing site for synthetic nodes that must live at `/data` regardless of
- * how deeply the emitting field is nested — currently the hidden count node
- * a hoisted `count_bound` repeat needs (its `xforms-ready` setvalue fires at
- * form load, before any container template exists). The `setvalues` array is
- * already form-root-scoped for the same reason, so it needs no parallel.
+ * how deeply the emitting field is nested. Count snapshots outside repeats
+ * use these root arrays; snapshots inside repeats use their local parent
+ * instance instead. All setvalues remain model-level actions.
  *
  * The data + bind placeholders are recorded by ARRAY SLOT (`dataSlot` /
  * `bindSlot`) and rewritten in place for containers, NOT `pop()`-ed after
@@ -1499,6 +1521,7 @@ function buildContainer(
 	const childData: Element[] = [];
 	const childBinds: Element[] = [];
 	const childBody: Element[] = [];
+	const childSetvalues: Element[] = [];
 	const childInsideRepeat = field.kind === "repeat" ? true : insideRepeat;
 
 	// Query-bound repeats nest children under an extra `<item>` level (Vellum's
@@ -1525,7 +1548,7 @@ function buildContainer(
 			`${itextKey}-`,
 			childData,
 			childBinds,
-			setvalues,
+			childSetvalues,
 			childBody,
 			childInsideRepeat,
 			addItext,
@@ -1625,16 +1648,20 @@ function buildContainer(
 				insideRepeat,
 				setvalues,
 				binds,
+				dataElements,
 				topDataElements,
 				topBinds,
 				instances,
 				expand,
-				shorthand,
 			),
 		);
+		// Core executes setvalues in document order: establish this row identity
+		// before a nested repeat reads it to seed its own query.
+		setvalues.push(...childSetvalues);
 		return;
 	}
 
+	setvalues.push(...childSetvalues);
 	// Group body: `<group ref>` wrapping the children. `appearance="field-list"`
 	// is a CommCare semantic that drives single-page rendering of the group's
 	// children (Vellum's `tests/static/all_question_types.xml` field-list
@@ -1669,10 +1696,8 @@ function buildContainer(
  *     removes instances via UI; no jr:count, no setvalues.
  *
  *   count_bound: `<repeat nodeset="${nodePath}" jr:count="..."
- *     jr:noAddRemove="true()">`. JavaRosa evaluates jr:count once at form load
- *     and freezes the cardinality. A path count points jr:count straight at the
- *     path; a literal / expression count is hoisted into a hidden form-root node
- *     (see the count-hoist block).
+ *     jr:noAddRemove="true()">`. Nova snapshots the authored count at form load
+ *     in a hidden form-root node. Core reads that snapshot during entry traversal.
  *
  *   query_bound: `<repeat nodeset="${nodePath}/item"
  *     jr:count="${nodePath}/@count" jr:noAddRemove="true()">` plus four
@@ -1693,11 +1718,11 @@ function buildRepeatBody(
 	insideRepeat: boolean,
 	setvalues: Element[],
 	binds: Element[],
+	scopeDataElements: Element[],
 	topDataElements: Element[],
 	topBinds: Element[],
 	instances: InstanceTracker,
 	expand: (expr: string) => string,
-	shorthand: (expr: string) => string | undefined,
 ): Element {
 	let repeatNodeset = nodePath.toXPath();
 	const repeatAttribs: Record<string, string> = {};
@@ -1719,85 +1744,39 @@ function buildRepeatBody(
 		// `jr:count` must point at a node — never a literal, arithmetic, or
 		// function call.
 		//
-		// When the author's count already IS a path (`#form/desired_count` →
-		// `/data/desired_count`), point `jr:count` straight at it (the
-		// test_trigger_caching.xml shape). Otherwise hoist the value into a
-		// hidden form-root node seeded by `<setvalue event="xforms-ready">` and
-		// point `jr:count` at it — the group_relevancy_in_repeat.xml shape.
-		if (isCountReferencePath(expandedCount)) {
-			// Path → emit directly. The editor's shadow for `jr:count` is
-			// `vellum:jr__count` — `parseVellumAttrs` maps a namespaced key by
-			// replacing `:` with `__` (`Vellum/src/parser.js`), and Vellum's own
-			// writer produces the same name via `writeHashtags('jr:count', …)`
-			// (`modeliteration.js`). Stamped only when the author wrote hashtag
-			// shorthand with an editor spelling. Insertion order: vellum:jr__count
-			// (when present), then jr:count, then jr:noAddRemove.
-			const countShorthand = shorthand(repeatCount);
-			if (countShorthand !== undefined) {
-				repeatAttribs["vellum:jr__count"] = countShorthand;
-			}
-			repeatAttribs["jr:count"] = expandedCount;
-			repeatAttribs["jr:noAddRemove"] = "true()";
-		} else {
-			// Non-path → hoist. The hidden node lives at `/data` (form root, via
-			// the `top*` arrays) so its `xforms-ready` setvalue has a target at
-			// form load, even when this repeat is nested inside a group or
-			// another repeat.
-			//
-			// The node lives in the flat `/data` namespace, so its name must be
-			// unique across the WHOLE form — but `field.id` is unique only among
-			// SIBLINGS (cousins may share an id; the validator's
-			// `duplicateFieldIds` scopes uniqueness to one level). Two cousin
-			// count_bound repeats both named `items` would otherwise hoist to
-			// the same `/data/__nova_count_items` and collide: duplicate data
-			// node + bind + setvalue, and two repeats whose `jr:count` point at
-			// the same node, so one silently steals the other's cardinality.
-			// Keep the readable bare name when it is free and auto-suffix `_N` on
-			// collision — the same disambiguation shape Nova uses for sibling-id
-			// clashes. The loop probes live membership of `topDataElements` (by
-			// element name), so it disambiguates against ANY node already there
-			// and can never emit a duplicate. In practice the only `__nova_count_*`
-			// nodes present are our own prior hoists — the reserved `__nova_`
-			// prefix keeps the namespace off-limits to authored ids (validator
-			// `reservedFieldIdPrefix`) — but correctness does not lean on that:
-			// the probe stands on its own.
-			const countNodeBase = `${RESERVED_XFORM_NODE_PREFIX}count_${field.id}`;
-			let countNodeName = countNodeBase;
-			for (
-				let n = 1;
-				topDataElements.some((e) => e.name === countNodeName);
-				n++
-			) {
-				countNodeName = `${countNodeBase}_${n}`;
-			}
-			const countNodePath = FormPath.root().child(countNodeName);
-			const countNodeXPath = countNodePath.toXPath();
-			topDataElements.push(el(countNodeName, {}));
-			// `xsd:int` matches the count's domain (a cardinality) and the
-			// canonical fixture's `<bind ... type="xsd:int"/>`.
-			topBinds.push(el("bind", { nodeset: countNodeXPath, type: "xsd:int" }));
-			// Frozen-at-form-load is count_bound's documented contract (JavaRosa
-			// evaluates `jr:count` once and never recalculates), so the seed
-			// always fires on `xforms-ready` — there is no per-iteration re-seed
-			// semantic to coerce for, even when nested.
-			setvalues.push(
-				el("setvalue", {
-					event: "xforms-ready",
-					ref: countNodeXPath,
-					value: expandedCount,
-				}),
-			);
-			// No editor shadow on the hoisted shape: `vellum:jr__count` is what
-			// the editor treats as the count's source of truth, and shadowing the
-			// author's raw EXPRESSION here would make the editor's next save write
-			// that expression straight into `jr:count` — which JavaRosa rejects
-			// (path-only). Shadowing the hoisted path instead adds nothing over
-			// the real attribute, so the editor reads `jr:count` and round-trips
-			// the hidden node's path; the authored expression survives in the
-			// node's seeding `<setvalue>`.
-			repeatAttribs["jr:count"] = countNodeXPath;
-			repeatAttribs["jr:noAddRemove"] = "true()";
+		// Every authored count is a snapshot of form initialization, including a
+		// direct field path. Core reads jr:count again during entry traversal, so
+		// pointing it at a live answer would violate Nova's fixed-count contract.
+		// Preserve the two native coercion boundaries: path values retain their
+		// lexical value for IntegerData.cast; expression results are stored as int.
+		const directReference = isCountReferencePath(expandedCount);
+		const snapshotData = insideRepeat ? scopeDataElements : topDataElements;
+		const snapshotBinds = insideRepeat ? binds : topBinds;
+		const snapshotParent = insideRepeat ? nodePath.parent() : FormPath.root();
+		const countNodeBase = `${RESERVED_XFORM_NODE_PREFIX}count_${field.id}`;
+		let countNodeName = countNodeBase;
+		for (let n = 1; snapshotData.some((e) => e.name === countNodeName); n++) {
+			countNodeName = `${countNodeBase}_${n}`;
 		}
+		const countNodeXPath = snapshotParent.child(countNodeName).toXPath();
+		snapshotData.push(el(countNodeName, {}));
+		snapshotBinds.push(
+			el("bind", {
+				nodeset: countNodeXPath,
+				type: directReference ? "xsd:string" : "xsd:int",
+			}),
+		);
+		setvalues.push(
+			el("setvalue", {
+				event: insideRepeat ? "jr-insert" : "xforms-ready",
+				ref: countNodeXPath,
+				value: directReference ? `string(${expandedCount})` : expandedCount,
+			}),
+		);
+		// A raw-expression editor shadow would rewrite the runtime count on
+		// resave. The snapshot node is the complete executable count reference.
+		repeatAttribs["jr:count"] = countNodeXPath;
+		repeatAttribs["jr:noAddRemove"] = "true()";
 	} else if (field.repeat_mode === "query_bound") {
 		const itemPath = nodePath.queryBoundIteration();
 		const idsAttrPath = nodePath.attr("ids").toXPath();

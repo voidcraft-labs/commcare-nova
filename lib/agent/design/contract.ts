@@ -82,8 +82,8 @@ interface FactDataShapeCarriers {
 /**
  * Executable carriers behind every concrete semantic shape. This explicit
  * relation is a drift tripwire between design vocabulary and the generated
- * capability catalog; tests prove every named carrier still exists in the
- * domain registries. Attachment capture is form-only until case attachment
+ * capability catalog; the typed relation constrains every named carrier to
+ * the domain registries. Attachment capture is form-only until case attachment
  * emission ships, so it deliberately has no case-data carrier.
  */
 export const factDataShapeCarriers = {
@@ -1694,56 +1694,15 @@ export function designConstructionIssues(
 			});
 		}
 	}
-	const includedIds = new Set<string>([
-		...contract.charter.includedWorkflowIds,
-		...contract.actors.map((actor) => actor.id),
-		...contract.records.map((record) => record.id),
-		...contract.records.flatMap((record) =>
-			record.properties.map((property) => property.id),
-		),
-		...contract.lists.map((list) => list.id),
-		...contract.access.map((policy) => policy.id),
-		...contract.navigation.map((navigation) => navigation.id),
-		...contract.moduleCompositions.map((composition) => composition.id),
-		...contract.formCompositions.flatMap((composition) => [
-			composition.id,
-			...(composition.layout.kind === "sectioned"
-				? composition.layout.sections.flatMap((section) => [
-						section.id,
-						...section.items.map((item) => item.id),
-					])
-				: composition.layout.items.map((item) => item.id)),
-		]),
-		...contract.lookupTables.flatMap((table) => [
-			table.id,
-			...(table.kind === "create"
-				? [
-						...table.columns.map((column) => column.id),
-						...table.rows.map((row) => row.id),
-					]
-				: table.operations.flatMap((operation) => {
-						switch (operation.kind) {
-							case "add-column":
-								return [operation.column.id];
-							case "add-row":
-								return [operation.rowId];
-							case "replace-rows":
-								return operation.rows.map((row) => row.id);
-							default:
-								return [];
-						}
-					})),
-		]),
-	]);
 	/* The authored `blocking` flag is the construction gate, honoring a user
 	 * who delegated the decision: a non-blocking question is a recorded caveat
 	 * beside concrete design, and the concreteness checks above catch design
-	 * that is not actually buildable regardless of what any question claims. */
+	 * that is not actually buildable regardless of what any question claims.
+	 * Graph admission includes every workflow and resolves every related identity,
+	 * so all current-contract blocking questions apply, including questions
+	 * about external prerequisites, architecture decisions, and assumptions. */
 	contract.openQuestions.forEach((question, questionIndex) => {
-		if (
-			question.blocking &&
-			question.relatedElementIds.some((id) => includedIds.has(id))
-		) {
+		if (question.blocking) {
 			issues.push({
 				path: ["openQuestions", questionIndex],
 				message:

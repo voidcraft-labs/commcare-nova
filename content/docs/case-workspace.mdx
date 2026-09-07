@@ -259,13 +259,16 @@ multiple-choice field finds cases whose value is any of the chosen answers.
 
 ### Hidden values
 
-**Add search field** also offers a **Hidden value**: a value the Search
-screen works out once when it opens and carries with the search, such as the
-time of the search or the worker's id. It is never shown, never asked, and
+**Add search field** also offers a **Hidden value**: a value carried with the
+search, such as the time of the search or the worker's id. It is never shown, never asked, and
 never narrows the results; it exists so other conditions can read it by name.
 A hidden value works with fixed values, the current date and time, and
 current-user information, and cannot read case information or another search
 field.
+
+In Preview, each new search uses the current worker and data to resolve these
+values. Editing answers keeps the previous search's hidden values until you
+search again.
 
 ### Search first
 
@@ -350,13 +353,24 @@ match**. You can group conditions, exclude matches, use a search answer only
 when it has been filled in, follow connections to related cases, and combine
 those ideas at any depth. Opening a group gives it the full canvas; Back and
 the location trail return you to the surrounding rule. Nova keeps the exact
-structure you authored instead of flattening it into a simpler filter.
+structure you authored instead of flattening it into a simpler filter. Summaries
+keep nested groups in parentheses so you can read that same structure.
+
+Changing a condition asks for confirmation before removing an authored text
+pattern or other values. Conditions on a connected case use that case's choices
+and value controls. Switching a saved connection between child-only and either
+direction keeps its name and destination. A connection that cannot use the
+saved condition is unavailable until you remove or change that condition.
 
 Calculated conditions preserve the grouping of nested arithmetic. Blank checks
 also work on calculated values, so a condition can match when a calculation
 has no result. A search rule can also read a Project data table and convert its
 text to a date or number for another calculation, such as adding a table’s
 number of days to a starting date. These rules travel with the exported app.
+
+Dividing two whole-number values gives a whole-number result, dropping the
+fraction toward zero: `10 ÷ 3` gives `3`, and `-10 ÷ 3` gives `-3`. A decimal
+value on either side keeps the fractional result.
 
 Nova also checks fixed results in calculated search values. A result using both
 single and double quotation marks needs one kind removed so the search can run.
@@ -421,7 +435,12 @@ information it affects. Choose **Set order** the first time, or **Change order**
 once it is configured, to expand the editor in the canvas. Then add the
 information to sort by, choose a friendly direction such as A to Z or newest
 first, and drag the rules into priority order. The first rule decides first;
-when two cases match, the next rule breaks the tie.
+when two cases match, the next rule breaks the tie. The information used for
+ordering can stay hidden from both Results and Details.
+
+When you order by a calculated value, Results uses the same case values for
+display and ordering, including information from a supporting parent case in
+Search results.
 
 This is separate from arranging information inside a result. One controls the
 order of cases; the other controls how each case is presented.
@@ -429,7 +448,10 @@ order of cases; the other controls how each case is presented.
 ## Use the sidebar for properties
 
 Select a search field, result item, or detail item to edit its data source,
-label, matching behavior, or formatting in the right sidebar. Screen options
+label, matching behavior, or formatting in the right sidebar. Returning to a
+display format within the same open editor restores its settings when the
+information still supports them, while keeping your current heading and visibility.
+Screen options
 that do not have a visible row also live there. Less-common settings stay
 behind **More settings**. Arrangement does not: screen membership, row order, and
 the Cases available and Default order sections each have one home in the
@@ -473,6 +495,8 @@ case or assigns it to an unrelated new sample case.
 
 Sample cases include readable names and unique external IDs, so the complete
 Search → Results → Details journey is useful as soon as you enter Preview.
+While Nova creates the cases, Case data keeps the progress visible and pauses
+case-type changes, property management, and data review until creation finishes.
 
 Case-data controls stay outside Preview. Preview contains only the app a
 frontline user will run, so every button there behaves like a real app button.

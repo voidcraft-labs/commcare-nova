@@ -1,100 +1,174 @@
-/**
- * `POST /api/compile` (.ccz compile): boundary gate + inline-return tests.
- *
- * This route is media-ON (the archive bundles media bytes) and boundary-
- * gated: any validator finding returns an actionable 422 before expand
- * (a stale media reference would otherwise make `expandDoc` throw
- * `requireAssetRef` → 500). Tests prove the gate fires AND that the handler returns on it
- * (no fall-through into expand/compile), and that a clean compile returns
- * the archive bytes inline (octet-stream) rather than a download URL.
- *
- * Boundaries mocked: `requireSession`, `resolveAppAccess` (loads the
- * blueprint server-side), the boundary gate, manifest, expand, and compile.
+/** Native Request -> stored canonical document -> export gate -> real artifacts.
+ * Only authentication, authoritative database reads and object storage are
+ * controlled. Python's zipfile independently reads the bytes both routes emit;
+ * CommCare runtime conformance belongs to the compiler's native core tests.
  */
-
+import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
+import { promisify } from "node:util";
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { testMediaAssetId } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
-import { compileCcz } from "@/lib/commcare/compiler";
-import { expandDoc } from "@/lib/commcare/expander";
+import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import {
 	decodeProjectSpaceCompatibilityReport,
 	PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER,
 } from "@/lib/commcare/projectSpaceCompatibility";
-import { validationError } from "@/lib/commcare/validator/errors";
-import { resolveAppAccess } from "@/lib/db/appAccess";
+import { AppAccessError, resolveAppAccess } from "@/lib/db/appAccess";
+import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
 import { attachmentDeploymentTargetFor } from "@/lib/deployment/attachmentSpace";
-import { proseText } from "@/lib/domain/prose";
-import { prepareExportBoundary } from "@/lib/export/boundaryValidation";
-import { resolveMediaManifest } from "@/lib/media/manifest";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { type BlueprintDoc, blueprintDocSchema, proseText } from "@/lib/domain";
+import {
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import { getLookupFixtureData } from "@/lib/lookup/service";
+import type { LookupFixtureDataSnapshot } from "@/lib/lookup/types";
 import {
 	decodeExportAdvisories,
 	EXPORT_ADVISORY_HEADER,
 } from "@/lib/publish/exportAdvisories";
-import { POST } from "../route";
+import { downloadAssetBytes } from "@/lib/storage/media";
+import { POST as jsonPost } from "../json/route";
+import { POST as cczPost } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/db/appAccess", () => ({ resolveAppAccess: vi.fn() }));
-vi.mock("@/lib/export/boundaryValidation", () => ({
-	prepareExportBoundary: vi.fn(),
+vi.mock("@/lib/db/appAccess", async (original) => ({
+	...(await original<typeof import("@/lib/db/appAccess")>()),
+	resolveAppAccess: vi.fn(),
 }));
-vi.mock("@/lib/media/manifest", () => ({ resolveMediaManifest: vi.fn() }));
+vi.mock("@/lib/db/mediaAssets", () => ({ loadAssetsByIds: vi.fn() }));
+vi.mock("@/lib/lookup/service", () => ({ getLookupFixtureData: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
 vi.mock("@/lib/deployment/attachmentSpace", () => ({
 	attachmentDeploymentTargetFor: vi.fn(),
 }));
-vi.mock("@/lib/commcare/expander", () => ({ expandDoc: vi.fn() }));
-vi.mock("@/lib/commcare/compiler", () => ({ compileCcz: vi.fn() }));
 
-const SESSION = { user: { id: "u1" } };
-
-/**
- * The blueprint `resolveAppAccess` loads server-side. The persistable wire
- * shape excludes the derived `fieldParent` (the route rebuilds it), so strip
- * it off the in-memory `buildDoc` output.
- */
-function validDoc() {
-	const { fieldParent: _fieldParent, ...doc } = buildDoc({
-		appName: "Vaccine Tracker",
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
+const execFileAsync = promisify(execFile);
+async function unzip(bytes: Uint8Array): Promise<Map<string, Buffer>> {
+	const { stdout } = await execFileAsync(
+		"python3",
+		[
+			"-c",
+			"import sys,io,zipfile,base64,json; z=zipfile.ZipFile(io.BytesIO(base64.b64decode(sys.argv[1]))); print(json.dumps({n:base64.b64encode(z.read(n)).decode() for n in z.namelist() if not n.endswith('/')}))",
+			Buffer.from(bytes).toString("base64"),
 		],
-		modules: [
-			{
-				name: "Patients",
-				caseType: "patient",
-				forms: [
+		{ maxBuffer: 4_000_000 },
+	);
+	return new Map(
+		Object.entries(JSON.parse(stdout) as Record<string, string>).map(
+			([name, body]) => [name, Buffer.from(body, "base64")],
+		),
+	);
+}
+function member(entries: Map<string, Buffer>, name: string): Buffer {
+	const found = entries.get(name);
+	if (!found)
+		throw new Error(
+			`Missing archive member: ${name}; found ${[...entries.keys()].join(", ")}`,
+		);
+	return found;
+}
+const PNG = Buffer.from(
+	"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl6AAAAAElFTkSuQmCC",
+	"base64",
+);
+const IMAGE = testMediaAssetId("export-image");
+const HASH = createHash("sha256").update(PNG).digest("hex");
+const ROW: MediaAssetRecord = {
+	id: IMAGE,
+	owner: "u1",
+	project_id: "project-1",
+	contentHash: HASH,
+	mimeType: "image/png",
+	kind: "image",
+	extension: ".png",
+	sizeBytes: PNG.length,
+	gcsObjectKey: `projects/project-1/${HASH}.png`,
+	originalFilename: "image.png",
+	displayName: "Image",
+	status: "ready",
+	created_at: new Date(0),
+};
+const TABLE = lookupTableIdSchema.parse("018f0000-0000-7000-8000-000000000001");
+const VALUE = lookupColumnIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000002",
+);
+const LABEL = lookupColumnIdSchema.parse(
+	"018f0000-0000-7000-8000-000000000003",
+);
+function snapshot(withLookup = false): LookupFixtureDataSnapshot {
+	return {
+		projectId: "project-1",
+		projectRevision: parseLookupRevision("7"),
+		definitions: withLookup
+			? [
 					{
-						name: "Reg",
-						type: "registration",
-						fields: [
+						id: TABLE,
+						name: "Districts",
+						tag: "districts",
+						definitionRevision: parseLookupRevision("3"),
+						columns: [
 							{
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
+								id: VALUE,
+								wireName: "value",
+								label: "Value",
+								dataType: "text",
+							},
+							{
+								id: LABEL,
+								wireName: "label",
+								label: "Label",
+								dataType: "text",
 							},
 						],
 					},
-				],
-			},
-		],
-	});
-	return doc;
+				]
+			: [],
+		rowsByTable: new Map(
+			withLookup
+				? [
+						[
+							TABLE,
+							[
+								{
+									id: lookupRowIdSchema.parse(
+										"018f0000-0000-7000-8000-000000000004",
+									),
+									values: { [VALUE]: "north", [LABEL]: "North district" },
+								},
+							],
+						],
+					]
+				: [],
+		),
+	};
 }
-
-/** An app whose photo question saves a link to the file it captures. */
-function docWithAttachmentLink() {
-	const { fieldParent: _fieldParent, ...doc } = buildDoc({
-		appName: "Vaccine Tracker",
+function fixture(
+	options: {
+		media?: boolean;
+		lookup?: boolean;
+		photo?: boolean;
+		search?: boolean;
+		name?: string;
+	} = {},
+): BlueprintDoc {
+	const doc = buildDoc({
+		appName: options.name ?? "Vaccine Tracker",
 		caseTypes: [
 			{
 				name: "patient",
 				properties: [
 					{ name: "case_name", label: proseText("Name") },
-					{ name: "photo_url", label: proseText("Photo") },
+					...(options.photo
+						? [{ name: "photo_url", label: proseText("Photo") }]
+						: []),
 				],
 			},
 		],
@@ -102,261 +176,349 @@ function docWithAttachmentLink() {
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				...(options.search ? { caseSearchConfig: {} } : {}),
 				forms: [
 					{
-						name: "Reg",
+						name: "Register",
 						type: "registration",
 						fields: [
-							{
+							f({
 								kind: "text",
 								id: "case_name",
 								label: proseText("Name"),
 								caseWrite: { caseType: "patient", property: "case_name" },
-							},
-							{
-								kind: "image",
-								id: "photo",
-								label: proseText("Photo"),
-								caseWrite: {
-									caseType: "patient",
-									property: "photo_url",
-									mode: "url",
-								},
-							},
+								...(options.media ? { label_media: { image: IMAGE } } : {}),
+							}),
+							...(options.lookup
+								? [
+										f({
+											kind: "single_select",
+											id: "district",
+											label: proseText("District"),
+											optionsSource: {
+												kind: "lookup",
+												tableId: TABLE,
+												valueColumnId: VALUE,
+												labelColumnId: LABEL,
+											},
+										}),
+									]
+								: []),
+							...(options.photo
+								? [
+										f({
+											kind: "image",
+											id: "photo",
+											label: proseText("Photo"),
+											caseWrite: {
+												caseType: "patient",
+												property: "photo_url",
+												mode: "url",
+											},
+										}),
+									]
+								: []),
 						],
 					},
 				],
 			},
 		],
 	});
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	const data = snapshot(options.lookup);
+	const verdict = mutationCommitVerdict(doc, [], {
+		kind: "available",
+		projectId: data.projectId,
+		projectRevision: data.projectRevision,
+		definitions: data.definitions,
+	});
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
 	return doc;
 }
-
-function docWithCaseSearch() {
-	const doc = validDoc();
-	const moduleUuid = doc.moduleOrder[0];
-	if (!moduleUuid) throw new Error("fixture module missing");
-	doc.modules[moduleUuid].caseSearchConfig = {};
-	return doc;
-}
-
-function reqWith(body: unknown) {
-	return {
-		headers: new Headers(),
-		json: async () => body,
-		arrayBuffer: async () =>
-			new TextEncoder().encode(JSON.stringify(body)).buffer as ArrayBuffer,
-	} as unknown as Parameters<typeof POST>[0];
-}
-
-/** Mock `resolveAppAccess` to load `doc` for app owner `u1` in `project-1`
- *  at the given committed `mutation_seq`. */
-function loadsDoc(doc: ReturnType<typeof validDoc>, mutationSeq = 42) {
+function loads(doc: BlueprintDoc, seq = 42) {
 	vi.mocked(resolveAppAccess).mockResolvedValue({
-		app: { blueprint: doc, owner: "u1", mutation_seq: mutationSeq },
+		app: { blueprint: toPersistableDoc(doc), mutation_seq: seq },
 		projectId: "project-1",
-		role: "owner",
 		actorUserId: "u1",
+		role: "viewer",
 	} as never);
 }
-
+function request(body: unknown = { appId: "a1", server: "production" }) {
+	return new NextRequest("http://localhost/api/compile", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
+}
 beforeEach(() => {
-	vi.mocked(requireSession).mockReset();
-	vi.mocked(resolveAppAccess).mockReset();
-	vi.mocked(prepareExportBoundary).mockReset();
-	vi.mocked(resolveMediaManifest).mockReset();
-	vi.mocked(attachmentDeploymentTargetFor).mockReset();
-	vi.mocked(expandDoc).mockReset();
-	vi.mocked(compileCcz).mockReset();
-
-	vi.mocked(requireSession).mockResolvedValue(SESSION as never);
-	loadsDoc(validDoc());
-	vi.mocked(resolveMediaManifest).mockResolvedValue(new Map());
-	// No project space holds the fixture app, which is the ordinary state
-	// for a download: an attachment link has nowhere to resolve.
+	vi.mocked(requireSession).mockResolvedValue({ user: { id: "u1" } } as never);
+	vi.mocked(loadAssetsByIds).mockResolvedValue([]);
+	vi.mocked(getLookupFixtureData).mockResolvedValue(snapshot());
+	vi.mocked(downloadAssetBytes).mockResolvedValue(PNG);
 	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({ kind: "none" });
-	vi.mocked(prepareExportBoundary).mockImplementation(
-		async (input) =>
-			({
-				ok: true,
-				prepared: {
-					...input,
-					assets: await resolveMediaManifest(
-						input.doc,
-						input.access.projectId,
-						{ withBytes: true },
-					),
-				},
-			}) as never,
-	);
-	vi.mocked(expandDoc).mockReturnValue({} as never);
-	vi.mocked(compileCcz).mockReturnValue(Buffer.from("ccz-bytes"));
+	loads(fixture());
 });
 
-describe("POST /api/compile — boundary gate", () => {
-	it("returns 422 with the rule's message (not a 500) when a media ref is stale", async () => {
-		vi.mocked(prepareExportBoundary).mockResolvedValueOnce({
-			ok: false,
-			violations: [
-				validationError(
-					"MEDIA_KIND_MISMATCH",
-					"field",
-					'At the label media on field "case_name" in form "Reg", the attached asset is an audio file but the slot expects an image.',
-					{ formName: "Reg", fieldId: "case_name" },
-				),
-			],
-		} as never);
-
-		const res = await POST(reqWith({ appId: "a1", server: "production" }));
-		const body = (await res.json()) as { error: string; details?: string[] };
-
-		expect(res.status).toBe(422);
-		expect(body.details?.[0]).toContain("wrong type");
-		/* The gate short-circuits BEFORE expand + compile: neither runs
-		 * on a media-invalid doc. */
-		expect(expandDoc).not.toHaveBeenCalled();
-		expect(compileCcz).not.toHaveBeenCalled();
-	});
-
-	it("keeps an operational lookup-read failure operational and emits nothing", async () => {
-		vi.mocked(prepareExportBoundary).mockRejectedValueOnce(
-			new Error("lookup database unavailable"),
-		);
-
-		const res = await POST(reqWith({ appId: "a1", server: "production" }));
-		const body = (await res.json()) as { error: string };
-
-		expect(res.status).toBe(500);
-		expect(body.error).not.toContain("isn't ready to compile");
-		expect(expandDoc).not.toHaveBeenCalled();
-		expect(compileCcz).not.toHaveBeenCalled();
-	});
-});
-
-describe("POST /api/compile — inline archive return", () => {
-	it("returns the compiled .ccz bytes inline (octet-stream) when the boundary gate is clean", async () => {
-		const res = await POST(reqWith({ appId: "a1", server: "production" }));
-
-		expect(res.status).toBe(200);
-		expect(res.headers.get("content-type")).toBe("application/octet-stream");
-		// Filename derives from the (sanitized) app name; the bytes ARE the
-		// compiled archive: there is no storage round-trip or download URL.
-		expect(res.headers.get("content-disposition")).toBe(
-			'attachment; filename="Vaccine Tracker.ccz"',
-		);
-		const bytes = Buffer.from(await res.arrayBuffer());
-		expect(bytes.toString()).toBe("ccz-bytes");
-		expect(res.headers.get("content-length")).toBe(String(bytes.length));
-
-		expect(prepareExportBoundary).toHaveBeenCalledWith(
-			expect.objectContaining({
-				mode: "ccz",
-				doc: expect.objectContaining({ appName: "Vaccine Tracker" }),
-			}),
-		);
-		expect(compileCcz).toHaveBeenCalledTimes(1);
-		expect(
-			decodeProjectSpaceCompatibilityReport(
-				res.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
-			)?.status,
-		).toBe("not_needed");
-	});
-
-	it("threads the loaded `mutation_seq` into compileCcz as `compiledAtSeq`", async () => {
-		loadsDoc(validDoc(), 99);
-
-		const res = await POST(reqWith({ appId: "a1", server: "production" }));
-		expect(res.status).toBe(200);
-		// Read the body so the response stream closes (async-leak gate).
-		await res.arrayBuffer();
-
-		// The seq stamps the archive's `cc-content-version` (verified against a
-		// real profile in the compiler unit test); here we assert the route
-		// forwards the loaded `mutation_seq` into the compile options.
-		expect(compileCcz).toHaveBeenCalledWith(
-			expect.anything(),
-			"Vaccine Tracker",
-			expect.anything(),
-			expect.objectContaining({ compiledAtSeq: 99 }),
-		);
-	});
-
-	it("returns unchecked destination compatibility without changing CCZ bytes", async () => {
-		loadsDoc(docWithCaseSearch());
-		const res = await POST(reqWith({ appId: "a1", server: "production" }));
-		const report = decodeProjectSpaceCompatibilityReport(
-			res.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
-		);
-		expect(report?.status).toBe("not_checked");
-		expect(report?.blockers).toEqual([]);
-		expect(report?.required_capabilities).toEqual([
-			expect.objectContaining({ id: "case-search", state: "not_checked" }),
-		]);
-		expect(report?.message).toContain("Choose a project space");
-		expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("ccz-bytes");
-	});
-});
-/**
- * A download carries no target of its own, so whatever the deployment record
- * resolves has to survive all the way to the emitter. It travels through the
- * export boundary and out the other side, and the failure mode if a hop drops
- * it is invisible: the archive still compiles, still downloads, and quietly
- * stops recording where its photos went.
- */
-describe("POST /api/compile — attachment link target", () => {
-	it("hands the emitter nothing while no project space holds the app", async () => {
-		const res = await POST(reqWith({ appId: "a1", server: "production" }));
-		// Read the body so the response stream closes (async-leak gate).
-		await res.arrayBuffer();
-
-		expect(expandDoc).toHaveBeenLastCalledWith(
-			expect.anything(),
-			expect.objectContaining({ attachmentTarget: null }),
-		);
-	});
-
-	it("hands the emitter the origin and project space that do", async () => {
-		vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({
-			kind: "known",
-			target: { server: "india", domain: "acme" },
+for (const [mode, post, verb] of [
+	["ccz", cczPost, "compile"],
+	["json", jsonPost, "export"],
+] as const) {
+	describe(`POST /api/compile${mode === "json" ? "/json" : ""}`, () => {
+		it("exports the stored document and exact sequence as a readable artifact", async () => {
+			loads(fixture(), 99);
+			const response = await post(request());
+			const bytes = new Uint8Array(await response.arrayBuffer());
+			expect(response.status).toBe(200);
+			expect(response.headers.get("content-disposition")).toBe(
+				`attachment; filename="Vaccine Tracker.${mode}"`,
+			);
+			expect(resolveAppAccess).toHaveBeenCalledWith("a1", "u1", "view");
+			expect(getLookupFixtureData).toHaveBeenCalledTimes(1);
+			expect(getLookupFixtureData).toHaveBeenCalledWith(
+				{ projectId: "project-1", actorId: "u1", role: "viewer" },
+				[],
+			);
+			if (mode === "json") {
+				expect(response.headers.get("x-compiled-at-seq")).toBe("99");
+				const app = JSON.parse(Buffer.from(bytes).toString());
+				expect(app.name).toBe("Vaccine Tracker");
+				expect(
+					app._attachments[`${app.modules[0].forms[0].unique_id}.xml`],
+				).toContain("case_name");
+			} else {
+				expect(response.headers.get("content-length")).toBe(
+					String(bytes.length),
+				);
+				const entries = await unzip(bytes);
+				const xml = [...entries.values()]
+					.map((entry) => entry.toString())
+					.join("\n");
+				expect(xml).toContain('key="cc-content-version" value="99"');
+				expect(xml).toContain("case_name");
+				expect(member(entries, "profile.ccpr").toString()).toContain(
+					'key="cc-content-version" value="99"',
+				);
+			}
+			expect(
+				decodeProjectSpaceCompatibilityReport(
+					response.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
+				)?.status,
+			).toBe("not_needed");
+			expect(
+				decodeExportAdvisories(response.headers.get(EXPORT_ADVISORY_HEADER)),
+			).toEqual([]);
 		});
-
-		const res = await POST(reqWith({ appId: "a1" }));
-		// Read the body so the response stream closes (async-leak gate).
-		await res.arrayBuffer();
-
-		expect(expandDoc).toHaveBeenLastCalledWith(
-			expect.anything(),
-			expect.objectContaining({
-				attachmentTarget: {
-					origin: "https://india.commcarehq.org",
-					domain: "acme",
-				},
-			}),
+		it("refuses missing app identity without loading anything", async () => {
+			const response = await post(request({}));
+			expect(await response.json()).toMatchObject({
+				error: "appId is required",
+			});
+			expect(response.status).toBe(400);
+			expect(resolveAppAccess).not.toHaveBeenCalled();
+			expect(getLookupFixtureData).not.toHaveBeenCalled();
+		});
+		it("preserves private not-found refusal before external reads", async () => {
+			vi.mocked(resolveAppAccess).mockRejectedValueOnce(
+				new AppAccessError("not_member"),
+			);
+			const response = await post(request());
+			expect(await response.json()).toMatchObject({ error: "App not found" });
+			expect(response.status).toBe(404);
+			expect(getLookupFixtureData).not.toHaveBeenCalled();
+		});
+		it.each(["parent-multiple", "same-smaller"] as const)(
+			"propagates the real HQ-only nested selection refusal for %s",
+			async (scenario) => {
+				loads(nestedMenuWireFixture(scenario));
+				const response = await post(request());
+				if (mode === "ccz") {
+					expect(response.status).toBe(200);
+					expect(
+						(await unzip(new Uint8Array(await response.arrayBuffer()))).has(
+							"suite.xml",
+						),
+					).toBe(true);
+				} else {
+					expect(response.status).toBe(422);
+					expect(await response.json()).toMatchObject({
+						error:
+							"This app isn't ready to export. Fix the issues below, then try again.",
+						details: [
+							expect.stringContaining(
+								scenario === "parent-multiple"
+									? "parent cases"
+									: "4 selected cases",
+							),
+						],
+					});
+					expect(downloadAssetBytes).not.toHaveBeenCalled();
+				}
+			},
+		);
+		it("runs the real media gate before downloading a mismatched asset", async () => {
+			loads(fixture({ media: true }));
+			vi.mocked(loadAssetsByIds).mockResolvedValue([
+				{ ...ROW, kind: "audio", mimeType: "audio/mpeg", extension: ".mp3" },
+			]);
+			const response = await post(request());
+			expect(await response.json()).toMatchObject({
+				error: `This app isn't ready to ${verb}. Fix the issues below, then try again.`,
+				details: expect.arrayContaining([
+					expect.stringContaining("wrong type"),
+				]),
+			});
+			expect(response.status).toBe(422);
+			expect(loadAssetsByIds).toHaveBeenCalledWith([IMAGE], "project-1");
+			expect(downloadAssetBytes).not.toHaveBeenCalled();
+		});
+		it("keeps an operational lookup failure out of document findings", async () => {
+			vi.mocked(getLookupFixtureData).mockRejectedValueOnce(
+				new Error("database private failure"),
+			);
+			const response = await post(request());
+			const body = await response.json();
+			expect(response.status).toBe(500);
+			expect(body.error).not.toContain("private");
+			expect(body.error).not.toContain("isn't ready");
+			expect(downloadAssetBytes).not.toHaveBeenCalled();
+		});
+		it("emits unchecked destination compatibility beside valid bytes", async () => {
+			loads(fixture({ search: true }));
+			const response = await post(request());
+			const bytes = await response.arrayBuffer();
+			expect(response.status).toBe(200);
+			const report = decodeProjectSpaceCompatibilityReport(
+				response.headers.get(PROJECT_SPACE_COMPATIBILITY_REPORT_HEADER),
+			);
+			expect(report?.status).toBe("not_checked");
+			expect(report?.required_capabilities).toEqual([
+				expect.objectContaining({ id: "case-search", state: "not_checked" }),
+			]);
+			if (mode === "ccz")
+				expect((await unzip(new Uint8Array(bytes))).size).toBeGreaterThan(2);
+			else
+				expect(JSON.parse(Buffer.from(bytes).toString()).modules).toHaveLength(
+					1,
+				);
+		});
+		it.each([false, true])(
+			"binds captured links to the unique deployment when available: %s",
+			async (known) => {
+				loads(fixture({ photo: true }));
+				if (known)
+					vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({
+						kind: "known",
+						target: { server: "india", domain: "acme" },
+					});
+				const response = await post(
+					request(known ? { appId: "a1" } : undefined),
+				);
+				const bytes = new Uint8Array(await response.arrayBuffer());
+				expect(response.status).toBe(200);
+				const text =
+					mode === "ccz"
+						? [...(await unzip(bytes)).values()]
+								.map((entry) => entry.toString())
+								.join("\n")
+						: Buffer.from(bytes).toString();
+				if (known)
+					expect(text).toContain("https://india.commcarehq.org/a/acme/");
+				else expect(text).not.toContain("https://india.commcarehq.org/a/acme/");
+				const advisories = decodeExportAdvisories(
+					response.headers.get(EXPORT_ADVISORY_HEADER),
+				);
+				expect(advisories.map((item) => item.id)).toEqual(
+					known ? [] : ["attachment_links_without_target"],
+				);
+			},
 		);
 	});
+}
 
-	it("says what the file could not carry, without changing the bytes", async () => {
-		loadsDoc(docWithAttachmentLink());
+it("bundles the referenced ready image with JSON and a matching XForm reference", async () => {
+	loads(fixture({ media: true, name: "Vaccinés 中文" }));
+	vi.mocked(loadAssetsByIds).mockResolvedValue([ROW]);
+	const response = await jsonPost(request());
+	const bytes = new Uint8Array(await response.arrayBuffer());
+	expect(response.status).toBe(200);
+	expect(response.headers.get("content-type")).toBe("application/zip");
+	expect(response.headers.get("x-compiled-at-seq")).toBe("42");
+	const entries = await unzip(bytes);
+	const jsonName = [...entries.keys()].find((name) => name.endsWith(".json"));
+	expect(jsonName).toBe("Vaccinés 中文.json");
+	const app = JSON.parse(member(entries, jsonName ?? "").toString());
+	expect(
+		app._attachments[`${app.modules[0].forms[0].unique_id}.xml`],
+	).toContain(`jr://file/commcare/${HASH}.png`);
+	const images = await unzip(member(entries, "multimedia.zip"));
+	expect([...images.keys()]).toEqual([`commcare/${HASH}.png`]);
+	expect(member(images, `commcare/${HASH}.png`)).toEqual(PNG);
+	expect(member(entries, "README.txt").toString()).toContain("multimedia.zip");
+	expect(downloadAssetBytes).toHaveBeenCalledWith(
+		ROW.gcsObjectKey,
+		expect.any(Number),
+	);
+});
 
-		const res = await POST(reqWith({ appId: "a1", server: "production" }));
-		const advisories = decodeExportAdvisories(
-			res.headers.get(EXPORT_ADVISORY_HEADER),
-		);
+it("ships a readable workbook generated from the same lookup rows as the app reference", async () => {
+	loads(fixture({ lookup: true }));
+	vi.mocked(getLookupFixtureData).mockResolvedValue(snapshot(true));
+	const response = await jsonPost(request());
+	const bytes = new Uint8Array(await response.arrayBuffer());
+	expect(response.status).toBe(200);
+	const entries = await unzip(bytes);
+	expect(entries.has("multimedia.zip")).toBe(false);
+	const app = JSON.parse(member(entries, "Vaccine Tracker.json").toString());
+	expect(
+		app._attachments[`${app.modules[0].forms[0].unique_id}.xml`],
+	).toContain("districts");
+	const workbook = await unzip(member(entries, "lookup-tables.xlsx"));
+	const xml = [...workbook.values()]
+		.map((entry) => entry.toString())
+		.join("\n");
+	expect(xml).toContain("North district");
+	expect(xml).toContain("north");
+	expect(member(entries, "README.txt").toString()).toContain("districts");
+	expect(getLookupFixtureData).toHaveBeenCalledTimes(1);
+	expect(getLookupFixtureData).toHaveBeenCalledWith(expect.anything(), [TABLE]);
+});
 
-		expect(advisories[0]?.id).toBe("attachment_links_without_target");
-		expect(advisories[0]?.message).toContain("photo_url");
-		// The advisory rides beside the archive. It is not a refusal, and the
-		// bytes are exactly what a clean compile returns.
-		expect(Buffer.from(await res.arrayBuffer()).toString()).toBe("ccz-bytes");
-		expect(res.status).toBe(200);
+it("requires a server choice when deployment state does not identify one", async () => {
+	const response = await cczPost(request({ appId: "a1" }));
+	expect(response.status).toBe(422);
+	expect(await response.json()).toEqual({
+		error: "Choose a CommCare server for this download, then try again.",
 	});
-
-	it("stays quiet on an app with no attachment links", async () => {
-		const res = await POST(reqWith({ appId: "a1", server: "production" }));
-		const header = res.headers.get(EXPORT_ADVISORY_HEADER);
-		await res.arrayBuffer();
-
-		expect(decodeExportAdvisories(header)).toEqual([]);
+	expect(getLookupFixtureData).not.toHaveBeenCalled();
+});
+it.each([42, "other-server", {}])(
+	"refuses an invalid server before export resource reads: %j",
+	async (server) => {
+		const response = await cczPost(request({ appId: "a1", server }));
+		expect(response.status).toBe(400);
+		expect(await response.json()).toEqual({
+			error: "Choose US, India, or EU as the CommCare server.",
+		});
+		expect(getLookupFixtureData).not.toHaveBeenCalled();
+	},
+);
+it("drops India capture addresses when explicitly exporting for EU", async () => {
+	loads(fixture({ photo: true }));
+	vi.mocked(attachmentDeploymentTargetFor).mockResolvedValue({
+		kind: "known",
+		target: { server: "india", domain: "acme" },
 	});
+	const response = await jsonPost(request({ appId: "a1", server: "eu" }));
+	const app = await response.json();
+	expect(response.status).toBe(200);
+	const source = app._attachments[`${app.modules[0].forms[0].unique_id}.xml`];
+	expect(source).not.toContain("https://india.commcarehq.org/a/acme/");
+	expect(
+		decodeExportAdvisories(response.headers.get(EXPORT_ADVISORY_HEADER)).map(
+			(item) => item.id,
+		),
+	).toEqual(["attachment_links_without_target"]);
 });

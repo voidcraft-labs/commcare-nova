@@ -19,10 +19,13 @@
  *     closed sets stage nothing further.
  */
 
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { asDesignId } from "@/lib/agent/design/ids";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { createPerTestAppDb } from "@/lib/db/__tests__/perTestAppDb";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
+import { __setAppDbForTests } from "@/lib/db/pg";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { asUuid } from "@/lib/domain/uuid";
 import { emptyGenesisBase } from "../baseLoader";
@@ -96,6 +99,8 @@ async function openAppEditSet(appId: string) {
 	});
 }
 
+// Opaque advisory summary at the store boundary, not a validator verdict.
+// Runtime and materialization tests recompute real candidate diagnostics.
 const CLEAN_DIAGNOSTICS: ChangeSetDiagnosticsSummary = {
 	candidateDigest: canonicalJsonDigest("candidate"),
 	findingCount: 0,
@@ -137,7 +142,7 @@ function stageArgs(
 	};
 }
 
-beforeEach(() => {
+afterEach(() => {
 	__setStageTransactionFaultHookForTests(null);
 });
 
@@ -150,7 +155,16 @@ describe("beginChangeSet", () => {
 		expect(changeSet.appId).toBe(appId);
 		expect(changeSet.baseSeq).toBe(1);
 		expect(changeSet.baseProjectId).toBe(PROJECT);
-		expect(changeSet.baseSnapshotDigest).toMatch(/^[a-f0-9]{64}$/);
+		const baseline = await h
+			.db()
+			.selectFrom("app_change_fold_baselines")
+			.select("snapshot")
+			.where("app_id", "=", appId)
+			.where("seq", "=", 1)
+			.executeTakeFirstOrThrow();
+		expect(changeSet.baseSnapshotDigest).toBe(
+			canonicalJsonDigest(baseline.snapshot),
+		);
 		expect(changeSet.revision).toBe(0);
 		expect(changeSet.nextOrdinal).toBe(0);
 		expect(changeSet.status).toBe("open");
@@ -246,19 +260,54 @@ describe("stage request idempotency", () => {
 		expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(1);
 	});
 
-	it("keeps two process continuations from allocating the same or inverted ordinal", async () => {
+	it("serializes two observed database waiters before assigning the next ordinal", async () => {
 		const appId = await createTestApp();
 		const changeSet = await openAppEditSet(appId);
 
-		const results = await Promise.allSettled([
-			stageChangeSetRequest(stageArgs(changeSet.id, { requestId: "race-a" })),
-			stageChangeSetRequest(stageArgs(changeSet.id, { requestId: "race-b" })),
-		]);
+		const contenders = createPerTestAppDb(h.uri());
+		let results: PromiseSettledResult<
+			Awaited<ReturnType<typeof stageChangeSetRequest>>
+		>[];
+		try {
+			__setAppDbForTests(contenders.appDb);
+			results = await whileBlocked(
+				h,
+				(pg) =>
+					pg.query(
+						"SELECT id FROM design_change_sets WHERE id = $1 FOR UPDATE",
+						[changeSet.id],
+					),
+				() =>
+					Promise.allSettled([
+						stageChangeSetRequest(
+							stageArgs(changeSet.id, { requestId: "race-a" }),
+						),
+						stageChangeSetRequest(
+							stageArgs(changeSet.id, { requestId: "race-b" }),
+						),
+					]),
+				async (settled, pg) => {
+					expect(settled).toBe(false);
+					await expect
+						.poll(async () => {
+							await pg.query("SELECT pg_stat_clear_snapshot()");
+							const waiters = await pg.query<{ count: number }>(
+								"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0",
+							);
+							return waiters.rows[0].count;
+						})
+						.toBe(2);
+				},
+			);
+		} finally {
+			__setAppDbForTests(h.db());
+			await contenders.destroy();
+		}
 		const fulfilled = results.filter((entry) => entry.status === "fulfilled");
 		const rejected = results.filter((entry) => entry.status === "rejected");
 		expect(fulfilled).toHaveLength(1);
 		expect(rejected).toHaveLength(1);
-		expect((rejected[0] as PromiseRejectedResult).reason).toBeInstanceOf(
+		expect(rejected[0]?.reason).toBeInstanceOf(
 			ChangeSetWorkspaceRevisionStaleError,
 		);
 		const steps = await loadChangeSetSteps(changeSet.id);
@@ -313,7 +362,10 @@ describe("statement-boundary fault injection", () => {
 				outcome: {
 					kind: "stage",
 					mutations: admitMutationBatch([
-						{ kind: "setAppName", name: "Renamed by staging" },
+						{
+							kind: "addModule",
+							module: { uuid: handleUuid, id: "fault", name: "Fault module" },
+						},
 					]),
 					stageSlices: [{ stage: "structure", start: 0, end: 1 }],
 					handles: [{ handle, uuid: handleUuid, entityKind: "module" }],
@@ -349,7 +401,7 @@ describe("statement-boundary fault injection", () => {
 			expect(retry.replayed).toBe(false);
 			expect(retry.receipt.ordinal).toBe(0);
 			expect(retry.receipt.handles).toEqual({
-				"@fault": expect.stringMatching(/^[0-9a-f-]{36}$/),
+				"@fault": handleUuid,
 			});
 		});
 	}

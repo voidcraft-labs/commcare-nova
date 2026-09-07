@@ -12,8 +12,6 @@ import {
 	carriedValuesFor,
 	retargetDropsCarriedValues,
 	retargetLink,
-	SEED_CARRIED_VALUE_TEXT,
-	SEED_CONDITION_TEXT,
 	seedCarriedValues,
 	seedConditionalLink,
 	seedOtherwiseLink,
@@ -31,12 +29,11 @@ describe("seeds", () => {
 			parse,
 			testUuid("c"),
 		);
-		expect(link).toEqual({
+		expect(link).toStrictEqual({
 			uuid: testUuid("c"),
-			condition: parse(SEED_CONDITION_TEXT),
+			condition: parse("false()"),
 			target: toNote,
 		});
-		expect(SEED_CONDITION_TEXT).toBe("false()");
 	});
 
 	it("an otherwise link has no condition slot at all", () => {
@@ -49,7 +46,7 @@ describe("seeds", () => {
 			parse,
 			testUuid("o"),
 		);
-		expect(link).toEqual({ uuid: testUuid("o"), target: toVisit });
+		expect(link).toStrictEqual({ uuid: testUuid("o"), target: toVisit });
 		expect("condition" in link).toBe(false);
 		expect("datums" in link).toBe(false);
 	});
@@ -61,14 +58,14 @@ describe("seeds", () => {
 				required,
 				parse,
 			),
-		).toEqual([{ name: "case_id", xpath: parse(SEED_CARRIED_VALUE_TEXT) }]);
+		).toStrictEqual([{ name: "case_id", xpath: parse("''") }]);
 		expect(
 			carriedValuesFor({ kind: "automatic", carried: [] }, required, parse),
 		).toBeUndefined();
 		expect(
 			carriedValuesFor({ kind: "nothing-needed" }, [], parse),
 		).toBeUndefined();
-		expect(seedCarriedValues([], parse)).toEqual([]);
+		expect(seedCarriedValues([], parse)).toStrictEqual([]);
 	});
 
 	it("retargeting reseeds values for the destination and reports what it drops", () => {
@@ -83,7 +80,7 @@ describe("seeds", () => {
 			{ target: toNote, carry: { kind: "nothing-needed" }, required: [] },
 			parse,
 		);
-		expect(next).toEqual({
+		expect(next).toStrictEqual({
 			uuid: testUuid("l"),
 			condition: parse("1 = 1"),
 			target: toNote,
@@ -98,8 +95,8 @@ describe("seeds", () => {
 			},
 			parse,
 		);
-		expect(back.datums).toEqual([
-			{ name: "case_id", xpath: parse(SEED_CARRIED_VALUE_TEXT) },
+		expect(back.datums).toStrictEqual([
+			{ name: "case_id", xpath: parse("''") },
 		]);
 		expect(retargetDropsCarriedValues(next, back)).toBe(false);
 	});

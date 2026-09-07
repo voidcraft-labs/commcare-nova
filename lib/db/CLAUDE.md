@@ -267,6 +267,17 @@ Its post-commit schema sweep precedes worker-row synchronization, so a batch
 that adds worker information and persona values stores them against the updated
 schema. Worker-only edits still synchronize even when no schema changed.
 
+Worker rows use `(app, commcare-user, hq_user_id)` as their semantic identity.
+`syncUsercaseRow` preserves a matching existing row's case id, including the
+historical worker-id spelling. Only new rows derive a UUID from the app and
+worker ids; Project is excluded so app moves preserve identity. Concurrent
+first resolutions converge by re-reading that exact semantic identity after
+`CaseStore.insert` has rolled back a primary-key conflict in its own transaction.
+An unrelated collision, duplicate worker identity, or mismatched owner refuses.
+Held and closed rows remain existing rows and are never silently replaced or
+reopened. Persona removal finds the same record before closing it. No migration
+or case-primary-key change is needed.
+
 **Every app belongs to exactly one Project.** `apps.project_id` is `NOT NULL`
 and has the validated
 `apps_project_id_auth_organization_fk` to `auth_organization(id)` with
@@ -1099,7 +1110,8 @@ GCS lifecycle remains the traffic-independent
 backstop for ordinary staged/browser-abandoned source bytes, but cannot
 atomically distinguish DB acceptance; accepted durability therefore requires
 the verified destination outside that TTL prefix before commit. The scheduled
-worker and initiate-route sweep share `purgeExpiredFormAttachments`. Repeat
+worker runs `purgeExpiredFormAttachments`; upload requests await their own
+cleanup and leave expiry maintenance to that worker. Repeat
 compaction preserves attachment-id identity and CAS-moves only a `staged` row's
 concrete `instance_path` under the same entry advisory lock; pending uploads
 cancel, `preparing`/`prepared` rows are fenced from retarget, and `submitted`

@@ -3,7 +3,10 @@ import {
 	findOnDeviceDateAddIssue,
 	findOnDeviceDateAddIssueInPredicate,
 } from "@/lib/commcare/expression/onDeviceCompatibility";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import {
 	checkExpression,
 	checkPredicate,
@@ -21,10 +24,13 @@ import {
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
-const TABLE = "00000000-0000-7000-8000-000000000001" as LookupTableId;
-const TEXT_COLUMN = "10000000-0000-7000-8000-000000000001" as LookupColumnId;
-const DATETIME_COLUMN =
-	"10000000-0000-7000-8000-000000000002" as LookupColumnId;
+const TABLE = lookupTableIdSchema.parse("00000000-0000-7000-8000-000000000001");
+const TEXT_COLUMN = lookupColumnIdSchema.parse(
+	"10000000-0000-7000-8000-000000000001",
+);
+const DATETIME_COLUMN = lookupColumnIdSchema.parse(
+	"10000000-0000-7000-8000-000000000002",
+);
 
 const TYPE_CONTEXT: TypeContext = {
 	caseTypes: [
@@ -84,7 +90,7 @@ describe("on-device date-add compatibility", () => {
 		).toBeUndefined();
 	});
 
-	it("returns the calendar-relative reason at any predicate depth", () => {
+	it("finds the calendar-relative reason in a comparison operand", () => {
 		const issue = findOnDeviceDateAddIssueInPredicate(
 			eq(
 				term(prop("patient", "visited_on")),

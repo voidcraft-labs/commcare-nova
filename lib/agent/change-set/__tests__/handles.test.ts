@@ -194,6 +194,31 @@ describe("resolveHandleRefs", () => {
 		});
 	});
 
+	it("preserves own JSON keys so canonical reparsing sees unknown payloads", () => {
+		const { table, uuids } = tableWith("@a");
+		const raw = JSON.parse(
+			'{"target":{"handle":"@a"},"__proto__":{"unrecognized":true},"items":[{"__proto__":{"also":true}}]}',
+		);
+		const snapshot = structuredClone(raw);
+		const { resolved } = resolveHandleRefs(raw, table);
+		expect(resolved).toStrictEqual({ ...snapshot, target: uuids["@a"] });
+		expect(Object.hasOwn(resolved as object, "__proto__")).toBe(true);
+		expect(raw).toStrictEqual(snapshot);
+	});
+	it("prunes deleted identity bindings without changing the original or surviving handles", () => {
+		const { table, uuids } = tableWith("@a", "@b");
+		const retained = table.retainingUuids(new Set([uuids["@b"]]));
+		expect(retained.lookup(handle("@a"))).toBeUndefined();
+		expect(retained.lookup(handle("@b"))).toEqual({
+			uuid: uuids["@b"],
+			entityKind: "field",
+		});
+		expect(table.lookup(handle("@a"))?.uuid).toBe(uuids["@a"]);
+		expect(() => resolveHandleRefs({ handle: "@a" }, retained)).toThrow(
+			ChangeSetStagingRejectedError,
+		);
+	});
+
 	it("resolves a handle reference standing alone at the root", () => {
 		const { table, uuids } = tableWith("@root");
 		expect(resolveHandleRefs({ handle: "@root" }, table).resolved).toBe(

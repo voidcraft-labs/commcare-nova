@@ -14,8 +14,16 @@ export function assertAdmittedDoc(
 ): void {
 	blueprintDocSchema.parse(toPersistableDoc(doc));
 	// Do not seed identity-keyed production caches on a mutable fixture under construction.
-	// Clone exact values; neither schema parsing nor this check repairs the document.
+	// Store snapshots also carry methods. Clone the document data and its existing
+	// derived parent map, preserving both without trying to clone store behavior.
+	// Neither schema parsing nor this check repairs the document.
 	expect(
-		evaluateCommit({ nextDoc: structuredClone(doc), lookupContext }),
+		evaluateCommit({
+			nextDoc: structuredClone({
+				...toPersistableDoc(doc),
+				fieldParent: doc.fieldParent,
+			}),
+			lookupContext,
+		}),
 	).toEqual({ ok: true });
 }

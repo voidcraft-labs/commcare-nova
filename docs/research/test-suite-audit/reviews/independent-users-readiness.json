@@ -1,0 +1,49 @@
+{
+	"kind": "independent-users-readiness-review",
+	"reviewer": "commcare",
+	"findingCount": 0,
+	"scope": "Read-only bounded review of the current seven-file Users readiness correction; no tests or source edits.",
+	"sourceHashes": {
+		"components/builder/app-setup/UsersSection.tsx": "3c951cda2e441d1e66bb0b1bc898a8e1d91d527f8dcb6718dd6f3f54a5cbf308",
+		"components/builder/app-setup/PersonasSubsection.tsx": "baf2471587c27a44027394ef47a6d9fea998559fa19ec1e5866748f4ec568f27",
+		"components/builder/app-setup/RolesSubsection.tsx": "e4a305e2743e914d87f77409b8c504c5836ab438a31a4a45354c712c76bf14c9",
+		"components/builder/app-setup/WorkerInformationSubsection.tsx": "3d812f698c2e0cdcf3c1c2358673bb218fafd8c229899cc5b85264f737f7eea9",
+		"components/builder/app-setup/PersonaLocations.tsx": "3e634c1446ffc390e962ac3f05b6c9fc9c2d797d95197d6fa9df5593e9ef9076",
+		"components/builder/app-setup/PersonaRemoveConfirm.tsx": "24f2b69697f27b215a00faa6844a5b9b4a68456e2981c7c77958f3e34298b243",
+		"components/builder/app-setup/subsection.tsx": "dd0944ecb7b18b0ca75c283bce4cdb3d1373c6e62851ee82757901d8f7ef2467"
+	},
+	"supportingSourceHashes": {
+		"lib/doc/builderWriteAdmission.ts": "bb38eaaa0155668ad9b5ce6403c2d5c9b8015605aac307a86064f6c9cf43d322",
+		"lib/doc/lookupCommitContext.tsx": "b1069b52c1dd19948cac79a89e31aef8bb76084bf47dd79ae964e26aafabf0a9",
+		"lib/doc/hooks/useBlueprintMutations.ts": "5bcadf1fee730831b37672aa69849af9ebc6fc7f462853c831e436ccc09eb24c",
+		"components/builder/lookup/BuilderLookupCatalogProvider.tsx": "06985e34ab86880159a021dd66b381cc351c579b11b5ab3ded60197360a25774",
+		"components/builder/lookup/catalogContext.ts": "286ba5c2aa5d8e97bce03d05a96434f0edd9046039fbbd0030ca068f526384bf",
+		"components/builder/app-setup/DraftCommitField.tsx": "84b872e094f4c2d845d2a10edd4d174c9f21aa86d4e6e47b474e6b619b64e476",
+		"components/builder/app-setup/draftCommitModel.ts": "b925b7a2f7c1415f6b0e2a8ec8764973b2ce528a18cacb315ca64f01dedadcd5",
+		"components/builder/app-setup/ValueField.tsx": "b7ea5a7b0a0db80a8a5eaaf9126239323548aec76659b42643d37de3263d9163",
+		"components/builder/LocationChoiceSelect.tsx": "9dac9cf20d0c90bba9c01fd71f5953374b986060c1db48bf8120d92bd1cd2da4",
+		"lib/preview/hooks/useReloadableResource.ts": "64b4185ee4f2a164ce4f12e3e2c9cf37792ed85b6c18d91b34a6d4fab1e115ae"
+	},
+	"conclusions": [
+		"No actionable introduced regression found. Each Users collection and editable row derives canWrite from builderWriteAdmission with its current permission and lookup commit context. The guarded mutation dispatcher uses the same admission, so disabled controls supplement the existing authoritative commit gate.",
+		"Permission visibility remains canEdit: viewers keep readable rows/disclosures and have no Add/remove affordances. Temporary catalog loading/error disables writes without unmounting the collections or existing editors.",
+		"EntryRow retains its existing keepMounted disclosure behavior. DraftCommitField state has no disabled-triggered reset; decideDraftCommit ignores disabled commits, preserving dirty input and peer-change protection across a pause. Accepted-value Apply also receives disabled.",
+		"Role/persona value choosers and free-text values propagate disabled through ValueField including clear/inherit actions. PersonaLocations gates add/remove/Make main and guards the shared changeAssignment callback; assigned-place pagination and read-only inspection remain independent.",
+		"Open removal panels receive readiness disablement for destructive actions while Cancel/Close remain available. Persona confirmation also guards the handler. Role/property handlers still reach the authoritative inline mutation gate.",
+		"UsersSection displays one admission explanation only for editable users whose writes are unavailable, uses an alert on catalog error, and routes Try again to the catalog provider retry. Catalog and commit-state contexts derive together from the same provider value. useReloadableResource catches fetch failures and owns retry settling."
+	],
+	"evidenceLocations": [
+		"lib/doc/builderWriteAdmission.ts:31",
+		"lib/doc/hooks/useBlueprintMutations.ts:798",
+		"components/builder/app-setup/UsersSection.tsx:26",
+		"components/builder/app-setup/subsection.tsx:118",
+		"components/builder/app-setup/DraftCommitField.tsx:61",
+		"components/builder/app-setup/draftCommitModel.ts:38",
+		"components/builder/app-setup/PersonaLocations.tsx:96",
+		"components/builder/app-setup/PersonaRemoveConfirm.tsx:170"
+	],
+	"limits": [
+		"Native held-catalog browser red/green proof is Builder-owned and was not rerun by this reviewer.",
+		"This report reviews the readiness correction and supporting admission/draft semantics; it does not claim a new broad review of unrelated Users behavior."
+	]
+}

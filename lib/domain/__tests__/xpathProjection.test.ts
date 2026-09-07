@@ -5,10 +5,15 @@ import {
 	type XPathExpression,
 	xpathExpressionSchema,
 } from "../xpath/ast";
-import { printXPath, projectXPath, XPathProjectionError } from "../xpath/print";
+import {
+	printXPath,
+	projectXPath,
+	XPathProjectionError,
+	xpathPrintContext,
+} from "../xpath/print";
 
 describe("XPath expression shape guard", () => {
-	it("accepts exactly the canonical schema", () => {
+	it("accepts a canonical mixed text and identity expression", () => {
 		const expression = xpathExpressionSchema.parse({
 			parts: [
 				{ kind: "text", text: "count(" },
@@ -33,6 +38,35 @@ describe("XPath expression shape guard", () => {
 });
 
 describe("XPath identity projection", () => {
+	it("projects the same identities through current paths and preserves literal source", () => {
+		const form = testUuid("projection-form");
+		const field = testUuid("projection-field");
+		const group = testUuid("projection-group");
+		const doc = {
+			forms: { [form]: {} },
+			fields: { [field]: { id: "age" }, [group]: { id: "details" } },
+			fieldOrder: { [form]: [group], [group]: [field] },
+		};
+		const expression = xpathExpressionSchema.parse({
+			parts: [
+				{ kind: "text", text: "concat('literal #form/age', " },
+				{ kind: "field-ref", uuid: field },
+				{ kind: "text", text: ", " },
+				{ kind: "path-ref", uuid: field },
+				{ kind: "text", text: ")" },
+			],
+		});
+		const original = structuredClone(expression);
+		expect(printXPath(expression, xpathPrintContext(doc))).toBe(
+			"concat('literal #form/age', #form/details/age, /data/details/age)",
+		);
+		doc.fields[field].id = "years";
+		expect(printXPath(expression, xpathPrintContext(doc))).toBe(
+			"concat('literal #form/age', #form/details/years, /data/details/years)",
+		);
+		expect(expression).toEqual(original);
+	});
+
 	it("returns repair state and never prints a missing worker-property UUID", () => {
 		const missing = testUuid("missing-xpath-worker-property");
 		const expression: XPathExpression = {

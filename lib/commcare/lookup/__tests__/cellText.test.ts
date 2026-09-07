@@ -21,7 +21,7 @@ describe("lookupFixtureCellText", () => {
 	it("passes text and temporal cells through byte-identically", () => {
 		expect(lookupFixtureCellText("text", "hello")).toBe("hello");
 		expect(lookupFixtureCellText("date", "2026-07-23")).toBe("2026-07-23");
-		expect(lookupFixtureCellText("time", "13:45:00")).toBe("13:45:00");
+		expect(lookupFixtureCellText("time", "13:45:00Z")).toBe("13:45:00Z");
 		expect(lookupFixtureCellText("datetime", "2026-07-23T13:45:00.000Z")).toBe(
 			"2026-07-23T13:45:00.000Z",
 		);

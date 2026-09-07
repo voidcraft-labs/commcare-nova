@@ -29,4 +29,30 @@ describe("chatRequestSchema new-app scope", () => {
 		expect(chatRequestSchema.safeParse({ appId: "app-1" }).success).toBe(true);
 		expect(chatRequestSchema.safeParse({}).success).toBe(true);
 	});
+	it("accepts the exact bounded opaque attribution and rejects one more character", () => {
+		expect(
+			chatRequestSchema.parse({
+				runId: "r".repeat(128),
+				threadId: "t".repeat(128),
+				expectedProjectId: "p".repeat(255),
+			}),
+		).toEqual({
+			runId: "r".repeat(128),
+			threadId: "t".repeat(128),
+			expectedProjectId: "p".repeat(255),
+		});
+		for (const input of [
+			{ runId: "r".repeat(129) },
+			{ threadId: "t".repeat(129) },
+			{ runId: "   " },
+			{ holderNonce: "opaque-client-value" },
+		]) {
+			expect(chatRequestSchema.safeParse(input).success).toBe(false);
+		}
+		expect(
+			chatRequestSchema.parse({
+				holderNonce: "12345678-1234-4234-8234-123456789abc",
+			}),
+		).toEqual({ holderNonce: "12345678-1234-4234-8234-123456789abc" });
+	});
 });

@@ -31,6 +31,7 @@ import {
 import { SavedCheck } from "@/components/builder/EditableTitle";
 import { SaveShortcutHint } from "@/components/builder/SaveShortcutHint";
 import {
+	type CommitOutcome,
 	canonicalProseTemplate,
 	type ProseTemplate,
 	proseTemplateIsEmpty,
@@ -52,10 +53,11 @@ import { createRefSuggestion } from "@/lib/tiptap/refSuggestion";
 interface RefLabelInputProps {
 	label: string;
 	value: ProseTemplate;
-	onSave: (value: ProseTemplate) => void;
+	/** A refusal retains the draft; the owning editor presents its messages. */
+	onSave: (value: ProseTemplate) => CommitOutcome | undefined;
 	/** Called on every content change (not just commit). Lets the canvas show chips in real-time. */
 	onChange?: (value: ProseTemplate) => void;
-	onEmpty?: () => void;
+	onEmpty?: () => CommitOutcome | undefined;
 	dataFieldId?: string;
 	multiline?: boolean;
 	autoFocus?: boolean;
@@ -123,12 +125,14 @@ export function RefLabelInput({
 	onChangeRef.current = onChange;
 	const debounceRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 	const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
+	const selectAllTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined);
 
 	/* Clean up pending timers on unmount to prevent stale state updates. */
 	useEffect(
 		() => () => {
 			clearTimeout(debounceRef.current);
 			clearTimeout(savedTimerRef.current);
+			clearTimeout(selectAllTimerRef.current);
 		},
 		[],
 	);
@@ -258,20 +262,31 @@ export function RefLabelInput({
 	const commit = useCallback(() => {
 		if (committedRef.current || !editor) return;
 		committedRef.current = true;
-		setFocused(false);
-		editor.commands.blur();
-
 		const serialized = canonicalProseTemplate(
 			serializeContent(editor.getJSON()).parts,
 			{ trim: true },
 		);
-		if (proseTemplateIsEmpty(serialized) && onEmpty) {
-			onEmpty();
+		const empty = proseTemplateIsEmpty(serialized) && onEmpty !== undefined;
+		const changed = !sameTemplate(serialized, savedValueRef.current);
+		const outcome = empty
+			? onEmpty()
+			: changed
+				? onSave(serialized)
+				: undefined;
+		if (outcome && !outcome.ok) {
+			committedRef.current = false;
+			setSaved(false);
+			setFocused(true);
+			editor.view.focus();
 			return;
 		}
-		if (!sameTemplate(serialized, savedValueRef.current)) {
-			onSave(serialized);
+		setFocused(false);
+		// Native blur is synchronous. A queued blur could otherwise fire after
+		// the author has already reopened this editor and started a new draft.
+		editor.view.dom.blur();
+		if (!empty && changed) {
 			setSaved(true);
+			clearTimeout(savedTimerRef.current);
 			savedTimerRef.current = setTimeout(() => setSaved(false), 1500);
 		}
 	}, [editor, onSave, onEmpty]);
@@ -285,7 +300,7 @@ export function RefLabelInput({
 		if (committedRef.current || !editor) return;
 		committedRef.current = true;
 		setFocused(false);
-		editor.commands.blur();
+		editor.view.dom.blur();
 
 		const content = parseValueToContent(
 			savedValueRef.current,
@@ -321,7 +336,11 @@ export function RefLabelInput({
 			savedValueRef.current = valueRef.current;
 			setFocused(true);
 			if (selectAll) {
-				setTimeout(() => editor.commands.selectAll(), 0);
+				clearTimeout(selectAllTimerRef.current);
+				selectAllTimerRef.current = setTimeout(
+					() => editor.commands.selectAll(),
+					0,
+				);
 			}
 		};
 

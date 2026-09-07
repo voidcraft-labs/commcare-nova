@@ -27,6 +27,8 @@ import {
 	whenInput,
 	within,
 } from "@/lib/domain/predicate";
+import { evaluateAsync } from "../../xpath/asyncEvaluator";
+import { toBoolean } from "../../xpath/coerce";
 import {
 	searchInputRuntimeGlobalError,
 	searchInputRuntimeQuoteErrors,
@@ -89,11 +91,7 @@ describe("searchInputRuntimeQuoteErrors", () => {
 	});
 
 	it("keeps JS replacement metacharacters in a typed value inert", () => {
-		// The typed value lands in the rejection condition via
-		// `String.replaceAll`; a string replacement would expand `$&` to the
-		// matched instance path and collapse `$$`, so the gate would judge a
-		// different value than the worker typed — `$'` (apostrophe-bearing)
-		// must still flag, and quote-safe `$&`/`$$` values must stay clean.
+		// Worker-entered replacement metacharacters are ordinary search bytes.
 		const config: CaseListConfig = resolveCaseListConfig({
 			columns: [],
 			searchInputs: [
@@ -127,6 +125,55 @@ describe("searchInputRuntimeQuoteErrors", () => {
 				accepted,
 			).toBe(0);
 		}
+	});
+
+	it.each([
+		"instance('commcaresession')/session/context/username",
+		"instance('search-input:results')/input/field[@name='second']",
+	])("keeps XPath-looking prompt bytes inert: %s", (value) => {
+		const config = resolveCaseListConfig({
+			columns: [],
+			searchInputs: [
+				advancedSearchInputDef(
+					FIRST,
+					"first",
+					"First",
+					"text",
+					whenInput(
+						input(FIRST),
+						eq(prop("patient", "case_name"), input(FIRST)),
+					),
+				),
+				advancedSearchInputDef(SECOND, "second", "Second", "text", matchAll()),
+			],
+		});
+		const session = {
+			context: { username: 'The "Boss"' },
+			user: {},
+			userPropertySlugs: {},
+		};
+		expect([
+			...searchInputRuntimeQuoteErrors(
+				config,
+				"patient",
+				new Map([
+					["first", value],
+					["second", 'The "Boss"'],
+				]),
+				session,
+			),
+		]).toEqual([]);
+		expect(
+			searchInputRuntimeQuoteErrors(
+				config,
+				"patient",
+				new Map([
+					["first", `${value} "quoted"`],
+					["second", "plain"],
+				]),
+				session,
+			).get("first"),
+		).toContain("quotation mark");
 	});
 
 	it("rejects a computed output that combines individually safe answers", () => {
@@ -509,7 +556,7 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 		expect(errors.has("email")).toBe(false);
 	});
 
-	it("judges the pattern-bearing check on the device path with the answer bound in", async () => {
+	it("judges the pattern-bearing check with the real async XPath evaluator", async () => {
 		const sources: string[] = [];
 		const errors = await searchInputSubmissionErrorsOnDevice(
 			config,
@@ -523,7 +570,14 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 			{
 				evaluateOnDevice: async (source) => {
 					sources.push(source);
-					return false;
+					return toBoolean(
+						await evaluateAsync(source, {
+							contextPath: "",
+							position: 1,
+							getValue: () => undefined,
+							resolveHashtag: () => "",
+						}),
+					);
 				},
 			},
 		);
@@ -541,7 +595,17 @@ describe("searchInputSubmissionErrors — Search screen required conditions and 
 			]),
 			undefined,
 			undefined,
-			{ evaluateOnDevice: async () => true },
+			{
+				evaluateOnDevice: async (source) =>
+					toBoolean(
+						await evaluateAsync(source, {
+							contextPath: "",
+							position: 1,
+							getValue: () => undefined,
+							resolveHashtag: () => "",
+						}),
+					),
+			},
 		);
 		expect(errors.size).toBe(0);
 	});

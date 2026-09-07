@@ -30,12 +30,10 @@ import {
  * Rows come back in the caller's order; the fixture emitter is what imposes
  * the wire's `site_code` ordering.
  *
- * Enumerating is also what makes the predicate testable. A membership test
- * asked one target at a time can only ever be checked against the cases
- * someone thought to write down; the `fast-check` differential in
- * `__tests__/ownerSets.test.ts` runs both sides over generated level forests
- * and place trees and fails the moment an arm is added to one and not the
- * other.
+ * The pure tests specify exact destinations for each address-book mode,
+ * including ancestor retention, sibling branches, depth limits and multiple
+ * assignments, and check both the enumerator and membership predicate against
+ * those independent expectations.
  */
 export function personaFootprint(
 	doc: OrganizationCollections,

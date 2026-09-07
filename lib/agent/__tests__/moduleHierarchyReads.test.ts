@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { searchBlueprint } from "@/lib/doc/searchBlueprint";
 import { summarizeBlueprint } from "../summarizeBlueprint";
+import { expectAdmittedDoc } from "./admittedFixture";
 
 function nestedDoc() {
 	const doc = buildDoc({
@@ -39,6 +40,7 @@ function nestedDoc() {
 		...child,
 		parentModuleUuid: parentUuid,
 	};
+	expectAdmittedDoc(doc);
 	return { childUuid, doc, parentUuid };
 }
 
@@ -53,6 +55,9 @@ describe("module hierarchy reads", () => {
 			`  - Module "Follow-up" [uuid ${childUuid}] [child menu of uuid ${parentUuid}]`,
 		);
 		expect(summary.match(/Module "Follow-up"/g)).toHaveLength(1);
+		expect(summary.indexOf('Module "Services"')).toBeLessThan(
+			summary.indexOf('Module "Follow-up"'),
+		);
 	});
 
 	it("returns parent and children and carries the full menu path", () => {

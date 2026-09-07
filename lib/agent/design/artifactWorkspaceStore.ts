@@ -590,8 +590,9 @@ export async function stageDesignArtifactWorkspace(args: {
 		);
 	}
 	// Artifact kind and revision fencing are server-owned. A provider replay is
-	// idempotent when its semantic operation and handle bindings are identical;
-	// the current revision may have advanced because later calls already ran.
+	// idempotent when its semantic operation is identical and every supplied
+	// binding is already proven. Newly minted forward references disappear from
+	// later calls' binding batches after they enter the durable ledger.
 	const inputDigest = canonicalJsonDigest({
 		operation,
 		handleBindings: args.handleBindings ?? [],
@@ -629,15 +630,51 @@ export async function stageDesignArtifactWorkspace(args: {
 		const duplicate = await tx
 			.selectFrom("design_artifact_workspace_steps")
 			.select(["input_digest", "revision"])
+			.select(
+				sql<string>`${sql.ref("design_artifact_workspace_steps.operation")}::text`.as(
+					"operation_text",
+				),
+			)
 			.where("workspace_id", "=", workspaceId)
 			.where("tool_call_id", "=", args.toolCallId)
 			.executeTakeFirst();
 		if (duplicate !== undefined) {
 			if (duplicate.input_digest !== inputDigest) {
-				throw new DesignArtifactWorkspaceError(
-					"idempotency-collision",
-					"This tool-call identity was already used for different staged input.",
+				// Preserve old call digests. The semantic operation is stable even when
+				// an eager reference became a known or declared ledger entry meanwhile.
+				// Compare the exact storage envelope so legacy normalization cannot hide
+				// a change of meaning, then prove every supplied binding without writing.
+				const stored = parsePersistedJsonText(
+					duplicate.operation_text,
+					`design_artifact_workspace_steps.operation for ${workspaceId} revision ${String(duplicate.revision)}`,
 				);
+				const sameOperation =
+					canonicalJsonDigest(stored) ===
+					canonicalJsonDigest(
+						prepareDesignArtifactWorkspaceOperationForStorage(operation),
+					);
+				const bindings = sameOperation
+					? await selectHandleBindings(tx, args.designSessionId)
+					: [];
+				const knownByHandle = new Map(
+					bindings.map((binding) => [binding.handle, binding]),
+				);
+				const allBindingsKnown = (args.handleBindings ?? []).every(
+					(binding) => {
+						const known = knownByHandle.get(binding.handle);
+						return (
+							known?.designId === binding.designId &&
+							(binding.entityKind === "referenced" ||
+								known.entityKind === binding.entityKind)
+						);
+					},
+				);
+				if (!sameOperation || !allBindingsKnown) {
+					throw new DesignArtifactWorkspaceError(
+						"idempotency-collision",
+						"This tool-call identity was already used for different staged input.",
+					);
+				}
 			}
 			return { workspaceId, deduplicated: true, state: undefined };
 		}

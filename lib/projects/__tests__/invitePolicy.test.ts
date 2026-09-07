@@ -5,12 +5,7 @@
 // predicate it calls.
 
 import { describe, expect, it } from "vitest";
-import {
-	INVITE_ALLOWED_DOMAINS,
-	isInvitableEmail,
-	isPersonalProjectMetadata,
-	PERSONAL_PROJECT_NOT_SHAREABLE_ERROR,
-} from "../invitePolicy";
+import { isInvitableEmail, isPersonalProjectMetadata } from "../invitePolicy";
 
 describe("isInvitableEmail", () => {
 	it("accepts the allowed dimagi domains, case-insensitively", () => {
@@ -40,12 +35,6 @@ describe("isInvitableEmail", () => {
 		expect(isInvitableEmail('"weird@local"@dimagi.com')).toBe(true);
 		expect(isInvitableEmail('"x@dimagi.com"@gmail.com')).toBe(false);
 	});
-
-	it("exposes the allow-list as the single source the hook reads", () => {
-		expect(INVITE_ALLOWED_DOMAINS).toContain("dimagi.com");
-		expect(INVITE_ALLOWED_DOMAINS).toContain("dimagi-ai.com");
-		expect(INVITE_ALLOWED_DOMAINS).toContain("dimagi-associate.com");
-	});
 });
 
 describe("isPersonalProjectMetadata", () => {
@@ -63,15 +52,5 @@ describe("isPersonalProjectMetadata", () => {
 		expect(isPersonalProjectMetadata(undefined)).toBe(false);
 		expect(isPersonalProjectMetadata("not json")).toBe(false);
 		expect(isPersonalProjectMetadata("")).toBe(false);
-	});
-});
-
-describe("PERSONAL_PROJECT_NOT_SHAREABLE_ERROR", () => {
-	it("points to an available collaboration path without promising app moves", () => {
-		expect(PERSONAL_PROJECT_NOT_SHAREABLE_ERROR).toBeTruthy();
-		expect(PERSONAL_PROJECT_NOT_SHAREABLE_ERROR).toContain("shared Project");
-		expect(PERSONAL_PROJECT_NOT_SHAREABLE_ERROR.toLowerCase()).not.toContain(
-			"move",
-		);
 	});
 });

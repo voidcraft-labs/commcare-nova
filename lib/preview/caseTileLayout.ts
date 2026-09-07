@@ -56,21 +56,6 @@ import {
 	tileHasBoxedCells,
 } from "@/lib/domain";
 
-/**
- * Tiles drawn side by side in one row of the list. Nova does not author
- * CommCare's `fit-across`, and the runtime treats a missing attribute as
- * 1, so the projection pins 1 rather than leaving the renderer to guess.
- */
-export const TILE_ENTITIES_PER_ROW = 1;
-
-/**
- * Whether tile rows are forced to the same height as a column's width
- * (square cells). Nova does not author CommCare's `uniform-units`, and
- * the runtime treats a missing attribute as false, so rows size to
- * their content.
- */
-export const TILE_USES_UNIFORM_UNITS = false;
-
 /** How a cell's content sits across the cell, resolved for rendering. */
 export type ResolvedTileAlign = "start" | "center" | "end";
 
@@ -212,24 +197,9 @@ export function tileCellGridArea(cell: TileCell): string {
 	return `${rowStart} / ${columnStart} / ${rowStart + cell.height} / ${columnStart + cell.width}`;
 }
 
-/**
- * `grid-template-rows` for a tile.
- *
- * With uniform units off — Nova's pinned assumption — rows size to their
- * content. The uniform arm is kept because it is what the value means,
- * not because Nova can author it: a renderer that hardcoded
- * `min-content` would silently disagree with a device running an
- * imported app that does set `uniform-units`.
- */
-export function tileGridTemplateRows(
-	rows: number,
-	uniformUnits: boolean = TILE_USES_UNIFORM_UNITS,
-	columns?: number,
-): string {
-	if (!uniformUnits || columns === undefined || columns <= 0) {
-		return `repeat(${rows}, min-content)`;
-	}
-	return `repeat(${rows}, ${100 / columns}cqw)`;
+/** Nova authors content-sized tile rows; no uniform-unit mode exists in its document. */
+export function tileGridTemplateRows(rows: number): string {
+	return `repeat(${rows}, min-content)`;
 }
 
 /** `grid-template-columns` for a tile — equal fractions of the occupied extent. */

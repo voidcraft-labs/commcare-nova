@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { Field, Uuid } from "@/lib/domain";
+import { type Field, fieldSchema, type Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { DataInstance } from "../../engine/dataInstance";
 import { buildFieldTree } from "../../engine/fieldTree";
@@ -22,37 +22,38 @@ function fixture(): EvalContext {
 			kind: "repeat",
 			label: proseText("Items"),
 			repeat_mode: "user_controlled",
-		} as Field,
+		},
 		[textUuid]: {
 			uuid: textUuid,
 			id: "text",
 			kind: "text",
 			label: proseText("Text"),
-		} as Field,
+		},
 		[amountUuid]: {
 			uuid: amountUuid,
 			id: "amount",
 			kind: "int",
 			label: proseText("Amount"),
-		} as Field,
+		},
 		[dateUuid]: {
 			uuid: dateUuid,
 			id: "when",
 			kind: "date",
 			label: proseText("When"),
-		} as Field,
+		},
 		[datetimeUuid]: {
 			uuid: datetimeUuid,
 			id: "recorded_at",
 			kind: "datetime",
 			label: proseText("Recorded at"),
-		} as Field,
+		},
 	};
 	const root = testUuid("operator-form");
 	const order: Record<string, Uuid[]> = {
 		[root]: [repeatUuid],
 		[repeatUuid]: [textUuid, amountUuid, dateUuid, datetimeUuid],
 	};
+	for (const field of Object.values(fields)) fieldSchema.parse(field);
 	const data = new DataInstance();
 	data.initFromFields(buildFieldTree(root, fields, order));
 	data.addRepeatInstance("/data/items");

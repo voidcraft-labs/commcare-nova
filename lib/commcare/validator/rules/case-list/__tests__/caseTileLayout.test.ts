@@ -7,8 +7,10 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
+	blueprintDocSchema,
 	type CaseTileLayout,
 	type Column,
 	plainColumn,
@@ -64,9 +66,10 @@ function codesFor(
 		],
 		caseTypes,
 	});
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
-		.map((error) => error.code)
-		.filter((code) => code.startsWith("CASE_LIST_TILE_"));
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map(
+		(error) => error.code,
+	);
 }
 
 function named(uuid: string, field: string, cell?: TileCell): Column {
@@ -95,7 +98,7 @@ describe("caseTileLayout", () => {
 				],
 				{},
 			),
-		).toContain(OUT_OF_GRID);
+		).toEqual([OUT_OF_GRID]);
 	});
 
 	it("rejects a cell that runs past the bottom edge", () => {
@@ -107,7 +110,7 @@ describe("caseTileLayout", () => {
 				],
 				{},
 			),
-		).toContain(OUT_OF_GRID);
+		).toEqual([OUT_OF_GRID]);
 	});
 
 	it("checks geometry even while the tile layout is off, so switching it back on is always accepted", () => {
@@ -135,7 +138,7 @@ describe("caseTileLayout", () => {
 				],
 				{},
 			),
-		).toContain(OVERLAP);
+		).toEqual([OVERLAP]);
 	});
 
 	it("ignores an overlap between cells nothing draws", () => {

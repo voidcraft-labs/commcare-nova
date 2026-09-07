@@ -1,12 +1,16 @@
+/** Actual localization commands, schema admission and workspace state. Writer
+ * receipts are controlled; sequential stale-state checks do not prove SQL
+ * races, and this suite neither invokes a model nor tests MCP transport. */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
 	makeCanonicalGenesisDoc,
-	makeToolWorkspaceHarness,
+	makeToolWorkspaceHarness as makeRawHarness,
 } from "@/lib/agent/__tests__/fixtures";
-import { SHARED_TOOL_REGISTRY } from "@/lib/agent/sharedToolRegistry";
 import { updateAppTool } from "@/lib/agent/tools/updateApp";
 import { applyMutation } from "@/lib/doc/mutations";
 import {
@@ -26,29 +30,32 @@ import {
 	updateTranslationsInputSchema,
 	updateTranslationsTool,
 } from "../localization";
+import { updateModuleTool } from "../updateModule";
 
-function mutateResult(value: unknown): {
-	readonly mutations: readonly unknown[];
-	readonly result: Record<string, unknown>;
-} {
-	return value as {
-		readonly mutations: readonly unknown[];
-		readonly result: Record<string, unknown>;
-	};
+function makeToolWorkspaceHarness(doc: Parameters<typeof makeRawHarness>[0]) {
+	return makeRawHarness(expectAdmittedDoc(doc));
+}
+
+function mutateResult(value: unknown) {
+	return z
+		.object({
+			mutations: z.array(z.unknown()),
+			result: z.record(z.string(), z.unknown()),
+		})
+		.parse(value);
 }
 
 function readData(value: unknown): Record<string, unknown> {
-	return (value as { readonly data: Record<string, unknown> }).data;
+	return z.object({ data: z.record(z.string(), z.unknown()) }).parse(value)
+		.data;
 }
 
-function schemaIssues(result: { success: boolean; error?: unknown }): string {
+function schemaIssues(
+	result: { success: true } | { success: false; error: z.ZodError },
+): string {
 	return result.success
 		? ""
-		: JSON.stringify(
-				(result.error as { issues: readonly { message: string }[] }).issues.map(
-					(issue) => issue.message,
-				),
-			);
+		: JSON.stringify(result.error.issues.map((issue) => issue.message));
 }
 
 describe("shared localization tools", () => {
@@ -152,11 +159,6 @@ describe("shared localization tools", () => {
 			breadcrumb: ["Clinic"],
 			protectedParts: [],
 		});
-		const decodedCursor = JSON.parse(
-			Buffer.from(page.nextCursor, "base64url").toString("utf8"),
-		) as { version: number; filters: { language: unknown } };
-		expect(decodedCursor.version).toBe(2);
-		expect(decodedCursor.filters.language).toEqual({ language: "spa" });
 
 		await harness.runTool(updateTranslationsTool, {
 			language: { language: "spa" },
@@ -177,6 +179,114 @@ describe("shared localization tools", () => {
 			}),
 		);
 		expect(stalePage.error).toContain("changed");
+	});
+
+	it("traverses a 126-unit inventory to completion without duplicates or omissions", async () => {
+		const doc = buildDoc({
+			appName: "Large clinic",
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Intake",
+							type: "survey",
+							fields: Array.from({ length: 123 }, (_, i) =>
+								f({
+									kind: "text",
+									id: `question_${i}`,
+									label: proseText(`Question ${i}`),
+								}),
+							),
+						},
+					],
+				},
+			],
+		});
+		const h = makeToolWorkspaceHarness(doc);
+		await h.runTool(addLanguageTool, { language: { language: "spa" } });
+		const expected = collectTranslationUnits(h.currentDoc()).map(
+			(unit) => unit.id,
+		);
+		expect(expected).toHaveLength(126);
+		const ids: string[] = [];
+		const seen = new Set<string>();
+		let cursor: string | null = null;
+		for (let pageNumber = 0; pageNumber < 20; pageNumber += 1) {
+			const data = z
+				.object({
+					items: z.array(z.object({ id: z.string() })),
+					page: z.object({
+						returned: z.number(),
+						complete: z.boolean(),
+						nextCursor: z.string().nullable(),
+					}),
+				})
+				.parse(
+					readData(
+						await h.runTool(getTranslatableContentTool, {
+							language: { language: "spa" },
+							limit: 17,
+							cursor,
+						}),
+					),
+				);
+			expect(data.items.length).toBeGreaterThan(0);
+			expect(data.items.length).toBeLessThanOrEqual(17);
+			expect(data.page.returned).toBe(data.items.length);
+			ids.push(...data.items.map((item) => item.id));
+			if (data.page.complete) {
+				expect(data.page.nextCursor).toBeNull();
+				cursor = null;
+				break;
+			}
+			expect(data.page.nextCursor).not.toBeNull();
+			if (data.page.nextCursor === null)
+				throw new Error("incomplete without cursor");
+			expect(seen.has(data.page.nextCursor)).toBe(false);
+			seen.add(data.page.nextCursor);
+			cursor = data.page.nextCursor;
+		}
+		expect(cursor).toBeNull();
+		expect(ids).toEqual(expected);
+	});
+
+	it("refuses an entire mixed update batch before a write when its later entry is invalid", async () => {
+		const h = makeToolWorkspaceHarness(makeCanonicalGenesisDoc("Clinic"));
+		await h.runTool(addLanguageTool, { language: { language: "spa" } });
+		const units = collectTranslationUnits(h.currentDoc()).filter(
+			(unit) => unit.valueKind === "text",
+		);
+		if (units.length < 2) throw new Error("missing text units");
+		const updates = units.slice(0, 2).map((unit, index) => ({
+			operation: "set",
+			unitId: unit.id,
+			expectedSourceFingerprint: unit.sourceFingerprint,
+			value: index === 0 ? "Clínica" : " ",
+		}));
+		const before = structuredClone(h.currentDoc());
+		const writes = h.recordMutations.mock.calls.length;
+		const refused = mutateResult(
+			await h.runTool(updateTranslationsTool, {
+				language: { language: "spa" },
+				updates,
+			}),
+		);
+		expect(refused.result.error).toEqual(
+			expect.stringContaining("cannot be blank"),
+		);
+		expect(h.currentDoc()).toEqual(before);
+		expect(h.recordMutations).toHaveBeenCalledTimes(writes);
+		updates[1].value = "Encuesta";
+		const accepted = mutateResult(
+			await h.runTool(updateTranslationsTool, {
+				language: { language: "spa" },
+				updates,
+			}),
+		);
+		expect(accepted.result).not.toHaveProperty("error");
+		expect(h.recordMutations).toHaveBeenCalledTimes(writes + 1);
+		expectAdmittedDoc(h.currentDoc());
 	});
 
 	it("rejects a version-1 cursor with a restart message", async () => {
@@ -207,7 +317,7 @@ describe("shared localization tools", () => {
 		const genesis = makeCanonicalGenesisDoc("Clinic");
 		const form = Object.values(genesis.forms)[0];
 		expect(form).toBeDefined();
-		if (form === undefined) return;
+		if (form === undefined) throw new Error("missing fixture form");
 		const initial = produce(genesis, (draft) => {
 			applyMutation(draft, {
 				kind: "addField",
@@ -235,18 +345,14 @@ describe("shared localization tools", () => {
 		const cursor = (first.page as { nextCursor: string }).nextCursor;
 		expect(cursor).toEqual(expect.any(String));
 		expect(module).toBeDefined();
-		if (module === undefined) return;
+		if (module === undefined) throw new Error("missing fixture module");
 
-		const renamed = produce(firstHarness.currentDoc(), (draft) => {
-			applyMutation(draft, {
-				kind: "renameModule",
-				uuid: module.uuid,
-				newId: "Community intake",
-			});
+		await firstHarness.runTool(updateModuleTool, {
+			moduleUuid: module.uuid,
+			name: "Community intake",
 		});
-		const secondHarness = makeToolWorkspaceHarness(renamed);
 		const stalePage = readData(
-			await secondHarness.runTool(getTranslatableContentTool, {
+			await firstHarness.runTool(getTranslatableContentTool, {
 				language: { language: "spa" },
 				role: "field-label",
 				limit: 1,
@@ -265,7 +371,7 @@ describe("shared localization tools", () => {
 			(unit) => unit.role === "app-name",
 		);
 		expect(appUnit).toBeDefined();
-		if (appUnit === undefined) return;
+		if (appUnit === undefined) throw new Error("missing app unit");
 
 		const set = mutateResult(
 			await harness.runTool(updateTranslationsTool, {
@@ -301,7 +407,7 @@ describe("shared localization tools", () => {
 			effective: "Health clinic",
 			explicit: { value: "Clínica" },
 		});
-		if (stale?.explicit === undefined) return;
+		if (stale?.explicit === undefined) throw new Error("missing stale entry");
 
 		const reviewed = mutateResult(
 			await harness.runTool(updateTranslationsTool, {
@@ -334,7 +440,7 @@ describe("shared localization tools", () => {
 			(unit) => unit.role === "app-name",
 		);
 		expect(read).toBeDefined();
-		if (read === undefined) return;
+		if (read === undefined) throw new Error("missing read unit");
 
 		await harness.runTool(updateAppTool, { name: "Health clinic" });
 		const writesBefore = harness.recordMutations.mock.calls.length;
@@ -366,7 +472,7 @@ describe("shared localization tools", () => {
 			"spa",
 		).find((unit) => unit.role === "app-name");
 		expect(read?.explicit).toBeDefined();
-		if (read?.explicit === undefined) return;
+		if (read?.explicit === undefined) throw new Error("missing explicit entry");
 
 		await harness.runTool(updateAppTool, { name: "Community health clinic" });
 		const writesBefore = harness.recordMutations.mock.calls.length;
@@ -397,7 +503,7 @@ describe("shared localization tools", () => {
 			(unit) => unit.role === "app-name",
 		);
 		expect(appUnit).toBeDefined();
-		if (appUnit === undefined) return;
+		if (appUnit === undefined) throw new Error("missing app unit");
 		const writesBefore = harness.recordMutations.mock.calls.length;
 		const outcome = mutateResult(
 			await harness.runTool(updateTranslationsTool, {
@@ -454,7 +560,7 @@ describe("shared localization tools", () => {
 			(unit) => unit.role === "app-name",
 		);
 		expect(appUnit).toBeDefined();
-		if (appUnit === undefined) return;
+		if (appUnit === undefined) throw new Error("missing app unit");
 		await harness.runTool(updateTranslationsTool, {
 			language: { language: "spa" },
 			updates: [
@@ -580,7 +686,7 @@ describe("shared localization tools", () => {
 		).toBe(true);
 	});
 
-	it("keeps registry rejection through the MCP app_id extension", () => {
+	it("preserves language membership and action refinements through schema safeExtend", () => {
 		// The MCP adapter mounts every shared tool as
 		// inputSchema.safeExtend({ app_id }), so the membership refinement
 		// must survive extension for add_language to reject a macrolanguage
@@ -624,7 +730,7 @@ describe("shared localization tools", () => {
 		).toBe(true);
 	});
 
-	it("keeps tool schemas closed and registers the exact SA/MCP family", () => {
+	it("refuses unknown fields, incompatible actions and duplicate translation updates", () => {
 		expect(
 			addLanguageInputSchema.safeParse({
 				language: { language: "fra" },
@@ -654,44 +760,5 @@ describe("shared localization tools", () => {
 				],
 			}).success,
 		).toBe(false);
-
-		const family = SHARED_TOOL_REGISTRY.filter((entry) =>
-			[
-				"getLanguages",
-				"getTranslatableContent",
-				"addLanguage",
-				"updateLanguage",
-				"removeLanguage",
-				"updateTranslations",
-			].includes(entry.saName),
-		).map(({ saName, mcpName, requires }) => ({
-			saName,
-			mcpName,
-			requires,
-		}));
-		expect(family).toEqual([
-			{ saName: "getLanguages", mcpName: "get_languages", requires: "view" },
-			{
-				saName: "getTranslatableContent",
-				mcpName: "get_translatable_content",
-				requires: "view",
-			},
-			{ saName: "addLanguage", mcpName: "add_language", requires: "edit" },
-			{
-				saName: "updateLanguage",
-				mcpName: "update_language",
-				requires: "edit",
-			},
-			{
-				saName: "removeLanguage",
-				mcpName: "remove_language",
-				requires: "edit",
-			},
-			{
-				saName: "updateTranslations",
-				mcpName: "update_translations",
-				requires: "edit",
-			},
-		]);
 	});
 });

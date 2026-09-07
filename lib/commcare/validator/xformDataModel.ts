@@ -224,7 +224,10 @@ export function buildXFormDataModel(
 	}
 
 	const rootPath = `/${localName(dataEl.name)}`;
-	const instancePaths = new Set<string>([rootPath]);
+	const instancePaths = new Set<string>([
+		rootPath,
+		...Object.keys(dataEl.attribs).map((name) => `${rootPath}/@${name}`),
+	]);
 	const repeatablePaths = new Set<string>();
 	walkInstance(dataEl, rootPath, instancePaths, repeatablePaths);
 

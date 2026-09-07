@@ -296,7 +296,7 @@ export async function readDesignSourcePackage(
 
 type Db = Kysely<AppDatabase> | Transaction<AppDatabase>;
 
-async function readSourcePackageInTx(
+export async function readSourcePackageInTx(
 	db: Db,
 	designSessionId: string,
 	packageDigest: string,

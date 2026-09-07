@@ -539,35 +539,6 @@ function pendingExecutorStep(
 	return null;
 }
 
-/** Pair a commit call whose canonical transaction succeeded before its model
- * output was persisted. The caller appends this before any later slice brief
- * or provider request. */
-export function recoverCommittedExecutorToolResult(args: {
-	readonly context: ExecutorConversationContext;
-	readonly attemptId: string;
-	readonly receipt: CommittedSliceReceipt;
-}): { readonly appendKey: string; readonly message: ModelMessage } | null {
-	const pending = pendingExecutorStep(args.context, args.attemptId);
-	if (pending === null) return null;
-	if (
-		pending.toolCalls.length !== 1 ||
-		pending.toolCalls[0]?.toolName !== FINISH_TOOL
-	) {
-		throw new Error(
-			`Committed slice attempt ${args.attemptId} has a pending non-finalizer executor call.`,
-		);
-	}
-	const call = pending.toolCalls[0];
-	return {
-		appendKey: `step:${args.attemptId}:${pending.modelStep}:tool:${call.toolCallId}`,
-		message: toolMessage(call.toolCallId, call.toolName, {
-			status: "committed",
-			code: "WORKFLOW_COMMITTED",
-			receipt: args.receipt,
-		}),
-	};
-}
-
 /**
  * Unwrap a shared-tool envelope to the payload the model should read — the
  * same projection chat and MCP perform. `summary` is UI-only presentation and
@@ -1038,7 +1009,6 @@ export async function runSliceExecutor(
 		);
 		deadlineTimer.unref?.();
 	};
-	armDeadlineTimer();
 	const deadlineExceeded = () =>
 		!signal.aborted && (deadline.signal.aborted || Date.now() >= deadlineAt);
 
@@ -1486,9 +1456,12 @@ export async function runSliceExecutor(
 		}
 	};
 
-	args.onProgress?.("building");
 	let consecutiveEmptySteps = 0;
 	try {
+		// Setup can fail before any work starts. Arm only inside the lifetime
+		// that owns cancellation, using the original absolute deadline.
+		armDeadlineTimer();
+		args.onProgress?.("building");
 		for (;;) {
 			await persistence;
 			const compacted = projectModelHistoryFromNewestCompaction(messages);
@@ -2259,8 +2232,8 @@ export async function runSliceExecutor(
 			}
 		}
 	} finally {
-		await persistence;
 		if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+		await persistence;
 	}
 }
 

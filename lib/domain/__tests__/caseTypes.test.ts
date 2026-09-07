@@ -68,11 +68,16 @@ describe("reachableCaseTypes — own + ancestors, depth = parent-index hops", ()
 	});
 
 	it("getModuleCaseTypes stays own + children (the write-target dual)", () => {
-		// Sanity that the read helper hasn't disturbed the write helper.
+		// Direct children are write targets; grandparents and grandchildren are not.
 		expect(getModuleCaseTypes("pregnancy", TYPES)).toEqual([
 			"pregnancy",
 			"visit",
 		]);
+		expect(getModuleCaseTypes("mother", TYPES)).toEqual([
+			"mother",
+			"pregnancy",
+		]);
+		expect(getModuleCaseTypes(undefined, TYPES)).toEqual([]);
 	});
 });
 
@@ -118,6 +123,24 @@ describe("caseRefAcceptMap — form-type narrowing", () => {
 		const accept = caseRefAcceptMap(index, "registration");
 		expect([...accept.keys()]).toEqual(["pregnancy"]);
 		expect([...(accept.get("pregnancy") ?? [])]).toEqual(["case_id"]);
+	});
+
+	it("makes a registration case readable after submission but keeps survey sessions case-free", () => {
+		const index = toReachableIndex(
+			reachableCaseTypes("pregnancy", TYPES),
+			EMPTY_DOC,
+		);
+		const session = caseRefAcceptMap(index, "registration", "session");
+		expect(
+			[...session.entries()].map(([name, properties]) => [
+				name,
+				[...properties].sort(),
+			]),
+		).toEqual([
+			["pregnancy", ["case_id", "case_name", "ga_weeks"]],
+			["mother", ["case_id", "case_name", "household_code"]],
+		]);
+		expect(caseRefAcceptMap(index, "survey", "session")).toEqual(new Map());
 	});
 
 	it("exposes every reachable type's full property set on followup", () => {

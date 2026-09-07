@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import { isAutomationMessageShadowedCaseProperty } from "@/lib/domain";
 import {
@@ -114,4 +116,34 @@ describe("HQ automation case-property projection", () => {
 		}
 		expect(isAutomationMessageShadowedCaseProperty("owner_id")).toBe(false);
 	});
+});
+
+it("projected literal and reference atoms are consumed distinctly by Python Formatter", async () => {
+	const projected = projectAutomationTemplateForHq({
+		parts: [
+			{
+				kind: "text",
+				text: "Literal {case.owner.name}; { arbitrary }; owner ",
+			},
+			{ kind: "context-property", context: "case-owner", property: "name" },
+			{ kind: "text", text: "; case " },
+			{
+				kind: "case-property",
+				scope: "case",
+				caseType: "visit",
+				property: "case_name",
+			},
+		],
+	});
+	const { stdout } = await promisify(execFile)("python3", [
+		"-c",
+		`import string,sys
+from types import SimpleNamespace
+case=SimpleNamespace(name="Ana",owner=SimpleNamespace(name="Nurse"))
+print(string.Formatter().vformat(sys.argv[1],[],{"case":case}))`,
+		projected,
+	]);
+	expect(stdout.trimEnd()).toBe(
+		"Literal {case.owner.name}; { arbitrary }; owner Nurse; case Ana",
+	);
 });

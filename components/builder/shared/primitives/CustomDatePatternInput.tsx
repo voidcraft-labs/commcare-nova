@@ -27,14 +27,11 @@ import {
 } from "@/components/shadcn/collapsible";
 import { Input } from "@/components/shadcn/input";
 import {
-	type CommCareDatePatternParseResult,
-	parseCommCareDatePattern,
-} from "@/lib/domain/commCareDatePattern";
-import {
 	formatCommCareDate,
 	formatConcreteCommCareDate,
 } from "@/lib/preview/xpath/dateFormatting";
 import { XPathDate } from "@/lib/preview/xpath/types";
+import { datePatternProblem, insertDatePiece } from "../datePatternDraft";
 
 /** A memorable sample with leading-zero and time pieces that differ clearly. */
 const DATE_STYLE_EXAMPLE = XPathDate.fromJSDate(
@@ -218,10 +215,10 @@ function CustomEditor({
 	const insertPiece = (piece: string) => {
 		const start = inputRef.current?.selectionStart ?? draft.length;
 		const end = inputRef.current?.selectionEnd ?? start;
-		const next = `${draft.slice(0, start)}${piece}${draft.slice(end)}`;
-		setPendingCaret(start + piece.length);
-		setDraft(next);
-		if (datePatternProblem(next) === null) setShowError(false);
+		const next = insertDatePiece(draft, piece, start, end);
+		setPendingCaret(next.caret);
+		setDraft(next.draft);
+		if (datePatternProblem(next.draft) === null) setShowError(false);
 	};
 
 	return (
@@ -420,24 +417,4 @@ function DatePieceGroup({
 			</div>
 		</fieldset>
 	);
-}
-
-function datePatternProblem(pattern: string): string | null {
-	if (pattern.length === 0) {
-		return "Enter a custom style or choose a date piece";
-	}
-	const parsed = parseCommCareDatePattern(pattern);
-	if (parsed.kind === "parsed") return null;
-	return unsupportedPatternMessage(parsed);
-}
-
-function unsupportedPatternMessage(
-	problem: Extract<
-		CommCareDatePatternParseResult,
-		{ kind: "unsupported-pattern" }
-	>,
-): string {
-	return problem.escape === undefined
-		? "Finish the date piece after % or remove it"
-		: `${problem.escape} isn't a date piece. Choose another piece or remove it`;
 }

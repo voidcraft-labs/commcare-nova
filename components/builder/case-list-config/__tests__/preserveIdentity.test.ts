@@ -1,76 +1,82 @@
-/**
- * The builder search-input / column edit path preserves identity and place.
- *
- * The workspace edits a case-list item by rebuilding its body and replacing it
- * through a wholesale `updateModule({ caseListConfig })`. `withPreservedIdentity`
- * is what keeps the item's `uuid` and its tile square from being dropped by
- * that rebuild: without the uuid the replacement reads as a remove+add on the
- * auto-save diff, and without the square the commit gate refuses a column the
- * tile shows.
- */
-
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import {
+	advancedSearchInputDef,
+	type Column,
+	columnSchema,
+	dateColumn,
+	plainColumn,
+	simpleSearchInputDef,
+} from "@/lib/domain";
+import { eq, input, prop, whenInput } from "@/lib/domain/predicate";
 import { withPreservedIdentity } from "../preserveIdentity";
 
-describe("withPreservedIdentity", () => {
-	it("carries identity onto a rebuilt body", () => {
-		const existing = {
-			uuid: "col-1",
-			kind: "plain",
-			field: "a",
-			header: "A",
-		};
-		// The editor rebuilt the body with NO uuid (the exact leak).
-		const rebuilt = {
-			kind: "plain",
-			field: "b",
-			header: "B",
-		} as typeof existing;
-		const result = withPreservedIdentity(existing, rebuilt);
-		expect(result.uuid).toBe("col-1"); // identity preserved
-		expect(result.field).toBe("b"); // body actually updated
-		expect(result.header).toBe("B");
-	});
-
-	it("overrides a re-minted uuid on the rebuilt body with the existing one", () => {
-		const existing = {
-			uuid: "s-1",
-			kind: "simple",
-			name: "by_name",
-		};
-		const rebuilt = {
-			uuid: "s-999-freshly-minted",
-			kind: "advanced",
-			name: "by_name",
-		} as typeof existing;
-		const result = withPreservedIdentity(existing, rebuilt);
-		expect(result.uuid).toBe("s-1");
-		expect(result.kind).toBe("advanced"); // the kind swap landed
-	});
-
-	it("carries a tile placement through a rebuild that dropped it", () => {
-		// A column the tile SHOWS must hold a place; a display-style change
-		// that lost the cell would be refused by the commit gate outright.
-		const existing = {
-			uuid: "c-1",
-			kind: "plain",
+// This value-object projection owns identity retention. Actual document admission
+// and placement repair are exercised by the column/tile mutation plans.
+describe("rebuilt case-list item identity", () => {
+	it("keeps a column's identity and placed presentation while replacing its format", () => {
+		const uuid = testUuid("preserve-column"),
+			fresh = testUuid("preserve-new-column");
+		const existing = plainColumn(uuid, "date_opened", "Opened", {
 			tile: { x: 0, y: 2, width: 6, height: 1, fontSize: "large" },
-		};
-		const rebuilt = { uuid: "c-999", kind: "date" } as typeof existing;
-		expect(withPreservedIdentity(existing, rebuilt).tile).toEqual({
-			x: 0,
-			y: 2,
-			width: 6,
-			height: 1,
-			fontSize: "large",
 		});
+		const rebuilt = dateColumn(fresh, "date_opened", "Date opened", "%Y-%m-%d");
+		columnSchema.parse(existing);
+		columnSchema.parse(rebuilt);
+		const result = withPreservedIdentity<Column>(existing, rebuilt);
+		expect(result).toStrictEqual({
+			uuid,
+			kind: "date",
+			field: "date_opened",
+			header: "Date opened",
+			pattern: "%Y-%m-%d",
+			tile: { x: 0, y: 2, width: 6, height: 1, fontSize: "large" },
+		});
+		expect(rebuilt.uuid).toBe(fresh);
+		expect(existing.kind).toBe("plain");
 	});
-
-	it("adds no tile slot to an item that never had one", () => {
-		const result = withPreservedIdentity(
-			{ uuid: "s-1", kind: "simple" },
-			{ uuid: "other", kind: "advanced" },
+	it("does not add a tile slot to an unplaced column", () => {
+		const existing = plainColumn(
+			testUuid("preserve-unplaced"),
+			"date_opened",
+			"Opened",
 		);
-		expect("tile" in result).toBe(false);
+		const result = withPreservedIdentity<Column>(
+			existing,
+			dateColumn(
+				testUuid("preserve-unplaced-new"),
+				"date_opened",
+				"Opened",
+				"%d-%m-%Y",
+			),
+		);
+		expect(Object.hasOwn(result, "tile")).toBe(false);
+		expect(result.uuid).toBe(existing.uuid);
+	});
+	it("keeps search identity through a simple-to-custom replacement", () => {
+		const uuid = testUuid("preserve-input");
+		const existing = simpleSearchInputDef(
+			uuid,
+			"by_name",
+			"Name",
+			"text",
+			"case_name",
+		);
+		const custom = whenInput(
+			input(uuid),
+			eq(prop("patient", "case_name"), input(uuid)),
+		);
+		const rebuilt = advancedSearchInputDef(
+			testUuid("preserve-input-new"),
+			"by_name",
+			"Name",
+			"text",
+			custom,
+		);
+		const result = withPreservedIdentity<typeof existing | typeof rebuilt>(
+			existing,
+			rebuilt,
+		);
+		expect(result).toStrictEqual({ ...rebuilt, uuid });
 	});
 });

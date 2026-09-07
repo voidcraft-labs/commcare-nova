@@ -1,4 +1,13 @@
-import { describe, expect, it, vi } from "vitest";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	vi,
+} from "vitest";
 import { GEOPOINT_CENTER_PATTERN } from "@/lib/commcare/predicate/geopoint";
 import { xpathToString } from "../coerce";
 import { evaluate } from "../evaluator";
@@ -30,6 +39,19 @@ function makeCtx(
 }
 
 describe("XPath evaluator", () => {
+	const originalTimeZone = process.env.TZ;
+	beforeAll(() => {
+		process.env.TZ = "UTC";
+	});
+	afterAll(() => {
+		if (originalTimeZone === undefined) delete process.env.TZ;
+		else process.env.TZ = originalTimeZone;
+	});
+	beforeEach(() => {
+		vi.useFakeTimers();
+		vi.setSystemTime(new Date("2026-08-15T12:34:56Z"));
+	});
+	afterEach(() => vi.useRealTimers());
 	describe("parenthesized left operands", () => {
 		// The grammar splices grouping parens flat into the parent node, so a
 		// binary node's first child can be the `(` token. The evaluator must
@@ -298,6 +320,22 @@ describe("XPath evaluator", () => {
 			);
 		});
 
+		it("keeps selected() and is-selected() on Java's ASCII-only trimming contract", () => {
+			for (const name of ["selected", "is-selected"]) {
+				expect(
+					evaluate(`${name}('apple', '\u00a0apple\u00a0')`, makeCtx()),
+				).toBe(false);
+				expect(
+					evaluate(`${name}('apple', '\u0000apple\u001f')`, makeCtx()),
+				).toBe(true);
+			}
+		});
+
+		it("coerces number text with Java's ASCII-only trim before its character gate", () => {
+			expect(evaluate("number('\u00a042\u00a0')", makeCtx())).toBeNaN();
+			expect(evaluate("number('\u000042\u001f')", makeCtx())).toBe(42);
+		});
+
 		it("count-selected()", () => {
 			const ctx = makeCtx({ "/data/items": "a  b" });
 			expect(evaluate("count-selected(/data/items)", ctx)).toBe(2);
@@ -503,17 +541,13 @@ describe("XPath evaluator", () => {
 		it("today() + 1 returns tomorrow's numeric epoch day", () => {
 			const todayPlus1 = evaluate("today() + 1", makeCtx());
 			expect(typeof todayPlus1).toBe("number");
-			expect(todayPlus1).toBe(
-				(evaluate("number(today())", makeCtx()) as number) + 1,
-			);
+			expect(todayPlus1).toBe(20681);
 		});
 
 		it("today() - 1 returns yesterday's numeric epoch day", () => {
 			const result = evaluate("today() - 1", makeCtx());
 			expect(typeof result).toBe("number");
-			expect(result).toBe(
-				(evaluate("number(today())", makeCtx()) as number) - 1,
-			);
+			expect(result).toBe(20679);
 		});
 
 		it("date(today() + 1) converts the numeric result back to a date", () => {
@@ -521,7 +555,7 @@ describe("XPath evaluator", () => {
 			const wrapped = evaluate("date(today() + 1)", makeCtx());
 			expect(typeof bare).toBe("number");
 			expect(isXPathDate(wrapped)).toBe(true);
-			expect(evaluate("number(date(today() + 1))", makeCtx())).toBe(bare);
+			expect(xpathToString(wrapped)).toBe("2026-08-16");
 		});
 
 		it("date - date returns a plain number (day difference)", () => {
@@ -585,7 +619,7 @@ describe("XPath evaluator", () => {
 
 		it("format-date works with XPathDate from today()", () => {
 			const result = evaluate("format-date(today(), '%Y')", makeCtx());
-			expect(result).toBe(String(new Date().getFullYear()));
+			expect(result).toBe("2026");
 		});
 
 		it("format-date preserves now() time and maps NaN to blank", () => {
@@ -593,7 +627,7 @@ describe("XPath evaluator", () => {
 			try {
 				vi.setSystemTime(new Date("2026-08-15T12:34:56Z"));
 				expect(evaluate("format-date(now(), '%H:%M')", makeCtx())).toBe(
-					`${String(new Date().getHours()).padStart(2, "0")}:${String(new Date().getMinutes()).padStart(2, "0")}`,
+					"12:34",
 				);
 				expect(evaluate("format-date(number('bad'), '%Y')", makeCtx())).toBe(
 					"",
@@ -617,7 +651,7 @@ describe("XPath evaluator", () => {
 
 		it("string(today()) produces ISO date string", () => {
 			const result = evaluate("string(today())", makeCtx());
-			expect(result).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+			expect(result).toBe("2026-08-15");
 		});
 
 		it("matches Core's date, now, and double coercions", () => {

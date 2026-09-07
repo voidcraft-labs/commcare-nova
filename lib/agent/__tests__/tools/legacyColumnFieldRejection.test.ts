@@ -38,7 +38,7 @@ describe("updateModule legacy column field rejection", () => {
 		}
 	});
 
-	it("input schema rejects legacy case_list_columns at parse time", () => {
+	it("input schema rejects the legacy undiscriminated column shape", () => {
 		// The schema is `.strict()`, so a stale LLM-emitted payload
 		// carrying the legacy field fails to parse rather than stripping
 		// silently. The behavioral guard is now at the parse boundary —
@@ -60,7 +60,7 @@ describe("updateModule legacy column field rejection", () => {
 		expect(result.success).toBe(false);
 	});
 
-	it("input schema parses a payload with neither name nor case_type (the tool body rejects it)", () => {
+	it("input schema accepts addressing without an authored patch", () => {
 		// `name` and `case_type` are each optional — the schema accepts a
 		// bare module UUID and the tool body returns the "nothing to
 		// update" error, so the SA gets a corrective message rather than a
@@ -71,7 +71,7 @@ describe("updateModule legacy column field rejection", () => {
 		expect(result.success).toBe(true);
 	});
 
-	it("input schema parses a case_type-only payload (the NO_CASE_TYPE repair path)", () => {
+	it("input schema accepts a case_type patch", () => {
 		const result = updateModuleInputSchema.safeParse({
 			moduleUuid: MODULE_UUID,
 			case_type: "patient",
@@ -89,7 +89,7 @@ describe("createModule legacy column field rejection", () => {
 		expect(result.success).toBe(false);
 	});
 
-	it("input schema rejects legacy case_list_columns at parse time", () => {
+	it("input schema rejects the legacy undiscriminated column shape", () => {
 		// The key is current, but the old flat entry is not. Creation accepts
 		// only a canonical discriminated Column and never maps this shape.
 		const result = createModuleInputSchema.safeParse({

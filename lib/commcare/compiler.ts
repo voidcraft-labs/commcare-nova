@@ -284,6 +284,7 @@ export function compileCcz(
 	const appStrings: Record<string, string> = {
 		"homescreen.title": appName,
 		"app.display.name": appName,
+		"cchq.case": "Case",
 	};
 	const appStringUnits: Record<string, WireStringSource> = {
 		"homescreen.title": makeTranslationUnitId("app", "name"),
@@ -473,14 +474,8 @@ export function compileCcz(
 		// surface skip the search-target emission;
 		// emission is purely additive.
 		//
-		// Both detail blocks resolve their `<title>` through CCHQ's
-		// built-in `cchq.case` locale (registered with
-		// `default="Case"` at
-		// `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`).
-		// Neither emitter registers a per-module title in app_strings;
-		// the runtime falls back to "Case" until an author overrides
-		// `cchq.case` at the app-strings layer (Nova has no such
-		// authoring surface today).
+		// Both detail titles reference cchq.case. The compiler registers the
+		// value in every locale table; Core has no built-in mapping for this id.
 		// The Register action a search-first host mounts on its case list
 		// (`DetailContributor.add_register_action`): the no-matches form's
 		// command in its hidden module, the target entry's computed datums,

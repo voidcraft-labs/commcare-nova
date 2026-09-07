@@ -1,0 +1,72 @@
+{
+	"purpose": "Execute the same admitted typed-arithmetic workflow in native Core and real PostgreSQL storage without changing the stored domain type contract.",
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"fixture": "lib/commcare/__tests__/arithmeticFixture.ts",
+	"producer": "scripts/fixtures/hq/emit-arithmetic-evidence.ts",
+	"admission": "blueprintDocSchema.parse(toPersistableDoc(doc)); runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE) returns no findings; Preview engineFor independently asserts admitted doc.",
+	"nativeConsumer": "scripts/fixtures/javarosa/ArithmeticRuntimeTest.java",
+	"nativeBoundary": [
+		"FormParseInit",
+		"FormDef.initialize",
+		"FormDef.setValue with IntegerData/DecimalData",
+		"FormDef.postProcessInstance",
+		"XFormSerializingVisitor",
+		"XmlFormRecordProcessor",
+		"stored Case properties"
+	],
+	"nativePassed": {
+		"tests": 4,
+		"failures": 0,
+		"testcases": [
+			"admittedFormStoresTypedArithmetic[10 / 3]",
+			"admittedFormStoresTypedArithmetic[-10 / 3]",
+			"admittedFormStoresTypedArithmetic[10 / -3]",
+			"admittedFormStoresTypedArithmetic[-10 / -3]"
+		]
+	},
+	"postgresConsumer": "lib/preview/engine/__tests__/submissionProgramAcceptance.postgres.test.ts",
+	"postgresBoundary": "FormEngine answers -> committed-doc CaseOperationProgram -> submissionEnvelopeArgs -> PostgresCaseStore.applySubmission -> stored row query",
+	"expectedStoredValues": {
+		"signMatrix": [
+			[10, 3, 3, 1],
+			[-10, 3, -3, -1],
+			[10, -3, -3, 1],
+			[-10, -3, 3, -1]
+		],
+		"largeLiteralDivision": 715827882,
+		"decimalAnswer": "10 remains decimal; mixed quotient is approximately 10 / denominator"
+	},
+	"nativeZeroObservations": [
+		"1 div 0 => positive Infinity",
+		"-1 div 0 => negative Infinity",
+		"0 div 0 => NaN"
+	],
+	"negativeControl": {
+		"mutation": "Replace only exported quotient calculate with raw /data/numerator div /data/denominator",
+		"tests": 4,
+		"failures": 4,
+		"failure": "org.junit.ComparisonFailure: expected:<3[]> but was:<3[.3333333333333335]>"
+	},
+	"limits": [
+		"Core binary floating point and Postgres numeric precision differ, including 0.3 mod 0.1.",
+		"Postgres division/modulo by zero still raises 22012. Native scalar non-finite values do not prove successful non-finite case writes.",
+		"Raw XPath semantics are unchanged. No stored AST retagging or type migration.",
+		"Local CCZ execution only; HQ import/server transaction processor and Android are not run here."
+	],
+	"sourceSha256": {
+		"lib/commcare/__tests__/arithmeticFixture.ts": "c29f43d50a579866de1190ec48b2bcebd7a911fb5874293392053beb85148c0a",
+		"scripts/fixtures/hq/emit-arithmetic-evidence.ts": "eb6296b145bc1b826de70c8adee52791ba46083c7955045a412ca8a4c81edcf4",
+		"scripts/fixtures/javarosa/ArithmeticRuntimeTest.java": "81960038bd48020447d9ea383af297547f9b7fbad861a70cd73cec811314a51e",
+		"lib/commcare/expression/onDeviceEmitter.ts": "b85ffcc9e2b2dd919bfb7142870998b46258dc7985d6425bd0ec8ec40c4e105e",
+		"lib/case-store/sql/compileExpression.ts": "46522c449b9eeec7f8e0f4eadbb7c403625ec7dfe62be5a8aa147506df63916c"
+	},
+	"artifactSha256": {
+		"arithmetic.xml": "000949a3e4a81d6a88259bf6f78715ee6418340f34b42faa0b88a05e37783294",
+		"arithmetic.json": "736780e5ba550c2edcc45a0a1100864e03ccdc7269af08cf4c442ca66c200f6b",
+		"arithmetic-zero.txt": "c7ace1304f0844cb9b8eb11d0969b06b57d6e313f92e844c9b1b9a4f08bf3a3b",
+		"native-core-results.xml": "61aeeebea07e19beebd2f99caf3fd030943c4ba8fbd8f8f7e4a8c86e9b50824d",
+		"negative-raw-division-results.xml": "c328c86fa9761d2196e99606c4eaa27fefa671aa8c8367a5ebe5f98f4d982a92"
+	},
+	"localEvidenceDirectory": "/tmp/nova-arithmetic-evidence",
+	"nativeCommand": "mise exec java@17 gradle@8.1.1 -- gradle -I <nova>/scripts/fixtures/javarosa/compatibility-proof.init.gradle -PnovaProofDir=<nova>/scripts/fixtures/javarosa -PnovaProofResources=/tmp/nova-arithmetic-evidence test --tests nova.compatibility.ArithmeticRuntimeTest --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=\"-Xmx768m -XX:MaxMetaspaceSize=384m\""
+}

@@ -1,26 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { adjudicateSubmissionReceipt } from "@/lib/case-store";
 import type { CaseOperation } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { buildDoc, f } from "../../../__tests__/docHelpers";
-import type { SubmissionMutation } from "../caseDataBindingTypes";
-import type { ResolvedPreviewIdentity } from "../identity";
-
-const { loadAppMock } = vi.hoisted(() => ({
-	loadAppMock: vi.fn(),
-}));
-
-vi.mock("@/lib/db/apps", () => ({
-	loadApp: loadAppMock,
-}));
-
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildSubmissionOperationProgram,
 	buildSubmissionReceiptIdentity,
 } from "../caseDataBindingHelpers";
+import type { SubmissionMutation } from "../caseDataBindingTypes";
+import type { ResolvedPreviewIdentity } from "../identity";
 
 const APP_ID = "capture-intent-unit-app";
 /** These capture-intent cases carry no lookup carriers, so the scope only has
@@ -45,29 +37,31 @@ const IDENTITY: ResolvedPreviewIdentity = {
 };
 
 function surveyDoc(fieldKind: "image" | "text") {
-	return buildDoc({
-		appName: "Capture intent unit app",
-		modules: [
-			{
-				name: "Module",
-				forms: [
-					{
-						uuid: FORM_UUID,
-						name: "Survey",
-						type: "survey",
-						fields: [
-							f({
-								uuid: FIELD_UUID,
-								kind: fieldKind,
-								id: fieldKind === "image" ? "photo" : "note",
-								label: fieldKind === "image" ? "Photo" : "Note",
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
+	return assertAdmittedPreviewDoc(
+		buildDoc({
+			appName: "Capture intent unit app",
+			modules: [
+				{
+					name: "Module",
+					forms: [
+						{
+							uuid: FORM_UUID,
+							name: "Survey",
+							type: "survey",
+							fields: [
+								f({
+									uuid: FIELD_UUID,
+									kind: fieldKind,
+									id: fieldKind === "image" ? "photo" : "note",
+									label: fieldKind === "image" ? "Photo" : "Note",
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
 }
 
 const REPEAT_UUID = testUuid("44444444-4444-4444-8444-444444444444");
@@ -109,7 +103,7 @@ function repeatScopedOperationDoc(opts: { readsVisitNote?: boolean } = {}) {
 			},
 		],
 	});
-	return {
+	return assertAdmittedPreviewDoc({
 		...doc,
 		forms: {
 			...doc.forms,
@@ -130,7 +124,7 @@ function repeatScopedOperationDoc(opts: { readsVisitNote?: boolean } = {}) {
 				] satisfies CaseOperation[],
 			},
 		},
-	};
+	});
 }
 
 function emptyCaptureMutation(): SubmissionMutation {
@@ -142,12 +136,8 @@ function emptyCaptureMutation(): SubmissionMutation {
 	};
 }
 
-beforeEach(() => {
-	loadAppMock.mockReset();
-});
-
 describe("capture submission intent", () => {
-	it("keeps the replay latch for an attachment-capable form with an empty projection", async () => {
+	it("derives the capture intent and receipt for an attachment-capable form with an empty projection", async () => {
 		const committedApp = {
 			blueprint: surveyDoc("image"),
 			mutation_seq: 17,
@@ -188,7 +178,7 @@ describe("capture submission intent", () => {
 		});
 	});
 
-	it("keeps the submission replay receipt after the current form becomes text-only", async () => {
+	it("derives a replay receipt for a text-only form", async () => {
 		const committedApp = {
 			blueprint: surveyDoc("text"),
 			mutation_seq: 17,
@@ -321,7 +311,10 @@ describe("capture submission intent", () => {
 			projection: validateCaptureSubmissionProjection(mutation),
 			viewerTimeZone: "UTC",
 		});
-		expect(built.program).toBeDefined();
+		expect(built.program?.scopes).toEqual([
+			{ iterations: [{ formFields: new Map() }] },
+			{ repeat: REPEAT_UUID, iterations: [] },
+		]);
 	});
 
 	/* One level finer than the repeat guard: a peer can add a FIELD an
@@ -387,6 +380,9 @@ describe("capture submission intent", () => {
 			projection: validateCaptureSubmissionProjection(mutation),
 			viewerTimeZone: "UTC",
 		});
-		expect(built.program).toBeDefined();
+		expect(built.program?.scopes).toEqual([
+			{ iterations: [{ formFields: new Map() }] },
+			{ repeat: REPEAT_UUID, iterations: [] },
+		]);
 	});
 });

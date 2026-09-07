@@ -10,7 +10,6 @@
 
 import dynamic from "next/dynamic";
 import {
-	type ComponentType,
 	createContext,
 	type ReactNode,
 	useContext,
@@ -101,18 +100,14 @@ export function useProjectDataInspectorPresence(): {
 
 export function ProjectDataWorkspaceProvider({
 	children,
-	controllerComponent,
 }: {
 	children: ReactNode;
-	/** Test seam: production leaves the heavy controller lazy. */
-	controllerComponent?: ComponentType<ProjectDataWorkspaceControllerBridgeProps>;
 }) {
 	const routeKind = useLocationKind();
 	const tableId = useSelectedProjectDataTableId();
 	const projectDataRoute = routeKind === "project-data";
 	const [workspaceStore] = useState(createWorkspaceStore);
 	const [activated, setActivated] = useState(projectDataRoute);
-	const ActiveControllerBridge = controllerComponent ?? ControllerBridge;
 
 	useEffect(() => {
 		if (projectDataRoute) setActivated(true);
@@ -121,19 +116,13 @@ export function ProjectDataWorkspaceProvider({
 	const controller = useMemo(
 		() =>
 			controllerMounted ? (
-				<ActiveControllerBridge
+				<ControllerBridge
 					tableId={tableId}
 					projectDataRoute={projectDataRoute}
 					workspaceStore={workspaceStore}
 				/>
 			) : null,
-		[
-			ActiveControllerBridge,
-			controllerMounted,
-			projectDataRoute,
-			tableId,
-			workspaceStore,
-		],
+		[controllerMounted, projectDataRoute, tableId, workspaceStore],
 	);
 
 	return (

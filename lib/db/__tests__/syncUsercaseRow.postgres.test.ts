@@ -49,7 +49,7 @@ async function row(appId: string, worker = PERSONA) {
 	const result = await h
 		.pool()
 		.query(
-			"SELECT case_id, owner_id, project_id, case_type, case_name, status, external_id, properties, xmin::text AS version FROM cases WHERE app_id = $1 AND case_id = $2",
+			"SELECT case_id, owner_id, project_id, case_type, case_name, status, external_id, properties, xmin::text AS version FROM cases WHERE app_id = $1 AND case_type = 'commcare-user' AND properties->>'hq_user_id' = $2",
 			[appId, worker],
 		);
 	expect(result.rows).toHaveLength(1);
@@ -87,7 +87,7 @@ it("births the built-in worker schema even with no authored case types, then cre
 	]);
 	const first = await row(birth.appId);
 	expect({ ...first, properties: undefined, version: undefined }).toEqual({
-		case_id: PERSONA,
+		case_id: expect.any(String),
 		owner_id: PERSONA,
 		project_id: PROJECT,
 		case_type: "commcare-user",
@@ -149,7 +149,7 @@ it("leaves runtime-written values and the physical row version unchanged on ensu
 	const store = await withProjectContext(PROJECT, ACTOR, PERSONA);
 	await store.update({
 		appId,
-		caseId: PERSONA,
+		caseId: (await row(appId)).case_id,
 		patch: { properties: { cadre: "runtime-written" } },
 	});
 	const before = await row(appId);
@@ -198,7 +198,7 @@ it("ensure-only creates a missing worker with its login fallback and exposes it 
 		(
 			await store.query({ ...query, restoreScope: { ownerIds: [PERSONA] } })
 		).map((item) => item.case_id),
-	).toEqual([PERSONA]);
+	).toEqual([saved.case_id]);
 	expect(
 		await store.query({
 			...query,
@@ -214,7 +214,7 @@ it("refuses undeclared runtime properties without changing any stored field or r
 	const error = await store
 		.update({
 			appId,
-			caseId: PERSONA,
+			caseId: (await row(appId)).case_id,
 			patch: { case_name: "Must not land", properties: { visits_done: "12" } },
 		})
 		.catch((error: unknown) => error);

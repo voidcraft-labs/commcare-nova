@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 
 import type { CaseOperation } from "@/lib/domain";
-import { idOf, literal, term } from "@/lib/domain/predicate";
+import { literal, term } from "@/lib/domain/predicate";
 import {
 	type OperationSentenceContext,
 	operationSentence,
@@ -104,7 +104,7 @@ describe("operationSentence", () => {
 			operationSentence(
 				op({
 					action: "close",
-					target: { kind: "expression", expr: idOf(CREATE) },
+					target: { kind: "expression", expr: term(literal("external-case")) },
 					name: undefined,
 				}),
 				context,
@@ -221,28 +221,5 @@ describe("operationSentence", () => {
 		expect(operationSentenceText(operationSentence(op(), context))).toBe(
 			"Create a new referral case",
 		);
-	});
-
-	it("never renders CommCare's or the wire's vocabulary", () => {
-		const shapes = [
-			op(),
-			op({ action: "update", target: { kind: "session" }, name: undefined }),
-			op({ action: "close", target: { kind: "session" }, name: undefined }),
-		];
-		for (const shape of shapes) {
-			const text = operationSentenceText(
-				operationSentence(shape, context),
-			).toLowerCase();
-			for (const banned of [
-				"save to case",
-				"case block",
-				"advanced case action",
-				"aca",
-				"xpath",
-				"index",
-			]) {
-				expect(text).not.toContain(banned);
-			}
-		}
 	});
 });

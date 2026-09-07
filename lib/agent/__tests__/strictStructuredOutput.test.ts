@@ -1,23 +1,13 @@
 /**
- * The strict wire projection — proven against the PRODUCTION design
- * schemas, not toys:
- *
- *  1. every schema the pipeline sends projects into OpenAI's documented
- *     strict subset (no `oneOf`, every property required, boolean
- *     `additionalProperties: false` on every object, no `default`) — the
- *     class that 400'd the author call live can only come back by failing
- *     this suite first;
- *  2. the validation bridge round-trips each schema's real fixture, with
- *     the strict null spelling (`null` in formerly-optional slots) mapped
- *     back to the absence the Zod schemas expect;
- *  3. the projection's soundness precondition holds: no model-facing
- *     design schema uses `.nullable()`, so a `null` can only ever mean
- *     "the wire made me say something".
+ * Offline projection and local validation of the production design schemas.
+ * Structural checks cover selected strict-schema requirements; AJV exercises
+ * emitted Draft-7 semantics. Neither establishes live provider acceptance or
+ * model output quality. Native provider-adapter tests live beside this suite.
  */
 
-import { readFileSync } from "node:fs";
+import Ajv from "ajv";
 import { describe, expect, it } from "vitest";
-import type { z } from "zod";
+import { z } from "zod";
 import { ids, makeContract } from "@/lib/agent/design/__tests__/fixtures";
 import { appDesignContractSchema } from "@/lib/agent/design/contract";
 import {
@@ -89,7 +79,7 @@ const PIPELINE_SCHEMAS: ReadonlyArray<[string, z.ZodType]> = [
 	["revise (designRevisionResultSchemaFor)", designRevisionResultSchemaFor([])],
 ];
 
-/** Walk one projected schema and collect every strict-subset violation. */
+/** Check the selected projection invariants at JSON Schema positions only. */
 function strictViolations(node: unknown, path: string, out: string[]): void {
 	if (Array.isArray(node)) {
 		node.forEach((entry, i) => {
@@ -118,14 +108,35 @@ function strictViolations(node: unknown, path: string, out: string[]): void {
 			}
 		}
 	}
-	for (const [key, value] of Object.entries(record)) {
-		strictViolations(value, `${path}.${key}`, out);
+	for (const key of ["properties", "$defs", "definitions"] as const) {
+		const map = record[key];
+		if (map !== null && typeof map === "object" && !Array.isArray(map)) {
+			for (const [name, schema] of Object.entries(map)) {
+				strictViolations(schema, `${path}.${key}.${name}`, out);
+			}
+		}
+	}
+	for (const key of [
+		"items",
+		"prefixItems",
+		"additionalItems",
+		"anyOf",
+		"oneOf",
+		"allOf",
+		"not",
+		"contains",
+		"if",
+		"then",
+		"else",
+	] as const) {
+		if (record[key] !== undefined)
+			strictViolations(record[key], `${path}.${key}`, out);
 	}
 }
 
 describe("strictWireJsonSchema over the production pipeline schemas", () => {
 	for (const [name, schema] of PIPELINE_SCHEMAS) {
-		it(`projects ${name} into the strict subset`, () => {
+		it(`projects ${name} with closed objects, required properties and supported union spelling`, () => {
 			const projected = strictWireJsonSchema(schema);
 			const violations: string[] = [];
 			strictViolations(projected, "$", violations);
@@ -134,8 +145,34 @@ describe("strictWireJsonSchema over the production pipeline schemas", () => {
 		});
 	}
 
+	it("checks nested schema positions without interpreting annotation data as schemas", () => {
+		const violations: string[] = [];
+		strictViolations(
+			{
+				type: "object",
+				additionalProperties: false,
+				required: ["entry"],
+				properties: {
+					entry: {
+						type: "array",
+						items: {
+							type: "object",
+							properties: { title: { type: "string" } },
+						},
+					},
+				},
+				examples: [{ type: "object", oneOf: [], default: "literal" }],
+			},
+			"$",
+			violations,
+		);
+		expect(violations).toEqual([
+			"$.properties.entry.items: additionalProperties must be false",
+			"$.properties.entry.items.title: property not required",
+		]);
+	});
+
 	it("rewrites a discriminated union's oneOf to anyOf and keeps the arms", () => {
-		const { z } = require("zod") as typeof import("zod");
 		const projected = strictWireJsonSchema(
 			z.object({
 				effect: z.discriminatedUnion("kind", [
@@ -146,27 +183,48 @@ describe("strictWireJsonSchema over the production pipeline schemas", () => {
 				]),
 			}),
 		);
-		const text = JSON.stringify(projected);
-		expect(text).not.toContain('"oneOf"');
-		expect(text).toContain('"anyOf"');
-		// The workflow effect union survives projection.
+		const validate = new Ajv({ strict: false }).compile(projected);
 		for (const kind of ["create", "update", "close", "link"]) {
-			expect(text).toContain(`"${kind}"`);
+			expect(validate({ effect: { kind, name: "Visit" } })).toBe(true);
 		}
+		for (const effect of [
+			{ kind: "invented", name: "Visit" },
+			{ kind: "create" },
+			{ kind: "create", name: "Visit", extra: true },
+		]) {
+			expect(validate({ effect })).toBe(false);
+		}
+		const violations: string[] = [];
+		strictViolations(projected, "$", violations);
+		expect(violations).toEqual([]);
 	});
 
-	it("throws on a record-shaped schema instead of emitting one strict rejects", () => {
-		const { z } = require("zod") as typeof import("zod");
+	it("admits null for optional enum and literal slots in the emitted JSON schema", async () => {
+		const schema = z.object({
+			mode: z.enum(["fast", "full"]).optional(),
+			enabled: z.literal(true).optional(),
+		});
+		const validate = new Ajv({ strict: false }).compile(
+			strictWireJsonSchema(schema),
+		);
+		const value = { mode: null, enabled: null };
+		expect(validate(value), JSON.stringify(validate.errors)).toBe(true);
+		expect(await strictStructuredSchema(schema).validate?.(value)).toEqual({
+			success: true,
+			value: {},
+		});
+	});
+
+	it("refuses an open-key record at local request construction", () => {
 		expect(() =>
 			strictWireJsonSchema(z.object({ bag: z.record(z.string(), z.number()) })),
 		).toThrow(/record|dictionary/i);
 	});
 
-	it("throws on an untyped slot (z.unknown) instead of emitting one strict rejects", () => {
+	it("refuses an untyped slot with its path at local request construction", () => {
 		// The live validator's answer to an empty schema is a 400 ("schema
 		// must have a 'type' key") — observed on the author schema's constant
 		// fact value. The projection must catch it offline, path included.
-		const { z } = require("zod") as typeof import("zod");
 		expect(() =>
 			strictWireJsonSchema(z.object({ facts: z.array(z.unknown()) })),
 		).toThrow(/facts\.items.*type|admits anything/i);
@@ -232,7 +290,6 @@ describe("the validation bridge", () => {
 	});
 
 	it("maps the strict null spelling back to absence", async () => {
-		const { z } = require("zod") as typeof import("zod");
 		const schema = strictStructuredSchema(
 			z.object({ name: z.string(), note: z.string().optional() }),
 		);
@@ -264,18 +321,17 @@ describe("stripNullProperties", () => {
 });
 
 describe("projection soundness precondition", () => {
-	it("no model-facing design schema uses .nullable()", () => {
-		for (const file of [
-			"lib/agent/design/contract.ts",
-			"lib/agent/design/evidence.ts",
-			"lib/agent/design/review.ts",
-			"lib/agent/design/reviewerSchema.ts",
-			"lib/agent/design/buildPlan.ts",
-		]) {
-			expect(
-				readFileSync(file, "utf8").includes(".nullable("),
-				`${file} uses .nullable(), which breaks the strict bridge's null-strip: null would be a real value there, and the bridge deletes it. Restructure the slot or teach the bridge that path first.`,
-			).toBe(false);
-		}
+	it.each([
+		["nullable", z.string().nullable()],
+		["optional nullable", z.string().nullable().optional()],
+		["explicit union", z.union([z.string(), z.null()])],
+		["nested", z.object({ inner: z.string().nullable() })],
+		["array member", z.array(z.string().nullable())],
+		["tuple member", z.tuple([z.string(), z.null()])],
+		["literal null", z.literal(null)],
+	])("refuses %s before constructing a provider request", (_name, value) => {
+		expect(() => strictStructuredSchema(z.object({ value }))).toThrow(
+			/value.*authored null/,
+		);
 	});
 });

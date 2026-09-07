@@ -8,13 +8,12 @@ import { CompletionContext } from "@codemirror/autocomplete";
 import { EditorState } from "@codemirror/state";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import {
-	caseRefAcceptMap,
-	reachableCaseTypes,
-	toReachableIndex,
-} from "@/lib/domain";
+import { blueprintDocSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { buildLintContext } from "../buildLintContext";
 import { buildSessionLintContext } from "../buildSessionLintContext";
@@ -44,13 +43,26 @@ function storeFor(formType: "followup" | "registration") {
 					uuid: "mod-care",
 					name: "Care",
 					caseType: "patient",
+					caseListConfig: caseListConfig([{ field: "mood", header: "Mood" }]),
 					forms: [
 						{
 							uuid: "frm-visit",
 							name: "Visit",
 							type: formType,
 							fields: [
-								f({ kind: "text", id: "note", label: proseText("Note") }),
+								f({
+									kind: "text",
+									id: "note",
+									label: proseText("Note"),
+									...(formType === "registration"
+										? {
+												caseWrite: {
+													caseType: "patient",
+													property: "case_name",
+												},
+											}
+										: {}),
+								}),
 							],
 						},
 					],
@@ -59,6 +71,9 @@ function storeFor(formType: "followup" | "registration") {
 		}),
 	);
 	const state = store.getState();
+	blueprintDocSchema.parse(toPersistableDoc(state));
+	const verdict = mutationCommitVerdict(state, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
 	const moduleUuid = state.moduleOrder[0];
 	const formUuid = state.formOrder[moduleUuid][0];
 	return { state, moduleUuid, formUuid };
@@ -78,37 +93,27 @@ describe("buildSessionLintContext", () => {
 		expect(formCtx?.validPaths.has("/data/note")).toBe(true);
 	});
 
-	it("accepts exactly the case references the deep validator's form-link pass accepts", () => {
-		for (const formType of ["followup", "registration"] as const) {
-			const { state, moduleUuid, formUuid } = storeFor(formType);
+	it.each(["followup", "registration"] as const)(
+		"%s session offers declared properties; registration field slots remain narrowed",
+		(formType) => {
+			const { state, formUuid } = storeFor(formType);
 			const ctx = buildSessionLintContext(state, formUuid);
-			if (ctx === undefined) throw new Error("no context");
+			if (!ctx) throw new Error("Missing session context");
 			const accept = caseTypePropsForValidation(ctx);
-			// The validator's own derivation for a form-link slot: the module's
-			// reachable index under SESSION scope (a registration form's new
-			// case exists by the time its links run, so no narrowing applies).
-			const mod = state.modules[moduleUuid];
-			const index = toReachableIndex(
-				reachableCaseTypes(mod?.caseType ?? "", state.caseTypes ?? []),
-				state,
-			);
-			const validatorAccept = caseRefAcceptMap(index, formType, "session");
-			const sorted = (map: Map<string, Set<string>> | undefined) =>
-				[...(map ?? [])].map(([type, props]) => [type, [...props].sort()]);
-			expect(sorted(accept)).toEqual(sorted(validatorAccept));
+			expect([...(accept?.keys() ?? [])]).toEqual(["patient"]);
+			expect([...(accept?.get("patient") ?? [])].sort()).toEqual([
+				"age",
+				"case_id",
+				"mood",
+			]);
 			const formCtx = buildLintContext(state, formUuid);
-			const formAccept = formCtx && caseTypePropsForValidation(formCtx);
-			if (formType === "followup") {
-				// A follow-up's links read what its field slots read.
-				expect(sorted(formAccept)).toEqual(sorted(accept));
-			} else {
-				// A registration form's field slots see only the new case's
-				// `case_id`; its links read the case it created.
-				expect(sorted(formAccept)).toEqual([["patient", ["case_id"]]]);
-				expect(accept?.get("patient")?.has("mood")).toBe(true);
-			}
-		}
-	});
+			if (!formCtx) throw new Error("Missing form context");
+			expect(xpathDiagnostics("#patient/mood = 'good'", ctx)).toEqual([]);
+			expect(xpathDiagnostics("#patient/mood = 'good'", formCtx).length).toBe(
+				formType === "registration" ? 1 : 0,
+			);
+		},
+	);
 
 	it("returns undefined for a form that no longer exists", () => {
 		const { state } = storeFor("followup");

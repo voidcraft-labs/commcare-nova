@@ -165,3 +165,43 @@ describe("validateChatMessages", () => {
 		},
 	);
 });
+
+it("accepts each exact quota before rejecting one additional item", () => {
+	const messages = Array.from({ length: MAX_CHAT_MESSAGES }, () =>
+		assistantMsg(),
+	);
+	expect(validateChatMessages(messages)).toEqual({ ok: true, messages });
+	const attachments = Array.from({ length: MAX_CHAT_ATTACHMENTS }, () => ref());
+	const atLimit = [];
+	for (
+		let offset = 0;
+		offset < attachments.length;
+		offset += MAX_ATTACHMENTS_PER_MESSAGE
+	) {
+		atLimit.push(
+			userMsg(attachments.slice(offset, offset + MAX_ATTACHMENTS_PER_MESSAGE)),
+		);
+	}
+	expect(validateChatMessages(atLimit)).toEqual({
+		ok: true,
+		messages: atLimit,
+	});
+	expect(validateChatMessages([...atLimit, userMsg([ref()])])).toMatchObject({
+		ok: false,
+		error: expect.stringContaining(`${MAX_CHAT_ATTACHMENTS}-attachment limit`),
+	});
+	const bounded = [
+		userMsg([
+			ref({
+				title: "t".repeat(200),
+				summary: "s".repeat(2000),
+				filename: "f".repeat(255),
+				mimeType: "m".repeat(255),
+			}),
+		]),
+	];
+	expect(validateChatMessages(bounded)).toEqual({
+		ok: true,
+		messages: bounded,
+	});
+});

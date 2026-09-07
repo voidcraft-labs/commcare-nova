@@ -1,6 +1,15 @@
+import { SaxesParser } from "saxes";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import {
+	admitNestedDoc,
+	followupNestedDoc,
+	nestedMenuScenarios,
+	nestedMenuWireFixture,
+	registrationNestedDoc,
+	setSharedFormAnswers,
+} from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { expandDoc } from "@/lib/commcare/expander";
 import { loadAssetsByIds } from "@/lib/db/mediaAssets";
 import type { LookupReferenceExtractorRegistry } from "@/lib/doc/lookupReferences";
@@ -44,6 +53,104 @@ const ACCESS = {
 	role: "owner",
 	actorUserId: "user-1",
 } as const;
+
+describe("HQ nested-selection target compatibility", () => {
+	it.each(nestedMenuScenarios)(
+		"preserves admission and local export for %s while refusing only proven HQ losses",
+		async (scenario) => {
+			const doc = nestedMenuWireFixture(scenario);
+			const reason =
+				scenario === "parent-multiple"
+					? "multiple-parent-relation"
+					: scenario === "same-smaller"
+						? "smaller-child-maximum"
+						: undefined;
+			for (const mode of ["ccz", "hq-json", "hq-upload"] as const) {
+				vi.mocked(resolveMediaManifest).mockClear();
+				const result = await prepareExportBoundary({
+					mode,
+					access: ACCESS,
+					doc,
+					compiledAtSeq: 4,
+					attachmentTarget: null,
+				});
+				if (mode === "ccz" || reason === undefined) {
+					expect(result.ok).toBe(true);
+					expect(resolveMediaManifest).toHaveBeenCalledOnce();
+				} else {
+					expect(result.ok).toBe(false);
+					if (result.ok) throw new Error("HQ would change nested selection");
+					expect(result.violations).toHaveLength(1);
+					expect(result.violations[0]).toMatchObject({
+						code: "HQ_NESTED_SELECTION_UNREPRESENTABLE",
+						scope: "module",
+						location: { moduleUuid: doc.moduleOrder[1] },
+						details: {
+							exportMode: mode,
+							reason,
+							sourceModuleUuid: doc.moduleOrder[0],
+							targetModuleUuid: doc.moduleOrder[1],
+							sourceMaximum: "5",
+							...(reason === "smaller-child-maximum" && { targetMaximum: "4" }),
+						},
+					});
+					expect(resolveMediaManifest).not.toHaveBeenCalled();
+					expect(userFacingErrors(result.violations)[0]).toContain("HQ");
+				}
+			}
+		},
+	);
+	it.each([
+		"larger-child",
+		"survey-first-root",
+		"registration",
+		"case-list-only",
+	] as const)("checks actual selection entries for %s", async (scenario) => {
+		const doc =
+			scenario === "registration"
+				? registrationNestedDoc()
+				: followupNestedDoc({
+						sameCaseType: scenario !== "case-list-only",
+						parentFirstSurvey: scenario === "survey-first-root",
+						parentSelect: scenario === "case-list-only",
+						caseListOnly: scenario === "case-list-only",
+					});
+		const [root, child] = doc.moduleOrder;
+		const rootConfig = doc.modules[root].caseListConfig;
+		const childConfig = doc.modules[child].caseListConfig;
+		if (!rootConfig || !childConfig) throw new Error("Missing case lists");
+		rootConfig.selection = { kind: "multiple", maximum: 5 };
+		if (scenario !== "case-list-only" && scenario !== "registration") {
+			childConfig.selection = {
+				kind: "multiple",
+				maximum: scenario === "larger-child" ? 6 : 4,
+			};
+		}
+		setSharedFormAnswers(doc, root);
+		if (scenario !== "registration") setSharedFormAnswers(doc, child);
+		admitNestedDoc(doc);
+		for (const mode of ["hq-json", "hq-upload"] as const) {
+			const result = await prepareExportBoundary({
+				mode,
+				access: ACCESS,
+				doc,
+				compiledAtSeq: 4,
+				attachmentTarget: null,
+			});
+			expect(result.ok).toBe(scenario !== "case-list-only");
+			if (!result.ok)
+				expect(result.violations).toEqual([
+					expect.objectContaining({
+						code: "HQ_NESTED_SELECTION_UNREPRESENTABLE",
+						location: { moduleUuid: child },
+						details: expect.objectContaining({
+							reason: "multiple-parent-relation",
+						}),
+					}),
+				]);
+		}
+	});
+});
 
 function validDoc() {
 	return buildDoc({
@@ -948,6 +1055,150 @@ it.each(["ccz", "hq-json", "hq-upload"] as const)(
 				},
 			},
 		]);
+		expect(resolveMediaManifest).not.toHaveBeenCalled();
+	},
+);
+
+it.each(["ccz", "hq-json", "hq-upload"] as const)(
+	"%s preserves stored lookup padding or refuses the lossy HQ carrier before resolving bytes",
+	async (mode) => {
+		const snapshot = carrierFixtureSnapshot();
+		const table = snapshot.definitions[0];
+		const noteColumn = {
+			id: lookupColumnIdSchema.parse("018f3e8a-7b2c-7def-8abc-1234567890af"),
+			wireName: "note",
+			label: "Note",
+			dataType: "text",
+		} as const;
+		const values = [
+			" padded",
+			"padded\t",
+			"\u0085value",
+			"value\u00a0",
+			"\u2003value",
+			"value\u3000",
+			"\ufeffvalue\ufeff",
+			"line one\nline two",
+		];
+		const rows = values.map((note, index) => ({
+			id: lookupRowIdSchema.parse(
+				`018f3e8a-7b2c-7def-8abc-${String(1000 + index).padStart(12, "0")}`,
+			),
+			values: {
+				[CARRIER_VALUE_COLUMN]: `v${index}`,
+				[CARRIER_LABEL_COLUMN]: `Label ${index}`,
+				[noteColumn.id]: note,
+			},
+		}));
+		const fixtureData: LookupFixtureDataSnapshot = {
+			...snapshot,
+			definitions: [{ ...table, columns: [...table.columns, noteColumn] }],
+			rowsByTable: new Map([[table.id, rows]]),
+		};
+		const before = structuredClone(fixtureData);
+		vi.mocked(getLookupFixtureData).mockResolvedValue(fixtureData);
+		const result = await prepareExportBoundary({
+			mode,
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 19,
+			attachmentTarget: null,
+		});
+		expect(fixtureData).toEqual(before);
+		if (mode === "ccz") {
+			if (!result.ok) throw new Error(JSON.stringify(result.violations));
+			const xml = result.prepared.lookupWire?.fixtures.fixtures[0].xml;
+			if (!xml) throw new Error("Missing prepared fixture");
+			const notes: string[] = [];
+			let active = false;
+			const parser = new SaxesParser({ xmlns: true });
+			parser.on("opentag", (tag) => {
+				if (tag.local === "note") {
+					active = true;
+					notes.push("");
+				}
+			});
+			parser.on("text", (value) => {
+				if (active) notes[notes.length - 1] += value;
+			});
+			parser.on("closetag", (tag) => {
+				if (tag.local === "note") active = false;
+			});
+			parser.write(xml).close();
+			expect(notes).toEqual(values);
+		} else {
+			expect(result.ok).toBe(false);
+			if (result.ok) throw new Error("HQ would change these values");
+			expect(result.violations).toHaveLength(1);
+			expect(result.violations[0]).toMatchObject({
+				code: "LOOKUP_CELL_TEXT_CHANGED_BY_HQ",
+				scope: "app",
+				details: {
+					tableId: table.id,
+					columnId: noteColumn.id,
+					offendingRowCount: "6",
+					offendingRowPositions: "1,2,3,4,5",
+					offendingRowIds: rows
+						.slice(0, 5)
+						.map((row) => row.id)
+						.join(","),
+				},
+			});
+			expect(resolveMediaManifest).not.toHaveBeenCalled();
+		}
+	},
+);
+
+it.each(["hq-json", "hq-upload"] as const)(
+	"%s preserves BOM and interior whitespace that HQ leaves intact",
+	async (mode) => {
+		const snapshot = carrierFixtureSnapshot();
+		const rows = snapshot.rowsByTable.get(CARRIER_TABLE);
+		if (!rows) throw new Error("Missing fixture rows");
+		rows[0].values[CARRIER_LABEL_COLUMN] = "\ufeffActive\ufeff";
+		rows[1].values[CARRIER_LABEL_COLUMN] = "Line one\nline two";
+		vi.mocked(getLookupFixtureData).mockResolvedValue(snapshot);
+		const result = await prepareExportBoundary({
+			mode,
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 20,
+			attachmentTarget: null,
+		});
+		if (!result.ok) throw new Error(JSON.stringify(result.violations));
+		expect(result.prepared.lookupWorkbook?.tables).toEqual([
+			{ tableId: CARRIER_TABLE, tag: "statuses", columnCount: 2, rowCount: 2 },
+		]);
+	},
+);
+
+it.each(["ccz", "hq-json", "hq-upload"] as const)(
+	"refuses historical runtime-reserved lookup tags before releasing a %s artifact",
+	async (mode) => {
+		const snapshot = carrierFixtureSnapshot();
+		vi.mocked(getLookupFixtureData).mockResolvedValue({
+			...snapshot,
+			definitions: snapshot.definitions.map((table) => ({
+				...table,
+				tag: "selected_cases",
+			})),
+		});
+		const result = await prepareExportBoundary({
+			mode,
+			access: ACCESS,
+			doc: lookupCarrierDoc(),
+			compiledAtSeq: 15,
+			attachmentTarget: null,
+		});
+		expect(result.ok).toBe(false);
+		if (result.ok) throw new Error("Expected reserved runtime tag refusal");
+		expect(result.violations.length).toBeGreaterThan(0);
+		expect(new Set(result.violations.map((f) => f.code))).toEqual(
+			new Set(["LOOKUP_TAG_RESERVED_BY_RUNTIME"]),
+		);
+		expect(
+			result.violations.every((f) => f.details?.tag === "selected_cases"),
+		).toBe(true);
 		expect(resolveMediaManifest).not.toHaveBeenCalled();
 	},
 );

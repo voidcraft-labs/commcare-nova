@@ -1,299 +1,71 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { proseText } from "@/lib/domain/prose";
-/**
- * Tests for the `searchInputPredicateTypeCheck` rule. One invariant
- * per `it(...)` block; the rule's domain is the advanced-arm
- * `predicate` slot only.
- */
-
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { advancedSearchInputDef, simpleSearchInputDef } from "@/lib/domain";
 import {
-	advancedSearchInputDef,
-	plainColumn,
-	simpleSearchInputDef,
-} from "@/lib/domain";
-import { eq, gt, input, literal, prop } from "@/lib/domain/predicate";
-import { runValidation } from "../../../runner";
+	eq,
+	gt,
+	input,
+	literal,
+	prop,
+	whenInput,
+} from "@/lib/domain/predicate";
+import {
+	admittedCaseListDoc,
+	findings,
+	withSearchInputs,
+} from "./caseListRuleFixture";
 
-describe("searchInputPredicateTypeCheck", () => {
-	it("fires when an advanced-arm predicate has an operand-type mismatch", () => {
-		// `gt` against text-typed `case_name` — strings aren't ordered,
-		// so the type checker rejects.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [
-							advancedSearchInputDef(
-								testUuid("si-adv"),
-								"adv_search",
-								"Advanced",
-								"text",
-								gt(prop("patient", "case_name"), literal("M")),
-							),
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
+const sibling = simpleSearchInputDef(
+	testUuid("sibling"),
+	"name",
+	"Name",
+	"text",
+	"case_name",
+);
+describe("advanced search predicate admission", () => {
+	it.each([
+		{
+			predicate: gt(prop("patient", "case_name"), literal("M")),
+			message: "ordered",
+		},
+		{
+			predicate: eq(prop("patient", "ghost"), literal("x")),
+			message: "Unknown property",
+		},
+	])("refuses $message", ({ predicate, message }) => {
+		const result = findings(
+			withSearchInputs(admittedCaseListDoc(), [
+				advancedSearchInputDef(
+					testUuid("a"),
+					"advanced",
+					"Advanced",
+					"text",
+					predicate,
+				),
+			]),
 		);
-		expect(hits.length).toBeGreaterThan(0);
-		// Elm-style three-component message: identifies the input
-		// by name + index, and threads the inner per-checker message.
-		expect(hits[0].message).toContain('"adv_search"');
-		expect(hits[0].message).toContain("predicate");
+		expect(result.map((error) => error.code)).toEqual([
+			"CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
+		]);
+		expect(result[0].message).toContain(message);
+		expect(result[0].details?.inputUuid).toBe(testUuid("a"));
 	});
-
-	it("fires when an advanced-arm predicate references an unknown property", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [
-							advancedSearchInputDef(
-								testUuid("si-adv"),
-								"adv_search",
-								"Advanced",
-								"text",
-								eq(prop("patient", "ghost"), literal("x")),
-							),
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
-		);
-		expect(
-			hits.some((e) => e.message.toLowerCase().includes("unknown property")),
-		).toBe(true);
-	});
-
-	it("admits cross-input references via `knownInputs` resolution", () => {
-		// An advanced predicate referencing another declared input
-		// (`when-input-present(input("other"), ...)`) must resolve
-		// because `moduleTypeContext` populates `knownInputs` from
-		// the full `searchInputs` list. Pin the cross-input case
-		// so the rule's `knownInputs` wiring stays load-bearing.
-		const nameSearchUuid = testUuid("si-name");
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [
-							simpleSearchInputDef(
-								nameSearchUuid,
-								"name_search",
-								"Name",
-								"text",
-								"case_name",
-							),
-							advancedSearchInputDef(
-								testUuid("si-adv"),
-								"adv_search",
-								"Advanced",
-								"text",
-								eq(prop("patient", "case_name"), input(nameSearchUuid)),
-							),
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
-			),
-		).toBe(false);
-	});
-
-	it("short-circuits simple-arm inputs (no authored predicate)", () => {
-		// Simple-arm inputs derive their predicate from
-		// `(property, mode, via)` at wire emission — no authored AST
-		// to type-check. The rule must skip them silently.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [
-							simpleSearchInputDef(
-								testUuid("si-name"),
-								"name_search",
-								"Name",
-								"text",
-								"case_name",
-							),
-						],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
-			),
-		).toBe(false);
-	});
-
-	it("short-circuits when the searchInputs list is empty", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("col-name"), "case_name", "Name")],
-						listColumnOrder: [testUuid("col-name")],
-						detailColumnOrder: [testUuid("col-name")],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_SEARCH_INPUT_PREDICATE_TYPE_ERROR",
-			),
-		).toBe(false);
+	it("admits a guarded cross-input reference and refuses the same reference unguarded", () => {
+		const predicate = eq(prop("patient", "case_name"), input(sibling.uuid));
+		const base = admittedCaseListDoc();
+		for (const guarded of [true, false]) {
+			const advanced = advancedSearchInputDef(
+				testUuid("a"),
+				"advanced",
+				"Advanced",
+				"text",
+				guarded ? whenInput(input(sibling.uuid), predicate) : predicate,
+			);
+			expect(
+				findings(withSearchInputs(base, [sibling, advanced])).map(
+					(error) => error.code,
+				),
+			).toEqual(guarded ? [] : ["CASE_LIST_BARE_SEARCH_INPUT_REF"]);
+		}
 	});
 });

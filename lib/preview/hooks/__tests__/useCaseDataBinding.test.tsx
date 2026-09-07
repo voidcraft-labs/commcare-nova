@@ -1,47 +1,23 @@
 // @vitest-environment happy-dom
 
-// lib/preview/hooks/__tests__/useCaseDataBinding.test.tsx
-//
-// Contract tests for the running-app view's hook layer. The hooks
-// curry Server Actions into callbacks the React tree consumes; the
-// actions themselves are tested separately against `caseDataBinding.ts`.
-//
-// `useResetSampleCases` pins the structural contract the consuming
-// `CaseListScreen` "Reset sample data" affordance depends on:
-//
-//   1. The hook returns a fresh callback reference on every render,
-//      matching the JSDoc'd "not memoized" contract.
-//   2. Any undefined identifier short-circuits to the typed `error`
-//      arm with the verbatim user-actionable message. The Server
-//      Action is NOT called along that path.
-//   3. With the args populated, the hook forwards
-//      `(appId, caseType, selectedPersonaUuid)` to
-//      `resetSampleCasesAction` — `caseType` is the live `CaseType`
-//      definition the client passes through (never the whole blueprint) —
-//      and returns the action's resolved result.
-//
-// ## This suite mounts NO `BlueprintDocProvider`, and that is the point
-//
-// Every `lib/doc/hooks` read THROWS without that ancestor, so this file
-// passing is the standing proof that no hook here reaches the document.
-// The rule it pins: a hook in `useCaseDataBinding.ts` takes what it needs
-// as an argument, and the components — which live under the provider —
-// are what read the store. `useRestoreScopeKey` is the live example: it
-// signs the persona assignment, the level catalog, and the place tree
-// into a cache key, and the SCREENS call it and hand the result down as
-// `requestScopeKey` / `scopeKey` rather than the hooks calling it
-// themselves. Moving such a read down into a hook would leave every
-// provider-wrapped component suite green and break here, which is the
-// only reason that mistake is catchable at all.
+// Hook orchestration at the Server Action boundary: actual resources, session
+// state and invalidation; controlled action promises. Server authorization,
+// SQL matching and persistence are proved by the action/Postgres suites.
 
-import { act, renderHook, waitFor } from "@testing-library/react";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
-import { ReconcilerContext } from "@/lib/collab/context";
+import {
+	ReconcilerContext,
+	type ReconcilerContextValue,
+} from "@/lib/collab/context";
 import type { CaseListConfig, CaseType } from "@/lib/domain";
 import { literal, matchAll, term } from "@/lib/domain/predicate";
-import type { LoadCasesResult } from "@/lib/preview/engine/caseDataBindingTypes";
+import type {
+	CaseRowWithCalculated,
+	LoadCasesResult,
+} from "@/lib/preview/engine/caseDataBindingTypes";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
 
@@ -83,6 +59,62 @@ const APP_ID = "app-hook-test";
  *  keeps the fixture cheap. */
 const PATIENT: CaseType = { name: "patient", properties: [] };
 
+const pendingActions = new Set<{
+	promise: Promise<unknown>;
+	cancel: () => void;
+}>();
+function scopeContext(projectScopeId: string): ReconcilerContextValue {
+	const unexpected = (): never => {
+		throw new Error("This resource only consumes reconciler runtime identity");
+	};
+	return {
+		projectScopeId,
+		get reconciler() {
+			return unexpected();
+		},
+		activate: unexpected,
+		subscribePresence: unexpected,
+		subscribeAppOrganization: unexpected,
+		subscribePreviewProjectSpace: unexpected,
+		subscribeLookupManifest: unexpected,
+		subscribeProjectScopeReset: unexpected,
+		isProjectScopeCurrent: unexpected,
+	};
+}
+function ownedActionPromise<T>(
+	executor: (resolve: (value: T | PromiseLike<T>) => void) => void,
+): Promise<T> {
+	const gate = Promise.withResolvers<T>();
+	pendingActions.add({
+		promise: gate.promise,
+		cancel: () => gate.reject(new Error("Action peer closed during teardown")),
+	});
+	executor(gate.resolve);
+	return gate.promise;
+}
+afterEach(async () => {
+	cleanup();
+	for (const task of pendingActions) task.cancel();
+	await Promise.allSettled([...pendingActions].map((task) => task.promise));
+	pendingActions.clear();
+	vi.restoreAllMocks();
+});
+const CASE_ROW: CaseRowWithCalculated = {
+	case_id: "source-case",
+	app_id: APP_ID,
+	case_type: "patient",
+	owner_id: "worker",
+	status: "open",
+	opened_on: null,
+	modified_on: null,
+	closed_on: null,
+	case_name: "Source patient",
+	external_id: null,
+	parent_case_id: null,
+	properties: {},
+	calculated: {},
+};
+
 beforeEach(() => {
 	vi.mocked(loadCaseCountAction).mockReset();
 	vi.mocked(loadCaseDataAction).mockReset();
@@ -91,67 +123,6 @@ beforeEach(() => {
 });
 
 describe("useResetSampleCases", () => {
-	it("returns a fresh callback reference on every render", () => {
-		// The JSDoc'd contract: the hook is NOT memoized, so consecutive
-		// renders MUST yield distinct callback identities.
-		const { result, rerender } = renderHook(() =>
-			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
-		);
-		const first = result.current;
-		rerender();
-		const second = result.current;
-		expect(second).not.toBe(first);
-	});
-
-	it("returns the typed error arm without calling the action when appId is undefined", async () => {
-		// The undefined-arg short-circuit guards the
-		// app-not-yet-hydrated path. The verbatim message string mirrors
-		// `usePopulateSampleCases` so the consumer renders the same
-		// fallback regardless of which affordance the user pressed.
-		const { result } = renderHook(() =>
-			useResetSampleCases({ appId: undefined, caseType: PATIENT }),
-		);
-		const action = result.current;
-		const outcome = await action();
-		expect(outcome).toEqual({
-			kind: "error",
-			message: "App or case type not yet available.",
-		});
-		expect(vi.mocked(resetSampleCasesAction)).not.toHaveBeenCalled();
-	});
-
-	it("returns the typed error arm without calling the action when caseType is undefined", async () => {
-		const { result } = renderHook(() =>
-			useResetSampleCases({ appId: APP_ID, caseType: undefined }),
-		);
-		const outcome = await result.current();
-		expect(outcome).toEqual({
-			kind: "error",
-			message: "App or case type not yet available.",
-		});
-		expect(vi.mocked(resetSampleCasesAction)).not.toHaveBeenCalled();
-	});
-
-	it("forwards args to resetSampleCasesAction and returns its resolved result on the success path", async () => {
-		// Drive the success arm. The hook is a thin curry; the test
-		// pins both forwarded-args and the resolved-result passthrough.
-		vi.mocked(resetSampleCasesAction).mockResolvedValueOnce({
-			kind: "ok",
-			inserted: 30,
-		});
-		const { result } = renderHook(() =>
-			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
-		);
-		const outcome = await result.current();
-		expect(outcome).toEqual({ kind: "ok", inserted: 30 });
-		expect(vi.mocked(resetSampleCasesAction)).toHaveBeenCalledTimes(1);
-		expect(vi.mocked(resetSampleCasesAction)).toHaveBeenCalledWith(
-			APP_ID,
-			PATIENT,
-			undefined,
-		);
-	});
-
 	it("forwards the selected persona so regenerated rows keep the visible worker owner", async () => {
 		const personaUuid = "persona-asha";
 		vi.mocked(resetSampleCasesAction).mockResolvedValueOnce({
@@ -226,36 +197,6 @@ describe("useResetSampleCases", () => {
 		expect(revision.result.current).toBe(before + 1);
 		expect(replacementRevision.result.current).toBe(replacementBefore + 1);
 	});
-
-	it("passes through the unauthenticated arm from the action", async () => {
-		// `unauthenticated` is the action's session-absent arm. The
-		// hook surfaces it verbatim — the consumer dispatches the same
-		// way it would for the populate affordance.
-		vi.mocked(resetSampleCasesAction).mockResolvedValueOnce({
-			kind: "unauthenticated",
-		});
-		const { result } = renderHook(() =>
-			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
-		);
-		const outcome = await result.current();
-		expect(outcome).toEqual({ kind: "unauthenticated" });
-	});
-
-	it("passes through the generic error arm from the action", async () => {
-		// The generic `error` arm covers wire-level rejections + non-
-		// typed throws inside the action. The hook surfaces the
-		// message verbatim so the consumer can render it without
-		// re-mapping.
-		vi.mocked(resetSampleCasesAction).mockResolvedValueOnce({
-			kind: "error",
-			message: "connection refused",
-		});
-		const { result } = renderHook(() =>
-			useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
-		);
-		const outcome = await result.current();
-		expect(outcome).toEqual({ kind: "error", message: "connection refused" });
-	});
 });
 
 describe("useCases query constraints", () => {
@@ -263,17 +204,15 @@ describe("useCases query constraints", () => {
 		let resolveSource: ((value: LoadCasesResult) => void) | undefined;
 		let resolveDestination: ((value: LoadCasesResult) => void) | undefined;
 		vi.mocked(loadCasesAction)
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolveSource = resolve;
-					}),
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					resolveSource = resolve;
+				}),
 			)
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolveDestination = resolve;
-					}),
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					resolveDestination = resolve;
+				}),
 			);
 		const store = createBuilderSessionStore({ appId: APP_ID });
 		const wrapper = ({ children }: { children: ReactNode }) => (
@@ -295,7 +234,6 @@ describe("useCases query constraints", () => {
 		/* The new epoch is intentionally dormant until GET installs its atomic
 		 * Project/role/doc snapshot. A pre-snapshot read could otherwise publish
 		 * source-authorized data under the destination generation. */
-		await Promise.resolve();
 		expect(loadCasesAction).toHaveBeenCalledTimes(1);
 
 		await act(async () => {
@@ -349,7 +287,7 @@ describe("useCases query constraints", () => {
 		let resolveNext:
 			| ((value: {
 					kind: "rows";
-					rows: [];
+					rows: CaseRowWithCalculated[];
 					totalCount: number;
 					pageOffset: number;
 					pageSize: number;
@@ -360,16 +298,15 @@ describe("useCases query constraints", () => {
 			.mockResolvedValueOnce({
 				constraintSource: "unconstrained",
 				kind: "rows",
-				rows: [],
+				rows: [CASE_ROW],
 				totalCount: 75,
 				pageOffset: 0,
 				pageSize: 50,
 			})
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolveNext = resolve;
-					}),
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					resolveNext = resolve;
+				}),
 			);
 		let page = { offset: 0, limit: 50 };
 		const hook = renderHook(() =>
@@ -392,7 +329,7 @@ describe("useCases query constraints", () => {
 			resolveNext?.({
 				constraintSource: "unconstrained",
 				kind: "rows",
-				rows: [],
+				rows: [CASE_ROW],
 				totalCount: 75,
 				pageOffset: 50,
 				pageSize: 50,
@@ -412,9 +349,7 @@ describe("useCases query constraints", () => {
 			kind: "empty",
 			constraintSource: "unconstrained",
 		});
-		const consoleError = vi
-			.spyOn(console, "error")
-			.mockImplementation(() => undefined);
+		const consoleError = vi.spyOn(console, "error");
 		let page: { offset: number; limit: number } | undefined;
 		try {
 			const hook = renderHook(() =>
@@ -445,9 +380,7 @@ describe("useCases query constraints", () => {
 			kind: "empty",
 			constraintSource: "unconstrained",
 		});
-		const consoleError = vi
-			.spyOn(console, "error")
-			.mockImplementation(() => undefined);
+		const consoleError = vi.spyOn(console, "error");
 		let caseListConfig: CaseListConfig | undefined;
 		let excludedOwnerIdsExpression: ReturnType<typeof term> | undefined;
 		let caseTypes: readonly CaseType[] | undefined;
@@ -510,7 +443,6 @@ describe("useCases query constraints", () => {
 		await waitFor(() => expect(hook.result.current.state.kind).toBe("empty"));
 		expect(loadCasesAction).toHaveBeenCalledTimes(1);
 		hook.rerender();
-		await Promise.resolve();
 		expect(loadCasesAction).toHaveBeenCalledTimes(1);
 	});
 
@@ -521,14 +453,13 @@ describe("useCases query constraints", () => {
 		vi.mocked(loadCasesAction)
 			.mockResolvedValueOnce({
 				kind: "rows",
-				rows: [],
+				rows: [CASE_ROW],
 				constraintSource: "unconstrained",
 			})
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolveNext = resolve;
-					}),
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					resolveNext = resolve;
+				}),
 			);
 		let identity = { appId: APP_ID, caseType: PATIENT.name };
 		const hook = renderHook(() => useCases(identity));
@@ -553,14 +484,13 @@ describe("useCases query constraints", () => {
 		vi.mocked(loadCasesAction)
 			.mockResolvedValueOnce({
 				kind: "rows",
-				rows: [],
+				rows: [CASE_ROW],
 				constraintSource: "unconstrained",
 			})
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolveNext = resolve;
-					}),
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					resolveNext = resolve;
+				}),
 			);
 		let requestScopeKey = "module-a";
 		const hook = renderHook(() =>
@@ -589,14 +519,13 @@ describe("useCases query constraints", () => {
 		vi.mocked(loadCasesAction)
 			.mockResolvedValueOnce({
 				kind: "rows",
-				rows: [],
+				rows: [CASE_ROW],
 				constraintSource: "unconstrained",
 			})
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolveNext = resolve;
-					}),
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					resolveNext = resolve;
+				}),
 			);
 		const hook = renderHook(() =>
 			useCases({
@@ -621,17 +550,16 @@ describe("useCaseCount request identity", () => {
 	it("does not dedupe stalled calls across remounted reconciler runtimes at epoch zero", async () => {
 		const resolvers: Array<(value: { kind: "count"; count: number }) => void> =
 			[];
-		vi.mocked(loadCaseCountAction).mockImplementation(
-			() =>
-				new Promise((resolve) => {
-					resolvers.push(resolve);
-				}),
+		vi.mocked(loadCaseCountAction).mockImplementation(() =>
+			ownedActionPromise((resolve) => {
+				resolvers.push(resolve);
+			}),
 		);
 		const wrapperFor = (projectScopeId: string) => {
 			const session = createBuilderSessionStore({ appId: APP_ID });
 			return ({ children }: { children: ReactNode }) => (
 				<BuilderSessionContext value={session}>
-					<ReconcilerContext.Provider value={{ projectScopeId } as never}>
+					<ReconcilerContext.Provider value={scopeContext(projectScopeId)}>
 						{children}
 					</ReconcilerContext.Provider>
 				</BuilderSessionContext>
@@ -668,11 +596,10 @@ describe("useCaseCount request identity", () => {
 			| undefined;
 		vi.mocked(loadCaseCountAction)
 			.mockResolvedValueOnce({ kind: "count", count: 30 })
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolveNext = resolve;
-					}),
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					resolveNext = resolve;
+				}),
 			);
 		let caseType = PATIENT.name;
 		const hook = renderHook(() => useCaseCount({ appId: APP_ID, caseType }));
@@ -738,11 +665,10 @@ describe("case-data invalidation", () => {
 		let resolvePersona: ((value: { kind: "missing" }) => void) | undefined;
 		vi.mocked(loadCaseDataAction)
 			.mockResolvedValueOnce({ kind: "missing" })
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolvePersona = resolve;
-					}),
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					resolvePersona = resolve;
+				}),
 			);
 		const store = createBuilderSessionStore({ appId: APP_ID });
 		const wrapper = ({ children }: { children: ReactNode }) => (
@@ -800,11 +726,10 @@ describe("case-data invalidation", () => {
 				},
 				ancestors: [],
 			})
-			.mockImplementationOnce(
-				() =>
-					new Promise((resolve) => {
-						resolveReload = resolve;
-					}),
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					resolveReload = resolve;
+				}),
 			);
 		const selected = renderHook(() =>
 			useCaseData({
@@ -887,50 +812,114 @@ describe("case-data invalidation", () => {
 
 		act(() => invalidateCaseData(APP_ID, PATIENT.name));
 
-		await Promise.resolve();
 		expect(loadCaseCountAction).toHaveBeenCalledTimes(1);
 	});
 });
 
-// ── The provider-free contract, enforced rather than described ──────
+// Optional identifiers keep resource hooks idle without sending a request.
 
-/**
- * A note at the top of a file is not a guard: the next person to hit a
- * missing-provider throw here can "fix" it by wrapping the suite, and the
- * proof evaporates with nothing failing.
- *
- * These render EXPLICITLY BARE — no wrapper argument at all — so they keep
- * asserting the contract even if every other test in the file gains one.
- * A `lib/doc/hooks` read anywhere in `useCaseDataBinding.ts` throws during
- * render, so "it rendered" is the whole assertion; the idle state is just
- * how we observe that render happened. The identifiers are left undefined
- * deliberately: a hook that never becomes ready fires no Server Action, so
- * these stay synchronous and cannot let a settle escape `act`.
- */
-describe("the hooks read no document", () => {
-	it("renders useCases with no provider of any kind", () => {
-		const { result } = renderHook(() =>
-			useCases({ appId: undefined, caseType: undefined }),
+describe("case resource completion and invalidation ownership", () => {
+	it("shares simultaneous same-scope count reads and refetches after settlement", async () => {
+		let finish: ((value: { kind: "count"; count: number }) => void) | undefined;
+		vi.mocked(loadCaseCountAction)
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					finish = resolve;
+				}),
+			)
+			.mockResolvedValueOnce({ kind: "count", count: 8 });
+		const first = renderHook(() =>
+			useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
 		);
-		expect(result.current.state.kind).toBe("idle");
+		const second = renderHook(() =>
+			useCaseCount({ appId: APP_ID, caseType: PATIENT.name }),
+		);
+		expect(loadCaseCountAction).toHaveBeenCalledTimes(1);
+		await act(async () => {
+			finish?.({ kind: "count", count: 7 });
+		});
+		expect(first.result.current.state).toEqual({ kind: "count", count: 7 });
+		expect(second.result.current.state).toEqual({ kind: "count", count: 7 });
+		await act(async () => {
+			await second.result.current.reload();
+		});
+		expect(loadCaseCountAction).toHaveBeenCalledTimes(2);
+		expect(second.result.current.state).toEqual({ kind: "count", count: 8 });
 	});
-
-	it("renders useCaseData with no provider of any kind", () => {
-		const { result } = renderHook(() =>
-			useCaseData({
-				appId: undefined,
-				caseType: undefined,
-				caseId: undefined,
-				ancestorDepth: 0,
+	it("keeps same-query rows until an awaited reload settles", async () => {
+		let finish: ((value: LoadCasesResult) => void) | undefined;
+		vi.mocked(loadCasesAction)
+			.mockResolvedValueOnce({
+				kind: "rows",
+				rows: [CASE_ROW],
+				constraintSource: "unconstrained",
+			})
+			.mockImplementationOnce(() =>
+				ownedActionPromise((resolve) => {
+					finish = resolve;
+				}),
+			);
+		const h = renderHook(() =>
+			useCases({ appId: APP_ID, caseType: PATIENT.name }),
+		);
+		await waitFor(() => expect(h.result.current.state.kind).toBe("rows"));
+		let pending: Promise<void> | undefined;
+		let settled = false;
+		act(() => {
+			pending = h.result.current.reload().then(() => {
+				settled = true;
+			});
+		});
+		expect(h.result.current.state).toMatchObject({
+			kind: "rows",
+			rows: [CASE_ROW],
+		});
+		expect(h.result.current.fetching).toBe(true);
+		expect(settled).toBe(false);
+		await act(async () => {
+			finish?.({ kind: "empty", constraintSource: "unconstrained" });
+			await pending;
+		});
+		expect(settled).toBe(true);
+		expect(h.result.current.fetching).toBe(false);
+		expect(h.result.current.state.kind).toBe("empty");
+	});
+	it("does not announce source-scope replacement after access refresh", async () => {
+		const session = createBuilderSessionStore({
+			appId: APP_ID,
+			projectId: "source",
+			role: "editor",
+			canEdit: true,
+		});
+		const wrapper = ({ children }: { children: ReactNode }) => (
+			<BuilderSessionContext value={session}>{children}</BuilderSessionContext>
+		);
+		const h = renderHook(
+			() => ({
+				reset: useResetSampleCases({ appId: APP_ID, caseType: PATIENT }),
+				revision: useCaseDataReplacementRevision(APP_ID, PATIENT.name),
 			}),
+			{ wrapper },
 		);
-		expect(result.current.state.kind).toBe("idle");
-	});
-
-	it("renders useCaseCount with no provider of any kind", () => {
-		const { result } = renderHook(() =>
-			useCaseCount({ appId: undefined, caseType: undefined }),
-		);
-		expect(result.current.state.kind).toBe("idle");
+		const before = h.result.current.revision;
+		const gate = Promise.withResolvers<{ kind: "ok"; inserted: number }>();
+		vi.mocked(resetSampleCasesAction).mockReturnValue(gate.promise);
+		let pending: ReturnType<typeof h.result.current.reset> | undefined;
+		try {
+			act(() => {
+				pending = h.result.current.reset();
+				session.getState().beginAccessRefresh();
+			});
+			await act(async () => {
+				gate.resolve({ kind: "ok", inserted: 2 });
+				await pending;
+			});
+			expect(h.result.current.revision).toBe(before);
+		} finally {
+			await act(async () => {
+				gate.resolve({ kind: "ok", inserted: 2 });
+				await pending;
+			});
+		}
 	});
 });

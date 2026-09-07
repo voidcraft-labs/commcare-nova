@@ -14,9 +14,10 @@
  * `documentExtractionStore.test.ts`.
  *
  * The store, storage, db, and auth are mocked at the import boundary so no
- * Gemini call, GCS, or Postgres is touched.
+ * provider call, GCS, or Postgres is touched.
  */
 
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ensureStoredExtract } from "@/lib/agent/documentExtractionStore";
 import { COST_BACKSTOP_USD } from "@/lib/db/creditPolicy";
@@ -57,7 +58,7 @@ vi.mock("@/lib/db/usage", () => ({
 	getMonthlyUsage: getMonthlyUsageMock,
 }));
 // Keep the constants the route reads + a no-op condenser factory; the real
-// module (mammoth + the Google provider) never loads.
+// module (document readers + the model provider) never loads.
 vi.mock("@/lib/agent/documentExtraction", () => ({
 	createExtractionCondenser: vi.fn(() => ({})),
 	EXTRACT_MAX_BYTES: 4 * 1024 * 1024,
@@ -78,8 +79,7 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 		gcsObjectKey: "projects/project-1/aaaa.pdf",
 		originalFilename: "form.pdf",
 		status: "ready",
-		// biome-ignore lint/suspicious/noExplicitAny: Timestamp is irrelevant to these tests
-		created_at: {} as any,
+		created_at: new Date("2026-09-01T00:00:00Z"),
 		...over,
 	} as MediaAssetRecord;
 }
@@ -87,12 +87,10 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 const ctx = (assetId = "00000000-0000-4000-8000-000000000001") => ({
 	params: Promise.resolve({ assetId }),
 });
-// GET reads `req.url` (the `?meta` switch), so the stub carries a realistic URL;
-// pass a query (e.g. "?meta=1") to exercise the metadata branch.
 const req = (query = "") =>
-	({
-		url: `http://localhost/api/media/00000000-0000-4000-8000-000000000001/extract${query}`,
-	}) as Parameters<typeof POST>[0];
+	new NextRequest(
+		`http://localhost/api/media/00000000-0000-4000-8000-000000000001/extract${query}`,
+	);
 
 /** Drain a handler response's body. An unread `NextResponse.json` body leaves a
  *  pending promise the async-leak gate flags, so status-only assertions still
@@ -119,6 +117,11 @@ async function readNdjson(res: Response): Promise<{
 			(l) =>
 				JSON.parse(l) as { type: string; chars?: number; extract?: unknown },
 		);
+	expect(lines.filter((line) => line.type === "done")).toHaveLength(1);
+	expect(lines.at(-1)?.type).toBe("done");
+	expect(
+		lines.every((line) => line.type === "progress" || line.type === "done"),
+	).toBe(true);
 	return {
 		progress: lines
 			.filter((l) => l.type === "progress")
@@ -174,27 +177,56 @@ describe("POST extract (streamed result)", () => {
 		);
 	});
 
-	it("streams the store's onProgress as `progress` lines before the `done` line", async () => {
-		// The whole point of streaming: the store's per-chunk `onProgress` becomes
-		// `progress` wire lines the client maps to signal-grid energy.
+	it("delivers progress before extraction completes and terminates with one done line", async () => {
+		const finish = Promise.withResolvers<{
+			status: "ready";
+			text: string;
+			version: number;
+			truncated: boolean;
+			charCount: number;
+		}>();
 		loadAssetByIdMock.mockResolvedValue(docAsset());
 		ensureStoredExtractMock.mockImplementation(
-			async (opts: { onProgress?: (n: number) => void }) => {
-				opts.onProgress?.(5);
-				opts.onProgress?.(7);
-				return {
-					status: "ready",
-					text: "EXTRACT BODY",
-					version: EXTRACTOR_VERSION,
-					truncated: false,
-					charCount: 12,
-				};
+			(opts: { onProgress: (n: number) => void }) => {
+				opts.onProgress(5);
+				return finish.promise;
 			},
 		);
-
-		const { progress, done } = await readNdjson(await POST(req(), ctx()));
-		expect(progress).toEqual([5, 7]);
-		expect(done?.status).toBe("ready");
+		const response = await POST(req(), ctx());
+		const reader = response.body?.getReader();
+		if (!reader) throw new Error("Missing NDJSON body");
+		try {
+			const first = await reader.read();
+			expect(first.done).toBe(false);
+			expect(new TextDecoder().decode(first.value)).toBe(
+				'{"type":"progress","chars":5}\n',
+			);
+		} finally {
+			finish.resolve({
+				status: "ready",
+				text: "HELLO",
+				version: EXTRACTOR_VERSION,
+				truncated: false,
+				charCount: 5,
+			});
+			try {
+				const remainder = await reader.read();
+				const ending = await reader.read();
+				expect(JSON.parse(new TextDecoder().decode(remainder.value))).toEqual({
+					type: "done",
+					extract: {
+						status: "ready",
+						version: EXTRACTOR_VERSION,
+						truncated: false,
+						charCount: 5,
+					},
+				});
+				expect(ending).toEqual({ done: true, value: undefined });
+			} finally {
+				await reader.cancel();
+				reader.releaseLock();
+			}
+		}
 	});
 
 	it("includes the persisted title/summary in the ready `done` line", async () => {
@@ -211,8 +243,7 @@ describe("POST extract (streamed result)", () => {
 					charCount: 12,
 					title: "ANC Program Requirements",
 					summary: "A data-collection spec for antenatal care visits.",
-					// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant here
-					extractedAt: {} as any,
+					extractedAt: 123,
 				},
 			}),
 		);
@@ -383,7 +414,10 @@ describe("POST extract (streamed result)", () => {
 });
 
 describe("GET extract", () => {
-	it("returns the stored extract text as markdown when ready", async () => {
+	it.each([
+		"HELLO",
+		String.raw`Regex \n and path C:\notes\new.txt with \t literal escapes`,
+	])("returns stored extract text verbatim as markdown: %s", async (text) => {
 		loadAssetByIdMock.mockResolvedValue(
 			docAsset({
 				extract: {
@@ -392,12 +426,11 @@ describe("GET extract", () => {
 					model: "gpt-5.6-luna",
 					truncated: false,
 					charCount: 5,
-					// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant here
-					extractedAt: {} as any,
+					extractedAt: 123,
 				},
 			}),
 		);
-		readTextObjectMock.mockResolvedValue("HELLO");
+		readTextObjectMock.mockResolvedValue(text);
 		const res = await GET(req(), ctx());
 		expect(res.status).toBe(200);
 		expect(userInProjectMock).toHaveBeenCalledWith(
@@ -407,7 +440,9 @@ describe("GET extract", () => {
 		);
 		expect(res.headers.get("Content-Type")).toContain("text/markdown");
 		expect(res.headers.get("Cache-Control")).toBe("private, no-store");
-		expect(await res.text()).toBe("HELLO");
+		expect(await res.text()).toBe(text);
+		expect(res.headers.get("content-security-policy")).toBe("sandbox");
+		expect(res.headers.get("x-content-type-options")).toBe("nosniff");
 	});
 
 	it("serves a higher-version ready extract from its actual object key", async () => {
@@ -468,8 +503,7 @@ describe("GET extract", () => {
 					charCount: 5,
 					title: "ANC Program Requirements",
 					summary: "A data-collection spec for antenatal care visits.",
-					// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant here
-					extractedAt: {} as any,
+					extractedAt: 123,
 				},
 			}),
 		);

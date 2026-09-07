@@ -19,7 +19,17 @@ import {
 	xpathRequiresAsyncWorker,
 } from "../workerRuntime";
 
-afterEach(() => vi.useRealTimers());
+const runtimes: XPathRuntime[] = [];
+function ownedRuntime(options: ConstructorParameters<typeof XPathRuntime>[0]) {
+	const runtime = new XPathRuntime(options);
+	runtimes.push(runtime);
+	return runtime;
+}
+afterEach(() => {
+	for (const runtime of runtimes.splice(0)) runtime.dispose();
+	if (vi.isFakeTimers()) expect(vi.getTimerCount()).toBe(0);
+	vi.useRealTimers();
+});
 
 function node(
 	name: string,
@@ -72,7 +82,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("evaluates Java Pattern only through the worker path", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 
@@ -88,7 +98,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("evaluates a structured-clone instance through the in-process adapter", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 
@@ -106,7 +116,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("preserves dynamic casedb child schemas through structured clone", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 		const casedb = caseDatabaseXPathInstance({
@@ -168,7 +178,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("preserves hashtag nodesets through structured clone", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 		const casedb = caseDatabaseXPathInstance({
@@ -217,7 +227,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("contextualizes async absolute paths to the active repeat", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 		const first = {
@@ -261,7 +271,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("contextualizes a deeper async repeat after an earlier predicate", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 		const line = (
@@ -322,7 +332,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("reuses one worker world and applies only later value deltas", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 		await expect(
@@ -369,7 +379,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("applies effective relevance deltas to a cached worker world", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 		const groupedMain: XPathWorkerInstanceSnapshot = {
@@ -416,7 +426,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("evaluates async functions through the worker-owned tools", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 
@@ -433,7 +443,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("returns structural nodeset values without cloning nodes back", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 		const items = node("items", "/data/items", "", [
@@ -463,7 +473,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("preserves the active locale through worker evaluation", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 
@@ -485,7 +495,7 @@ describe("XPath worker runtime", () => {
 
 	it("runs delay in the worker owner and cancels it without leaking a timer", async () => {
 		vi.useFakeTimers();
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(
 				async (_request, tools) => {
 					await tools.delay(60_000);
@@ -516,7 +526,7 @@ describe("XPath worker runtime", () => {
 
 	it("lets JavaRosa sleep outlive the CPU watchdog", async () => {
 		vi.useFakeTimers();
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 			requestTimeoutMilliseconds: 25,
 		});
@@ -537,7 +547,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("redacts source, values, and paths from evaluation failures", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(() => {
 				throw new Error("secret-expression secret-value /secret/path case-id");
 			}),
@@ -571,7 +581,7 @@ describe("XPath worker runtime", () => {
 	});
 
 	it("reports only a bounded phase and category for evaluator failures", async () => {
-		const runtime = new XPathRuntime({
+		const runtime = ownedRuntime({
 			workerFactory: createInProcessXPathWorkerFactory(),
 		});
 

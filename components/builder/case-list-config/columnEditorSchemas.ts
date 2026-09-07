@@ -9,8 +9,8 @@
 // `ColumnKind` union without a parallel entry here is a compile-
 // time error, so the editor can never silently bypass a kind.
 //
-// Seven kinds: `plain`, `date`, `phone`, `id-mapping`, `image-map`,
-// `interval`, `calculated`. `image-map` mirrors `id-mapping`'s
+// Field display kinds include text, dates, phone numbers, links, mappings,
+// intervals and calculated values. `image-map` mirrors `id-mapping`'s
 // value-lookup card with an image slot per row instead of a label. The
 // `interval` kind dispatches on its own `display: "always" | "flag"`
 // discriminator; one card body covers both modes. The `calculated`

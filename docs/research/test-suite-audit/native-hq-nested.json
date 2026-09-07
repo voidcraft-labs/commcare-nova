@@ -1,0 +1,123 @@
+{
+	"results": [
+		{
+			"scenario": "nested-menu-different",
+			"sourceSha256": "3618845f7ecd515381e7b5d762003ad86a8d5b071ae5979e507dba80d0bf71f5",
+			"nativeSha256": "3a5bc98549a863435e6c6a174eac14ffb938170828a8bca018b8d427041d9a40"
+		},
+		{
+			"scenario": "nested-menu-parent-multiple",
+			"sourceSha256": "3fcf77e053871d139fc81a5285a623514718c6dd636c76a150442bc7bc30f387",
+			"nativeSha256": "9e74f7bb276711f73cfef6664442d0c7dafc2830c19ef69d8f1cca35db3c7514"
+		},
+		{
+			"scenario": "nested-menu-parent",
+			"sourceSha256": "579f855e5b87c7b3fa0dd66d039c5ed8fcd06b4adf3946c8fcd545180b5636ff",
+			"nativeSha256": "a930eb3f81dcb1ca49a6e20b18b2413702f64b01420ae70d78931d927a53d85b"
+		},
+		{
+			"scenario": "nested-menu-previous",
+			"sourceSha256": "44888c005c887b034ee5617c46ba0122692f4dd98982f1a747aae29e09409306",
+			"nativeSha256": "66d2a6536ccc179019c33dbe90a30e01413d846812942d39e50ef56ce975b0af"
+		},
+		{
+			"scenario": "nested-menu-registration-children",
+			"sourceSha256": "f391d66bfe18a35afab77def48076bc9a2cd4cffff908d764644c0611edd9737",
+			"nativeSha256": "a0779f88964dda612b2635564ccb496ffd3f075306ecd9354e5eb00504b2fd7e"
+		},
+		{
+			"scenario": "nested-menu-registration",
+			"sourceSha256": "df45b58efe3d6922fce5b6dd2936f460911aace313fe9d64fdfd92da440cda40",
+			"nativeSha256": "70d14de310d1fe38df082e8784cbbdc4de3f048a1eefd57b6c1985eb41b9ee73"
+		},
+		{
+			"scenario": "nested-menu-same-bare",
+			"sourceSha256": "4500b50cac7a1b1cb383409637889d92fb4906fc48d85880c91dd526af94908a",
+			"nativeSha256": "d271ace9e1bedcfba66af024c7353b143d5906352a69f2f31eabc6bc5cc0cede"
+		},
+		{
+			"scenario": "nested-menu-same-multiple",
+			"sourceSha256": "4cfaa8b2789981504d1955e9a5baf87410a46c389221dd37a090414cb889f77b",
+			"nativeSha256": "6d4dbba916269e29a27cc428e18fd7bc7848a157b89472e3fd20ce5aa2a9dde7"
+		},
+		{
+			"scenario": "nested-menu-same-smaller",
+			"sourceSha256": "910bcd7759164aa9310890ce6751852aaf792e2c4d0767638ca4965414df54ba",
+			"nativeSha256": "fe2892e79d62688ef2b6e36516585dc0f5568b422630c0b1a09f78530d841e5e"
+		},
+		{
+			"scenario": "nested-menu-same",
+			"sourceSha256": "065db38980f6f571f136a17477ac42b9aab49f2fa91569aa5503d1fe90c2a91b",
+			"nativeSha256": "8ce1f5f463e6f92b54896a99f52e8a0fac84839245dadce8525bce59bc0821a5"
+		}
+	],
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"limits": "Actual imported HQ model, native case/meta/Vellum XForm processing and suite contributors. Complete entry and menu trees retain all text/attributes/children. Supplied default build2.53/origin; enabled advanced search and follow-up case list forms. No real search/claim HTTP, whole HQ build or resource installation.",
+	"sourceHashes": {
+		"lib/commcare/compiler.ts": "22cd6be90cb0c772e8489c9f5d1e2b745b7bffd6722817638513a090fcd4f994",
+		"lib/commcare/expander.ts": "143b54b1f885a17e675ce36f3a55af274b32434ceadada290a2d9a26cb3c94b5",
+		"lib/commcare/session.ts": "2a6f4f3f2dd82f40d11a694b67b04db69806a3db53af7daab8f83b1dbb60c0df",
+		"lib/commcare/formLinkProjection.ts": "a2e6056add6d5174fba4b7e0d165e22d718c0f21ec4942241c881991edfac830",
+		"lib/commcare/hqNestedSelection.ts": "c01f0c7524bb89b1dcd8768e5218ccaa36ab128300269358229bb0db3115bdda",
+		"lib/export/boundaryValidation.ts": "39f424e698a579a7cde75b474d1ff485b492bf46ee17d0040655b8dfc249b6b0",
+		"lib/commcare/__tests__/nestedMenus.test.ts": "5d59d7cd6fe8482c4e0d46e54352e1692b46e34662d3b052a8b3d4430f5b2412",
+		"lib/commcare/__tests__/nestedMenuWireFixture.ts": "56deb1af5a667585b8d64b59d2c73f867b5d95d7dee6d71d6a963404a5b211d5",
+		"scripts/fixtures/hq/emit-nested-menu-evidence.ts": "3d169bb942408335750398bed2e1bac357a9ed8990a6fa99daf4553551e1d9a6",
+		"scripts/fixtures/hq/nested-menu-emission-proof.py": "504b835e87d2f564868a2acc8f82f5870c34e74504a2454590bd1eb58d360ae3",
+		"scripts/fixtures/javarosa/NestedMenuRuntimeTest.java": "b3a67f85ceb8738fdcc1eefabdeaf72a5dd192935b8e9e2af19d490d4bac0848"
+	},
+	"artifactHashes": {
+		"/tmp/nova-nested-menu-evidence-final/hq-nested-target-refusals.json": "aa7407644bee2d5c70ced56ec65f5e54907f0c540d0fecb3f5d9a0e391f00a35",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-different.hq-suite.xml": "3a5bc98549a863435e6c6a174eac14ffb938170828a8bca018b8d427041d9a40",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-different.hq.xml": "69612f28e82404c78230a25e24572f42cd2e1da1fac2a542af0f3572db568de4",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-different.json": "3618845f7ecd515381e7b5d762003ad86a8d5b071ae5979e507dba80d0bf71f5",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-different.suite.xml": "65eb3d9ebd356ad9e782a8c9bc0b7ed61bd3a8eb04c0b3fda617e56ed26afa48",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-different.xml": "d0aacb4a21ee839941a563cff6cc32df8386af1a2e4eebd41864801971f9f4f9",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent-multiple.hq-suite.xml": "9e74f7bb276711f73cfef6664442d0c7dafc2830c19ef69d8f1cca35db3c7514",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent-multiple.hq.xml": "fd2278d299d8de8f8b08f8b13bfdbbd9783d3d066fe7b27e26c6847c784629e4",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent-multiple.json": "3fcf77e053871d139fc81a5285a623514718c6dd636c76a150442bc7bc30f387",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent-multiple.suite.xml": "ceaf26bfce53b77fc0c042df9194de534f3c578a5d590479d80328886a3c5c53",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent-multiple.xml": "84d0fce05ff816fcd1bc36f957e17cd8a7660abbd847c64ec5e2ad71ffbbbaaf",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent.hq-suite.xml": "a930eb3f81dcb1ca49a6e20b18b2413702f64b01420ae70d78931d927a53d85b",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent.hq.xml": "b2912ed39cf994fe4586a10ea18022bc0c5f4417aa5c6c0bbefa038158db6b54",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent.json": "579f855e5b87c7b3fa0dd66d039c5ed8fcd06b4adf3946c8fcd545180b5636ff",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent.suite.xml": "ebbac7d0b4005ed382bbdec57e973ce299a0eec07793b2dc4c220bf514c0fdca",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-parent.xml": "35d4a760a39b07c7ab60676657a690f33fc3a83db6e130ff2200e936972a76c2",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-previous.hq-suite.xml": "66d2a6536ccc179019c33dbe90a30e01413d846812942d39e50ef56ce975b0af",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-previous.hq.xml": "ed0b94c3d552487f2ecbce09fba8cf4fa046a41c3e41a7be23498f7d56e25ab7",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-previous.json": "44888c005c887b034ee5617c46ba0122692f4dd98982f1a747aae29e09409306",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-previous.suite.xml": "0f79146d624aa4c6cb1a6c29132ce41bd2e2f0e754f13cdf68f43540b60cb021",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-previous.xml": "c735dd2c87c75f633037eb4c341e90085b0ba7d2f5e3555a60ac9ca6406dd6eb",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration-children.hq-suite.xml": "a0779f88964dda612b2635564ccb496ffd3f075306ecd9354e5eb00504b2fd7e",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration-children.hq.xml": "215a6cb89c34f0dbf0016ac16b8da90a540fdb8770cd2d54b313adc967ddb05a",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration-children.json": "f391d66bfe18a35afab77def48076bc9a2cd4cffff908d764644c0611edd9737",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration-children.suite.xml": "d43c23e6ad20e95359e4e6182555b8b4353df56b5de999d7101125f6b72b7801",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration-children.xml": "3f106994412b93d5cd50529548342552047c9c9a7c5ece4b469f22be299cd575",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration.hq-suite.xml": "70d14de310d1fe38df082e8784cbbdc4de3f048a1eefd57b6c1985eb41b9ee73",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration.hq.xml": "e94b1762e139e0232b1bacbfc4a7101ed1727120573e7fcb50f28cb8caad66a1",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration.json": "df45b58efe3d6922fce5b6dd2936f460911aace313fe9d64fdfd92da440cda40",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration.suite.xml": "851e02024a45b188a6f5d9b2f6be107dca92c1a5743a2cabab3f2b8279eb521f",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-registration.xml": "19067629b65998a5afb122e2807dc99052553d1fbcb29158245e5a090098b214",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-bare.hq-suite.xml": "d271ace9e1bedcfba66af024c7353b143d5906352a69f2f31eabc6bc5cc0cede",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-bare.hq.xml": "15bf2599833cedfd4a639aadd84a7e0376d84cc61f51109a8cd7def7f687421b",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-bare.json": "4500b50cac7a1b1cb383409637889d92fb4906fc48d85880c91dd526af94908a",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-bare.suite.xml": "58c010847083e098cd30fcd199a4f3912ef0ae09cfe1e0d21b81924a1c81fa86",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-bare.xml": "3c1595e4048f1131bd352ab6002dc3d1d095fed19088864323fba047097b5cb2",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-multiple.hq-suite.xml": "6d4dbba916269e29a27cc428e18fd7bc7848a157b89472e3fd20ce5aa2a9dde7",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-multiple.hq.xml": "b541c7aff63ac42c10dc1b73bf5bacb539a47b018462bcc7295cec4db4b85721",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-multiple.json": "4cfaa8b2789981504d1955e9a5baf87410a46c389221dd37a090414cb889f77b",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-multiple.suite.xml": "1a560858046bcf7cc2ed77a66aad3e45fa7798845c5c2263488c3da7fa26a67e",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-multiple.xml": "538ca70cacd5ffa38259f104dad96da1844172c8370e21a52bbb204fdae04801",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-smaller.hq-suite.xml": "fe2892e79d62688ef2b6e36516585dc0f5568b422630c0b1a09f78530d841e5e",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-smaller.hq.xml": "3c96bf502e235f4c7928079a11ce14825db5f0b194aa6c49471a88790036d034",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-smaller.json": "910bcd7759164aa9310890ce6751852aaf792e2c4d0767638ca4965414df54ba",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-smaller.suite.xml": "af49bf8468af8ab1050a7c53fbcc3ab5cd0c15249ef838877e1ad11c7a66d800",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same-smaller.xml": "cf093ccaee8a521ce1a8be240ff73e42d39d30b173030e435504c676a21a3588",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same.hq-suite.xml": "8ce1f5f463e6f92b54896a99f52e8a0fac84839245dadce8525bce59bc0821a5",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same.hq.xml": "cbaed14e29f052ce479f5edd84e4ca3b9fbb1ae1853493ebd6d3e489238c66c5",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same.json": "065db38980f6f571f136a17477ac42b9aab49f2fa91569aa5503d1fe90c2a91b",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same.suite.xml": "b349a7c884f30a9f439f48b668b12d2261ab1daed0e058caa7c817a87b516829",
+		"/tmp/nova-nested-menu-evidence-final/nested-menu-same.xml": "53a2e46be964292736126ce50b900ca3adc2cad7964e2aba2e5dad580a7838f3"
+	},
+	"log": "/tmp/nova-test-audit-parallel/commcare/nested-native-hq-current.log"
+}

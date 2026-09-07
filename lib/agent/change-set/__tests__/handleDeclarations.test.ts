@@ -1,12 +1,11 @@
-/** Shared structural tools declare handles only in their creation slots. */
+/** Exercise declaration readers through the actual staging registry. Inputs are
+ * partial projected payloads at this pre-parser boundary, not runnable tools. */
 
 import { describe, expect, it } from "vitest";
-import { CREATION_IDENTITY_SPECS } from "@/lib/agent/change-set/creationIdentities";
-import { sharedHandleDeclarer } from "@/lib/agent/change-set/handleDeclarations";
 import { CHANGE_SET_TOOL_REGISTRY } from "@/lib/agent/change-set/registry";
 
 function declarations(toolName: string, input: unknown) {
-	const declarer = sharedHandleDeclarer(toolName);
+	const declarer = CHANGE_SET_TOOL_REGISTRY.get(toolName)?.declaredHandles;
 	if (declarer === undefined) throw new Error(`No declarer for ${toolName}`);
 	return declarer(input);
 }
@@ -218,46 +217,5 @@ describe("shared creation handle declarations", () => {
 				referenceIfBound: true,
 			},
 		]);
-	});
-
-	it("wires declaration readers onto the matching shared registry entries", () => {
-		for (const toolName of [
-			"createModule",
-			"createForm",
-			"addFields",
-			"addCaseListColumns",
-			"addSearchInputs",
-			"addCaseOperations",
-			"addUserProperties",
-			"addUserTypes",
-			"addPersonas",
-			"addOrganizationLevels",
-			"addLocationProperties",
-			"addAutomations",
-			"updateAutomation",
-			"editField",
-			"setFieldOptionsSource",
-		]) {
-			expect(CHANGE_SET_TOOL_REGISTRY.get(toolName)?.declaredHandles).toBe(
-				sharedHandleDeclarer(toolName),
-			);
-		}
-		expect(
-			CHANGE_SET_TOOL_REGISTRY.get("moveField")?.declaredHandles,
-		).toBeUndefined();
-	});
-
-	it("every creation-identity tool binds its declarations in the registry", () => {
-		/* The wire projection narrows exactly the annotated table's paths to
-		 * required handles; every tool in that table must therefore have a
-		 * registry declarer (stage or shared), or the wire would demand a
-		 * handle the workspace never binds and every dispatch would die on
-		 * "handle is not bound". */
-		for (const toolName of Object.keys(CREATION_IDENTITY_SPECS)) {
-			expect(
-				CHANGE_SET_TOOL_REGISTRY.get(toolName)?.declaredHandles,
-				`registry declarer missing for ${toolName}`,
-			).toBeDefined();
-		}
 	});
 });

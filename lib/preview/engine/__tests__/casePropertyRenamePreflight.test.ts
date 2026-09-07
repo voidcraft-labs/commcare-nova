@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { PersistableDoc } from "@/lib/domain/blueprint";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 
 const mocks = vi.hoisted(() => {
 	class MockAppAccessError extends Error {
@@ -56,10 +58,8 @@ import { preflightCasePropertyRenamesAction } from "../casePropertyRenamePreflig
 const APP_ID = "app-preflight";
 const PROJECT_ID = "project-preflight";
 const MUTATION_SEQ = 17;
-const DOC: PersistableDoc = {
-	appId: APP_ID,
+const fixtureDoc = buildDoc({
 	appName: "Preflight",
-	connectType: null,
 	caseTypes: [
 		{
 			name: "patient",
@@ -68,18 +68,25 @@ const DOC: PersistableDoc = {
 			],
 		},
 	],
-	modules: {},
-	forms: {},
-	fields: {},
-	moduleOrder: [],
-	formOrder: {},
-	fieldOrder: {},
-};
+	modules: [
+		{
+			name: "Survey",
+			forms: [
+				{
+					name: "Record",
+					type: "survey",
+					fields: [f({ kind: "text", id: "answer" })],
+				},
+			],
+		},
+	],
+});
+const DOC = toPersistableDoc(fixtureDoc);
 const RENAMES = [
 	{ caseType: "patient", from: "old_name", to: "new_name" },
 ] as const;
 
-beforeEach(() => {
+beforeEach(async () => {
 	vi.resetAllMocks();
 	mocks.getSession.mockResolvedValue({ user: { id: "user-1" } });
 	mocks.withAppTx.mockImplementation(
@@ -97,33 +104,16 @@ beforeEach(() => {
 		mutation_seq: MUTATION_SEQ,
 		blueprint: DOC,
 	});
+	const actual = await vi.importActual<
+		typeof import("@/lib/doc/commitVerdicts")
+	>("@/lib/doc/commitVerdicts");
 	mocks.prepareMutationCandidate.mockImplementation(
-		(nextDoc: unknown, mutations: readonly unknown[]) => ({
-			mutations,
-			nextDoc,
-			results: [],
-			casePropertyRenamePlan: {
-				entries: (
-					mutations[0] as {
-						renames: readonly {
-							caseType: string;
-							from: string;
-							to: string;
-						}[];
-					}
-				).renames,
-			},
-		}),
+		actual.prepareMutationCandidate,
 	);
 	mocks.evaluatePreparedMutationCandidate.mockImplementation(
-		(prepared: object) => ({
-			ok: true,
-			nextDoc: DOC,
-			results: [],
-			mutations: [],
-			prepared,
-		}),
+		actual.evaluatePreparedMutationCandidate,
 	);
+	assertAdmittedPreviewDoc(fixtureDoc);
 	mocks.readLookupDefinitionsInTransaction.mockResolvedValue({
 		projectId: PROJECT_ID,
 		projectRevision: "0",
@@ -144,6 +134,14 @@ beforeEach(() => {
 });
 
 describe("case-property rename preflight Server Action", () => {
+	it("rejects a reserved destination using the real document gate before storage reads", async () => {
+		const result = await preflightCasePropertyRenamesAction({
+			appId: APP_ID,
+			renames: [{ caseType: "patient", from: "old_name", to: "case_id" }],
+		});
+		expect(result.kind).toBe("invalid");
+		expect(mocks.readStorage).not.toHaveBeenCalled();
+	});
 	it("authenticates before reading untrusted app or rename input", async () => {
 		mocks.getSession.mockResolvedValue(null);
 
@@ -223,7 +221,7 @@ describe("case-property rename preflight Server Action", () => {
 		expect(mocks.readStorage).not.toHaveBeenCalled();
 	});
 
-	it("returns the same full commit-verdict messages before reading storage", async () => {
+	it("projects supplied verdict findings without reading storage", async () => {
 		mocks.evaluatePreparedMutationCandidate.mockReturnValue({
 			ok: false,
 			nextDoc: DOC,

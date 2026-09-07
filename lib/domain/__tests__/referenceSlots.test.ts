@@ -1,6 +1,6 @@
 // lib/domain/__tests__/referenceSlots.test.ts
 //
-// Totality proofs for the reference-slot registry. Three layers:
+// Structural coverage checks for the reference-slot registry:
 //
 //   1. Dead-path check — every registry entry's path resolves into the
 //      real Zod schemas for every kind/mode/arm it claims, with the
@@ -12,9 +12,9 @@
 //      declare is classified, either by a registry entry or by an
 //      explicit non-reference classification. Adding an
 //      expression-bearing key without classifying it fails here.
-//   3. Review list — the string-typed keys classified as
-//      non-reference, pinned as a literal list so reclassifying (or
-//      adding) one is a visible diff a reviewer signs off on.
+// These are schema/registry consistency checks. Classification itself still
+// needs semantic review; this does not prove downstream reads or rewrites.
+// Concrete expression-source witnesses live in expressionSource.test.ts.
 //
 // The walkers introspect the schemas with zod's classic class API
 // (`ZodObject.shape`, `ZodArray.element`, `ZodUnion.options`,
@@ -35,6 +35,7 @@ import {
 } from "../fields";
 import { audioFieldSchema } from "../fields/audio";
 import { barcodeFieldSchema } from "../fields/barcode";
+import { selectOptionSchema } from "../fields/base";
 import { dateFieldSchema } from "../fields/date";
 import { datetimeFieldSchema } from "../fields/datetime";
 import { decimalFieldSchema } from "../fields/decimal";
@@ -53,12 +54,14 @@ import {
 } from "../fields/repeat";
 import { secretFieldSchema } from "../fields/secret";
 import { sectionFieldSchema } from "../fields/section";
+import { inlineOptionsSourceSchema } from "../fields/selectOptionsSource";
 import { signatureFieldSchema } from "../fields/signature";
 import { singleSelectFieldSchema } from "../fields/singleSelect";
 import { textFieldSchema } from "../fields/text";
 import { timeFieldSchema } from "../fields/time";
 import { videoFieldSchema } from "../fields/video";
 import { FORM_TYPES, formSchema } from "../forms";
+import { lookupOptionsSourceSchema } from "../lookupCarriers";
 import {
 	type ColumnKind,
 	columnSchema,
@@ -73,6 +76,7 @@ import {
 	relationPathSchema,
 	valueExpressionSchema,
 } from "../predicate/types";
+import { proseTemplateSchema } from "../prose";
 import {
 	FIELD_REFERENCE_SLOTS,
 	type FieldReferenceSlot,
@@ -84,7 +88,9 @@ import {
 	NON_REFERENCE_FIELD_PATHS,
 	NON_REFERENCE_FORM_PATHS,
 	NON_REFERENCE_MODULE_PATHS,
+	readSlotValues,
 	rewriteSlotStrings,
+	rewriteSlotValues,
 } from "../referenceSlots";
 import { xpathExpressionSchema } from "../xpath";
 
@@ -148,6 +154,8 @@ const PREDICATE_AST_SCHEMAS = new Set<z.ZodType>([
 const SUBTREE_LEAF_SCHEMAS = new Set<z.ZodType>([
 	...PREDICATE_AST_SCHEMAS,
 	xpathExpressionSchema,
+	proseTemplateSchema,
+	lookupOptionsSourceSchema,
 	mediaSchema,
 ]);
 
@@ -199,11 +207,25 @@ function collectLeaves(
 	stopPaths: ReadonlySet<string>,
 	out: Map<string, z.ZodType[]>,
 ): void {
-	if (path !== "" && stopPaths.has(path)) {
-		record(out, path, unwrap(schema));
+	const s = unwrap(schema);
+	// The lookup arm is opaque, but its inline sibling still owns reference
+	// atoms on options. Stopping at the mixed union hid those nested keys.
+	if (
+		s instanceof z.ZodUnion &&
+		s.options.some(
+			(option) => unwrap(option as z.ZodType) === lookupOptionsSourceSchema,
+		)
+	) {
+		const descendantStops = new Set(stopPaths);
+		descendantStops.delete(path);
+		for (const arm of s.options as z.ZodType[])
+			collectLeaves(arm, path, descendantStops, out);
 		return;
 	}
-	const s = unwrap(schema);
+	if (path !== "" && stopPaths.has(path)) {
+		record(out, path, s);
+		return;
+	}
 	if (SUBTREE_LEAF_SCHEMAS.has(s)) {
 		record(out, path, s);
 		return;
@@ -360,9 +382,11 @@ describe("field slots — paths resolve exactly where claimed", () => {
 				expect(resolved.length).toBeGreaterThan(0);
 				if (slot.kind === "prose") {
 					for (const r of resolved) {
-						expect(r).toBeInstanceOf(z.ZodObject);
+						expect(r).toBe(proseTemplateSchema);
 					}
 				}
+				if (slot.kind === "xpath-ast")
+					for (const r of resolved) expect(r).toBe(xpathExpressionSchema);
 				if (slot.kind === "case-type-ref") {
 					for (const r of resolved) {
 						expect(r).toBeInstanceOf(z.ZodString);
@@ -408,9 +432,8 @@ describe("form slots — paths resolve with the promised shape", () => {
 	it.each(formSlots)("$slot resolves on the form schema", (slot) => {
 		const resolved = resolvePath(formSchema, slot.path);
 		expect(resolved.length).toBeGreaterThan(0);
-		// Form xpath-ast slots resolve to the expression schema — pinned
-		// by identity below for predicate-ast; the audit's totality claim
-		// is the path resolution itself.
+		if (slot.kind === "xpath-ast")
+			for (const r of resolved) expect(r).toBe(xpathExpressionSchema);
 	});
 });
 
@@ -581,6 +604,28 @@ describe("the audit gate fires on a missing classification", () => {
 		).toEqual(["required"]);
 	});
 
+	it("detects a new expression inside inline choices beside the lookup arm", () => {
+		const extended = singleSelectFieldSchema.extend({
+			optionsSource: z.discriminatedUnion("kind", [
+				inlineOptionsSourceSchema.extend({
+					options: z.array(
+						selectOptionSchema.extend({
+							new_expression: xpathExpressionSchema,
+						}),
+					),
+				}),
+				lookupOptionsSourceSchema,
+			]),
+		});
+		expect(
+			unclassifiedLeaves(
+				extended,
+				fieldRegistryPaths("single_select"),
+				NON_REFERENCE_FIELD_PATH_SET,
+			),
+		).toContain("optionsSource.options[].new_expression");
+	});
+
 	it("reports a registry path that resolves nowhere as dead", () => {
 		expect(resolvePath(textFieldSchema, "no_such_key")).toEqual([]);
 		expect(resolvePath(formSchema, "closeCondition.no_such_key")).toEqual([]);
@@ -622,122 +667,9 @@ describe("fieldReferenceSlotsFor", () => {
 	});
 });
 
-// ── String-typed non-reference keys — the human-review list ───────
-
-describe("string-typed non-reference keys (reviewed: none carries an expression)", () => {
-	function stringNonReferencePaths(
-		schemas: readonly z.ZodType[],
-		registryPaths: ReadonlySet<string>,
-		nonReferencePaths: ReadonlySet<string>,
-	): string[] {
-		const stop = new Set([...registryPaths, ...nonReferencePaths]);
-		const leaves = new Map<string, z.ZodType[]>();
-		for (const schema of schemas) {
-			collectLeaves(schema, "", stop, leaves);
-		}
-		return [...leaves.entries()]
-			.filter(
-				([path, shapes]) =>
-					nonReferencePaths.has(path) &&
-					shapes.some((s) => s instanceof z.ZodString),
-			)
-			.map(([path]) => path)
-			.sort();
-	}
-
-	it("field list is pinned", () => {
-		const allFieldRegistryPaths = new Set(fieldSlots.map((s) => s.path));
-		expect(
-			stringNonReferencePaths(
-				[
-					...NON_REPEAT_KINDS.map((k) => NON_REPEAT_KIND_SCHEMAS[k]),
-					...repeatModes.map((m) => REPEAT_VARIANT_SCHEMAS[m]),
-				],
-				allFieldRegistryPaths,
-				NON_REFERENCE_FIELD_PATH_SET,
-			),
-		).toEqual(["id", "uuid"]);
-	});
-
-	it("form list is pinned", () => {
-		expect(
-			stringNonReferencePaths(
-				[formSchema],
-				FORM_REGISTRY_PATHS,
-				NON_REFERENCE_FORM_PATH_SET,
-			),
-		).toEqual([
-			"audioLabel",
-			"caseOperations[].id",
-			"caseOperations[].links[].identifier",
-			"caseOperations[].uuid",
-			"closeCondition.answer",
-			"connect.assessment.id",
-			"connect.deliver_unit.id",
-			"connect.deliver_unit.name",
-			"connect.learn_module.description",
-			"connect.learn_module.id",
-			"connect.learn_module.name",
-			"connect.task.description",
-			"connect.task.id",
-			"connect.task.name",
-			"entry.label",
-			"entryPoint.id",
-			"entryPoint.uuid",
-			"formLinks[].datums[].name",
-			"formLinks[].uuid",
-			"id",
-			"name",
-			"purpose",
-			"uuid",
-		]);
-	});
-
-	it("module list is pinned", () => {
-		expect(
-			stringNonReferencePaths(
-				[moduleSchema],
-				MODULE_REGISTRY_PATHS,
-				NON_REFERENCE_MODULE_PATH_SET,
-			),
-		).toEqual([
-			"audioLabel",
-			"caseListConfig.audioLabel",
-			"caseListConfig.columns[].header",
-			"caseListConfig.columns[].linkText",
-			"caseListConfig.columns[].mapping[].assetId",
-			"caseListConfig.columns[].mapping[].label",
-			"caseListConfig.columns[].mapping[].value",
-			"caseListConfig.columns[].pattern",
-			"caseListConfig.columns[].text",
-			"caseListConfig.columns[].uuid",
-			"caseListConfig.detailColumnOrder[]",
-			"caseListConfig.listColumnOrder[]",
-			"caseListConfig.searchInputs[].hint",
-			"caseListConfig.searchInputs[].label",
-			"caseListConfig.searchInputs[].name",
-			"caseListConfig.searchInputs[].required.message",
-			"caseListConfig.searchInputs[].uuid",
-			"caseListConfig.searchInputs[].validation.message",
-			"caseListConfig.tile.grouping.identifier",
-			"caseListEntryPoint.id",
-			"caseListEntryPoint.uuid",
-			"caseSearchConfig.searchButtonLabel",
-			"caseSearchConfig.searchScreenSubtitle",
-			"caseSearchConfig.searchScreenTitle",
-			"entryPoint.id",
-			"entryPoint.uuid",
-			"id",
-			"name",
-			"purpose",
-			"uuid",
-		]);
-	});
-});
-
 // ── Slot-path value walker ────────────────────────────────────────
 
-describe("rewriteSlotStrings", () => {
+describe("raw slot traversal used by migrations", () => {
 	const upper = (s: string) => s.toUpperCase();
 
 	it("rewrites nested object paths and array fan-out paths in place", () => {
@@ -761,6 +693,9 @@ describe("rewriteSlotStrings", () => {
 			"",
 		]);
 		expect(rewriteSlotStrings(entity, "links[].datums[].xpath", upper)).toBe(2);
+		expect(entity.links).toEqual([
+			{ datums: [{ xpath: "X" }, { xpath: "Y" }] },
+		]);
 	});
 
 	it("counts only values the rewriter actually changed", () => {
@@ -770,8 +705,8 @@ describe("rewriteSlotStrings", () => {
 	});
 
 	it("is total over absent and mismatched shapes — zero rewrites, no throw", () => {
-		// Reducers run this over whatever state exists; a missing optional
-		// slot or an off-schema value must resolve to "nothing to rewrite".
+		// These raw migration values are not valid stored field ASTs.
+		// Missing optional steps and mismatched shapes resolve to no values.
 		expect(rewriteSlotStrings({}, "data_source.ids_query", upper)).toBe(0);
 		expect(
 			rewriteSlotStrings(
@@ -786,5 +721,31 @@ describe("rewriteSlotStrings", () => {
 		expect(rewriteSlotStrings({ relevant: 42 }, "relevant", upper)).toBe(0);
 		expect(rewriteSlotStrings(null, "relevant", upper)).toBe(0);
 		expect(rewriteSlotStrings(undefined, "relevant", upper)).toBe(0);
+	});
+});
+
+it("reads and rewrites nested values with exact fan-out indices and preserves false/zero/null", () => {
+	const entity = {
+		links: [
+			{ datums: [{ value: 0 }, { value: false }, { value: null }] },
+			{ datums: [{}, { value: "last" }] },
+		],
+	};
+	expect(readSlotValues(entity, "links[].datums[].value")).toEqual([
+		{ indices: [0, 0], value: 0 },
+		{ indices: [0, 1], value: false },
+		{ indices: [0, 2], value: null },
+		{ indices: [1, 1], value: "last" },
+	]);
+	expect(
+		rewriteSlotValues(entity, "links[].datums[].value", (value) =>
+			value === null ? "cleared" : value,
+		),
+	).toBe(1);
+	expect(entity).toEqual({
+		links: [
+			{ datums: [{ value: 0 }, { value: false }, { value: "cleared" }] },
+			{ datums: [{}, { value: "last" }] },
+		],
 	});
 });

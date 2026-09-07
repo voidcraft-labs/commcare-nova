@@ -1,277 +1,113 @@
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { proseText } from "@/lib/domain/prose";
-/**
- * Tests for `mediaAssetExists` — every referenced `MediaAssetId` resolves
- * to a row in the manifest.
- *
- * Per-carrier rendering asserts on the full sentence shape
- * (`toBe(<exact string>)`) so a regression in `describeLocation` or
- * the rule's message template trips the test rather than slipping
- * past a substring match.
- */
-
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import {
+	mediaIds,
+	mediaRecords,
+	mediaWireFixture,
+} from "@/lib/commcare/__tests__/mediaWireFixtures";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { runValidation } from "../../../runner";
-import { makeAssetRecord, makeManifest, mediaId } from "./fixtures";
 
-const CODE = "MEDIA_ASSET_NOT_FOUND" as const;
-
-describe("mediaAssetExists", () => {
-	it("fires when a field's label image references an asset that isn't in the manifest", () => {
-		const missingAsset = mediaId("missing-asset");
-		const doc = buildDoc({
-			appName: "T",
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-									label_media: { image: missingAsset },
-								}),
-							],
-						},
-					],
-				},
-			],
+/** Shared domain admission and media manifest gates; no persistence claims. */
+describe("media reference admission across carriers", () => {
+	for (const state of ["missing", "pending", "wrong kind"] as const)
+		it(`reports every ${state} reference at its actual authoring location`, () => {
+			const { doc, assets } = mediaWireFixture();
+			const records = mediaRecords(assets);
+			const moduleUuid = doc.moduleOrder[0],
+				formUuid = doc.formOrder[moduleUuid][0];
+			const expected = [
+				["app", "logo", "", "", "icon", "image"],
+				["module", "icon", "", "", "icon", "image"],
+				["module", "audioLabel", "", "", "audio", "audio"],
+				["form", "icon", "", "", "alias", "image"],
+				["form", "audioLabel", "", "", "audio", "audio"],
+				["field", "label_media", "answer", "", "label", "image"],
+				["field", "label_media", "answer", "", "audio", "audio"],
+				["field", "label_media", "answer", "", "video", "video"],
+				["field", "hint_media", "answer", "", "option", "image"],
+				["field", "help_media", "answer", "", "audio", "audio"],
+				["field", "validate_msg_media", "answer", "", "icon", "image"],
+				["field", "options", "choice", "", "option", "image"],
+				["field", "options", "choice", "", "audio", "audio"],
+				["field", "options", "choice", "", "video", "video"],
+				["module", "", "", "0", "label", "image"],
+				["module", "", "", "1", "option", "image"],
+				["module", "", "", "2", "icon", "image"],
+			] as const;
+			expect(
+				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+					mediaAssets: records,
+				}),
+			).toEqual([]);
+			for (const [id, record] of records) {
+				if (state === "missing") records.delete(id);
+				else if (state === "pending")
+					records.set(id, { ...record, status: "pending" });
+				else {
+					// Model a stale resolved record at the read boundary; both replacement
+					// records come from real typed assets, retaining only the referenced ID.
+					const replacement = assets.get(
+						record.kind === "image" ? mediaIds.audio : mediaIds.label,
+					);
+					if (!replacement) throw new Error("Missing replacement asset");
+					const resolved = mediaRecords(
+						new Map([[replacement.assetId, replacement]]),
+					).get(replacement.assetId);
+					if (!resolved) throw new Error("Missing replacement record");
+					records.set(id, { ...resolved, id: record.id });
+				}
+			}
+			const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+				mediaAssets: records,
+			});
+			const code =
+				state === "missing"
+					? "MEDIA_ASSET_NOT_FOUND"
+					: state === "pending"
+						? "MEDIA_ASSET_NOT_READY"
+						: "MEDIA_KIND_MISMATCH";
+			expect(findings.map((finding) => finding.code)).toEqual(
+				Array(17).fill(code),
+			);
+			const column = doc.modules[moduleUuid].caseListConfig?.columns[1];
+			if (!column) throw new Error("Missing image-map column");
+			for (const finding of findings) {
+				if (finding.scope !== "app")
+					expect(finding.location.moduleUuid).toBe(moduleUuid);
+				if (finding.scope === "form" || finding.scope === "field")
+					expect(finding.location.formUuid).toBe(formUuid);
+				if (finding.details?.rowIndex !== undefined)
+					expect(finding.details.columnUuid).toBe(column.uuid);
+				if (state === "pending")
+					expect(finding.details?.status).toBe("pending");
+			}
+			const actual = findings.map((finding) => [
+				finding.scope,
+				finding.location.field ?? "",
+				finding.location.fieldId ?? "",
+				finding.details?.rowIndex ?? "",
+				finding.details?.assetId,
+				...(state === "wrong kind" ? [finding.details?.expectedKind] : []),
+			]);
+			const wanted = expected.map(([scope, field, fieldId, row, key, kind]) => [
+				scope,
+				field,
+				fieldId,
+				row,
+				mediaIds[key],
+				...(state === "wrong kind" ? [kind] : []),
+			]);
+			expect(actual.map((value) => JSON.stringify(value)).sort()).toEqual(
+				wanted.map((value) => JSON.stringify(value)).sort(),
+			);
 		});
-		// Manifest is empty — the reference can't resolve.
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
-			mediaAssets: makeManifest([]),
-		}).filter((e) => e.code === CODE);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toBe(
-			`At the label media on field "case_name" in form "Reg", the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
-		);
-		expect(hits[0].details?.assetId).toBe(missingAsset);
-	});
-
-	it("fires for a module icon, a form audio label, and an image-map row", () => {
-		const missingIcon = mediaId("missing-icon");
-		const missingAudio = mediaId("missing-audio");
-		const rowAsset = mediaId("row-asset");
-		const doc = buildDoc({
-			appName: "T",
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "region", label: proseText("Region") }],
-				},
-			],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							{
-								kind: "image-map",
-								uuid: "col-img" as never,
-								field: "region",
-								header: "Region",
-								mapping: [{ value: "N", assetId: rowAsset }],
-							},
-						],
-						listColumnOrder: ["col-img" as never],
-						detailColumnOrder: ["col-img" as never],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		// Doc-store-shaped mutation: stamp the icon + form audio +
-		// image-map row directly onto the built doc. Each reference
-		// points at an absent asset.
-		const moduleUuid = doc.moduleOrder[0];
-		doc.modules[moduleUuid].icon = missingIcon;
-		const formUuid = doc.formOrder[moduleUuid][0];
-		doc.forms[formUuid].audioLabel = missingAudio;
-
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
-			mediaAssets: makeManifest([]),
-		}).filter((e) => e.code === CODE);
-		expect(hits).toHaveLength(3);
-		const messages = hits.map((h) => h.message).sort();
-		// Sorting both arrays makes the assertion order-independent
-		// (the walker's emission order is canonical, but locking the
-		// assertion to it would reward incidental ordering changes).
-		expect(messages).toEqual(
-			[
-				`At the icon on module "Patients", the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
-				`At the audio label on form "Reg" in module "Patients", the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
-				`At row 1 of the image-map column "Region" on module "Patients", the attached media asset couldn't be found. It may have been deleted from the media library, or the reference may be stale. Open the slot and pick a different asset, or clear it if no media should sit there.`,
-			].sort(),
-		);
-	});
-
-	it("stays silent when every referenced id resolves", () => {
-		const goodAsset = mediaId("good-asset");
-		const doc = buildDoc({
-			appName: "T",
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-									label_media: { image: goodAsset },
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
-			mediaAssets: makeManifest([makeAssetRecord("good-asset")]),
-		}).filter((e) => e.code === CODE);
-		expect(hits).toHaveLength(0);
-	});
-
-	it("carries columnUuid + rowIndex in details when the bad ref sits in an image-map row", () => {
-		const present = mediaId("present");
-		const missingRowAsset = mediaId("missing-row-asset");
-		// Image-map mappings live one level below the validator's
-		// ValidationLocation shape (which carries entity uuids, not
-		// per-row coordinates). The asset-context rules surface the
-		// row's columnUuid + 0-based rowIndex on details so the UI can
-		// deep-link past the column to the exact row — same convention
-		// as `idMappingValueRequired`.
-		const doc = buildDoc({
-			appName: "T",
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "region", label: proseText("Region") }],
-				},
-			],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							{
-								kind: "image-map",
-								uuid: "col-regions" as never,
-								field: "region",
-								header: "Region",
-								mapping: [
-									{ value: "N", assetId: present },
-									{ value: "S", assetId: missingRowAsset },
-								],
-							},
-						],
-						listColumnOrder: ["col-regions" as never],
-						detailColumnOrder: ["col-regions" as never],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
-			mediaAssets: makeManifest([makeAssetRecord("present")]),
-		}).filter((e) => e.code === CODE);
-		expect(hits).toHaveLength(1);
-		const hit = hits[0];
-		expect(hit.details?.assetId).toBe(missingRowAsset);
-		expect(hit.details?.columnUuid).toBe("col-regions");
-		// 0-based row index — the second row (index 1) is the one
-		// pointing at the missing asset.
-		expect(hit.details?.rowIndex).toBe("1");
-	});
-
-	it("does not run at all when the runner is called without a manifest", () => {
-		const doc = buildDoc({
-			appName: "T",
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
-				},
-			],
-			modules: [
-				{
-					name: "Patients",
-					caseType: "patient",
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-									label_media: { image: "missing-asset" },
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
+	it("skips external media admission only when no manifest was supplied", () => {
+		const { doc } = mediaWireFixture();
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE, {
+				mediaAssets: new Map(),
+			}),
+		).toHaveLength(17);
 	});
 });

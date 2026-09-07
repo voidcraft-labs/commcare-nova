@@ -47,13 +47,8 @@
 // `commcare-hq/corehq/apps/app_manager/id_strings.py::detail_column_header_locale`'s
 // `column.id`-keyed numbering convention.
 //
-// The emitter does NOT register the `<title>` text into
-// app_strings — `cchq.case` is CCHQ's built-in locale with a
-// runtime fallback (registered with `default="Case"` at
-// `commcare-hq/corehq/apps/app_manager/id_strings.py::_case_detail_title_locale`).
-// Same pattern as the short-detail emitter so both `<detail>`
-// blocks display a consistent runtime title without app-strings
-// entries.
+// The compiler owns the shared cchq.case title locale in every app-string
+// table. Core has no ambient mapping for this id.
 
 import type { Element } from "domhandler";
 import { el } from "@/lib/commcare/elementBuilders";
@@ -215,7 +210,7 @@ export function emitLongDetail(args: {
 
 /**
  * Build the surrounding `<detail>` Element. The title routes through
- * the built-in `cchq.case` locale; the field Elements slot in between
+ * the compiler-registered `cchq.case` locale; the field Elements slot in between
  * the title and the closing tag.
  */
 function buildDetailShell(

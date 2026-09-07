@@ -1,3 +1,4 @@
+import { NextRequest } from "next/server";
 import { describe, expect, it, vi } from "vitest";
 import { POST as checkProjectSpaceCompatibility } from "../../project-space-compatibility/route";
 import { POST } from "../route";
@@ -39,7 +40,10 @@ describe("POST /api/commcare/feature-flags rollout bridge", () => {
 			}),
 		);
 
-		const request = {} as Parameters<typeof POST>[0];
+		const request = new NextRequest(
+			"http://localhost/api/commcare/feature-flags",
+			{ method: "POST", body: JSON.stringify({ appId: "app-1" }) },
+		);
 		const response = await POST(request);
 		const body = await response.json();
 
@@ -68,7 +72,12 @@ describe("POST /api/commcare/feature-flags rollout bridge", () => {
 			Response.json({ error: "Not signed in" }, { status: 401 }),
 		);
 
-		const response = await POST({} as Parameters<typeof POST>[0]);
+		const response = await POST(
+			new NextRequest("http://localhost/api/commcare/feature-flags", {
+				method: "POST",
+				body: JSON.stringify({ appId: "app-1" }),
+			}),
+		);
 		expect(response.status).toBe(401);
 		await expect(response.json()).resolves.toEqual({ error: "Not signed in" });
 	});

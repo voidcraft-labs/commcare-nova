@@ -53,6 +53,11 @@ Project viewers can preview files; editors can also upload and delete them.
 A ready document's information button explains what Nova reads; opening the
 document lets you inspect the summary itself.
 
+A document is ready only after its read finishes. An interrupted response stays
+unavailable even if part of it looks complete. Nova preserves literal paths and
+text examples in the returned summary. For large spreadsheets, the summary
+names any sheets or formulas left unread because an extraction limit was reached.
+
 ## Resume an unfinished design
 
 An app design that has not produced its first workflow appears under **Designs
@@ -116,6 +121,14 @@ Nova checks app names, question text, translations and formula values before
 saving. If pasted text contains a character CommCare cannot preserve, Nova names
 the affected text so you can remove that character and try again. Accents,
 non-Latin scripts and emoji are supported.
+
+If Nova cannot save a wording change, your text stays open beside the reason so
+you can correct it and try again. Rich-text tables keep images when you save
+and reopen them, including cells that contain only an image.
+
+Adding **Required** makes a question required immediately. Its condition is a
+separate choice. A new blank hint closes when you press Escape, and changing
+questions closes any optional editor you had just opened.
 
 ## XPath that will run in CommCare
 

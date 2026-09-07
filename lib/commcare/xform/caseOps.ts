@@ -53,6 +53,8 @@ import {
 	type BlueprintDoc,
 	type CaseOperation,
 	type CaseTarget,
+	caseDataTypeForFieldKind,
+	effectiveCaseTypes,
 	isCaptureField,
 	MAX_AUTHORED_CASE_KEY_LENGTH,
 	MAX_CASE_SCALAR_TEXT_LENGTH,
@@ -186,6 +188,16 @@ export function buildCaseOperations(
 		return null;
 
 	const fields = collectFieldLocations(doc, formUuid);
+	const expressionTypes = {
+		currentCaseType: moduleCaseType,
+		caseTypes: effectiveCaseTypes(doc),
+		formFields: new Map(
+			[...fields.keys()].map((uuid) => [
+				uuid,
+				caseDataTypeForFieldKind(doc.fields[uuid].kind),
+			]),
+		),
+	};
 	const attachmentSourcePaths = new Set(
 		[...fields].flatMap(([uuid, location]) => {
 			const field = doc.fields[uuid];
@@ -303,7 +315,7 @@ export function buildCaseOperations(
 			return emitOnDeviceExpression(
 				expression,
 				"casedb",
-				{ currentCaseType: moduleCaseType },
+				expressionTypes,
 				ROOT_ON_DEVICE_CASE_ANCHOR,
 				operationBindings(targetPath),
 			);
@@ -322,7 +334,7 @@ export function buildCaseOperations(
 			return emitCaseListFilter(
 				predicate,
 				"casedb",
-				{ currentCaseType: moduleCaseType },
+				expressionTypes,
 				ROOT_ON_DEVICE_CASE_ANCHOR,
 				operationBindings(targetPath),
 			);

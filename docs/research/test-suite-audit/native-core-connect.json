@@ -1,0 +1,43 @@
+{
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"testReport": {
+		"name": "nova.compatibility.ConnectRuntimeTest",
+		"tests": "10",
+		"skipped": "0",
+		"failures": "0",
+		"errors": "0",
+		"timestamp": "2026-09-06T23:15:51",
+		"hostname": "DIM-A127",
+		"time": "0.154"
+	},
+	"tests": [
+		"executesConfiguredValuesAndSerializesConnectNamespace[learn-default.xml]",
+		"executesConfiguredValuesAndSerializesConnectNamespace[learn-custom.xml]",
+		"executesConfiguredValuesAndSerializesConnectNamespace[deliver-default.xml]",
+		"executesConfiguredValuesAndSerializesConnectNamespace[deliver-custom.xml]",
+		"executesConfiguredValuesAndSerializesConnectNamespace[absent.xml]",
+		"executesConfiguredValuesAndSerializesConnectNamespace[learn-default.hq.xml]",
+		"executesConfiguredValuesAndSerializesConnectNamespace[learn-custom.hq.xml]",
+		"executesConfiguredValuesAndSerializesConnectNamespace[deliver-default.hq.xml]",
+		"executesConfiguredValuesAndSerializesConnectNamespace[deliver-custom.hq.xml]",
+		"executesConfiguredValuesAndSerializesConnectNamespace[absent.hq.xml]"
+	],
+	"sourceSha256": {
+		"src/main/java/org/javarosa/xform/parse/XFormParser.java": "1619ada1b3f7ea6c528b5250aff37ab2008cd26253ad772f47ef03a1d74423b8",
+		"src/main/java/org/javarosa/core/model/FormDef.java": "dbc9b8ca910ba30fd28ac3c996015db16cf04a4053bae731252ade1fe4b3f9a0",
+		"src/main/java/org/javarosa/model/xform/XFormSerializingVisitor.java": "3b39ab90293114d2e5e2afcdc22e964ae0a90c3b51c7cade317930547bb98f4c"
+	},
+	"artifacts": {
+		"learn-custom.hq.xml": "0a21e2dbf8ecd602fdd00c924c29f995508ec6e8cb53f01c6523fd8eba3b6161",
+		"deliver-default.xml": "1593f7ff87874bf532d22b60da7bbae566036c68c89213030db5504dbeb0661a",
+		"learn-default.xml": "64809eb934a7ab461454bd2572c65426837ecb4d56c54e6a587045bc76029e95",
+		"deliver-default.hq.xml": "f22ce730eb891552e036b9dcd22409ff442a9d9aec2f827559f788cc54d59d10",
+		"deliver-custom.xml": "40cc7a8c2ab707782c3b66cdac136fe6a3440356a83aa0ec7a79411a4767cd4b",
+		"absent.hq.xml": "e923aab74e2b7870e63a803eb7dca7983ef8c9ef577ab0141ac5efcee8a6b04d",
+		"deliver-custom.hq.xml": "efdf82bb33f04126210980ad71b032b3c49c3920798cce7a437a994f8c5ee856",
+		"learn-default.hq.xml": "c58750ae86e0b5f09af24634d8934fabc9ae38544639a57abf9658dc9e0009c0",
+		"absent.xml": "8d145a7cba5c2a1682b27cfefabe79259f56d3299e51e37d3b34eecb63cf8348",
+		"learn-custom.xml": "7122ce1b3160f5aaeaa16faa270fdc996ceabed3f1512b9f5f45e22ccf81dd30"
+	},
+	"limits": "Native Core form initialization and value recomputation, real indexed native worker-case rows, and XML submission serialization. Session values are supplied. No network, Connect receiver, HQ server submission or rendered client."
+}

@@ -4,7 +4,7 @@
  * retried answer.
  */
 
-import type { UIMessageChunk } from "ai";
+import { readUIMessageStream, type UIMessage, type UIMessageChunk } from "ai";
 import { describe, expect, it } from "vitest";
 import { createOpenPartTracker } from "../streamPartClosure";
 
@@ -85,5 +85,71 @@ describe("createOpenPartTracker", () => {
 		t.observe(c({ type: "text-end", id: "0" }));
 		t.observe(c({ type: "finish-step" }));
 		expect(t.closures()).toEqual([]);
+	});
+});
+
+it("the SDK consumes retry closures as completed parts in one assistant message", async () => {
+	const tracker = createOpenPartTracker();
+	const interrupted: UIMessageChunk[] = [
+		{ type: "start", messageId: "answer" },
+		{ type: "start-step" },
+		{ type: "text-start", id: "text-1" },
+		{ type: "text-delta", id: "text-1", delta: "First attempt" },
+		{ type: "reasoning-start", id: "reasoning-1" },
+		{ type: "reasoning-delta", id: "reasoning-1", delta: "Partial reasoning" },
+		{
+			type: "tool-input-available",
+			toolCallId: "call-1",
+			toolName: "searchBlueprint",
+			input: { query: "patient" },
+		},
+	];
+	for (const chunk of interrupted) tracker.observe(chunk);
+	const chunks: UIMessageChunk[] = [
+		...interrupted,
+		...tracker.closures("This attempt stopped."),
+		{ type: "start-step" },
+		{ type: "text-start", id: "text-2" },
+		{ type: "text-delta", id: "text-2", delta: "Retried answer" },
+		{ type: "text-end", id: "text-2" },
+		{ type: "finish-step" },
+		{ type: "finish" },
+	];
+	const stream = new ReadableStream<UIMessageChunk>({
+		start(controller) {
+			for (const chunk of chunks) controller.enqueue(chunk);
+			controller.close();
+		},
+	});
+	let final: UIMessage | undefined;
+	await readUIMessageStream({ stream, terminateOnError: true }).pipeTo(
+		new WritableStream<UIMessage>({
+			write(message) {
+				final = message;
+			},
+		}),
+	);
+	expect(final).toEqual({
+		id: "answer",
+		role: "assistant",
+		parts: [
+			{ type: "step-start" },
+			{ type: "text", text: "First attempt", state: "done" },
+			{
+				type: "reasoning",
+				id: "reasoning-1",
+				text: "Partial reasoning",
+				state: "done",
+			},
+			{
+				type: "tool-searchBlueprint",
+				toolCallId: "call-1",
+				state: "output-error",
+				input: { query: "patient" },
+				errorText: "This attempt stopped.",
+			},
+			{ type: "step-start" },
+			{ type: "text", text: "Retried answer", state: "done" },
+		],
 	});
 });

@@ -279,7 +279,7 @@ export function normalizeMimeType(raw: string): AssetMimeType | undefined {
 	if ((ALL_MIME_TYPES as readonly string[]).includes(base)) {
 		return base as AssetMimeType;
 	}
-	return MIME_ALIASES[base];
+	return Object.hasOwn(MIME_ALIASES, base) ? MIME_ALIASES[base] : undefined;
 }
 
 /**
@@ -331,7 +331,10 @@ const MIME_FOR_EXTENSION: Record<string, AssetMimeType> = {
 
 /** Canonical accepted MIME for a (lowercased) file extension, or `undefined`. */
 export function mimeTypeForExtension(ext: string): AssetMimeType | undefined {
-	return MIME_FOR_EXTENSION[ext.toLowerCase()];
+	const normalized = ext.toLowerCase();
+	return Object.hasOwn(MIME_FOR_EXTENSION, normalized)
+		? MIME_FOR_EXTENSION[normalized]
+		: undefined;
 }
 
 /**
@@ -341,7 +344,7 @@ export function mimeTypeForExtension(ext: string): AssetMimeType | undefined {
  * fallback the validator uses when the browser sends no usable `Content-Type`.
  */
 export function assetKindForExtension(ext: string): AssetKind | undefined {
-	const mime = MIME_FOR_EXTENSION[ext.toLowerCase()];
+	const mime = mimeTypeForExtension(ext);
 	return mime ? assetKindForMimeType(mime) : undefined;
 }
 
@@ -521,7 +524,7 @@ export function extractGcsObjectKeyFor(
  * helper must never drag the office-parsing libraries (mammoth/xlsx) into a
  * caller's import graph; keeping the constant here is what makes that possible.
  */
-export const EXTRACTOR_VERSION = 3;
+export const EXTRACTOR_VERSION = 4;
 
 /**
  * The GCS object key of a document's stored extract, or `null` for a media kind

@@ -1,6 +1,5 @@
-// The shared "does this AST need a case row?" guards behind every
-// globally-resolved slot: the assigned-case exclusion, a search
-// input's starting value, and the search-button display condition.
+// Structural dependency classification before contextual type checking.
+// These tests do not establish that a particular app or slot admits the AST.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -16,6 +15,7 @@ import {
 	literal,
 	match,
 	missing,
+	ownerLocationAtLevel,
 	prop,
 	relationStep,
 	selfPath,
@@ -33,7 +33,7 @@ import {
 } from "../walk";
 
 describe("expressionReadsCaseData", () => {
-	it("detects case reads at any expression depth", () => {
+	it("detects nested property, aggregate, and relation-presence reads", () => {
 		expect(
 			expressionReadsCaseData(
 				concat(term(literal("owner-")), term(prop("patient", "owner_id"))),
@@ -77,6 +77,11 @@ describe("expressionReadsCaseData", () => {
 });
 
 describe("predicateReadsCaseData", () => {
+	it("requires a case for owner-location reads in predicate and expression roots", () => {
+		const read = term(ownerLocationAtLevel(testUuid("district"), "patient"));
+		expect(expressionReadsCaseData(read)).toBe(true);
+		expect(predicateReadsCaseData(eq(read, literal("district-a")))).toBe(true);
+	});
 	it("detects prop terms inside comparison operands", () => {
 		expect(
 			predicateReadsCaseData(

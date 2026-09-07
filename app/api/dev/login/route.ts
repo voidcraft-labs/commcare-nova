@@ -89,7 +89,10 @@ export async function GET(request: Request): Promise<Response> {
 		const url = new URL(request.url);
 		const identity = identityFor(url.searchParams.get("as"));
 		const next = url.searchParams.get("next") ?? "/";
-		if (!next.startsWith("/") || next.startsWith("//")) {
+		if (
+			!next.startsWith("/") ||
+			new URL(next, url.origin).origin !== url.origin
+		) {
 			throw new ApiError(
 				`dev-login: \`next\` must be a same-origin path starting with \`/\`. Got \`${next}\`.`,
 				400,

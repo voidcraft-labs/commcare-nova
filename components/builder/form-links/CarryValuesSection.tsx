@@ -45,8 +45,9 @@ import {
 	SEVERAL_CASES_CARRY_AUTOMATICALLY,
 	SEVERAL_CASES_MANUAL_CARRY_NEEDS_REPAIR,
 } from "./afterSubmitCopy";
-import { readsForm } from "./LinkConditionEditor";
+import { carryValuesModel } from "./carryValuesModel";
 import { SEED_CARRIED_VALUE_TEXT, seedCarriedValues } from "./seeds";
+import { readsForm } from "./sessionExpression";
 
 export function CarryValuesSection({
 	formUuid,
@@ -64,10 +65,14 @@ export function CarryValuesSection({
 	const parse = useParseXPathForForm(formUuid);
 	const carry = view.carryVerdict(link.target);
 	const required = view.requiredDatums(link.target);
-	const manual = link.datums !== undefined;
 	const manualCarry = view.manualCarryVerdict(link);
-	const manualCarryUnavailable = !manualCarry.ok;
-	const invalidManual = manual && manualCarryUnavailable;
+	const {
+		manual,
+		manualCarryUnavailable,
+		invalidManual,
+		presentation,
+		missing,
+	} = carryValuesModel(link, carry, required, manualCarry);
 	const [confirmingAutomatic, setConfirmingAutomatic] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirmingAutomatic);
 
@@ -78,7 +83,7 @@ export function CarryValuesSection({
 		onCommit(rest);
 	};
 
-	if (carry.kind === "nothing-needed" && !manual) {
+	if (presentation === "nothing") {
 		return (
 			<p className="text-[14px] leading-relaxed text-nova-text-secondary">
 				{nothingNeededCopy(link.target.type)}
@@ -86,22 +91,18 @@ export function CarryValuesSection({
 		);
 	}
 
-	const missing = required.filter(
-		(datum) => !(link.datums ?? []).some((held) => held.name === datum.id),
-	);
-
 	return (
 		<div className="space-y-4">
-			{invalidManual && carry.kind !== "automatic" ? (
+			{presentation === "destination-repair" ? (
 				<p className="text-[14px] leading-relaxed text-nova-text-secondary">
 					{COMPLETE_SELECTION_NEEDS_FORM_LIST}
 				</p>
-			) : carry.kind === "manual-required" ? (
+			) : presentation === "manual-required" ? (
 				<p className="text-[14px] leading-relaxed text-nova-text-secondary">
 					This destination needs values this form can't supply on its own, so
 					they're worked out here.
 				</p>
-			) : carry.kind === "automatic" && manualCarryUnavailable && !manual ? (
+			) : presentation === "collection" ? (
 				<p className="text-[14px] leading-relaxed text-nova-text-secondary">
 					{SEVERAL_CASES_CARRY_AUTOMATICALLY}
 				</p>

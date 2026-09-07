@@ -38,3 +38,17 @@ describe("searchInputDisplayLabel", () => {
 		);
 	});
 });
+
+it("resolves missing or blank labels and detects case-insensitive authored duplicates", () => {
+	const uuid = testUuid("name");
+	expect(searchInputDisplayLabel(uuid, [])).toBe("Search field");
+	expect(
+		searchInputDisplayLabel(uuid, [{ uuid, name: "first_name", label: "   " }]),
+	).toBe("First name");
+	expect(
+		searchInputDisplayLabel(uuid, [
+			{ uuid, name: "first_name", label: " Person " },
+			{ uuid: testUuid("other"), name: "last_name", label: "person" },
+		]),
+	).toBe("Person (First name)");
+});

@@ -59,7 +59,7 @@ export interface RunValidationOptions {
 	 * Resolved media-asset manifest — every `MediaAssetId` the doc
 	 * references that the loader was willing to return, mapped to its
 	 * loaded media-asset row. Built by the caller from
-	 * `collectAssetRefs(doc)` + `loadAssetsByIds(owner, ...)`. When
+	 * `collectAssetRefs(doc)` + `loadAssetsByIds(projectId, ...)`. When
 	 * supplied, the asset-context media rules run; when omitted, the
 	 * rules are skipped silently. The manifest is the single slot the
 	 * rules need, so "ran the media group" and "didn't" are the only

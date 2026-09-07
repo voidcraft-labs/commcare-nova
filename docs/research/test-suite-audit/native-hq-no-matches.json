@@ -1,0 +1,36 @@
+{
+	"results": [
+		{
+			"scenario": "no-matches-bare",
+			"sourceSha256": "efc7d72830c894a804355774cf2df389e5aa7abec5ca44abef018e7455d5cce6",
+			"nativeSha256": "d4d0d701d727de5e9cb6efdbb4f191783d687a69f1c6c9f34f2c50116a273080"
+		},
+		{
+			"scenario": "no-matches-basic",
+			"sourceSha256": "ed4a29118c5bfcf2c381a46881449cdfa39162be98c8e76bfae112c474b7ce76",
+			"nativeSha256": "37f378b7c150338a0045a9375b33670b6365f15d1d73e527b0606cba98ef943a"
+		},
+		{
+			"scenario": "no-matches-home",
+			"sourceSha256": "5fbb59bd9d8ddaf3ce9b1e7bf48f118abc14b4afd6f8ad5436312ed5a7c2e307",
+			"nativeSha256": "74d7bba5f0047e0f92c68df53d91eb8e39dba4fd3992232594d605ab6923c95b"
+		},
+		{
+			"scenario": "no-matches-multiple-home",
+			"sourceSha256": "b5c1d72e48513ce46874413c28eb3a5557d1b2afe39f751922ef766a5b485223",
+			"nativeSha256": "09534b5fc2df78a6267d7c71af507d6fb69560a21f520d41f7c03a38f85b13f5"
+		},
+		{
+			"scenario": "no-matches-parent-bare",
+			"sourceSha256": "2524ac4d2a7a22b5771726886f0ec215dae4b4e01c29c5542a644f08f4e20988",
+			"nativeSha256": "70938c950528124980309e529be1c34ada00ab7d54d62ac83d329a1645e86e31"
+		},
+		{
+			"scenario": "no-matches-parent",
+			"sourceSha256": "1594364d2e0e05489637f22a9b59e2f3835b882276f580666c10fa0478b076f1",
+			"nativeSha256": "6ea1a3ca47e6c3688c8e117b23ec7deba8c6c5fab7ef4dafede7974ea3fbd29e"
+		}
+	],
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"limits": "Actual imported HQ model, native case/meta/Vellum XForm processing and suite contributors. Complete action, post-entry stack and menu trees retain all text/attributes/children. Supplied default build2.53/origin; enabled advanced search and follow-up case list forms. No real search/claim HTTP, whole HQ build or resource installation."
+}

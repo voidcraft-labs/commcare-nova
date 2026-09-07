@@ -7,28 +7,42 @@
  * reference against a stale one, fails here rather than in prod.
  */
 
+import { isTag } from "domhandler";
+import { findAll, textContent } from "domutils";
+import { parseDocument } from "htmlparser2";
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { HqApplication } from "@/lib/commcare";
 import { expandDoc } from "@/lib/commcare/expander";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { BlueprintDoc, FormLink } from "@/lib/domain";
-import { plainColumn } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
+import { blueprintDocSchema, plainColumn } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { runValidation } from "../validator/runner";
 
 /** The first form's XForm attachment, as a string. */
 function firstFormXml(doc: BlueprintDoc): string {
-	const attachments = expandDoc(doc)._attachments;
+	const attachments = expandDoc(admitted(doc))._attachments;
 	const key = Object.keys(attachments).find((k) => k.endsWith(".xml"));
 	if (key === undefined) throw new Error("no form attachment");
 	return attachments[key];
 }
 
-/** Positions of each needle in `haystack`, in the order they FIRST appear. */
-function firstIndices(haystack: string, needles: string[]): number[] {
-	return needles.map((n) => haystack.indexOf(n));
+function admitted(doc: BlueprintDoc) {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	return doc;
+}
+function elements(xml: string, name: string) {
+	return findAll(
+		(e) => e.name === name,
+		parseDocument(xml, { xmlMode: true }).children,
+	);
 }
 
 /**
@@ -81,21 +95,28 @@ describe("a move reflects on the wire", () => {
 		const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
 		const [, , uc] = doc.fieldOrder[formUuid];
 		// Move qc to the FRONT.
+		admitted(doc);
 		const next = produce(doc, (d) => {
-			applyMutations(d, [
-				{ kind: "moveField", uuid: uc, toParentUuid: formUuid, after: null },
-			]);
+			applyMutations(
+				d,
+				admitMutationBatch([
+					{ kind: "moveField", uuid: uc, toParentUuid: formUuid, after: null },
+				]),
+			);
 		});
 		const xml = firstFormXml(next);
-		const [ia, ib, ic] = firstIndices(xml, [
-			'nodeset="/data/qa"',
-			'nodeset="/data/qb"',
-			'nodeset="/data/qc"',
+		expect(
+			elements(xml, "bind")
+				.filter((e) =>
+					["/data/qa", "/data/qb", "/data/qc"].includes(e.attribs.nodeset),
+				)
+				.map((e) => e.attribs.nodeset),
+		).toEqual(["/data/qc", "/data/qa", "/data/qb"]);
+		expect(elements(xml, "input").map((e) => e.attribs.ref)).toEqual([
+			"/data/qc",
+			"/data/qa",
+			"/data/qb",
 		]);
-		// qc's bind emits FIRST, then qa, then qb.
-		expect(ic).toBeGreaterThanOrEqual(0);
-		expect(ic).toBeLessThan(ia);
-		expect(ia).toBeLessThan(ib);
 	});
 
 	it("a moveOption re-sequences the emitted select items", () => {
@@ -132,26 +153,35 @@ describe("a move reflects on the wire", () => {
 		}
 		const blueUuid = field.optionsSource.options[2].uuid;
 		// Move "blue" to the FRONT.
+		admitted(doc);
 		const next = produce(doc, (d) => {
-			applyMutations(d, [
-				{ kind: "moveOption", fieldUuid, uuid: blueUuid, after: null },
-			]);
+			applyMutations(
+				d,
+				admitMutationBatch([
+					{ kind: "moveOption", fieldUuid, uuid: blueUuid, after: null },
+				]),
+			);
 		});
 		const xml = firstFormXml(next);
-		const [iRed, iGreen, iBlue] = firstIndices(xml, [
-			"<value>red</value>",
-			"<value>green</value>",
-			"<value>blue</value>",
-		]);
-		expect(iBlue).toBeGreaterThanOrEqual(0);
-		expect(iBlue).toBeLessThan(iRed);
-		expect(iRed).toBeLessThan(iGreen);
+		expect(
+			elements(xml, "item").map((item) =>
+				textContent(
+					item.children.filter((e) => isTag(e) && e.name === "value"),
+				),
+			),
+		).toEqual(["blue", "red", "green"]);
 	});
 
 	it("a moveColumn re-sequences the emitted case-list detail columns", () => {
 		const c1 = testUuid("col-1");
 		const c2 = testUuid("col-2");
 		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "age", label: proseText("Age") }],
+				},
+			],
 			modules: [
 				{
 					name: "Patients",
@@ -171,23 +201,31 @@ describe("a move reflects on the wire", () => {
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		// Move "Age" (col-2) before "Name" (col-1) on Results.
+		admitted(doc);
 		const next = produce(doc, (d) => {
-			applyMutations(d, [
-				{
-					kind: "moveColumn",
-					moduleUuid,
-					uuid: c2,
-					surface: "list",
-					after: null,
-				},
-			]);
+			applyMutations(
+				d,
+				admitMutationBatch([
+					{
+						kind: "moveColumn",
+						moduleUuid,
+						uuid: c2,
+						surface: "list",
+						after: null,
+					},
+				]),
+			);
 		});
-		const hqMod = expandDoc(next).modules[0];
+		const hqMod = expandDoc(admitted(next)).modules[0];
 		const headers = hqMod.case_details.short.columns.map(
 			(col) => col.header.en,
 		);
 		// "Age" now precedes "Name" on the wire.
-		expect(headers.indexOf("Age")).toBeLessThan(headers.indexOf("Name"));
+		expect(headers).toEqual(["Age", "Name"]);
+		expect(hqMod.case_details.long.columns.map((c) => c.header.en)).toEqual([
+			"Name",
+			"Age",
+		]);
 	});
 
 	it("a form_links target survives a module reorder (points at the display-moved menu)", () => {
@@ -226,24 +264,27 @@ describe("a move reflects on the wire", () => {
 					uuid: testUuid("lnk-register-visit"),
 					target: { type: "form", moduleUuid: m2, formUuid: f2 },
 				},
-			] as FormLink[];
+			];
 		});
 		// Before any reorder, Followup is display-index 1.
-		expect(firstFormLinkTarget(expandDoc(linked))).toEqual({
+		expect(firstFormLinkTarget(expandDoc(admitted(linked)))).toEqual({
 			moduleIndex: 1,
 			formIndex: 0,
 		});
 
 		// Move Followup (m2) to the FRONT.
 		const reordered = produce(linked, (d) => {
-			applyMutations(d, [{ kind: "moveModule", uuid: m2, after: null }]);
+			applyMutations(
+				d,
+				admitMutationBatch([{ kind: "moveModule", uuid: m2, after: null }]),
+			);
 		});
 		expect(reordered.moduleOrder).toEqual([m2, m1]);
 
 		// The link target follows the move to index 0 — an emitter resolving the
 		// reference against a stale sequence would emit slot 1 (Intake's own
 		// menu), navigating wrong.
-		expect(firstFormLinkTarget(expandDoc(reordered))).toEqual({
+		expect(firstFormLinkTarget(expandDoc(admitted(reordered)))).toEqual({
 			moduleIndex: 0,
 			formIndex: 0,
 		});

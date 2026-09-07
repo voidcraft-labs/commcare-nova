@@ -1,15 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { NextRequest } from "next/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import { ApiError } from "@/lib/apiError";
+import { AppAccessError } from "@/lib/db/appAccess";
 import { LOOKUP_MAX_CSV_BYTES } from "@/lib/lookup/constants";
 import { LookupError } from "@/lib/lookup/errors";
 import { POST } from "../route";
 
 const mocks = vi.hoisted(() => {
-	class MockAppAccessError extends Error {
-		readonly name = "AppAccessError";
-	}
 	return {
-		AppAccessError: MockAppAccessError,
 		requireSession: vi.fn(),
 		resolveProjectAccess: vi.fn(),
 		getLookupTable: vi.fn(),
@@ -20,8 +19,8 @@ const mocks = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: mocks.requireSession }));
-vi.mock("@/lib/db/appAccess", () => ({
-	AppAccessError: mocks.AppAccessError,
+vi.mock("@/lib/db/appAccess", async (original) => ({
+	...(await original<typeof import("@/lib/db/appAccess")>()),
 	resolveProjectAccess: mocks.resolveProjectAccess,
 }));
 vi.mock("@/lib/lookup/service", () => ({
@@ -68,6 +67,11 @@ const TABLE = {
 	updatedAt: "2026-07-21T00:00:00.000Z",
 };
 
+const ownedRequests: NextRequest[] = [];
+afterEach(async () => {
+	for (const req of ownedRequests.splice(0))
+		if (!req.bodyUsed) await req.body?.cancel();
+});
 function request(options: {
 	body?: Uint8Array;
 	contentType?: string;
@@ -83,20 +87,13 @@ function request(options: {
 	if (options.contentLength !== undefined) {
 		headers.set("content-length", options.contentLength);
 	}
-	const arrayBuffer = vi.fn(async () =>
-		body.buffer.slice(body.byteOffset, body.byteOffset + body.byteLength),
-	);
 	const revision = options.revision ?? "7";
-	return {
-		req: {
-			headers,
-			nextUrl: new URL(
-				`http://localhost/api/projects/project-1/lookup/tables/${TABLE_ID}/import?expectedTableRevision=${revision}`,
-			),
-			arrayBuffer,
-		},
-		arrayBuffer,
-	};
+	const req = new NextRequest(
+		`http://localhost/api/projects/project-1/lookup/tables/${TABLE_ID}/import?expectedTableRevision=${revision}`,
+		{ method: "POST", headers, body: new Uint8Array(body) },
+	);
+	ownedRequests.push(req);
+	return { req };
 }
 
 function context(
@@ -125,26 +122,26 @@ beforeEach(() => {
 
 describe("POST lookup CSV import", () => {
 	it("rejects a declared oversize before auth or buffering", async () => {
-		const { req, arrayBuffer } = request({
+		const { req } = request({
 			contentType: "text/csv; charset=utf-8",
 			contentLength: String(LOOKUP_MAX_CSV_BYTES + 1),
 		});
 
-		const response = await POST(req as never, context());
+		const response = await POST(req, context());
 
 		expect(response.status).toBe(413);
 		expect((await response.json()).code).toBe("invalid_csv");
 		expect(mocks.requireSession).not.toHaveBeenCalled();
-		expect(arrayBuffer).not.toHaveBeenCalled();
+		expect(req.bodyUsed).toBe(false);
 	});
 
 	it("authorizes the exact Project before reading the body", async () => {
 		mocks.resolveProjectAccess.mockRejectedValue(
-			new mocks.AppAccessError("not_member"),
+			new AppAccessError("not_member"),
 		);
-		const { req, arrayBuffer } = request({ contentType: "text/csv" });
+		const { req } = request({ contentType: "text/csv" });
 
-		const response = await POST(req as never, context("project-foreign"));
+		const response = await POST(req, context("project-foreign"));
 
 		expect(response.status).toBe(404);
 		expect(await response.json()).toMatchObject({ success: false });
@@ -154,19 +151,15 @@ describe("POST lookup CSV import", () => {
 			"edit",
 		);
 		expect(mocks.getLookupTable).not.toHaveBeenCalled();
-		expect(arrayBuffer).not.toHaveBeenCalled();
+		expect(req.bodyUsed).toBe(false);
 	});
 
 	it("returns the stable unauthenticated shape without parsing", async () => {
-		const authError = new Error("Authentication required") as Error & {
-			status: number;
-		};
-		authError.name = "ApiError";
-		authError.status = 401;
+		const authError = new ApiError("Authentication required", 401);
 		mocks.requireSession.mockRejectedValue(authError);
-		const { req, arrayBuffer } = request({ contentType: "text/csv" });
+		const { req } = request({ contentType: "text/csv" });
 
-		const response = await POST(req as never, context());
+		const response = await POST(req, context());
 
 		expect(response.status).toBe(401);
 		expect(await response.json()).toMatchObject({
@@ -174,19 +167,16 @@ describe("POST lookup CSV import", () => {
 			code: "unauthenticated",
 		});
 		expect(mocks.resolveProjectAccess).not.toHaveBeenCalled();
-		expect(arrayBuffer).not.toHaveBeenCalled();
+		expect(req.bodyUsed).toBe(false);
 	});
 
 	it("rejects malformed path and revision input before authorization or buffering", async () => {
-		const { req, arrayBuffer } = request({
+		const { req } = request({
 			contentType: "text/csv",
 			revision: "01",
 		});
 
-		const response = await POST(
-			req as never,
-			context("project-1", "not-a-uuid"),
-		);
+		const response = await POST(req, context("project-1", "not-a-uuid"));
 
 		expect(response.status).toBe(400);
 		const payload = await response.json();
@@ -198,33 +188,33 @@ describe("POST lookup CSV import", () => {
 		expect(mocks.requireSession).toHaveBeenCalled();
 		expect(mocks.resolveProjectAccess).not.toHaveBeenCalled();
 		expect(mocks.getLookupTable).not.toHaveBeenCalled();
-		expect(arrayBuffer).not.toHaveBeenCalled();
+		expect(req.bodyUsed).toBe(false);
 	});
 
 	it("requires raw UTF-8 text/csv and does not buffer a wrong media type", async () => {
-		const { req, arrayBuffer } = request({ contentType: "application/json" });
+		const { req } = request({ contentType: "application/json" });
 
-		const response = await POST(req as never, context());
+		const response = await POST(req, context());
 
 		expect(response.status).toBe(400);
 		expect((await response.json()).code).toBe("invalid_input");
-		expect(arrayBuffer).not.toHaveBeenCalled();
+		expect(req.bodyUsed).toBe(false);
 	});
 
 	it("rejects a stale table revision before buffering", async () => {
-		const { req, arrayBuffer } = request({
+		const { req } = request({
 			contentType: "text/csv; charset=UTF-8",
 			revision: "6",
 		});
 
-		const response = await POST(req as never, context());
+		const response = await POST(req, context());
 
 		expect(response.status).toBe(409);
 		expect(await response.json()).toMatchObject({
 			code: "conflict",
 			currentRevisions: { tableRevision: "7" },
 		});
-		expect(arrayBuffer).not.toHaveBeenCalled();
+		expect(req.bodyUsed).toBe(false);
 	});
 
 	it("checks the actual byte count after buffering", async () => {
@@ -233,7 +223,7 @@ describe("POST lookup CSV import", () => {
 			body: new Uint8Array(LOOKUP_MAX_CSV_BYTES + 1),
 		});
 
-		const response = await POST(req as never, context());
+		const response = await POST(req, context());
 
 		expect(response.status).toBe(413);
 		expect(mocks.replaceLookupRows).not.toHaveBeenCalled();
@@ -241,14 +231,19 @@ describe("POST lookup CSV import", () => {
 	});
 
 	it("treats an aborted body read as a client close without error logging", async () => {
-		const { req, arrayBuffer } = request({ contentType: "text/csv" });
-		arrayBuffer.mockRejectedValue(
-			Object.assign(new Error("aborted"), {
-				code: "ECONNRESET",
-			}),
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				controller.error(
+					Object.assign(new Error("aborted"), { code: "ECONNRESET" }),
+				);
+			},
+		});
+		const req = new NextRequest(
+			`http://localhost/api/projects/project-1/lookup/tables/${TABLE_ID}/import?expectedTableRevision=7`,
+			{ method: "POST", headers: { "content-type": "text/csv" }, body: stream },
 		);
 
-		const response = await POST(req as never, context());
+		const response = await POST(req, context());
 
 		expect(response.status).toBe(499);
 		expect(await response.json()).toMatchObject({
@@ -268,7 +263,7 @@ describe("POST lookup CSV import", () => {
 		mocks.getLookupTable.mockRejectedValue(downstream.error);
 		const { req } = request({ contentType: "text/csv" });
 
-		const response = await POST(req as never, context());
+		const response = await POST(req, context());
 
 		expect(response.status).toBe(500);
 		expect(await response.json()).toMatchObject({
@@ -287,7 +282,7 @@ describe("POST lookup CSV import", () => {
 			new TextEncoder().encode('name,count\n"unterminated,2'),
 		]) {
 			const { req } = request({ contentType: "text/csv", body });
-			const response = await POST(req as never, context());
+			const response = await POST(req, context());
 			expect(response.status).toBe(422);
 			expect(await response.json()).toMatchObject({
 				success: false,
@@ -300,7 +295,7 @@ describe("POST lookup CSV import", () => {
 	it("coerces headers to immutable UUID values and calls server-only replacement", async () => {
 		const { req } = request({ contentType: "text/csv; charset=utf-8" });
 
-		const response = await POST(req as never, context());
+		const response = await POST(req, context());
 
 		expect(response.status).toBe(200);
 		expect(mocks.replaceLookupRows).toHaveBeenCalledWith(
@@ -332,7 +327,7 @@ describe("POST lookup CSV import", () => {
 		);
 		const { req } = request({ contentType: "text/csv" });
 
-		const response = await POST(req as never, context());
+		const response = await POST(req, context());
 
 		expect(response.status).toBe(422);
 		expect(await response.json()).toEqual({
@@ -341,4 +336,52 @@ describe("POST lookup CSV import", () => {
 			message: "This table is too large.",
 		});
 	});
+});
+
+it("stops a headerless oversized stream before asking for any further CSV bytes", async () => {
+	const continued = Promise.withResolvers<void>();
+	const finish = Promise.withResolvers<void>();
+	let pulls = 0;
+	const cancel = vi.fn();
+	const stream = new ReadableStream<Uint8Array>(
+		{
+			async pull(controller) {
+				pulls++;
+				if (pulls === 1)
+					controller.enqueue(new Uint8Array(LOOKUP_MAX_CSV_BYTES + 1));
+				else {
+					continued.resolve();
+					await finish.promise;
+					controller.close();
+				}
+			},
+			cancel,
+		},
+		{ highWaterMark: 0 },
+	);
+	const req = new NextRequest(
+		`http://localhost/api/projects/project-1/lookup/tables/${TABLE_ID}/import?expectedTableRevision=7`,
+		{ method: "POST", headers: { "content-type": "text/csv" }, body: stream },
+	);
+	const handling = POST(req, context());
+	try {
+		expect(
+			await Promise.race([
+				handling.then(() => "response"),
+				continued.promise.then(() => "continued"),
+			]),
+		).toBe("response");
+		const response = await handling;
+		expect(response.status).toBe(413);
+		expect(await response.json()).toMatchObject({ code: "invalid_csv" });
+		expect(pulls).toBe(1);
+		expect(cancel).toHaveBeenCalledTimes(1);
+		expect(mocks.replaceLookupRows).not.toHaveBeenCalled();
+	} finally {
+		finish.resolve();
+		continued.resolve();
+		await continued.promise;
+		const response = await handling;
+		if (!response.bodyUsed) await response.body?.cancel();
+	}
 });

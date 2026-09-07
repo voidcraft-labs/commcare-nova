@@ -54,6 +54,7 @@ import {
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
 import { canonicalizeRelationPath } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+import type { TypeContext } from "@/lib/domain/predicate/typeChecker";
 import type { RelationPath, Term } from "@/lib/domain/predicate/types";
 import { compileLiteral } from "./compileLiteral";
 import {
@@ -200,6 +201,9 @@ export interface TermCompileContext {
 	 * term compiler throws rather than emit ambiguous SQL.
 	 */
 	caseTypeSchemas: ReadonlyMap<string, CaseType>;
+	/** Declared types survive binding values such as the form answer "10". */
+	formFieldTypes?: TypeContext["formFields"];
+	knownInputs?: TypeContext["knownInputs"];
 	/** App organization hierarchy for owner-only location terms. */
 	organizationLevels?: Readonly<Record<string, OrganizationLevel>>;
 	/**

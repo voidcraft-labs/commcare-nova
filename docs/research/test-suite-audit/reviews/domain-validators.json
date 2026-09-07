@@ -1,0 +1,186 @@
+{
+	"owner": "agent_domain",
+	"files": [
+		{
+			"file": "lib/commcare/validator/__tests__/referenceSlotUnions.test.ts",
+			"status": "removed",
+			"review": "Read complete test and production index definitions: all three surfaces directly alias domain types. Removed six copied identity maps and runtime self-comparisons; no behavior was exercised. Registry traversal remains in existing behavioral suites.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/xpathValidatorSessionScope.test.ts",
+			"status": "revised",
+			"review": "Read complete source validator and compatibility analyzer. Retained concrete known-form versus closed-session paired scope inputs, exact unique diagnostics and explicit-instance context neighbors. Corrected historical-preservation test title; no native-runtime claim.",
+			"reviewedSha256": "497fed4da93713cac4e357f13a430cac755530b88145d2fa88f6244a21d8af89"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/xpathCompatibility.test.ts",
+			"status": "revised",
+			"review": "Read complete validator and compatibility owner. Accepted catalog/form/session adjacent fixtures now pass full schema and commit admission. Replaced lookup never casts with canonical UUIDv7/revision parsers; repaired missing explicit fallback and empty target form. Source-validator tests no longer claim actual native JavaRosa execution.",
+			"reviewedSha256": "e46643847be11617cf65d8c6aaf0829ba0b5d7d40e5d4883daa4a66c441eb181"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/organization.test.ts",
+			"status": "revised",
+			"review": "Read all tests and organization rules. Replaced isolated rule-array invocation with complete runner. Starting organization and capacity neighbor pass full admission. Reverse-owner capacity now uses 101 actual followup workflows carrying valid owner operations, instead of synthetic impossible repeated session writes on genesis survey; 100 destinations admitted and 101 yields sole intended capacity diagnostic. Ensured changed case catalog has new document identity to avoid fixture cache corruption.",
+			"reviewedSha256": "500832882e17e1e2382c90aa035688c90b5084123aa72f31335bd7750bd05297"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/userFindings.test.ts",
+			"status": "revised",
+			"review": "Read all tests and users owner. Every starting application now admitted survey. Explicitly identifies malformed user candidates as diagnostic inputs, not reachable stored states. Removed hashed-constructor fake prototype coverage; now truthful canonical missing identity and optional choice absence admission. Preserved exact duplicate identity and scope/order tests.",
+			"reviewedSha256": "7891b4978ac1699b2addd564bebbea994c3f9a5f3c451d7b2dfec59035aea341"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/scopedValidation.property.test.ts",
+			"status": "revised",
+			"review": "Read full assigned tests and scoped runner/deep walk owners. Replaced potentially vacuous admitted-generator empty==empty law with generated admitted multi-module/form bases then one app fault and one reference fault per form. Independently selects expected locations without production filter helpers and asserts nonzero full and exact scoped cardinality for 200 generated scopes. Fixed module-only and peer tests retained.",
+			"reviewedSha256": "6d50031ac6645d4128c44fcd7d51a3e4b0f0acb819d999691a25749f0cee9a91"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/selectOptionValue.test.ts",
+			"status": "revised",
+			"review": "Read complete tests and field/catalog rules. Complete runner no longer filters unrelated failures away; corrected registration catalog with name writer and visible column, and fully admits accepted neighbors. Claims scoped to Nova diagnostics rather than native device execution. Existing quote policy unchanged pending independent native proof owned by wire agent.",
+			"reviewedSha256": "af18fd4813c13b16b6d1fb13b969ee13022165c05a7e74e633f99d1d6f36d086"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/dateAddOnDeviceCompatibility.test.ts",
+			"status": "revised",
+			"review": "Read complete tests, date portability owner, expression classifier and shared module slot inventory. Replaced target-code filtering with complete findings and full admission for accepted neighbors; null-quantity test now proves actual ordinary type error instead of silence. Removed invalid standard-property catalog and repaired supposedly accepted dead global button to use context-free date operands. Retains latent columns, mixed CSQL/device roots and absorption behavior; no native execution claim.",
+			"reviewedSha256": "23aaf330f6a2cd633e323fadfd2d58c0313cb7b891de775f31c5effbc3212356"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/matchModeWhitespaceInValue.test.ts",
+			"status": "revised",
+			"review": "Read complete baseline and full owner. Rebuilt repeated invalid on-device fuzzy fixtures as CSQL-backed advanced search predicates; accepted single-token fuzzy/phonetic and starts-with neighbors fully admitted. Membership now names an actual multiselect catalog property; whitespace/tab/newline and both membership quantifiers diagnosed exactly. Added explicit filter/input/button attribution with truthful overlapping device/global refusal scope.",
+			"reviewedSha256": "e8b20f6c7f994871ed44bfd192e43fc446edb661fe178438ec6f2786dff810a5"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/csqlPredicateRepresentability.test.ts",
+			"status": "revised",
+			"review": "Read full baseline and rule, key CSQL analyzer and normalized mixed-dialect walker. Admitted all accepted neighbors and both mutation-gate starting documents. Canonical module UUIDs, standard catalog cleanup and actual patient-household/visit relationships remove preexisting impossible fixtures. Preserved bounded private emitter defensive throw and exact friendly diagnostics, not native HQ execution claims.",
+			"reviewedSha256": "73013e24c67bdc77ba102a1b1a431cf106116ee43e0a53c25943df8bb535305e"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/onDeviceExpressionCompatibility.test.ts",
+			"status": "revised",
+			"review": "Read full tests, complete compatibility owner, scalar/date classifier and shared slot walker. Accepted states fully admitted; invalid reserved name catalog repaired. Lookup context now supplies canonical IDs, real typed column definition and revision snapshot rather than unavailable-context false positives. Corrected fake related-case presence title to actual current-case lookup comparison. Negative default/owner tests explicitly assert their additional global-scope refusals, while relation/cardinality diagnostics forbid unrelated findings. Root typecheck caught draft column fields, fixed and suite rerun successfully.",
+			"reviewedSha256": "82552e992b901c054a66854f8f48e2869543104ad93081d08a7d36c6c2dcf2e4"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/matchModeOnDeviceCompatibility.test.ts",
+			"status": "revised",
+			"review": "Read full test and owner plus mixed-runtime walker/slot inventory. Accepted neighbors now fully admitted rather than filtered silence. Replaced nonexistent self-child count fixture with declared child type and correctly scoped child properties; fuzzy-date operand now actual date. Exposed dead-button false acceptance and asserts actual global-scope refusal explicitly. Plain no-carrier baseline now valid visible case list. Retained nested, latent-column, count-position, default and one-repair-per-slot diagnostic coverage.",
+			"reviewedSha256": "074fc6ba879553616f91b2351ef6a98d7039f3a1dc23ef1cd6437825bf69e564"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/ancestorExistsCannotNestSubcase.test.ts",
+			"status": "revised",
+			"review": "Read full baseline and full relation-walk owner. All accepted topology/ordinary-list/search states now prove full schema and commit admission, not absence of one code. Removed invalid standard catalog entries and inaccurate nonexistent branch title. Added production enable-Search mutation from admitted on-device nested relation predicate: sole intended cross-direction refusal and unchanged original document. Native HQ semantics remain separate wire corpus ownership.",
+			"reviewedSha256": "163f3e1c335f43d2c55b1c1da609c870ab04ffc0ddaf81e1ec4e656c16b2875f"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/automations.test.ts",
+			"status": "revised",
+			"review": "Read all 824 baseline lines and full automation rule/HQ-property owner. Replaced isolated automation-rule invocation with complete runner and full admission for accepted documents. All variants begin from a meaningful admitted followup workflow, then diagnose the authored candidate. A fresh candidate root respects immutable production cache semantics. Parent/host relationships, action criteria and user dependencies remain exercised; no scheduler, delivery or external-row-existence claim.",
+			"reviewedSha256": "07646f8413c2ac48501a36d784e102f6304be4cba54e749b38d8f41038bd1b72"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/multiSelect.test.ts",
+			"status": "revised",
+			"review": "Read all 822 baseline lines, full multiSelect rule and complete operation-order analysis. Every accepted example now passes schema and commit admission; direct-link/operation candidates begin from admitted bases. Repaired forbidden standard-property declarations, missing child display workflow, missing conditional-link fallback, absent destination columns and missing cross-type carried case identity. Scalar and restored-capacity neighbors prove actual admission. Retains explicit invalid fanout diagnostic attribution and pure bounded branch-analysis test without claiming native execution or changing nested-selection admission.",
+			"reviewedSha256": "4720f455fea462f238eeab23ed67552ecd9a38e33a0b8baf5a23b3c0b4f3bd91"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/caseOperations.test.ts",
+			"status": "revised",
+			"review": "Read all 1636 baseline lines, full 1226-line case-operation rule, 1032-line operation-order owner and operation wire contract. Replaced isolated-rule acceptance with full runner plus schema/commit admission; fixed reserved catalog vocabulary, absent case-list columns, registration name writer and malformed appended registration topology. Retype positives now retain source properties rather than hiding independent wire-portability refusals. Uses fresh candidate roots to respect production immutable-document cache semantics. Lookup cases supply canonical parsed IDs/revisions and actual definition snapshot; all accepted repeat ancestry/type/identity cases require zero total findings. Removed unsafe casts, copied forbidden-set iteration and duplicate absence assertions. Fuzzy-date uses an actual date property, and calendar refusal has typed date assignment plus exact reason/interval. Native Core/HQ execution and SQL atomicity remain separate integration claims.",
+			"reviewedSha256": "1a5897fd5b7561e5d9a08f05c485515fc5391120ab3d10ad0db4724e6adeb315"
+		}
+	],
+	"changedPaths": [
+		"lib/commcare/validator/__tests__/referenceSlotUnions.test.ts",
+		"lib/commcare/validator/__tests__/xpathValidatorSessionScope.test.ts",
+		"lib/commcare/validator/__tests__/xpathCompatibility.test.ts",
+		"lib/commcare/validator/__tests__/organization.test.ts",
+		"lib/commcare/validator/__tests__/userFindings.test.ts",
+		"lib/commcare/validator/__tests__/scopedValidation.property.test.ts",
+		"lib/commcare/validator/__tests__/selectOptionValue.test.ts",
+		"lib/commcare/validator/rules/case-list/__tests__/dateAddOnDeviceCompatibility.test.ts",
+		"lib/commcare/validator/rules/case-list/__tests__/matchModeWhitespaceInValue.test.ts",
+		"lib/commcare/validator/rules/case-list/__tests__/csqlPredicateRepresentability.test.ts",
+		"lib/commcare/validator/rules/case-list/__tests__/onDeviceExpressionCompatibility.test.ts",
+		"lib/commcare/validator/rules/case-list/__tests__/matchModeOnDeviceCompatibility.test.ts",
+		"lib/commcare/validator/rules/case-list/__tests__/ancestorExistsCannotNestSubcase.test.ts",
+		"lib/commcare/validator/__tests__/automations.test.ts",
+		"lib/commcare/validator/__tests__/multiSelect.test.ts",
+		"lib/commcare/validator/__tests__/caseOperations.test.ts"
+	],
+	"checks": [
+		{
+			"log": "validator-xpath-1.log",
+			"result": "session-scope 18 tests passed; compatibility fixture failures repaired in small-3"
+		},
+		{
+			"log": "validator-small-2.log",
+			"result": "userFindings 10 passed; other fixture failures repaired small-3"
+		},
+		{
+			"log": "validator-small-3.log",
+			"result": "3 suites 25 tests passed (XPath compatibility, organization, scoped property)"
+		},
+		{
+			"log": "validator-select-2.log",
+			"result": "1 suite 10 tests passed"
+		},
+		{
+			"log": "biome-validator29.log",
+			"result": "6 files formatted; unused warning subsequently repaired and biome-validator30 clean"
+		},
+		{
+			"log": "validator-case-list-2.log",
+			"result": "dateAdd and CSQL suites passed; on-device fixture failures subsequently repaired"
+		},
+		{
+			"log": "validator-whitespace-1.log",
+			"result": "1 suite 10 tests passed"
+		},
+		{
+			"log": "validator-device-3.log",
+			"result": "2 suites 39 tests passed; lookup columns subsequently corrected and rerun relations-4"
+		},
+		{
+			"log": "validator-relations-4.log",
+			"result": "2 suites 36 tests passed with corrected actual lookup snapshot"
+		},
+		{
+			"log": "validator-ancestor-5.log",
+			"result": "1 suite 19 tests passed including actual mutation admission refusal"
+		},
+		{
+			"log": "biome-validator31.log",
+			"result": "6 files checked and formatted successfully"
+		},
+		{
+			"command": "python3 /tmp/nova-test-audit-parallel/run-check.py --kind unit --owner agent_domain -- mise exec -- npx vitest run lib/commcare/validator/__tests__/caseOperations.test.ts lib/commcare/validator/__tests__/multiSelect.test.ts lib/commcare/validator/__tests__/automations.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/agent_domain/validator-final-three-4.log",
+			"result": "3 suites, 79 tests passed; no async diagnostic output."
+		},
+		{
+			"command": "mise exec -- npx biome check --write lib/commcare/validator/__tests__/automations.test.ts lib/commcare/validator/__tests__/caseOperations.test.ts lib/commcare/validator/__tests__/multiSelect.test.ts",
+			"log": "/tmp/nova-test-audit-parallel/agent_domain/biome-validator32.log",
+			"result": "3 files formatted and checked successfully; final tests run after formatting."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/agent_domain/biome-validator33.log",
+			"result": "Final text-field kind narrowing formatted and checked successfully."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/agent_domain/validator-multi-final-5.log",
+			"result": "Final multiSelect rerun after actual field-kind narrowing: 1 suite, 21 tests passed."
+		}
+	],
+	"bugs": [],
+	"docsNeeded": [],
+	"blockedBy": []
+}

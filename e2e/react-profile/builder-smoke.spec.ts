@@ -1,20 +1,14 @@
-import { execFileSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { expect, test } from "../lib/fixtures";
+import {
+	cleanupReactProfile,
+	exportReactProfile,
+	profilerCommand,
+} from "./profiler";
 
 interface SeedManifest {
 	openAppId: string;
-}
-
-function profilerCommand(args: string[]): string {
-	const stateDir = process.env.NOVA_REACT_PROFILE_STATE_DIR;
-	if (!stateDir) throw new Error("NOVA_REACT_PROFILE_STATE_DIR is missing.");
-	return execFileSync(
-		path.join(process.cwd(), "node_modules", ".bin", "agent-react-devtools"),
-		[...args, `--state-dir=${stateDir}`],
-		{ cwd: process.cwd(), encoding: "utf8", timeout: 30_000 },
-	);
 }
 
 test("exports React component commits from a Builder interaction", async ({
@@ -23,9 +17,6 @@ test("exports React component commits from a Builder interaction", async ({
 	const seed = JSON.parse(
 		readFileSync(path.join(process.cwd(), "e2e", ".auth", "seed.json"), "utf8"),
 	) as SeedManifest;
-	const output = process.env.NOVA_REACT_PROFILE_OUTPUT;
-	if (!output) throw new Error("NOVA_REACT_PROFILE_OUTPUT is missing.");
-
 	await page.goto(`/build/${seed.openAppId}`);
 	const collapse = page.getByRole("button", { name: "Collapse chat sidebar" });
 	await expect(collapse).toBeVisible({ timeout: 30_000 });
@@ -44,7 +35,7 @@ test("exports React component commits from a Builder interaction", async ({
 	await expect(collapse).toBeVisible();
 	const stopped = profilerCommand(["profile", "stop"]);
 	expect(stopped).toMatch(/[1-9][0-9]* commits?/);
-	profilerCommand(["profile", "export", output]);
+	const output = exportReactProfile();
 
 	const profile = JSON.parse(readFileSync(output, "utf8")) as {
 		version?: number;
@@ -55,4 +46,8 @@ test("exports React component commits from a Builder interaction", async ({
 	expect(
 		profile.dataForRoots?.some((root) => (root.commitData?.length ?? 0) > 0),
 	).toBe(true);
+});
+
+test.afterEach(() => {
+	cleanupReactProfile();
 });

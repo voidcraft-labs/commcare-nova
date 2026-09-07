@@ -3,11 +3,14 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Location } from "@/lib/routing/types";
 import { BuilderSessionContext } from "@/lib/session/provider";
 import { createBuilderSessionStore } from "@/lib/session/store";
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
+import { applyControllerEdit } from "../../engine/__tests__/fixtures/controllerDoc";
 import type {
 	EntryPointLaunchResult,
 	EntryPointPreviewLaunch,
@@ -59,6 +62,36 @@ beforeEach(() => {
 });
 function harness() {
 	const doc = createBlueprintDocStore();
+	const fixture = buildDoc({
+		appId: "app",
+		appName: "Links",
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: "module",
+				name: "Patients",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: "form",
+						name: "Visit",
+						type: "followup",
+						fields: [f({ kind: "text", id: "notes" })],
+					},
+				],
+			},
+		],
+	});
+	fixture.forms[F].entryPoint = {
+		uuid: E,
+		id: "visit",
+		ignoreDisplayConditions: true,
+	};
+	doc.getState().load(assertAdmittedPreviewDoc(fixture));
+	doc.getState().startTracking();
 	const session = createBuilderSessionStore({
 		appId: "app",
 		projectId: "project",
@@ -94,7 +127,9 @@ describe("entry point launch lifecycle", () => {
 		const h = harness();
 		h.session.getState().installEntryPointLaunch(launch);
 		renderHook(() => useEntryPointLaunchLifecycle(), { wrapper: h.wrapper });
-		act(() => h.doc.setState({ appName: "Edited" }));
+		act(() =>
+			applyControllerEdit(h.doc, [{ kind: "setAppName", name: "Edited" }]),
+		);
 		expect(h.session.getState().previewing).toBe(false);
 		expect(h.session.getState().previewCaseTarget).toBeUndefined();
 		expect(h.session.getState().previewEntryPointLaunch).toBeUndefined();
@@ -124,12 +159,14 @@ describe("entry point launch lifecycle", () => {
 			wrapper: h.wrapper,
 		});
 		view.unmount();
-		h.doc.setState({ appName: "Edited after unmount" });
+		applyControllerEdit(h.doc, [
+			{ kind: "setAppName", name: "Edited after unmount" },
+		]);
 		expect(replace).not.toHaveBeenCalled();
 	});
 });
 describe("entry point launch responses", () => {
-	it("installs a successful launch only after the save barrier and server admission", async () => {
+	it("installs an admitted action response into the real session and navigates", async () => {
 		const h = harness();
 		const view = renderHook(() => useEntryPointLaunch(), {
 			wrapper: h.wrapper,
@@ -150,36 +187,86 @@ describe("entry point launch responses", () => {
 		expect(h.session.getState().previewCaseTarget).toBe(launch.formTarget);
 		expect(push).toHaveBeenCalledWith(launch.location);
 	});
-	for (const boundary of ["document", "persona", "scope"] as const)
-		it(`discards a launch response after a ${boundary} change`, async () => {
+	it("waits for the save barrier before sending the admitted revision", async () => {
+		const h = harness();
+		const gate = Promise.withResolvers<{ kind: "saved" }>();
+		barrier.mockReturnValue(gate.promise);
+		const view = renderHook(() => useEntryPointLaunch(), {
+			wrapper: h.wrapper,
+		});
+		let pending: Promise<EntryPointLaunchResult> | undefined;
+		try {
+			act(() => {
+				pending = view.result.current(E, []);
+			});
+			expect(action).not.toHaveBeenCalled();
+			expect(push).not.toHaveBeenCalled();
+			await act(async () => {
+				gate.resolve({ kind: "saved" });
+				expect(await pending).toEqual({ kind: "ready", launch });
+			});
+			expect(action).toHaveBeenCalledWith(
+				expect.objectContaining({ expectedSeq: 4 }),
+			);
+		} finally {
+			await act(async () => {
+				gate.resolve({ kind: "saved" });
+				await pending;
+			});
+		}
+	});
+	it.each([
+		"document",
+		"persona",
+		"scope",
+		"unmount",
+		"saved revision",
+	] as const)(
+		"discards a launch response after a %s change",
+		async (boundary) => {
 			const h = harness();
+			const gate = Promise.withResolvers<EntryPointLaunchResult>();
+			const started = Promise.withResolvers<void>();
+			action.mockImplementation(() => {
+				started.resolve();
+				return gate.promise;
+			});
 			const view = renderHook(() => useEntryPointLaunch(), {
 				wrapper: h.wrapper,
 			});
-			let resolve!: (result: EntryPointLaunchResult) => void;
-			action.mockImplementation(
-				() =>
-					new Promise<EntryPointLaunchResult>((done) => {
-						resolve = done;
-					}),
-			);
 			let pending: Promise<EntryPointLaunchResult> | undefined;
-			await act(async () => {
-				pending = view.result.current(E, []);
-				await Promise.resolve();
-			});
-			act(() => {
-				if (boundary === "document")
-					h.doc.setState({ appName: "New revision" });
-				else if (boundary === "persona")
-					h.session.getState().setPreviewPersonaUuid(testUuid("other-persona"));
-				else h.session.getState().beginAccessRefresh();
-			});
-			await act(async () => {
-				resolve({ kind: "ready", launch });
-				expect(await pending).toMatchObject({ kind: "refused" });
-			});
-			expect(push).not.toHaveBeenCalled();
-			expect(h.session.getState().previewEntryPointLaunch).toBeUndefined();
-		});
+			try {
+				await act(async () => {
+					pending = view.result.current(E, []);
+					await started.promise;
+				});
+				act(() => {
+					if (boundary === "document")
+						applyControllerEdit(h.doc, [
+							{ kind: "setAppName", name: "New revision" },
+						]);
+					else if (boundary === "persona")
+						h.session
+							.getState()
+							.setPreviewPersonaUuid(testUuid("other-persona"));
+					else if (boundary === "scope")
+						h.session.getState().beginAccessRefresh();
+					else if (boundary === "saved revision")
+						snapshot.mockReturnValue({ baseSeq: 5 });
+					else view.unmount();
+				});
+				await act(async () => {
+					gate.resolve({ kind: "ready", launch });
+					expect(await pending).toMatchObject({ kind: "refused" });
+				});
+				expect(push).not.toHaveBeenCalled();
+				expect(h.session.getState().previewEntryPointLaunch).toBeUndefined();
+			} finally {
+				await act(async () => {
+					gate.resolve({ kind: "ready", launch });
+					await pending;
+				});
+			}
+		},
+	);
 });

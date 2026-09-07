@@ -1,102 +1,41 @@
-/**
- * Integration test for the per-request consent lock at
- * `app/api/mcp/jwt-auth.ts::handleJwtMcp`. Mocks the MCP request verifier (to inject
- * synthetic JWT claims via an `x-test-jwt-claims` header — signature
- * verification is the plugin's job, not ours) and `createMcpHandler` (to return
- * a sentinel 200, bypassing the JSON-RPC dispatcher). Better Auth + Postgres do
- * everything else for real, so the JWT path's contract — happy path,
- * revoke-then-fail, missing claims, lookup failure — is exercised against actual
- * plugin writes.
- *
- * Runs on the per-test-database harness booted by the case-store testcontainer
- * `globalSetup`. The route's consent/user reads reach the DB through the
- * `getAuthDb` singleton, pointed at the per-test pool via `__setAuthDbForTests`.
- */
-
-import type { JWTPayload } from "jose";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-// ── Module mocks ────────────────────────────────────────────────────
-
-/**
- * Capture the options the route passes to the MCP request verifier so a
- * separate test can assert scope enforcement is wired up. The route's docstring
- * claims "every tool inherits the scope check" — without capturing this, a
- * regression that drops `requiredScopes` from the verifier config wouldn't fail.
- */
-const captured: { protectedRequestOptions: unknown } = {
-	protectedRequestOptions: undefined,
-};
-
-vi.mock("@better-auth/mcp", async () => {
-	const actual =
-		await vi.importActual<typeof import("@better-auth/mcp")>(
-			"@better-auth/mcp",
-		);
-	return {
-		...actual,
-		createMcpProtectedRequestHandler:
-			(
-				options: unknown,
-				handler: (req: Request, jwt: JWTPayload) => Promise<Response>,
-			) =>
-			async (req: Request): Promise<Response> => {
-				captured.protectedRequestOptions = options;
-				const raw = req.headers.get("x-test-jwt-claims");
-				if (!raw) {
-					throw new Error(
-						"test setup: every request to the mocked protected handler must carry `x-test-jwt-claims`",
-					);
-				}
-				return handler(req, JSON.parse(raw) as JWTPayload);
-			},
-	};
-});
-
-/** Sentinel 200 — the test detects "got past the consent check" by status.
- * The sentinel has no body because these tests inspect authorization only. The
- * sentinel's `fetch` never invokes the per-request server factory: auth and
- * revocation run for real, the MCP protocol core stays stubbed. The stub
- * `McpServer` class exists only so `dispatch.ts`'s import resolves — with
- * the factory never invoked, nothing constructs it. */
-vi.mock("@modelcontextprotocol/server", () => {
-	return {
-		McpServer: class {},
-		createMcpHandler: () => ({
-			fetch: (_req: Request): Promise<Response> =>
-				Promise.resolve(
-					new Response(null, {
-						status: 200,
-						headers: { "content-type": "application/json" },
-					}),
-				),
-		}),
-	};
-});
-
-// ── Imports that depend on the mocks above ─────────────────────────
-
-import { oauthProvider } from "@better-auth/oauth-provider";
-import { betterAuth } from "better-auth";
+import { once } from "node:events";
+import { createServer, type Server } from "node:http";
 import { getMigrations } from "better-auth/db/migration";
-import { jwt as jwtPlugin } from "better-auth/plugins";
 import { Kysely, PostgresDialect, type PostgresPool } from "kysely";
-import { dispatchMcpAuthRequest } from "@/app/api/mcp/auth-plugin";
-import { __setAuthDbForTests, type AuthDatabase } from "@/lib/auth/db";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	beforeEach,
+	expect,
+	it,
+	vi,
+} from "vitest";
+import type { Auth } from "@/lib/auth";
+import type { AuthDatabase } from "@/lib/auth/db";
 import { runAuthAppMigrations } from "@/lib/auth/migrate";
 import { authMigrateOptions } from "@/lib/auth-migrate-options";
-import { AUTH_TABLE_NAMES } from "@/lib/auth-schema-shared";
 import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import { MCP_RESOURCE_METADATA_URL } from "@/lib/hostnames";
 
-// ── Test scaffolding ────────────────────────────────────────────────
-
-const TEST_SECRET = "x".repeat(32);
-const TEST_USER_ID = "user-test-1";
-
+// Only the tool payload is diagnostic: authentication, protocol dispatch, JWT
+// verification, JWKS transport and persistence all run their production code.
+vi.mock("@/lib/mcp/server", () => ({
+	registerNovaTools: (
+		server: import("@modelcontextprotocol/server").McpServer,
+		context: import("@/lib/mcp/types").ToolContext,
+	) => {
+		server.registerTool(
+			"caller",
+			{ description: "Return verified caller", inputSchema: {} },
+			async () => ({
+				content: [{ type: "text" as const, text: JSON.stringify(context) }],
+			}),
+		);
+	},
+}));
 const dbHandle = setupPerTestDatabase({
 	schema: "migrated",
-	databaseNamePrefix: "auth_mcp_revoke_",
+	databaseNamePrefix: "native_mcp_auth_",
 	establishLocalMigrationAuthority: true,
 	prepareTemplate: async (db, pool) => {
 		const { runMigrations } = await getMigrations(authMigrateOptions(pool));
@@ -104,269 +43,280 @@ const dbHandle = setupPerTestDatabase({
 		await runAuthAppMigrations(db);
 	},
 });
-
-/**
- * Mirrors `lib/auth.ts`'s oauth stack — same table names (so plugin writes land
- * in the auth tables the route reads) and DCR enabled. Factored out so the
- * inferred return type carries the plugin endpoints.
- */
-function createTestAuth(pool: typeof dbHandle.pool) {
-	return betterAuth({
-		secret: TEST_SECRET,
-		baseURL: "http://localhost:3000",
-		database: pool,
-		user: { modelName: AUTH_TABLE_NAMES.user },
-		session: { modelName: AUTH_TABLE_NAMES.session },
-		account: { modelName: AUTH_TABLE_NAMES.account },
-		verification: { modelName: AUTH_TABLE_NAMES.verification },
-		plugins: [
-			jwtPlugin({
-				disableSettingJwtHeader: true,
-				schema: { jwks: { modelName: AUTH_TABLE_NAMES.jwks } },
-			}),
-			oauthProvider({
-				loginPage: "/",
-				consentPage: "/consent",
-				resources: ["http://localhost:3000/api/mcp"],
-				enforcePerClientResources: true,
-				clientRegistrationDefaultResources: ["http://localhost:3000/api/mcp"],
-				clientRegistrationAllowedResources: ["http://localhost:3000/api/mcp"],
-				scopes: ["openid", "profile", "email", "nova.read", "nova.write"],
-				allowDynamicClientRegistration: true,
-				allowUnauthenticatedClientRegistration: true,
-				clientRegistrationDefaultScopes: ["nova.read", "nova.write"],
-				schema: {
-					oauthClient: { modelName: AUTH_TABLE_NAMES.oauthClient },
-					oauthConsent: { modelName: AUTH_TABLE_NAMES.oauthConsent },
-					oauthResource: { modelName: AUTH_TABLE_NAMES.oauthResource },
-					oauthClientResource: {
-						modelName: AUTH_TABLE_NAMES.oauthClientResource,
-					},
-					oauthRefreshToken: {
-						modelName: AUTH_TABLE_NAMES.oauthRefreshToken,
-					},
-					oauthAccessToken: { modelName: AUTH_TABLE_NAMES.oauthAccessToken },
-					oauthClientAssertion: {
-						modelName: AUTH_TABLE_NAMES.oauthClientAssertion,
-					},
-				},
-			}),
-		],
+let server: Server;
+let origin: string;
+let auth: Auth;
+let authModule: typeof import("@/lib/auth");
+let authDbModule: typeof import("@/lib/auth/db");
+let route: typeof import("@/app/api/mcp/route");
+let jwksReads = 0;
+const pending = new Set<Promise<void>>();
+const errors: unknown[] = [];
+beforeAll(async () => {
+	server = createServer((req, res) => {
+		const work = (async () => {
+			if (req.url !== "/api/auth/jwks") {
+				res.writeHead(404);
+				res.end();
+				return;
+			}
+			jwksReads++;
+			const response = await auth.handler(new Request(`${origin}${req.url}`));
+			res.writeHead(response.status, Object.fromEntries(response.headers));
+			res.end(await response.text());
+		})().catch((error) => {
+			errors.push(error);
+			res.writeHead(500);
+			res.end();
+		});
+		pending.add(work);
 	});
-}
-
-async function authorizationResponse(request: Request): Promise<Response> {
-	const response = await dispatchMcpAuthRequest(request);
-	await response.body?.cancel();
-	return response;
-}
-
-function mcpRequest(claims: Partial<JWTPayload>): Request {
-	// No body: the mocked protected handler reads only the x-test-jwt-claims header and
-	// the mocked createMcpHandler ignores the request, so a request body would
-	// create an unnecessary stream for this authorization boundary.
-	return new Request("http://localhost:3000/api/mcp", {
+	server.listen(0, "127.0.0.1");
+	await once(server, "listening");
+	const address = server.address();
+	if (!address || typeof address === "string")
+		throw new Error("Missing loopback port");
+	origin = `http://127.0.0.1:${address.port}`;
+	vi.resetModules();
+	vi.doMock("@/lib/hostnames", async () => ({
+		...(await vi.importActual<typeof import("@/lib/hostnames")>(
+			"@/lib/hostnames",
+		)),
+		AS_ORIGIN: origin,
+		AS_ISSUER: `${origin}/api/auth`,
+		MCP_RESOURCE_ORIGIN: origin,
+		MCP_RESOURCE_PATH: "/api/mcp",
+		MCP_RESOURCE_URL: `${origin}/api/mcp`,
+		MCP_RESOURCE_METADATA_URL: `${origin}/.well-known/oauth-protected-resource/api/mcp`,
+	}));
+	authModule = await import("@/lib/auth");
+	authDbModule = await import("@/lib/auth/db");
+	route = await import("@/app/api/mcp/route");
+});
+beforeEach(async () => {
+	vi.stubEnv(
+		"BETTER_AUTH_SECRET",
+		"native-mcp-auth-secret-at-least-32-characters",
+	);
+	vi.stubEnv("BETTER_AUTH_URL", origin);
+	vi.stubEnv("NODE_ENV", "production");
+	auth = authModule.createAuth(dbHandle.pool);
+	// Better Auth captures NODE_ENV before Vitest fixtures run. Enable its native
+	// limiter exactly as production does; the rule and storage remain unchanged.
+	(await auth.$context).rateLimit.enabled = true;
+	vi.spyOn(authModule, "getAuth").mockResolvedValue(auth);
+	authDbModule.__setAuthDbForTests(
+		new Kysely<AuthDatabase>({
+			dialect: new PostgresDialect({
+				pool: dbHandle.pool as unknown as PostgresPool,
+			}),
+		}),
+	);
+});
+afterEach(() => {
+	authDbModule.__setAuthDbForTests(null);
+	vi.restoreAllMocks();
+	vi.unstubAllEnvs();
+});
+afterAll(async () => {
+	server.closeAllConnections();
+	await new Promise<void>((resolve, reject) =>
+		server.close((error) => (error ? reject(error) : resolve())),
+	);
+	await Promise.all(pending);
+	expect(errors).toEqual([]);
+	vi.doUnmock("@/lib/hostnames");
+});
+async function call(bearer: string, ip = "192.0.2.45") {
+	const request = new Request(`${origin}/api/mcp`, {
 		method: "POST",
 		headers: {
-			"x-test-jwt-claims": JSON.stringify(claims),
+			authorization: `Bearer ${bearer}`,
 			"content-type": "application/json",
+			accept: "application/json, text/event-stream",
+			"x-nova-client-ip": ip,
+		},
+		body: JSON.stringify({
+			jsonrpc: "2.0",
+			id: 7,
+			method: "tools/call",
+			params: { name: "caller", arguments: {} },
+		}),
+	});
+	try {
+		const response = await route.POST(request);
+		const text = await response.text();
+		return { status: response.status, headers: response.headers, text };
+	} finally {
+		if (!request.bodyUsed) await request.body?.cancel();
+	}
+}
+async function seed() {
+	const context = await auth.$context;
+	const now = new Date();
+	await context.adapter.create({
+		model: "user",
+		forceAllowId: true,
+		data: {
+			id: "native-user",
+			name: "Native user",
+			email: "native@dimagi.com",
+			emailVerified: true,
+			createdAt: now,
+			updatedAt: now,
 		},
 	});
-}
-
-/** Insert a consent row through the plugin's adapter. */
-async function seedConsent(
-	auth: ReturnType<typeof createTestAuth>,
-	userId: string,
-	clientId: string,
-): Promise<{ id: string }> {
-	const ctx = await auth.$context;
-	return (await ctx.adapter.create({
+	const client = await auth.api.registerOAuthClient({
+		body: {
+			client_name: "Native MCP",
+			application_type: "native",
+			redirect_uris: ["http://127.0.0.1:9999/callback"],
+			token_endpoint_auth_method: "none",
+		},
+	});
+	const consent = await context.adapter.create<{ id: string }>({
 		model: "oauthConsent",
 		data: {
-			clientId,
-			userId,
+			clientId: client.client_id,
+			userId: "native-user",
 			scopes: ["nova.read", "nova.write"],
-			createdAt: new Date(),
-			updatedAt: new Date(),
+			createdAt: now,
+			updatedAt: now,
 		},
-	})) as { id: string };
+	});
+	return { clientId: client.client_id, consentId: consent.id };
 }
-
-// ── Suite ───────────────────────────────────────────────────────────
-
-describe("MCP route consent lock", () => {
-	let auth: ReturnType<typeof createTestAuth>;
-
-	beforeEach(async () => {
-		__setAuthDbForTests(
-			new Kysely<AuthDatabase>({
-				dialect: new PostgresDialect({
-					pool: dbHandle.pool as unknown as PostgresPool,
-				}),
-			}),
+it("real signed JWTs enforce signature, issuer, audience, expiry, scopes and live grant/user revocation through native MCP", async () => {
+	const { clientId, consentId } = await seed();
+	const claims = {
+		sub: "native-user",
+		azp: clientId,
+		iat: Math.floor(Date.now() / 1000),
+		exp: Math.floor(Date.now() / 1000) + 300,
+		iss: `${origin}/api/auth`,
+		aud: `${origin}/api/mcp`,
+		scope: "nova.read nova.write",
+	};
+	const sign = async (payload: Record<string, unknown>) =>
+		(await auth.api.signJWT({ body: { payload } })).token;
+	const token = await sign(claims);
+	const accepted = await call(token);
+	expect(
+		accepted.status,
+		JSON.stringify({
+			headers: Object.fromEntries(accepted.headers),
+			text: accepted.text,
+			jwksReads,
+		}),
+	).toBe(200);
+	const data =
+		accepted.text
+			.split("\n")
+			.find((line) => line.startsWith("data: "))
+			?.slice(6) ?? accepted.text;
+	expect(JSON.parse(data)).toMatchObject({
+		jsonrpc: "2.0",
+		id: 7,
+		result: {
+			content: [
+				{
+					type: "text",
+					text: JSON.stringify({
+						userId: "native-user",
+						scopes: ["nova.read", "nova.write"],
+						authKind: "oauth",
+					}),
+				},
+			],
+		},
+	});
+	expect(jwksReads).toBeGreaterThan(0);
+	const parts = token.split(".");
+	parts[2] = `${parts[2]?.[0] === "a" ? "b" : "a"}${parts[2]?.slice(1)}`;
+	expect((await call(parts.join("."))).status).toBe(401);
+	for (const change of [
+		{ iss: "https://wrong.example/api/auth" },
+		{ aud: "https://wrong.example/mcp" },
+		{ exp: Math.floor(Date.now() / 1000) - 60 },
+	])
+		expect((await call(await sign({ ...claims, ...change }))).status).toBe(401);
+	for (const scope of ["nova.read", "nova.write"]) {
+		const result = await call(await sign({ ...claims, scope }));
+		expect(result.status).toBe(403);
+		expect(result.headers.get("www-authenticate")).toContain(
+			"insufficient_scope",
 		);
-		auth = createTestAuth(dbHandle.pool);
-		// The route's user-revocation lock (isUserActive) + consent FKs need the
-		// caller's auth_user row — seed it via Better Auth's adapter.
-		const ctx = await auth.$context;
-		await ctx.adapter.create({
-			model: "user",
-			forceAllowId: true,
-			data: {
-				id: TEST_USER_ID,
-				name: "MCP test user",
-				email: "mcp@dimagi.com",
-				emailVerified: true,
-				createdAt: new Date(),
-				updatedAt: new Date(),
-			},
-		});
-	});
+	}
+	expect((await call(await sign({ ...claims, scope: "" }))).status).toBe(401);
+	for (const key of ["sub", "azp", "iat"]) {
+		const payload: Record<string, unknown> = { ...claims };
+		delete payload[key];
 
-	afterEach(() => {
-		__setAuthDbForTests(null);
-	});
-
-	// ── Configuration assertion ────────────────────────────────────
-
-	it("registers the MCP verifier with both Nova scopes required", async () => {
-		await authorizationResponse(mcpRequest({ sub: "x", azp: "y" }));
-
-		expect(captured.protectedRequestOptions).toEqual(
+		expect((await call(await sign(payload))).status).toBe(401);
+	}
+	await dbHandle.pool.query(
+		"ALTER TABLE auth_oauth_consent RENAME TO hidden_oauth_consent",
+	);
+	try {
+		const unavailable = await call(token);
+		expect(unavailable.status).toBe(401);
+		expect(unavailable.headers.get("www-authenticate")).toContain(
+			"auth check failed",
+		);
+	} finally {
+		await dbHandle.pool.query(
+			"ALTER TABLE hidden_oauth_consent RENAME TO auth_oauth_consent",
+		);
+	}
+	await dbHandle.pool.query(
+		"UPDATE auth_user SET banned = true WHERE id = $1",
+		["native-user"],
+	);
+	expect((await call(token)).headers.get("www-authenticate")).toContain(
+		"account disabled",
+	);
+	await dbHandle.pool.query(
+		"UPDATE auth_user SET banned = false WHERE id = $1",
+		["native-user"],
+	);
+	const { revokeAuthorizedClient } = await import("@/lib/db/oauth-consents");
+	await revokeAuthorizedClient("native-user", consentId);
+	const revoked = await call(token);
+	expect(revoked.status).toBe(401);
+	expect(revoked.headers.get("www-authenticate")).toContain("consent revoked");
+	expect(revoked.headers.get("www-authenticate")).toContain(
+		"resource_metadata=",
+	);
+});
+it("production Better Auth MCP middleware persists the IP counter and atomically admits only the last concurrent request at its cap", async () => {
+	for (let i = 0; i < 119; i++)
+		expect(
+			(await call("sk-nova-v1-invalid-key-for-native-rate-limit")).status,
+		).toBe(401);
+	const boundary = await Promise.all([
+		call("sk-nova-v1-invalid-key-for-native-rate-limit"),
+		call("sk-nova-v1-invalid-key-for-native-rate-limit"),
+		call("sk-nova-v1-invalid-key-for-native-rate-limit"),
+	]);
+	expect(boundary.map((response) => response.status).sort()).toEqual([
+		401, 429, 429,
+	]);
+	const blocked = await call("sk-nova-v1-invalid-key-for-native-rate-limit");
+	expect(blocked.status).toBe(429);
+	expect(Number(blocked.headers.get("x-retry-after"))).toBeGreaterThan(0);
+	expect(
+		(await call("sk-nova-v1-invalid-key-for-native-rate-limit", "192.0.2.46"))
+			.status,
+	).toBe(401);
+	const rows = await dbHandle.pool.query(
+		"SELECT key, count FROM auth_rate_limit",
+	);
+	expect(rows.rows).toEqual(
+		expect.arrayContaining([
 			expect.objectContaining({
-				requiredScopes: expect.arrayContaining(["nova.read", "nova.write"]),
+				key: expect.stringContaining("192.0.2.45"),
+				count: 120,
 			}),
-		);
-	});
-
-	// ── Happy path ─────────────────────────────────────────────────
-
-	it("accepts a request when the user has an active consent for the calling client", async () => {
-		const created = await auth.api.registerOAuthClient({
-			body: {
-				redirect_uris: ["http://127.0.0.1:9999/cb"],
-				application_type: "native",
-				client_name: "Claude Code",
-				token_endpoint_auth_method: "none",
-			},
-		});
-		await seedConsent(auth, TEST_USER_ID, created.client_id);
-
-		const res = await authorizationResponse(
-			mcpRequest({
-				sub: TEST_USER_ID,
-				azp: created.client_id,
-				iat: Math.floor(Date.now() / 1000),
-				scope: "nova.read nova.write",
-			}),
-		);
-
-		expect(res.status).toBe(200);
-		expect(res.headers.get("WWW-Authenticate")).toBeNull();
-	});
-
-	// ── Revoke-then-fail (the load-bearing test) ───────────────────
-
-	it("succeeds before revoke, fails 401 after — the end-to-end revocation contract", async () => {
-		const created = await auth.api.registerOAuthClient({
-			body: {
-				redirect_uris: ["http://127.0.0.1:9999/cb"],
-				application_type: "native",
-				client_name: "Claude Code",
-				token_endpoint_auth_method: "none",
-			},
-		});
-		const consent = await seedConsent(auth, TEST_USER_ID, created.client_id);
-
-		const claims: Partial<JWTPayload> = {
-			sub: TEST_USER_ID,
-			azp: created.client_id,
-			iat: Math.floor(Date.now() / 1000),
-			scope: "nova.read nova.write",
-		};
-
-		const before = await authorizationResponse(mcpRequest(claims));
-		expect(before.status).toBe(200);
-
-		const { revokeAuthorizedClient } = await import("@/lib/db/oauth-consents");
-		await revokeAuthorizedClient(TEST_USER_ID, consent.id);
-
-		const after = await authorizationResponse(mcpRequest(claims));
-		expect(after.status).toBe(401);
-		const wwwAuth = after.headers.get("WWW-Authenticate");
-		expect(wwwAuth).toContain('error="invalid_token"');
-		expect(wwwAuth).toContain('error_description="consent revoked"');
-		/* `resource_metadata` URL drives Claude Code's auto-discovery — without
-		 * it the 401 is a dead end. */
-		expect(wwwAuth).toContain(
-			`resource_metadata="${MCP_RESOURCE_METADATA_URL}"`,
-		);
-	});
-
-	// ── Structural-token-failure paths ─────────────────────────────
-
-	it("rejects with 401 when the JWT is missing the `sub` claim", async () => {
-		const res = await authorizationResponse(
-			mcpRequest({ azp: "client-x", scope: "nova.read nova.write" }),
-		);
-		expect(res.status).toBe(401);
-		expect(res.headers.get("WWW-Authenticate")).toContain(
-			'error_description="missing subject claim"',
-		);
-	});
-
-	it("rejects with 401 when the JWT is missing the `azp` claim", async () => {
-		const res = await authorizationResponse(
-			mcpRequest({
-				sub: TEST_USER_ID,
-				iat: Math.floor(Date.now() / 1000),
-				scope: "nova.read nova.write",
-			}),
-		);
-		expect(res.status).toBe(401);
-		expect(res.headers.get("WWW-Authenticate")).toContain(
-			'error_description="missing client identity"',
-		);
-	});
-
-	it("rejects with 401 when the JWT is missing the `iat` claim", async () => {
-		const res = await authorizationResponse(
-			mcpRequest({
-				sub: TEST_USER_ID,
-				azp: "client-x",
-				scope: "nova.read nova.write",
-			}),
-		);
-		expect(res.status).toBe(401);
-		expect(res.headers.get("WWW-Authenticate")).toContain(
-			'error_description="missing token issue time"',
-		);
-	});
-
-	// ── Lookup-failure path ─────────────────────────────────────────
-
-	it("fails closed with 401 when the consent lookup throws", async () => {
-		const consentsModule = await import("@/lib/db/oauth-consents");
-		const spy = vi
-			.spyOn(consentsModule, "hasActiveConsent")
-			.mockRejectedValueOnce(new Error("database unavailable"));
-
-		try {
-			const res = await authorizationResponse(
-				mcpRequest({
-					sub: TEST_USER_ID,
-					azp: "client-x",
-					iat: Math.floor(Date.now() / 1000),
-					scope: "nova.read nova.write",
-				}),
-			);
-			expect(res.status).toBe(401);
-			expect(res.headers.get("WWW-Authenticate")).toContain(
-				'error_description="auth check failed"',
-			);
-		} finally {
-			spy.mockRestore();
-		}
-	});
+		]),
+	);
 });

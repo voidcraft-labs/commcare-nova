@@ -13,7 +13,7 @@
 "use client";
 import { Autocomplete } from "@base-ui/react/autocomplete";
 import { Icon } from "@iconify/react/offline";
-import { useCallback, useMemo } from "react";
+import { useCallback, useId, useMemo } from "react";
 import { type FieldKind, fieldRegistry, type Uuid } from "@/lib/domain";
 import {
 	collectFieldEntries,
@@ -118,6 +118,7 @@ export function FieldPicker({
 	placeholder = "Search fields",
 	required,
 }: FieldPickerProps) {
+	const inputId = useId();
 	const fields = useMemo(
 		() => buildFieldEntries(source, parentUuid, typeFilter),
 		[source, parentUuid, typeFilter],
@@ -134,12 +135,15 @@ export function FieldPicker({
 
 	return (
 		<div>
-			<span className="text-xs text-nova-text-muted mb-0.5 flex items-center gap-0.5">
+			<label
+				htmlFor={inputId}
+				className="text-xs text-nova-text-muted mb-0.5 flex items-center gap-0.5"
+			>
 				{label}
 				{required && <span className="text-nova-rose ml-0.5">*</span>}
-			</span>
+			</label>
 			<Autocomplete.Root
-				key={value ?? "unselected"}
+				key={`${value ?? "unselected"}:${current?.id ?? ""}`}
 				items={fields}
 				filter={filterField}
 				defaultValue={current?.id ?? ""}
@@ -148,6 +152,7 @@ export function FieldPicker({
 			>
 				<Autocomplete.InputGroup className="relative">
 					<Autocomplete.Input
+						id={inputId}
 						placeholder={placeholder}
 						autoComplete="off"
 						data-1p-ignore

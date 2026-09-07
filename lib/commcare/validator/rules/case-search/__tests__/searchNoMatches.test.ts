@@ -14,9 +14,11 @@ import {
 	f,
 	type ModuleSpec,
 } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
+	blueprintDocSchema,
 	type Module,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -95,6 +97,11 @@ function docWith(
 					},
 					registerForm(),
 				],
+				...(moduleOverrides.forms?.every(
+					(form) => form.entry?.kind === "search-no-matches",
+				)
+					? { caseListOnly: true }
+					: {}),
 				...moduleOverrides,
 			},
 			...(other === undefined ? [] : [other]),
@@ -109,9 +116,12 @@ function docWith(
 }
 
 function codes(doc: BlueprintDoc, code: string): string[] {
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)
-		.filter((error) => error.code === code)
-		.map((error) => error.message);
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	expect(errors.map((error) => error.code)).toEqual(
+		Array(errors.length).fill(code),
+	);
+	return errors.map((error) => error.message);
 }
 
 describe("searchNoMatchesEntry", () => {
@@ -173,7 +183,7 @@ describe("searchNoMatchesEntry", () => {
 		expect(messages[0]).toContain("a display condition");
 	});
 
-	it("needs a menu form on a host that selects a parent case first", () => {
+	it("admits registration without a menu form when its case type has a parent", () => {
 		const households: ModuleSpec = {
 			uuid: OTHER_MODULE,
 			name: "Households",
@@ -202,29 +212,19 @@ describe("searchNoMatchesEntry", () => {
 				},
 			],
 		});
-		// The menu form's parent datum is what the Register action copies.
-		expect(
-			codes(
-				withParent(docWith({}, households)),
-				"SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM",
-			),
-		).toEqual([]);
+		// A parent type does not make registration select an existing parent.
+		// Native explicit-child routing is covered by the no-matches corpus.
 		const formless = withParent(
 			docWith({ caseListOnly: true, forms: [registerForm()] }, households),
 		);
-		const messages = codes(
+		for (const doc of [
+			withParent(docWith({}, households)),
 			formless,
-			"SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM",
-		);
-		expect(messages).toHaveLength(1);
-		expect(messages[0]).toContain("has no menu form");
-		// Without the parent relationship a formless host is fine.
-		expect(
-			codes(
-				docWith({ caseListOnly: true, forms: [registerForm()] }),
-				"SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM",
-			),
-		).toEqual([]);
+			docWith({ caseListOnly: true, forms: [registerForm()] }),
+		]) {
+			blueprintDocSchema.parse(toPersistableDoc(doc));
+			expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+		}
 	});
 });
 
@@ -345,8 +345,13 @@ describe("no-matches registration return cardinality", () => {
 		expect(codes(doc, "SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN")).toHaveLength(
 			1,
 		);
-		doc.forms[REGISTER].postSubmit = "app_home";
-		expect(codes(doc, "SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN")).toEqual([]);
-		expect(codes(doc, "SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION")).toEqual([]);
+		const returningHome = structuredClone(doc);
+		returningHome.forms[REGISTER].postSubmit = "app_home";
+		expect(
+			codes(returningHome, "SEARCH_NO_MATCHES_ENTRY_MULTIPLE_RETURN"),
+		).toEqual([]);
+		expect(
+			codes(returningHome, "SEARCH_NO_MATCHES_ENTRY_HAS_NAVIGATION"),
+		).toEqual([]);
 	});
 });

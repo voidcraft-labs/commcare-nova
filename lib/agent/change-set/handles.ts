@@ -165,11 +165,11 @@ export function resolveHandleRefs(
 		}
 		if (Array.isArray(value)) return value.map((entry) => walk(entry));
 		if (typeof value === "object" && value !== null) {
-			const out: Record<string, unknown> = {};
-			for (const [key, entry] of Object.entries(value)) {
-				out[key] = walk(entry);
-			}
-			return out;
+			// Preserve every own JSON member for the original tool schema to
+			// validate. In particular, __proto__ must not disappear as a setter.
+			return Object.fromEntries(
+				Object.entries(value).map(([key, entry]) => [key, walk(entry)]),
+			);
 		}
 		return value;
 	};

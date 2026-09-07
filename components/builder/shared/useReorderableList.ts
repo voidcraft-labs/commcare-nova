@@ -215,88 +215,83 @@ export function useReorderableList<T>(
 			},
 			onDrop: ({ source, location }) => {
 				setPendingDrop(null);
-				const sourceData = readListItemDragData(source.data);
-				if (
-					sourceData === undefined ||
-					sourceData.nodeKey !== containerKey ||
-					sourceData.containerKind !== containerKind
-				) {
-					return;
-				}
-				const target = location.current.dropTargets[0];
-				if (target === undefined) return;
-				const targetData = readListItemDropData(target.data);
-				if (
-					targetData === undefined ||
-					targetData.nodeKey !== containerKey ||
-					targetData.containerKind !== containerKind
-				) {
-					return;
-				}
-				const edge = extractClosestEdge(target.data);
-				const resolved = reorderByStableItemKey({
+				const resolved = resolveListDrop({
+					containerKey,
+					containerKind,
 					items: itemsRef.current,
 					itemKeys: itemKeysRef.current,
-					sourceItemKey: sourceData.itemKey,
-					targetItemKey: targetData.itemKey,
-					placeAfterTarget: edge === "bottom" || edge === "right",
+					source: source.data,
+					target: location.current.dropTargets[0]?.data,
+					edge: location.current.dropTargets[0]
+						? extractClosestEdge(location.current.dropTargets[0].data)
+						: null,
+					canDropAtIndex: canDropAtIndexRef.current,
 				});
-				if (resolved === undefined) return;
-				// The gate already marked this destination refused during the
-				// drag; releasing over it must not commit the move.
-				if (canDropAtIndexRef.current?.(resolved.move.toIndex) === false) {
-					return;
-				}
-				onReorderRef.current(resolved.items, resolved.move);
+				if (resolved && !resolved.pending.refused)
+					onReorderRef.current(resolved.items, resolved.move);
 			},
 			onDrag: ({ source, location }) => {
-				const sourceData = readListItemDragData(source.data);
-				if (
-					sourceData === undefined ||
-					sourceData.nodeKey !== containerKey ||
-					sourceData.containerKind !== containerKind
-				) {
-					return;
-				}
-				const target = location.current.dropTargets[0];
-				if (target === undefined) {
-					setPendingDrop(null);
-					return;
-				}
-				const targetData = readListItemDropData(target.data);
-				if (
-					targetData === undefined ||
-					targetData.nodeKey !== containerKey ||
-					targetData.containerKind !== containerKind
-				) {
-					setPendingDrop(null);
-					return;
-				}
-				const edge = extractClosestEdge(target.data);
-				const resolved = reorderByStableItemKey({
+				const resolved = resolveListDrop({
+					containerKey,
+					containerKind,
 					items: itemsRef.current,
 					itemKeys: itemKeysRef.current,
-					sourceItemKey: sourceData.itemKey,
-					targetItemKey: targetData.itemKey,
-					placeAfterTarget: edge === "bottom" || edge === "right",
+					source: source.data,
+					target: location.current.dropTargets[0]?.data,
+					edge: location.current.dropTargets[0]
+						? extractClosestEdge(location.current.dropTargets[0].data)
+						: null,
+					canDropAtIndex: canDropAtIndexRef.current,
 				});
-				if (resolved === undefined) {
-					// Adjacency suppression: drop would be a no-op.
-					setPendingDrop(null);
-					return;
-				}
-				setPendingDrop({
-					itemKey: sourceData.itemKey,
-					fromIndex: resolved.move.fromIndex,
-					toIndex: resolved.move.toIndex,
-					refused: canDropAtIndexRef.current?.(resolved.move.toIndex) === false,
-				});
+				setPendingDrop(resolved?.pending ?? null);
 			},
 		});
 		return () => cleanup();
 	}, [containerKey, containerKind]);
 
 	return { pendingDrop };
+}
+
+/** Resolve the same current-snapshot decision for hover and commit. Native
+ * pointer hit testing supplies only the edge; identity and admission live here. */
+export function resolveListDrop<T>(args: {
+	readonly containerKey: string;
+	readonly containerKind: string;
+	readonly items: readonly T[];
+	readonly itemKeys: readonly string[];
+	readonly source: Record<string | symbol, unknown>;
+	readonly target?: Record<string | symbol, unknown>;
+	readonly edge: Edge | null;
+	readonly canDropAtIndex?: (toIndex: number) => boolean;
+}) {
+	const source = readListItemDragData(args.source);
+	const target = args.target ? readListItemDropData(args.target) : undefined;
+	if (
+		!source ||
+		!target ||
+		source.nodeKey !== args.containerKey ||
+		target.nodeKey !== args.containerKey ||
+		source.containerKind !== args.containerKind ||
+		target.containerKind !== args.containerKind
+	)
+		return undefined;
+	const resolved = reorderByStableItemKey({
+		items: args.items,
+		itemKeys: args.itemKeys,
+		sourceItemKey: source.itemKey,
+		targetItemKey: target.itemKey,
+		placeAfterTarget: args.edge === "bottom" || args.edge === "right",
+	});
+	if (!resolved) return undefined;
+	return {
+		...resolved,
+		pending: {
+			itemKey: source.itemKey,
+			fromIndex: resolved.move.fromIndex,
+			toIndex: resolved.move.toIndex,
+			refused: args.canDropAtIndex?.(resolved.move.toIndex) === false,
+		},
+	};
 }
 
 interface StableItemReorderArgs<T> {

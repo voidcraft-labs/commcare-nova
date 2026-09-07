@@ -17,6 +17,11 @@ connected MCP agent can also read and edit worker information, roles, and
 personas; all three paths use the same checks, so an invalid intermediate never
 saves.
 
+While Nova loads the Project's data-table definitions, changes on this screen
+pause. You can still open rows and read their information. Your unfinished
+text stays in place, and editing becomes available when loading finishes. If
+the definitions could not be loaded, **Try again** reconnects them.
+
 ## Worker information
 
 **Worker information** is the data every worker carries with them, their
@@ -137,7 +142,9 @@ your own account. **Preview as** a persona runs it as that person.
 
 Each persona has a stored worker record, including in apps that only collect
 surveys. Saving changes to the persona updates that record. Returning to Preview
-keeps answers that forms have saved about the worker.
+keeps answers that forms have saved about the worker. Preview keeps a separate
+worker record in each app, including when you preview as yourself. An answer
+saved about a worker in one app does not replace their answers in another.
 
 This is the whole point of describing them. Previewing as Asha means:
 

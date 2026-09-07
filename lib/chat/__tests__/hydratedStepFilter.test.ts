@@ -251,3 +251,44 @@ describe("createHydratedStepWindow", () => {
 		expect(out).toContain("text-delta");
 	});
 });
+
+it("retains the exact unhydrated suffix and reads hydration at stream identity once", () => {
+	let hydrated = [assistant("answer", 2)];
+	let reads = 0;
+	const passes = createHydratedStepWindow(() => {
+		reads++;
+		return hydrated;
+	});
+	const metadata: UIMessageChunk = {
+		type: "message-metadata",
+		messageMetadata: { model: "model" },
+	};
+	const transient: UIMessageChunk = {
+		type: "data-receipt",
+		data: { sequence: 9 },
+		transient: true,
+	};
+	const chunks = [
+		seedChunk(1),
+		start("answer"),
+		...step(1),
+		metadata,
+		transient,
+		...step(2),
+		...step(3),
+	];
+	const passed = [];
+	for (const chunk of chunks) {
+		if (passes(chunk)) passed.push(chunk);
+		if (chunk.type === "start") hydrated = [assistant("answer", 100)];
+	}
+	expect(passed).toEqual([
+		chunks[0],
+		chunks[1],
+		metadata,
+		transient,
+		...step(2),
+		...step(3),
+	]);
+	expect(reads).toBe(1);
+});

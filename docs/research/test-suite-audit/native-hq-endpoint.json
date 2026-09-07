@@ -1,0 +1,41 @@
+{
+	"results": [
+		{
+			"scenario": "endpoint-case-list",
+			"sourceSha256": "2d649ea3a67727fe26a3082db5e9d0f191389a706d07e1ace317fd297b24c844",
+			"nativeSha256": "3af6f169d9ca0e2d44adbb89f03b86f0095c97db662fc415be84619fa22b9fb6"
+		},
+		{
+			"scenario": "endpoint-child",
+			"sourceSha256": "2b7da6dc6d3cb47fd55b0ac65652bad60bfa95402e96a0d812c6c4c61cd18dff",
+			"nativeSha256": "fbf9ddb4fcadb77f0f86e7b056cc0b1e962a738a4a33007157f75f56b48de679"
+		},
+		{
+			"scenario": "endpoint-inline",
+			"sourceSha256": "afb563ca575eaaac7e700d75a4f048d01d9602c8bc83b670f9ea41622dca8a7d",
+			"nativeSha256": "18842e0c14d5eed06d1e3b10445fc0e595d78542783ddfa33f95cb15d2ac35d2"
+		},
+		{
+			"scenario": "endpoint-module",
+			"sourceSha256": "9cb4bd588e4bc5699ac563dc3337672bbf7e5fe9b7de13ebaef0cd09ee866c61",
+			"nativeSha256": "3a7c4d8dfb718a4bc2a569563a419603b6f42c97e158738602861e6f4ce4b7cc"
+		},
+		{
+			"scenario": "endpoint-multiple",
+			"sourceSha256": "fc6a7db87c5fe38052d510c9fa3797c83ed686ce966cf62d029ed28cfa379980",
+			"nativeSha256": "49a0efe819709d3b540de22e6a8c2f4e05aed6522499fef59cb1cb8906745ecc"
+		},
+		{
+			"scenario": "endpoint-registration",
+			"sourceSha256": "b9b3a9d063e7277724520d515d01ec3d42631f5dfcb3cd6a41ab15ff23891d2b",
+			"nativeSha256": "24e05f562eb8d9dddb223ca6c7e9058c06ba4f16458e134971fd9ee4d371da28"
+		},
+		{
+			"scenario": "endpoint-single",
+			"sourceSha256": "e4d9acafbb7146f0b9fda0a69a9eb5da2945c577ce91bb88a2a18906a643562c",
+			"nativeSha256": "97436569540d8f8237d308ad085dc0b5863fee55e5fe1791ee535f96b5db1518"
+		}
+	],
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"limits": "Actual imported HQ model and endpoint/claim contributors; complete endpoint and reachable remote-request trees compared retaining all text/attributes/children. Supplied default build2.53/origin; disabled external feature lookups except session endpoints+advanced search enabled. No real claim HTTP request, whole HQ build or resource installation."
+}

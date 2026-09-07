@@ -38,12 +38,12 @@ import {
 	within,
 } from "@/lib/domain/predicate/builders";
 import { proseText } from "@/lib/domain/prose";
+import { normalizeRelationEvaluationScopes } from "../normalizeRelationEvaluationScopes";
 import {
-	normalizeRelationEvaluationScopes,
-	RelationEvaluationScopeError,
-} from "../normalizeRelationEvaluationScopes";
-import type { Predicate, RelationPath, ValueExpression } from "../types";
-import { walkTerms } from "../walk";
+	type Predicate,
+	predicateSchema,
+	type ValueExpression,
+} from "../types";
 
 const CASE_TYPES: CaseType[] = [
 	{
@@ -90,38 +90,22 @@ function relatedPatient(property: string) {
 	return prop("household", property, PATIENTS);
 }
 
+// These are structurally admitted transform candidates. Some intentionally mix
+// value types to isolate recursion; contextual admission and native evaluation
+// are separate boundaries.
 function expectOnePatientScope(
 	authored: Predicate,
-	assertInner?: (inner: Predicate) => void,
+	expectedInner: Predicate,
 ): void {
-	const normalized = normalizeRelationEvaluationScopes(authored, CONTEXT);
-	expect(normalized.kind).toBe("exists");
-	if (normalized.kind !== "exists") return;
-	expect(normalized.via).toEqual(PATIENTS);
-	expect(normalized.where).toBeDefined();
-	if (normalized.where === undefined) return;
-	const properties: Array<{
-		caseType: string;
-		property: string;
-		via?: RelationPath;
-	}> = [];
-	walkTerms(normalized.where, (value) => {
-		if (value.kind === "prop") properties.push(value);
-	});
-	expect(properties.length).toBeGreaterThan(0);
-	expect(properties).toEqual(
-		expect.arrayContaining(
-			properties.map((property) =>
-				expect.objectContaining({
-					caseType: "patient",
-					property: property.property,
-				}),
-			),
-		),
+	const admitted = predicateSchema.parse(authored);
+	const before = structuredClone(admitted);
+	expect(normalizeRelationEvaluationScopes(admitted, CONTEXT)).toEqual(
+		exists(PATIENTS, expectedInner),
 	);
-	for (const property of properties) expect(property.via).toBeUndefined();
-	assertInner?.(normalized.where);
+	expect(admitted).toEqual(before);
 }
+
+const selfPatient = (property: string) => prop("patient", property);
 
 describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => {
 	it("uses one exists envelope for two properties read through the same relation", () => {
@@ -174,71 +158,73 @@ describe("normalizeRelationEvaluationScopes — one row per scalar leaf", () => 
 	});
 
 	it.each([
-		["in", isIn(relatedPatient("case_name"), literal("Alice"))],
-		["is blank", isBlank(relatedPatient("case_name"))],
+		["in", (read) => isIn(read("case_name"), literal("Alice"))],
+		["is blank", (read) => isBlank(read("case_name"))],
 		[
 			"match",
-			match(relatedPatient("case_name"), literal("Ali"), "starts-with"),
+			(read) => match(read("case_name"), literal("Ali"), "starts-with"),
 		],
 		[
 			"multi-select",
-			multiSelectAll(
-				relatedPatient("tags"),
-				literal("urgent"),
-				literal("review"),
-			),
+			(read) =>
+				multiSelectAll(read("tags"), literal("urgent"), literal("review")),
 		],
 		[
 			"within distance",
-			within(relatedPatient("location"), literal("42 -71"), 5, "miles"),
+			(read) => within(read("location"), literal("42 -71"), 5, "miles"),
 		],
-	] satisfies ReadonlyArray<readonly [string, Predicate]>)(
-		"normalizes the %s operator's dedicated property/value slots",
-		(_name, authored) => expectOnePatientScope(authored),
+	] satisfies ReadonlyArray<
+		readonly [string, (read: typeof relatedPatient) => Predicate]
+	>)(
+		"preserves the full %s operator while moving its row scope",
+		(_name, construct) => {
+			expectOnePatientScope(construct(relatedPatient), construct(selfPatient));
+		},
 	);
 
 	it.each([
 		[
 			"date-add",
-			dateAdd(
-				dateCoerce(term(relatedPatient("status"))),
-				"days",
-				term(literal(1)),
-			),
+			(read) =>
+				dateAdd(dateCoerce(term(read("status"))), "days", term(literal(1))),
 		],
-		["date-coerce", dateCoerce(term(relatedPatient("status")))],
-		["datetime-coerce", datetimeCoerce(term(relatedPatient("status")))],
-		["double", double(term(relatedPatient("age")))],
-		["arith", arith("+", term(relatedPatient("age")), term(literal(1)))],
-		["concat", concat(term(relatedPatient("case_name")), term(literal("!")))],
+		["date-coerce", (read) => dateCoerce(term(read("status")))],
+		["datetime-coerce", (read) => datetimeCoerce(term(read("status")))],
+		["double", (read) => double(term(read("age")))],
+		["arith", (read) => arith("+", term(read("age")), term(literal(1)))],
+		["concat", (read) => concat(term(read("case_name")), term(literal("!")))],
 		[
 			"coalesce",
-			coalesce(term(relatedPatient("nickname")), term(literal("Unknown"))),
+			(read) => coalesce(term(read("nickname")), term(literal("Unknown"))),
 		],
 		[
 			"if branch",
-			ifExpr(
-				matchAll(),
-				term(relatedPatient("case_name")),
-				term(literal("none")),
-			),
+			(read) =>
+				ifExpr(matchAll(), term(read("case_name")), term(literal("none"))),
 		],
 		[
 			"switch discriminator",
-			switchExpr(
-				term(relatedPatient("status")),
-				[switchCase(literal("open"), term(literal("yes")))],
-				term(literal("no")),
-			),
+			(read) =>
+				switchExpr(
+					term(read("status")),
+					[switchCase(literal("open"), term(literal("yes")))],
+					term(literal("no")),
+				),
 		],
 		[
 			"format-date",
-			formatDate(dateCoerce(term(relatedPatient("status"))), "iso"),
+			(read) => formatDate(dateCoerce(term(read("status"))), "iso"),
 		],
-	] satisfies ReadonlyArray<readonly [string, ValueExpression]>)(
-		"finds and rebases relation reads nested in %s expressions",
-		(_name, expression) =>
-			expectOnePatientScope(eq(expression, term(literal("result")))),
+	] satisfies ReadonlyArray<
+		readonly [string, (read: typeof relatedPatient) => ValueExpression]
+	>)(
+		"preserves the full %s expression while rebasing its reads",
+		(_name, construct) => {
+			expectOnePatientScope(
+				eq(construct(relatedPatient), literal("result")),
+				eq(construct(selfPatient), literal("result")),
+			);
+		},
 	);
 
 	it("leaves via-free predicates unchanged by identity", () => {
@@ -539,12 +525,12 @@ describe("normalizeRelationEvaluationScopes — fail-closed shapes", () => {
 		);
 		expect(() =>
 			normalizeRelationEvaluationScopes(authored, CONTEXT),
-		).toThrowError(RelationEvaluationScopeError);
-		try {
-			normalizeRelationEvaluationScopes(authored, CONTEXT);
-		} catch (error) {
-			expect(error).toMatchObject({ reason: "mixed-property-scopes" });
-		}
+		).toThrowError(
+			expect.objectContaining({
+				name: "RelationEvaluationScopeError",
+				reason: "mixed-property-scopes",
+			}),
+		);
 	});
 
 	it("rejects a related scalar read combined with an anchor-sensitive count", () => {
@@ -593,6 +579,17 @@ describe("normalizeRelationEvaluationScopes — fail-closed shapes", () => {
 			),
 			literal("Alice"),
 		);
-		expectOnePatientScope(authored);
+		expectOnePatientScope(
+			authored,
+			eq(
+				concat(
+					term(prop("patient", "case_name")),
+					today(),
+					now(),
+					term(input(testUuid("suffix"))),
+				),
+				literal("Alice"),
+			),
+		);
 	});
 });

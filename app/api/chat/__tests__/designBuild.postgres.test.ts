@@ -18,55 +18,37 @@
  * workflow commits — always before `data-done`.
  */
 
-import type { Insertable, Kysely } from "kysely";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
-import { canonicalTestBlueprint } from "@/lib/db/__tests__/appStateTestDb";
-import {
-	createPerTestAppDb,
-	type PerTestAppDb,
-} from "@/lib/db/__tests__/perTestAppDb";
-import { decomposeBlueprint } from "@/lib/db/blueprintRows";
+import type { Kysely } from "kysely";
+import { beforeEach, describe, expect, it as test, vi } from "vitest";
+import { readMaterializedGenesisReceipt } from "@/lib/agent/change-set/materializeGenesis";
+import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { loadApp } from "@/lib/db/apps";
 import { CREDITS_PER_BUILD } from "@/lib/db/creditPolicy";
+import {
+	createAndClaimDesignSessionRun,
+	setDesignSessionAwaitingInput,
+} from "@/lib/db/designSessions";
 import { getCurrentPeriod } from "@/lib/db/period";
-import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import type { AppDatabase } from "@/lib/db/pg";
+import { materializeDesignFixture } from "./materializeDesignFixture";
 
 const {
 	resolveOpenAIKeyMock,
-	resolveActiveProjectIdMock,
-	resolveProjectAccessMock,
-	projectRoleForInTransactionMock,
 	createSolutionsArchitectMock,
 	runBuildOrchestrationMock,
 } = vi.hoisted(() => ({
 	resolveOpenAIKeyMock: vi.fn(),
-	resolveActiveProjectIdMock: vi.fn(),
-	resolveProjectAccessMock: vi.fn(),
-	projectRoleForInTransactionMock: vi.fn(),
 	createSolutionsArchitectMock: vi.fn(),
-	runBuildOrchestrationMock: vi.fn(),
+	runBuildOrchestrationMock:
+		vi.fn<
+			typeof import("@/lib/agent/build/orchestrator").runBuildOrchestration
+		>(),
 }));
-
-class MockAppAccessError extends Error {
-	readonly name = "AppAccessError";
-	constructor(readonly reason: string) {
-		super(reason);
-	}
-}
 
 vi.mock("@/lib/auth-utils", () => ({
 	resolveOpenAIKey: resolveOpenAIKeyMock,
-	resolveActiveProjectId: resolveActiveProjectIdMock,
 }));
-vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
-	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
-	AppAccessError: MockAppAccessError,
-	resolveProjectAccess: resolveProjectAccessMock,
-}));
-vi.mock("@/lib/db/projectMembership", () => ({
-	projectRoleForInTransaction: projectRoleForInTransactionMock,
-}));
+
 vi.mock("@/lib/agent", async (importOriginal) => ({
 	...(await importOriginal<typeof import("@/lib/agent")>()),
 	createSolutionsArchitect: createSolutionsArchitectMock,
@@ -74,25 +56,49 @@ vi.mock("@/lib/agent", async (importOriginal) => ({
 vi.mock("@/lib/agent/build/orchestrator", () => ({
 	runBuildOrchestration: runBuildOrchestrationMock,
 }));
-/* Case-store schema convergence is exercised by its own integration suite;
- * here it must simply be awaited before the settle (the order pin below). */
-vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
-	materializeCaseStoreSchemas: vi.fn(async () => undefined),
-}));
 
-const { POST } = await import("../route");
+const { POST: originalPOST } = await import("../route");
+const responses = new Set<Response>();
+const bodies = new Set<Promise<string>>();
+function it(name: string, run: () => Promise<void>, timeout = 30_000): void {
+	test(
+		name,
+		async () => {
+			try {
+				await run();
+			} finally {
+				for (const response of responses) {
+					if (!response.bodyUsed) bodies.add(response.text());
+				}
+				await Promise.all(bodies);
+				responses.clear();
+				bodies.clear();
+			}
+		},
+		timeout,
+	);
+}
+async function POST(request: Request): Promise<Response> {
+	const response = await originalPOST(request);
+	responses.add(response);
+	return response;
+}
+function responseText(response: Response): Promise<string> {
+	const body = response.text();
+	bodies.add(body);
+	return body;
+}
 
 const USER = "user-design-1";
 const PROJECT = "project-design-1";
 const THREAD = "thread-design-1";
 
-const dbHandle = setupPerTestDatabase({
-	schema: "migrated",
-	databaseNamePrefix: "chat_design_",
+const h = setupAppStateTestDb("chat_designbuild_", {
+	authSchema: "migrated",
+	poolMax: 4,
 });
 
 let appDb: Kysely<AppDatabase>;
-let harness: PerTestAppDb;
 
 function buildRequest(args: { designSessionId?: string } = {}): Request {
 	return new Request("http://localhost/api/chat", {
@@ -146,98 +152,11 @@ async function threadRow() {
 		.executeTakeFirstOrThrow();
 }
 
-/** Simulate materialization the way production's genesis transfer leaves the
- *  rows: an app row carrying the run's holder + reservation, the persisted
- *  blueprint entities, and the session flipped to `materialized` with its
- *  authority cleared. */
-async function transferMaterializedApp(args: {
-	appId: string;
-	runId: string;
-	holderNonce: string;
-	designSessionId: string;
-}): Promise<void> {
-	const persisted = toPersistableDoc(
-		canonicalTestBlueprint(args.appId, "Materialized design app"),
-	);
-	const formCount = persisted.moduleOrder.reduce(
-		(sum, moduleUuid) => sum + (persisted.formOrder[moduleUuid]?.length ?? 0),
-		0,
-	);
-	await appDb.transaction().execute(async (tx) => {
-		await tx
-			.insertInto("apps")
-			.values({
-				id: args.appId,
-				owner: USER,
-				project_id: PROJECT,
-				app_name: persisted.appName,
-				app_name_lower: persisted.appName.toLowerCase(),
-				connect_type: persisted.connectType,
-				case_types: null,
-				logo: null,
-				module_count: persisted.moduleOrder.length,
-				form_count: formCount,
-				mutation_seq: 1,
-				status: "generating",
-				awaiting_input: false,
-				error_type: null,
-				deleted_at: null,
-				recoverable_until: null,
-				run_id: args.runId,
-				run_holder_nonce: args.holderNonce,
-				res_period: getCurrentPeriod(),
-				res_reserved: CREDITS_PER_BUILD,
-				res_settled: false,
-				res_user_id: USER,
-				res_run_id: args.runId,
-				lock_run_id: null,
-				lock_actor_user_id: null,
-				lock_expire_at: null,
-			} satisfies Insertable<AppDatabase["apps"]>)
-			.execute();
-		await tx
-			.insertInto("blueprint_entities")
-			.values(
-				decomposeBlueprint(persisted).map((row) => ({
-					app_id: args.appId,
-					uuid: row.uuid,
-					kind: row.kind,
-					parent_uuid: row.parent_uuid,
-					ordinal: row.ordinal,
-					data: JSON.stringify(row.data),
-				})),
-			)
-			.execute();
-		await tx
-			.updateTable("design_sessions")
-			.set({
-				state: "materialized",
-				app_id: args.appId,
-				run_id: null,
-				run_holder_nonce: null,
-				run_actor_user_id: null,
-				run_mode: null,
-				run_lease_expires_at: null,
-				res_period: null,
-				res_reserved: null,
-				res_settled: null,
-				res_user_id: null,
-				res_run_id: null,
-			})
-			.where("id", "=", args.designSessionId)
-			.execute();
-	});
-}
-
 beforeEach(async () => {
-	harness = createPerTestAppDb(dbHandle.uri);
-	appDb = harness.appDb;
-	__setAppDbForTests(appDb);
+	appDb = h.db();
+	await h.seedProjectMember(USER, PROJECT);
 
 	resolveOpenAIKeyMock.mockReset();
-	resolveActiveProjectIdMock.mockReset();
-	resolveProjectAccessMock.mockReset();
-	projectRoleForInTransactionMock.mockReset();
 	createSolutionsArchitectMock.mockReset();
 	runBuildOrchestrationMock.mockReset();
 	runBuildOrchestrationMock.mockRejectedValue(
@@ -249,12 +168,6 @@ beforeEach(async () => {
 		apiKey: "test-key",
 		session: { user: { id: USER } },
 	});
-	resolveActiveProjectIdMock.mockResolvedValue(PROJECT);
-	resolveProjectAccessMock.mockResolvedValue({
-		projectId: PROJECT,
-		role: "editor",
-	});
-	projectRoleForInTransactionMock.mockResolvedValue("editor");
 
 	await appDb
 		.insertInto("credit_months")
@@ -267,11 +180,6 @@ beforeEach(async () => {
 			updated_at: new Date().toISOString(),
 		})
 		.execute();
-});
-
-afterEach(async () => {
-	__setAppDbForTests(null);
-	await harness.destroy();
 });
 
 describe("design-session build turns", () => {
@@ -289,32 +197,34 @@ describe("design-session build turns", () => {
 			args.writer.write({ type: "text-end", id: "owner-private" });
 			args.writer.write({ type: "finish-step" });
 			args.writer.write({ type: "finish" });
-			return { kind: "awaiting-input", pauseOwned: true };
+			const paused = await setDesignSessionAwaitingInput(
+				args.designSessionId,
+				args.runId,
+				args.holderNonce,
+				true,
+				USER,
+				PROJECT,
+			);
+			return { kind: "awaiting-input", pauseOwned: paused === "owned" };
 		});
 		const first = await POST(buildRequest());
 		expect(first.status).toBe(200);
-		await first.text();
+		await responseText(first);
 		const before = await threadRow();
 
-		await appDb
-			.insertInto("design_sessions")
-			.values({
-				id: "52ac7038-bf76-4cb0-9f82-374609c7652a",
-				mode: "build",
-				project_id: PROJECT,
-				owner_user_id: "other-project-member",
-				proposed_app_id: "private-proposed-app",
-				app_id: null,
-				state: "active",
-				awaiting_input: false,
-			})
-			.execute();
+		await h.seedProjectMember("other-project-member", PROJECT);
+		const otherSession = await createAndClaimDesignSessionRun({
+			actorUserId: "other-project-member",
+			projectId: PROJECT,
+			runId: "other-owner-run",
+			cost: CREDITS_PER_BUILD,
+		});
 
 		/* THREAD belongs to the first session. The private-session admission must
 		 * win before that mismatch can produce the thread guard's distinct 400. */
 		const denied = await POST(
 			buildRequest({
-				designSessionId: "52ac7038-bf76-4cb0-9f82-374609c7652a",
+				designSessionId: otherSession.designSessionId,
 			}),
 		);
 		expect(denied.status).toBe(404);
@@ -343,13 +253,21 @@ describe("design-session build turns", () => {
 			args.writer.write({ type: "text-end", id: "n1" });
 			args.writer.write({ type: "finish-step" });
 			args.writer.write({ type: "finish" });
-			return { kind: "awaiting-input", pauseOwned: true };
+			const paused = await setDesignSessionAwaitingInput(
+				args.designSessionId,
+				args.runId,
+				args.holderNonce,
+				true,
+				USER,
+				PROJECT,
+			);
+			return { kind: "awaiting-input", pauseOwned: paused === "owned" };
 		});
 
 		const response = await POST(buildRequest());
 		expect(response.status).toBe(200);
 		const streamId = response.headers.get("x-workflow-run-id");
-		const wire = await response.text();
+		const wire = await responseText(response);
 		const chunks = wireChunks(wire);
 
 		/* The session exists with this run's claim + reservation intact (a
@@ -363,6 +281,7 @@ describe("design-session build turns", () => {
 		expect(session.run_id).not.toBeNull();
 		expect(session.res_reserved).toBe(CREDITS_PER_BUILD);
 		expect(session.res_settled).toBe(false);
+		expect(session.awaiting_input).toBe(true);
 
 		/* The orchestrator received the session's exact scope, pre-app. */
 		expect(runBuildOrchestrationMock).toHaveBeenCalledTimes(1);
@@ -424,7 +343,7 @@ describe("design-session build turns", () => {
 
 		const response = await POST(buildRequest());
 		expect(response.status).toBe(200);
-		const wire = await response.text();
+		const wire = await responseText(response);
 		const chunks = wireChunks(wire);
 
 		/* The session survives (recoverable scope), its hold settled and the
@@ -466,7 +385,7 @@ describe("design-session build turns", () => {
 
 		const response = await POST(buildRequest());
 		expect(response.status).toBe(200);
-		const wire = await response.text();
+		const wire = await responseText(response);
 		const chunks = wireChunks(wire);
 
 		/* Same settle + refund as the typed failed outcome — and the same
@@ -493,7 +412,9 @@ describe("design-session build turns", () => {
 	it("a completed build lands data-app-materialized before data-done and settles under the transferred holder", async () => {
 		runBuildOrchestrationMock.mockImplementation(async (args) => {
 			args.writer.write({ type: "start", messageId: args.responseMessageId });
-			await transferMaterializedApp({
+			const receipt = await materializeDesignFixture({
+				actorUserId: USER,
+				projectId: PROJECT,
 				appId: args.proposedAppId,
 				runId: args.runId,
 				holderNonce: args.holderNonce,
@@ -501,7 +422,7 @@ describe("design-session build turns", () => {
 			});
 			args.writer.write({
 				type: "data-app-materialized",
-				data: { appId: args.proposedAppId, seq: 1 },
+				data: receipt,
 				transient: true,
 			});
 			const finalized = await args.finalizeCompletion({
@@ -520,7 +441,7 @@ describe("design-session build turns", () => {
 
 		const response = await POST(buildRequest());
 		expect(response.status).toBe(200);
-		const wire = await response.text();
+		const wire = await responseText(response);
 		const chunks = wireChunks(wire);
 
 		/* The finishing order on the wire: scope announce → materialization
@@ -541,6 +462,44 @@ describe("design-session build turns", () => {
 			.select(["id", "status", "res_settled", "run_id"])
 			.where("id", "=", session.app_id ?? "")
 			.executeTakeFirstOrThrow();
+		const canonical = await loadApp(app.id);
+		expect(canonical).not.toBeNull();
+		const materialized = chunks.find(
+			(chunk) => chunk.type === "data-app-materialized",
+		)?.data;
+		expect(materialized).toMatchObject({
+			eventVersion: 1,
+			designSessionId: session.id,
+			appId: app.id,
+			projectId: PROJECT,
+			canEdit: true,
+			seq: 1,
+			batchId: `genesis:${app.id}`,
+			blueprint: canonical?.blueprint,
+		});
+		const baseline = await appDb
+			.selectFrom("app_change_fold_baselines")
+			.select(["seq", "project_id", "snapshot_digest"])
+			.where("app_id", "=", app.id)
+			.executeTakeFirstOrThrow();
+		expect(materialized).toMatchObject({
+			seq: Number(baseline.seq),
+			projectId: baseline.project_id,
+		});
+		const committedSlice = await appDb
+			.selectFrom("design_committed_slices")
+			.select(["change_set_id", "committed_snapshot_digest"])
+			.where("app_id", "=", app.id)
+			.executeTakeFirstOrThrow();
+		expect(materialized).toMatchObject({
+			snapshotDigest: committedSlice.committed_snapshot_digest,
+		});
+		expect(
+			await readMaterializedGenesisReceipt({
+				changeSetId: committedSlice.change_set_id,
+				actorUserId: USER,
+			}),
+		).toEqual(materialized);
 		expect(app.status).toBe("complete");
 		expect(app.res_settled).toBe(true);
 		const terminal = await appDb
@@ -564,4 +523,52 @@ describe("design-session build turns", () => {
 		expect(thread.app_id).toBeNull();
 		expect(thread.active_stream_id).toBeNull();
 	}, 30_000);
+	it("an orchestration throw after materialization preserves the app and refunds its transferred reservation", async () => {
+		runBuildOrchestrationMock.mockImplementation(async (args) => {
+			args.writer.write({ type: "start", messageId: args.responseMessageId });
+			const receipt = await materializeDesignFixture({
+				actorUserId: USER,
+				projectId: PROJECT,
+				appId: args.proposedAppId,
+				runId: args.runId,
+				holderNonce: args.holderNonce,
+				designSessionId: args.designSessionId,
+			});
+			args.writer.write({
+				type: "data-app-materialized",
+				data: receipt,
+				transient: true,
+			});
+			throw new Error("Failure after the canonical transfer");
+		});
+		const response = await POST(buildRequest());
+		expect(response.status).toBe(200);
+		const chunks = wireChunks(await responseText(response));
+		const session = await sessionRow();
+		expect(session.app_id).toEqual(expect.any(String));
+		const app = await appDb
+			.selectFrom("apps")
+			.selectAll()
+			.where("id", "=", session.app_id ?? "")
+			.executeTakeFirstOrThrow();
+		expect(await loadApp(app.id)).not.toBeNull();
+		expect(app.status).toBe("error");
+		expect(app.error_type).toBe("internal");
+		expect(app.res_settled).toBe(true);
+		expect(app.lock_run_id).toBeNull();
+		expect(session.res_settled).toBeNull();
+		const credit = await appDb
+			.selectFrom("credit_months")
+			.select("consumed")
+			.where("user_id", "=", USER)
+			.executeTakeFirstOrThrow();
+		expect(credit.consumed).toBe(0);
+		expect(
+			chunks.find((chunk) => chunk.type === "data-credit-refund")?.data,
+		).toMatchObject({ amount: CREDITS_PER_BUILD });
+		expect(chunks.some((chunk) => chunk.type === "data-done")).toBe(false);
+		const thread = await threadRow();
+		expect(thread.design_session_id).toBe(session.id);
+		expect(thread.active_stream_id).toBeNull();
+	});
 });

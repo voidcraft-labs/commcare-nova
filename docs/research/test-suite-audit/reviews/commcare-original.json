@@ -1,0 +1,985 @@
+{
+	"owner": "commcare",
+	"files": [
+		{
+			"file": "lib/commcare/__tests__/connectDefaults.test.ts",
+			"status": "revised",
+			"review": "Replaced byte self-comparison and malformed form fixtures with a schema- and validator-admitted corpus. Actual expander and CCZ artifacts join namespace-qualified metadata, identities, calculation binds, dependencies and worker/case source paths. Native HQ regeneration and Connect app_xml extraction consume all 15 artifacts; Core initializes and recomputes values and serializes both paths in 10 cases. No Connect receiver, opportunity DB or rendered device claim.",
+			"reviewedSha256": "ce9927627f1fa935caf0ac5b663e12db6752c71bfaaeb899fcf18f712d90e942"
+		},
+		{
+			"file": "lib/commcare/__tests__/connectSlugs.test.ts",
+			"status": "revised",
+			"review": "Read complete baseline and connectSlugs.ts, connectDefaults.ts, formActions load owner and xform Connect builder. Removed duplicated XML substrings and the purity assertion that compared a function to itself. Valid inputs now share admitted corpus; corruption defenses begin from accepted input, map contents and source immutability are explicit, creation tests cross suffix digit boundaries plus finite arbitrary names, and validator paths assert complete finding count/location. Native wire behavior resides in the shared Connect proof.",
+			"reviewedSha256": "952dd557cc3cd9dcad2182724d984eb199e1259aafaa764d8350b723abefba70"
+		},
+		{
+			"file": "lib/doc/__tests__/connectConfig.test.ts",
+			"status": "removed",
+			"review": "Transferred with root/doc agreement. Removed empty-form substring exports and redundant positive-only validator cases; meaningful learn/assessment/deliver/task/default/session-dependency/absent behavior consolidated into admitted Connect corpus and native HQ, Connect and Core proof. Connect target planning remains doc-agent owned.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/xpath/__tests__/transpiler.test.ts",
+			"status": "removed",
+			"review": "Read all tests and complete transpiler/typeInfer/dateArithmetic owners. Entire experimental pipeline has no production call site, is explicitly forbidden in emitters, and tests only imitate undocumented date-transform intentions. Removed unused implementation, barrel export and test suite; production lowerXPathForJavaRosa remains. No change to emitted or saved arithmetic.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/xpath/__tests__/expressionAst.test.ts",
+			"status": "retained",
+			"review": "Read entire test and expressionAst parser plus domain print/resolve/walk owners. Direct parser/printer tests use the actual intentionally partial XPathPrintableDoc contract and independently specify identity leaves, inert rejected text, exact diagnostics, renames/moves, missing targets and custom-worker ambiguity. These are pure language/identity contracts, not admitted-app or wire-runtime claims; meaningful expected identities prevent the round-trip property degenerating to opaque passthrough.",
+			"reviewedSha256": "2e795eba43f5728e4bb1b3b5b88ca8532c67c033cae9acfd2daaad9137dadfba"
+		},
+		{
+			"file": "lib/commcare/xpath/__tests__/expressionAst.roundtrip.test.ts",
+			"status": "revised",
+			"review": "Read complete property generators and parser/printer owners. Retained finite canonical parse-print law with explicit classification companion tests. Replaced the falsely described default ASCII random-string generator with actual Unicode graphemes and removed unnecessary asynchronous wrappers around synchronous fast-check assertions. This is canonicality for a bounded fixture, not native XPath acceptance. Final lint integration requires joining fast-check assert's Promise-capable type even with synchronous properties; both callbacks now async and await assert. Four tests pass in expander-method-third.log; no property corpus weakened.",
+			"reviewedSha256": "300f8d1256cfd2c76ade53d3a3e5ce45ba8a3b26390f23b542c92381532e84b1"
+		},
+		{
+			"file": "lib/commcare/xpath/__tests__/hashtagMatchers.divergence.test.ts",
+			"status": "revised",
+			"review": "Read full corpus, actual Lezer/reference matcher and domain token owner. Kept lexer extent checks while adding quoted and mixed literal/executable counterexamples: lexical matcher finds reference-shaped text inside strings but XPath correctly leaves it literal. Tests now distinguish token agreement from expression-reference equality instead of making an invalid universal parity claim. Final scoped Biome changed formatting only after reviewed behavior checks (format-final-batch.log).",
+			"reviewedSha256": "a1b4e92de10d6cdbc50c10952eb38a02d98531c9a6edd170a4ed2f3d1f4be433"
+		},
+		{
+			"file": "lib/commcare/xpath/__tests__/authoringPreviewParity.test.ts",
+			"status": "revised",
+			"review": "Inspected runtime registry.keys-derived function set, async routing set and initializer map. Set synchronization earns a narrow registration-wiring purpose (previous omission class); renamed execution claims and documented runtime proof ownership. It does not claim that registration executes functions correctly; Preview agent audits behavior separately.",
+			"reviewedSha256": "ec78c8b9cfb74f9e989b25fa6b4aad1ed45f2c5758c2e4e0316ea0ab93833b90"
+		},
+		{
+			"file": "lib/commcare/xpath/__tests__/functionCapabilities.test.ts",
+			"status": "revised",
+			"review": "Replaced copied registry counts with representative capability decisions and actual CST call/arity records; independently compares every claimed Core built-in dispatch and all registry admitted arities 0-10 against native Core parser. Controlled arguments distinguish built-in evaluation failure from unknown-function dispatch; it is dispatch/signature proof rather than semantics for every function. Final scoped Biome changed formatting only after reviewed native/runtime capability evidence (format-final-batch.log).",
+			"reviewedSha256": "cfaf0bf69eed3298d5f72412f6018c95cef9da2c5c184c04ba283d3ff85f28c7"
+		},
+		{
+			"file": "lib/commcare/xpath/__tests__/compatibility.test.ts",
+			"status": "revised",
+			"review": "Read all classifier tests and parser/registry/path owners; scoped descriptions to this private admission classifier and retained exact reason/location decisions. Native XPath proof now executes production lowerings and checks 14 refused paths directly in Core, rather than trusting its own classifier as oracle.",
+			"reviewedSha256": "299a27fce029a7e199858b154658b90217bed21c25ef8fbc9a2d1b43fa2ea8cd"
+		},
+		{
+			"file": "lib/commcare/xpath/__tests__/javaRosaLowering.test.ts",
+			"status": "retained",
+			"review": "Read complete lowerer and former handwritten Java proof. Ordinary exact emission tests retain lexical replacement contract; replaced native helper imitation with generated output of actual lowerXPathForJavaRosa plus admitted CCZ form. Core executes 22 positive semantic cases including XML/non-XML whitespace, literals, nested calls, context references and numeric/boolean coercion; verifies refusal corpus and normalized hidden bind.",
+			"reviewedSha256": "70694fca1411cca138cf32cd3108f8c54e47f282fa09520093e342f6da374999"
+		},
+		{
+			"file": "lib/commcare/lookup/__tests__/cellText.test.ts",
+			"status": "revised",
+			"review": "Read complete cellText and formatNumeric owner. Exact primitive lexical contracts retained, obsolete stored-absence comment corrected. Admitted persisted type corpus additionally crosses independent HQ workbook and lxml fixture readers, including exponent expansion, CR, Unicode and missing/empty cells.",
+			"reviewedSha256": "9be37e38348d8b94bd460592720b210da87c9bc30946bf249957190fdcb19be1"
+		},
+		{
+			"file": "lib/commcare/lookup/__tests__/naming.test.ts",
+			"status": "retained",
+			"review": "Read complete identity resolver owner and tests. Pure private vocabulary and explicit missing-identity tripwires remain useful without an app claim. Actual fixture/XForm/suite linkage is now independently exercised by native HQ/Core proof; these small tests own deterministic mapping decisions only.",
+			"reviewedSha256": "0c5f4cc70c20a2be5046ca3671e49d88cd0e90ea1fcc1b7108639f7cd80b20ed"
+		},
+		{
+			"file": "lib/commcare/lookup/__tests__/fixtures.test.ts",
+			"status": "revised",
+			"review": "Replaced invalid UUIDs and fractional int cells with schema/coercion-admitted tables and rows. Independent strict XML structure checks compare exact row/column values and missing/empty semantics. Native Core installs the emitted global fixtures and overwrites them during upgrade; native HQ reader independently confirms lexical cells.",
+			"reviewedSha256": "f51a98d8d7d60bed8606677927880f1ebf1c6bb912706443ecbb6993f6afce02"
+		},
+		{
+			"file": "lib/commcare/lookup/__tests__/workbook.test.ts",
+			"status": "revised",
+			"review": "Removed same-library SheetJS readback as compatibility oracle. Strict XML/archive structure plus a real native HQ workbook upload reader now prove table headers, global ownership, row order, six storage types, empty tables, formula-like text, long names, 50 columns, CR and literal escape sequences. Native proof exposed SheetJS carriage-return corruption and HQ padding trimming; both fixed at proper owners.",
+			"reviewedSha256": "5e0d7f654ea39a1e9b6d45072e98d9d4a565154b09da8ae8c1481e2479594292"
+		},
+		{
+			"file": "lib/commcare/lookup/__tests__/selectSourceRows.test.ts",
+			"status": "revised",
+			"review": "Read complete row-validation owner. Reachable checks now begin from strict-schema/full-validator-admitted carrier docs and storage-coerced rows with valid IDs. Added source-wide rejection when a bad row is filtered out and omission when source is not referenced. Bounded examples/counts and independent duplicate/blank/whitespace/type rules retained; export boundary proves refusal integration.",
+			"reviewedSha256": "616b7716a6bdb46aef812f6b70d6780109a113a4e529f1eea2f9465659e8409f"
+		},
+		{
+			"file": "lib/commcare/__tests__/lookupCarrierBoundary.test.ts",
+			"status": "removed",
+			"review": "Removed empty-carrier/inert-placeholder substring test; native lookup admission, HQ and Core artifacts now share admitted fixture. Guard absence is covered by exact lowerer tripwires and carrier declarations/values by integrated native proof.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/__tests__/lookupSuite.test.ts",
+			"status": "revised",
+			"review": "Replaced duplicated fragments/unvalidated docs with admitted lookup app. Exact parsed instance/fixture associations, no duplicate bodies, and no inert naming; native SuiteParser proves fixture global storage/upgrade, menu expression and selected-case column. Full reader/runtime checks own compatibility rather than Nova oracle self-agreement.",
+			"reviewedSha256": "abc7fbb0951e2e5c98c657b413045169bef166f1775f021d53124046f2b054c5"
+		},
+		{
+			"file": "lib/commcare/__tests__/lookupXform.test.ts",
+			"status": "revised",
+			"review": "Replaced four divergent form fixtures and string checks with one fully admitted source. Independent XML checks join declared source IDs, filter nodesets, and itemset refs; native HQ regeneration and Core choices execute root/session/repeat/multi-select paths. Actual normalized case operation is admitted and submission updates the selected case including no-match while leaving another case unchanged.",
+			"reviewedSha256": "b043bf1a80251162611d0fd2f579cbcc4bb644489b36e53180f47d321d19ccdd"
+		},
+		{
+			"file": "lib/commcare/__tests__/lookupLowering.test.ts",
+			"status": "retained",
+			"review": "Read complete lowerer plus term/relation owners. Narrow lexical and defensive scope decisions remain explicit; real native proof now evaluates actual generated lookup predicates with sibling relation and ancestor count against indexed cases, and integrated menu/case-operation evidence covers suite versus XForm roots. Native four-case relation corpus avoids treating substring anchors as runtime proof.",
+			"reviewedSha256": "3e01e63696792e8451d2355615156307772ed49ab16f00e52749734b36cbdb2f"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/lookupReferences.test.ts",
+			"status": "revised",
+			"review": "Removed gate tests whose verdict was already false from NO_MODULES. Actual admitted lookup app is accepted with live context and refused solely for lookup-context findings after unrelated rename. Registry injection tests explicitly own private extraction contract; operation-member reorder asserts exact stable findings and additions directly instead of rejection of a malformed app.",
+			"reviewedSha256": "4a9743c6ab8ae54278e4212585f065f1215ff94138301b25c3cea28724e6886f"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/lookupOptionsSource.test.ts",
+			"status": "revised",
+			"review": "Read entire 1227-line baseline and semantic/type owners. Positive tests now clear the full gate rather than filtering type findings; exposed and repaired CSQL-unrepresentable lookup comparisons and an operation linking to its own target in fixtures. Session reference uses actual declared built-in username. Precise negative diagnostics retain field ordering/repeat/type/structural ownership; native form proof establishes executable choices.",
+			"reviewedSha256": "dcf9d10b0c239a060065592aefca199a473077eba359e7591ab1083e46384d88"
+		},
+		{
+			"file": "lib/commcare/__tests__/compilerMedia.test.ts",
+			"status": "revised",
+			"review": "Read complete baseline and compiler/media owners. Replaced synthetic PNG bytes and global substrings with schema/full-validator-admitted rich and media-only documents, real PNG/WAV/MP4 assets and exact archive-byte/hash/descriptor/profile/menu joins. Native HQ full bulk import and Core resource install independently consume same artifacts.",
+			"reviewedSha256": "c4e64b9e5bc56f5b351aa335bef6442e88783f6021163d225bb053973d5f92c2"
+		},
+		{
+			"file": "lib/commcare/__tests__/multimediaEmission.test.ts",
+			"status": "revised",
+			"review": "Read complete test and XForm media/itext owners. Replaced incomplete docs and substring existence with admitted corpus, strict independent namespace XML parsing and exact label/hint/help/constraint/choice joins across raw HQ attachment and CCZ, on/off and media-only. Core prompt API proves resolved text/media, option media and actual constraint rejection on both actual HQ and local forms.",
+			"reviewedSha256": "fc7e67a4d53a640401d49280b8b27279d16f7f04b5c2321c5c3635b9cc10a79f"
+		},
+		{
+			"file": "lib/commcare/__tests__/imageMapColumn.test.ts",
+			"status": "revised",
+			"review": "Original schema duplicate fixture failed for unrelated invalid media IDs; original wire fixture had missing property and fake bytes, expected same selected expression incorrectly attributed to HQ. Rebuilt against admitted media corpus and native actual HQ regeneration/Core evaluation. Native multitoken counterexample found HQ equality versus Nova token matching; projection now emits explicit quoted selected predicates. Native punctuation/both-quotes key proves values remain data.",
+			"reviewedSha256": "5e5ecd7ef94aea7851bf3a1d383323bc569462bcf2e342bf0dc709aa37fcdc45"
+		},
+		{
+			"file": "lib/commcare/__tests__/mediaSuiteOracle.test.ts",
+			"status": "revised",
+			"review": "Read entire test and oracle plus full native SuiteParser media branch, ResourceParser, ResourceTable, InstallerFactory, BasicInstaller/MediaInstaller. Native counterexamples expose nested-root acceptance, int32 overflow, missing plus-sign support and false path/empty-block refusal; fixed oracle, removed fabricated runtime claims, preserved actual local file joins without trimming. Native table proves first resource ID retained, not last as old test claimed.",
+			"reviewedSha256": "008735827e9522c5e7b807b80116d102064a7f0783784b9b88348f83edde1b5f"
+		},
+		{
+			"file": "lib/commcare/multimedia/__tests__/bundle.test.ts",
+			"status": "revised",
+			"review": "Replaced fake bytes/metadata with actual six admitted media assets sharing five real paths; assert exact archive entries, bytes, hashes, MIME-kind/ext and alias deduplication plus missing-byte refusal. Native HQ classifies/decodes/attaches exact bytes and Core local file installer checks presence independently.",
+			"reviewedSha256": "5d618a17050f0ddc1629d9601ed089a586134d10f944a1d179376c7dd8be091b"
+		},
+		{
+			"file": "lib/commcare/multimedia/__tests__/hqJsonExportArchive.test.ts",
+			"status": "revised",
+			"review": "Read whole test/owner; removed cast fake HQ JSON and fake workbook companions. Uses actual admitted expanded app, real typed lookup workbook and actual media bundle; asserts nested companions contain exact inputs. Retained archive filename refusal tests as boundary corruption defenses, not reachable-app claims.",
+			"reviewedSha256": "43e5c0baf088cb55195c9741858eed5a8a546f5364c396e931a22312696e525c"
+		},
+		{
+			"file": "lib/commcare/multimedia/__tests__/itextMedia.test.ts",
+			"status": "removed",
+			"review": "Deleted duplicated serialized-helper snapshots built from wrong MIME/byte-free fixtures. Meaningful field/choice media absence, slots and linkage moved to admitted full export strict-XML tests and native Core prompt resolution. Missing bytes/manifest remain boundary defenses in bundle and media admission suites.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/multimedia/__tests__/logoEntry.test.ts",
+			"status": "removed",
+			"review": "Deleted duplicated serializer/object assertions over invented hash metadata. Admitted compiler/JSON archive proof joins actual logo property/ref to exact bundled bytes; native actual HQ profile generation included. No claim of rendered logo placement.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/multimedia/__tests__/mediaSuiteXml.test.ts",
+			"status": "removed",
+			"review": "Deleted byte snapshot and substring index ordering tests. Full admitted compiler proof independently parses exact resource shape/path set, dedup/hash/bytes; actual Core SuiteParser registers five resources and real file installer proves success/missing-byte refusal. Empty off suite is exercised natively.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/multimedia/__tests__/navMenuMedia.test.ts",
+			"status": "removed",
+			"review": "Deleted handcrafted helper snapshots. Full admitted app covers module/form icon/audio JSON and suite+locale joins on/off; native Core resolves actual menu image/audio for local and HQ regenerated suites. Plain option and off state establish absence; no rendered navigation claim.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/validator/rules/media/__tests__/imageMapValueUnique.test.ts",
+			"status": "revised",
+			"review": "Replaced invalid filtered-runner fixtures with admitted complete image-map doc. One deliberate duplicate is refused by persisted column schema at exact custom mapping path and full validator emits exactly one coordinate-bearing finding. Independent second column confirms uniqueness scope with valid order permutations.",
+			"reviewedSha256": "6b56188d22e9f44527494a9356ffdc59aeb519635ecee63f1a5443f162a90871"
+		},
+		{
+			"file": "lib/commcare/validator/rules/media/__tests__/mediaAssetExists.test.ts",
+			"status": "revised",
+			"review": "Read all three media-context suites and owners/shared/walker. Consolidated missing/pending/wrong-kind cases around admitted real asset/doc corpus, then one external-context failure class at a time. Full validator exact 17 carrier references, IDs/scopes/field identities/image-map rows prevent unrelated failures or missed carriers hiding behind filtered code assertions. No manifest skip versus explicit empty manifest explicit; no persistence claim.",
+			"reviewedSha256": "5fa8da4c792596a960a236f6d7f93a7abcffea188bbe3d9a76149e714be10a72"
+		},
+		{
+			"file": "lib/commcare/validator/rules/media/__tests__/mediaAssetReady.test.ts",
+			"status": "removed",
+			"review": "Consolidated into admitted mediaAssetExists suite with 17 exact carriers and complete full-runner findings. Eliminates helper ID normalization mismatch and positive filtered assertions on synthetic fixture.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/validator/rules/media/__tests__/mediaKindMatches.test.ts",
+			"status": "removed",
+			"review": "Consolidated into admitted mediaAssetExists suite with actual typed resolved assets, all 17 carriers, explicit expected kinds and complete findings. Removes repeated incomplete helper fixtures and copy-sensitive message snapshots as primary evidence.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/__tests__/xformOracle.test.ts",
+			"status": "revised",
+			"review": "Read entire 1205-line baseline and 1217-line owner plus shared XForm model. Replaced fabricated parser claims and partial substring checks with 67 exact external-wire corpus outcomes, independently executed through actual Core XFormUtils parser; explicitly labels stricter Nova contracts where Core accepts. Dedicated actual Core initialization distinguishes missing session leaves from undeclared instance. Found and fixed skipped empty bind/setvalue/output expressions, external-instance calculate validation, output ref precedence, unbound group/repeat wrapper false rejection and root attribute path omission. Ordinary 68 corpus/media cases and 13 static join cases pass. Native proof covers finite parser corpus, not all wire features or emitter totality.",
+			"reviewedSha256": "1d9828629d7554ca4f3ce9f14cd4bf2efe7175c1ab0b42302c354eb0e478ba73"
+		},
+		{
+			"file": "lib/commcare/__tests__/bindingResolutionOracle.test.ts",
+			"status": "revised",
+			"review": "Read complete baseline, 645-line owner and shared model. Removed duplicate media-resolution owner and obsolete blanket session-instance exemption. Rebuilt static form/suite joins across all five bind expressions, setvalue, output ref/value precedence, explicit declarations, every closed context name and independent missing references, asserting whole findings. Actual Core initializes declared but structurally missing session leaves with XPathTypeMismatch and undeclared session with XPathMissingInstance; removed earlier harmless-empty claim. Does not claim arbitrary dynamic XPath reference completeness.",
+			"reviewedSha256": "f464a1d1e477077726a6dae2d8477ab9574f2458931b52821f981e800f3848c5"
+		},
+		{
+			"file": "lib/commcare/__tests__/suiteOracle.test.ts",
+			"status": "revised",
+			"review": "Read all 905 baseline lines and 2197-line oracle, actual SuiteParser/SessionDatum/QueryData/StackFrameStep/Text/DetailField readers and session context owner. Replaced partial code-presence snippets and supposed clean invalid suites with 81-case external-wire corpus, exact whole findings and explicit parser versus static/Nova classifications. Actual Core installs fixture bodies and verifies every parser outcome; tests actual fresh-session scope and title evaluation. Reproduced and fixed missing CCZ cchq.case locale mapping, globally waived undeclared instances, fixture-data-as-suite-definition false findings, empty XPath skips, signed integer bounds, required detail title position and actual XPath string-literal media collection. Adds precise loading-entry intersection/menu precedence/computed and multiple-datum/query-exclusion joins. Native proof finite, not exhaustive or rendered-client proof.",
+			"reviewedSha256": "1a67dfd95c700b9fe44c7cefeda0f648ddb596b2a684d670dabb62f47d4fb711"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/sortPriorityUniqueness.test.ts",
+			"status": "revised",
+			"review": "Replaced synthetic doc and in-place-cache fixtures with schema/full-gate admitted base and immutable columns; exact duplicate identities and visible/hidden screen ordering. Independent expected findings rather than rule-only filtered codes. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "2e913912d5b96839ef90307aa3fae73a2a3cd53339edabfdbc6bf8b81dd6db6f"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/columnKindPropertyType.test.ts",
+			"status": "revised",
+			"review": "Rebuilt effective declared/standard/writer-derived property cases at whole gate. Removed impossible same-form scalar+attachment positive: actual admissible case uses separate forms. Attachment-only scalar slots, URL capture and concrete date/phone mismatches retain exact identities. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "3240c23ee14272ba70ef6b76d36bd1ac8aedd1a385b5b9febfbd171a83d9910e"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/moduleTypeContext.test.ts",
+			"status": "revised",
+			"review": "Removed copied constant inventory; admitted registration/case-list doc proves widget-derived runtime input types for both authoring arms, including encoded text date ranges. Fixed invalid range prompt naming revealed by full gate. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "0d6bc1416bcf29fd291e6b68a3d3c1a55d31a7ff59e304bb230a4cced1575b79"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/columnReferences.test.ts",
+			"status": "revised",
+			"review": "Replaced synthetic undeclared fixtures with admitted immutable candidates and exact whole findings for declared/standard/writer properties, hidden columns and field identity; no code filtering conceals unrelated rejection. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "9d62ae41631e764316bd50df3a629b6dbcf29109948a112ed67bfdfa68e3db51"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/calculatedColumnTypeCheck.test.ts",
+			"status": "revised",
+			"review": "Rewrote full-gate calculated expressions on admitted base for actual effective-property inference and independent bad type/ref diagnostic identities, preserving only behavioral type contract rather than implementation-shape assertions. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "aab372dbf707ba79a0474108cb5390987071690f5bc77814c8f0193c4dcc5673"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/filterTypeCheck.test.ts",
+			"status": "revised",
+			"review": "Rebuilt baseline as admitted immutable predicate candidates, exact full diagnostics for unknown property, ordering text and datetime mismatch, positive declared and standard name equality. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "7bc5dbcfc08dcd46b779a4bb10fad24ea13beea0fcd3ef77099feabad125d194"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/caseTileLayout.test.ts",
+			"status": "revised",
+			"review": "Read full geometry/coverage owner; schema-parse complete fixtures and assert every gate finding. Independent geometric examples distinguish off-layout stored geometry, hidden overlap, right/bottom overflow and visible-only coverage. Corrected contradictory owner comments. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "00652964989929e3c244cd7920da164d7eb8d1b0e53008348021a89a4c2dc3bc"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/caseTileGrouping.test.ts",
+			"status": "revised",
+			"review": "Removed builder-helper-agrees-with-validator method and false leaf-schema grouping assertion. Full schema and whole gate now compare five concrete layouts with independently enumerated valid cuts at every depth 1..11; real straddle/no-body/empty-header and hidden carrier examples remain. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "e6d72c8700f7abc81fd03680292bc56706603073a3037792906621c54e422057"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/searchInputNameUniqueness.test.ts",
+			"status": "revised",
+			"review": "Admitted immutable candidate list with exact duplicate identities and complete finding set; no-input/single/case-sensitive and inherited-object names prove actual Map uniqueness boundary. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "70c92cd57107a5b9c2bbd1a2b9b45198a10c227b192edb914e1b1241862695a4"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/searchInputModeMatchesPropertyType.test.ts",
+			"status": "revised",
+			"review": "Replaced 962 lines of filtered mode-only claims, including invalid numeric date-range positives, with actual whole-gate widget/mode combinations and resolved parent/writer/standard properties. Reproduced real hole: omitted mode bypassed nonexistent-property check; production now resolves property before mode short circuit. Omitted/exact/fuzzy regression failed before fix and passes after. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "cb3a0d144b641054e5c79ef710f08798c4b665df735438e3ebc88018947141f9"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/searchInputTypeMatchesPropertyType.test.ts",
+			"status": "revised",
+			"review": "Replaced supposed every-type test covering only int and filtered results with nine actual scalar types using text exact search, explicit accepted/refused calendar and barcode boundaries, and advanced no-single-property behavior. Entire admitted document gate required. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "82ac128117d1797362823196d21db03ffd550bbecc5b4ea9bfd796e3e089fff3"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/searchInputDefaultTypeCheck.test.ts",
+			"status": "revised",
+			"review": "Replaced 404 lines repetitive filtered fixtures with admitted actual slots, paired temporal coercion acceptance/refusal, case data precedence on simple/advanced, absent default and multiple exact input identities. No runtime blank proof claimed by these admission tests. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "a89486acdfa9e1caab48c76a74cd5684364b6aadf1c096c9e61eef7fc1a2c2b1"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/searchInputPredicateTypeCheck.test.ts",
+			"status": "revised",
+			"review": "Replaced filtered fake-clean cross-input document with declared UUID plus actual required whenInput envelope; verifies same candidate bare refusal, exact type/property failures and guard success at whole gate. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "a5a774ed006236da2073bc0a3a79d45fa8d0bc03fcdf8969cc0d604b5254f641"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/idMappingValueRequired.test.ts",
+			"status": "removed",
+			"review": "Removed obsolete test and production rule/registration/error code. Source falsely claimed schema-admitted transient blank rows; actual persisted schema refuses blank/whitespace and duplicates before validation. Domain owner notified to retain true schema-boundary cases. No reachable semantics lost.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/searchInputScreenPredicateTypeCheck.test.ts",
+			"status": "revised",
+			"review": "Read complete rule and baseline; replaced code-filtered partial docs with admitted slot candidates for required/validation, hidden globals and orphan identities. Added wholly missing lookup-choice policy evidence using actual native-proof searchPromptFixture with context: case scope, repeated unknown answer scope deduplication, and operand typing, complete findings and exact slot identity. Seven cases passed; native query-screen runtime is root-owned SearchRuntimeTest evidence.",
+			"reviewedSha256": "54951be1628591ba94cb5256535235fe8d13ae0f5c7af9b4fb7089bc89acbd57"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/searchInputRefUsesWhenInputPresent.test.ts",
+			"status": "revised",
+			"review": "Replaced501line repeated fixtures with stale name-as-UUID references by schema/full-gate admitted declarations; exact guard identity, nested same-guard stack preservation, sibling isolation, two-reference attribution, nested value traversal, advanced location and all four forbids-input slots. Positive exclusion deliberately retains direct input.14tests pass; static admission does not claim actual runtime prompt timing.",
+			"reviewedSha256": "8bf7e5f74d04aabb698e0f30b28fd5642c7ad0ff07d080d91dbf8ed50b1fa376"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/searchInputViaModeCompatibility.test.ts",
+			"status": "revised",
+			"review": "Rebuilt335line filtered fixture collection into paired real parent-path/name constraints for omitted and explicit range mode plus all five nonrange parent modes. Full schema/gate fixtures prove all refusals, both identity details and positive admission. Seven tests pass; native HQ prompt semantics already root proof.",
+			"reviewedSha256": "fa2dee9e8a14b98cde1c4a39de9381d302def8d6074887c707112e65f56c78f3"
+		},
+		{
+			"file": "lib/commcare/validator/rules/__tests__/fieldKindMatchesPropertyType.test.ts",
+			"status": "revised",
+			"review": "Read full527baseline, owner and canonical case-write inventory plus domain mapping. Removed circular expected-value derivation from production mapping and malformed all-kinds docs. Eleven valid concrete writer shapes incl two admitted select options prove declared type agreement/refusal; implicit standard scalar slots, two-form exact writer identity and real nested group plus hidden calculate cover reachable boundaries.15tests pass. Removed unreachable delimiter-corruption pseudo integration; JSON tuple encoding remains defensive. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "3bb31928079132576572be494912ed1e4111495961ed4689f82c2e8dafe22da6"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-list/__tests__/integration.test.ts",
+			"status": "removed",
+			"review": "Removed duplicate whole-rule inventory test after individual rule tests now execute actual complete admission gate. Its dormant mapping/image-map rows were schema-invalid; input references used undeclared name hashes; supposed every-shape clean fixture had no actual calculations. Cross-form writer attribution consolidated into fieldKindMatchesPropertyType, dormant column behavior already exact in column/calculated/media gates.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-search/__tests__/caseSearchConfigRequiresCaseType.test.ts",
+			"status": "revised",
+			"review": "Replaced invalid case-list-only no-type fixtures and filtered code checks with an admitted survey module; independently adding settings or input activation yields the single case-type refusal. Typed search and ordinary browsing positives run entire schema/gate. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "83cc7b914911624c064f1b196fa3b1050b01258682207a014c0ed027be3d5f77"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-search/__tests__/excludedOwnerIdsTypeCheck.test.ts",
+			"status": "revised",
+			"review": "Read owner and187linebaseline; rebuilt complete schema/gate cases from admitted documents with real child relation. Exact whole refusals for property/concat/count/exists reads before generic typing; global conditional/session/text positive set and numeric mismatch. Existing direct input acceptance consolidated in ref-envelope tests. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "2e02936b6e9ec522901040e0b30de30497e0937ea6fb7ed5af33481ec727ec0a"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-search/__tests__/searchButtonDisplayConditionTypeCheck.test.ts",
+			"status": "revised",
+			"review": "Read owner and417linebaseline; replaced repetitive code-filtered fixtures with actual admitted global predicate boundary. Exact case/relationship and type refusals, orphan identity plus unavailable-context diagnoses, safe unknown-reference prose, absent states; added independent invalid button+owner slots together. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "e006758a992ee2eae4f5bd0ea78e1d6757549a6e260de78fca3d8e91085c2005"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-search/__tests__/integration.test.ts",
+			"status": "removed",
+			"review": "Removed250line fake cross-rule inventory: each owned rule now tests full admission and common admitted native search fixtures cover combined allowed slots. Two independent concurrent diagnostics explicitly retained in Search button admission test; no code filtering remains to hide unrelated invalidity.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-search/__tests__/searchFirst.test.ts",
+			"status": "revised",
+			"review": "Read349line baseline and complete search-first owners; replaced filtered-code fixtures with whole schema/admission gate. Corrected reserved case-type and no-type false-clean fixtures; preserved complete independent diagnostics. Native imported Nova HQ models prove actual previous-workflow/inline refusal and parent/submenu instance collision with paired off cases.",
+			"reviewedSha256": "2eb4ab7b9b78b4bba551a221de84d0553c9ebee2044959c6deff4992a7f76238"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-search/__tests__/searchNoMatches.test.ts",
+			"status": "revised",
+			"review": "Read352line baseline and all case-list form/no-matches owners; complete schema/gate exposes unplaced forms, now legitimate caseListOnly registrations. Avoided mutating validator-cached document. Native HQ validator on imported emitted registration form proves admitted registration, followup refusal under default capability and missing form identity. Integration follow-up: Integration follow-up to Commcare full review: read entire current suite/rule and replaced obsolete parent-needs-menu-form rejection method with full schema/runner admission of parent-typed registration hosts with and without menu forms, plus no-parent control. Registration does not select an existing parent merely because its case type has a parent. Commcare confirmed explicit nested-child native behavior remains in noMatchesWireFixture/NoMatchesRuntimeTest and registration-only roots remain in NestedMenuRuntimeTest.",
+			"reviewedSha256": "23afe1872dccef002f9049533b743cf582cd04050203d3f15b6d31f23a96eeba",
+			"preSupplementReviewedSha256": "8a7dadba384dbd6be4b9d9695fb0a5c3bb365d5676374fb153850d0ed3278584",
+			"supplementalEvidenceReport": "domain-integration-follow-on.json"
+		},
+		{
+			"file": "lib/commcare/validator/rules/case-search/__tests__/searchRelatedCalculationCompatibility.test.ts",
+			"status": "revised",
+			"review": "Read219line baseline, compatibility owner and related projection. Removed type-invalid ambiguous/subcase expression positives from wrong boundary; retained admitted parent/wrapped/count/hidden projections and exact complete gate refusals. Native Core search runtime separately owns executable query compatibility; no own-emitter parity claim. Final hash reconciliation re-read the complete current test after scoped formatter/type-narrowing changes; the admitted-fixture and complete-diagnostic method remains intact. Final18-file135-test rerun passes (final-hash-check.log).",
+			"reviewedSha256": "fbcfa4be1009580d7406459af3087976db4bc073133c39a3995f3589ce03c089"
+		},
+		{
+			"file": "lib/commcare/__tests__/formLinkParity.test.ts",
+			"status": "revised",
+			"review": "Read242line baseline and complete projection owner; removed copied hqFallbackGuard oracle and invalid unchecked fixture paths. Structural tests use shared complete schema/gate-admitted seven-scenario corpus. Actual HQ import/contributors/workflow regenerate matching complete entries; Core completion proves first-true, else, all fallback destinations and automatic/manual case carriage.5unit tests.",
+			"reviewedSha256": "d18d0bf3c6d8e2c0ade0deae137f6506829068aa6b3bf4e7b86beb9644f3488e"
+		},
+		{
+			"file": "lib/commcare/__tests__/formLinkProjection.property.test.ts",
+			"status": "revised",
+			"review": "Replaced circular condition expectations and copied fallback constructor with independent boolean formula oracle. Generates only admissible ordered conditional links plus optional else and checks all8assignments per generated list; 200lists. Explicitly bounded algebra proof; native Core owns emitted runtime semantics.",
+			"reviewedSha256": "edea6ef4f35c7206afd7dadec40b1bf15a29dfdb2287749909a7a4a77afe48eb"
+		},
+		{
+			"file": "lib/commcare/__tests__/formLinkProjection.test.ts",
+			"status": "revised",
+			"review": "Read834line baseline and1679line owner plus actual HQ workflow matching/fallback source. Replaced invalid raw a-relative conditions with admitted usercase conditions and complete fixture gate; retained low-level invalid totality and matching corpus explicitly as boundary tests. Actual HQ/Core supplement direct structure checks. Corrected false claim absent datum silently becomes empty: native session builder proves absent throws, present empty skips prompt.",
+			"reviewedSha256": "b95cccd81cd18af43cf719942c91319df18634674ba5f68ecdcb1cf3fafba20d"
+		},
+		{
+			"file": "lib/commcare/__tests__/formLinkValidation.test.ts",
+			"status": "revised",
+			"review": "Read371line baseline and actual form/app rule owners; every candidate now complete schema+gate, no FORM_LINK code filtering. Two-form cycle asserts exact complete findings; unreachable, fallback, auto/manual completeness/unused slots remain reachable. Deep invalid form-reference path now exact two diagnostic codes. Renamed fake dangling-target claim.14tests.",
+			"reviewedSha256": "eb59f33311130d26fdfd4fb5d9e8b44a534a841bca8ec6bdcb3c6270d25e017f"
+		},
+		{
+			"file": "lib/commcare/__tests__/formContext.test.ts",
+			"status": "revised",
+			"review": "Read327line baseline and entire hashtag/context owners, verified HQ casedb editor gate source. Removed expected values computed by sibling production expansion; direct independent selected/parent/usercase wire paths. Added caller-renamed session anchor, bounded search answer namespace, forbidden closed-session search and lexical quoted hashtags/Unicode.32tests. Scope is translator boundary; Core link/Connect/search proofs independently own executed relevant carriers.",
+			"reviewedSha256": "f180c5063095a3b175272d740e36a3716a1afcae9245380ef9f2a5b2add536bb"
+		},
+		{
+			"file": "lib/commcare/__tests__/derivedProfile.test.ts",
+			"status": "revised",
+			"review": "Read complete tests and derivedProfile/targetProfile owners. Removed copied ownership-key inventory; fixtures now cross persisted schema and whole validator. Parsed CCZ profile property elements verify derived search optimization for explicit/input search and complete omission for no search/owner-only filtering, independent of XML quoting. This owns Nova projection, not runtime indexing performance.",
+			"reviewedSha256": "8440deb920df44ed97f5f2d26720a999c5736f432e4d7630b7113fbf13ac4833"
+		},
+		{
+			"file": "lib/commcare/__tests__/targetProfile.test.ts",
+			"status": "revised",
+			"review": "Read complete target merge implementation and every baseline test. Retained the intentionally partial imported-HQ application/profile boundary fixture; it does not claim app admission or installation. Added all target-state input-purity and unrelated-application preservation cases. Existing independent full profile bags prove own-key overlay/removal, foreign primitive/section preservation, no-op omission and attachment ordering.",
+			"reviewedSha256": "d1a9f3772f2e53ccce4cf0c04cb8c737ddd684555fe20be42e7869a8711d54bb"
+		},
+		{
+			"file": "lib/commcare/__tests__/formSections.test.ts",
+			"status": "revised",
+			"review": "Replaced serializer substring checks and self-validation installation claims with an admitted shared corpus and parsed data/control/itext structure. Corrected invalid registration fixture missing case-list columns. Native HQ compiles the real registration action; Core parses group metadata and native prompt collection flattens nested groups. No rendered layout claim.",
+			"reviewedSha256": "f205bb4803c3b28769c954c0031222439dff21d28e2c77398892207a75c14886"
+		},
+		{
+			"file": "lib/commcare/__tests__/containerLabels.test.ts",
+			"status": "revised",
+			"review": "Replaced repeated fixture boilerplate and byte-oriented checks with shared schema/full-gate-admitted empty-label group, repeat and labelled-group fixtures. Assertions join direct control labels, matching itext entries, appearance and preserved child/data paths. Actual Core parser proves metadata for local and HQ-regenerated artifacts.",
+			"reviewedSha256": "5bf16c6e4537871b2bfc5bfcf7bd97fd2c5059878b6127e3340814519307c034"
+		},
+		{
+			"file": "lib/commcare/__tests__/repeatModes.test.ts",
+			"status": "revised",
+			"review": "Read complete 600-line baseline and repeat builder/FormPath/native Core/Vellum owners. Removed duplicated serialization assertions, invalid authored synthetic item reference and Nova-as-native oracle. Shared admitted corpus now executes actual HQ and Core entry for 16 scenarios, with parsed structural regressions. This exposed/fixed canonical query field paths, child-before-parent initialization, and direct counts violating Nova initial-fixed-count contract. All counts snapshot after defaults; nested counts snapshot in each enclosing row. Native negative runs reproduce original failures and strict lexical counterexamples preserve direct count coercion.",
+			"reviewedSha256": "caada8b3fc3a20080f69ea1b045008fced43ae7527fd7f91c94a09187e07fa42"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/formSections.test.ts",
+			"status": "revised",
+			"review": "Read entire test and form rule. Removed filtered finding-only gate so all positive/negative fixtures expose unexpected findings; schema admission checked before full validation. Kept exact structural/product diagnostics, multi-offender locations and nested ancestry. Native Core getQuestionPrompts proves nested-group flattening and user-repeat invisibility inside a field-list; corrected false comment that Core never emits the repeat event (its prompt collector skips it).",
+			"reviewedSha256": "9771baa05694e2e498965a38beea278b450bb481a249a5fd433ae89e2967b57f"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/formAttachmentCap.test.ts",
+			"status": "revised",
+			"review": "Read full rule/count walk and native Formplayer FormSubmissionHelper plus configured 50-file cap. Boundary tests now use independent literal 50 instead of deriving expectations from production constant, persisted schema and unfiltered full validation. Actual behavior cases cover every capture kind, groups, excluded repeating captures and ignored non-captures. This is conservative authoring admission based on the native configured cap, not a live Formplayer upload or guarantee for dynamic repeats.",
+			"reviewedSha256": "bfa8fdc27986dde4e0754533035a3c14fbabfde47eb4de968e235611b4311b7c"
+		},
+		{
+			"file": "lib/commcare/__tests__/countReference.test.ts",
+			"status": "revised",
+			"review": "Read complete65 baseline and countReference.ts73 classifier; retain finite positive/negative path classification tests under narrow private API claim. Update obsolete direct-binding comments after native repeat-count audit established all counts need snapshots; native paired lexical coercion and late/nested initialization proof own device semantics.",
+			"reviewedSha256": "2856afc88344334e97fd60299a0829c3628527bdca155d5e78b967b255ca3261"
+		},
+		{
+			"file": "lib/commcare/__tests__/formBuilder.test.ts",
+			"status": "revised",
+			"review": "Read full491 baseline and addFieldMutations/update form planners, reducer admission and deriveCaseConfig123. Replaced malformed shells and unadmitted type casts/field-kind passthrough assertions with seven schema+whole-gate admitted planner/reducer scenarios: index-to-identity ordering, nested/leaf/absent parents, caller clone isolation and distinct primary/child case write destinations including nested paths. Removed invalid duplicate close-condition fixtures covered by domain owner.31tests with count classifier pass in planner-collision-final log; no SA loop/native runtime claim.",
+			"reviewedSha256": "fa807269109168358f68ffb688aec386fda5687ad50e0ee0092357b46e002686"
+		},
+		{
+			"file": "lib/commcare/__tests__/projectSpaceCompatibility.test.ts",
+			"status": "revised",
+			"review": "Read complete478 baseline and both compatibility owner modules (~340 and460). Explicitly types accepted narrow Pick input, not invalid whole BlueprintDoc. Retained private target/report classification and added independent required/advisory3x3 crossproduct, actual encoded URI+Unicode JSON transport decode,7 malformed header cases and12 corrupt nested/public-definition/status cases. No remote HQ API claim; actual native feature gate coverage lives separately.",
+			"reviewedSha256": "c5bf129d7676725974971ccbf058c747ecec3cec7518822826fe96b971fec404"
+		},
+		{
+			"file": "lib/commcare/__tests__/projectSpaceCompatibilityBoundary.test.ts",
+			"status": "retained",
+			"review": "Read entire100-line source boundary policy and owner module consumers. Bounded source scan enforces a private/public architectural API restriction; source scanning is appropriate for this explicit authored source policy, with no runtime interoperability claim.36tests across compatibility pair pass.",
+			"reviewedSha256": "38377abb86858ce84bbe03748657f0f984a69ed76c064074b0e86109967ed792"
+		},
+		{
+			"file": "lib/commcare/__tests__/reservedInstanceTags.test.ts",
+			"status": "revised",
+			"review": "Read all83 baseline and instances.ts source grammar, lookup naming/constants, complete definitionSnapshot.ts/fixtureSnapshot.ts persisted reader. Removed switch-arm regex scanner falsely claiming every emitted id covered; it missed dynamic selected-case families. New corpus tests actual dispatch, create tag schema refusal, complete gate on historical typed definitions, and parsed actual admitted lookup+multiselect XForm unique declarations. Native Core confirms captured formerly admitted duplicate silently overwrites fixture with selected-entities source. Domain owner fixes family reservation; shared validator now refuses historical tags at every editor/export, root registers soundness code.60tests across reserved and export pass, including three mode historical snapshot refusal.",
+			"reviewedSha256": "47d34127322f96e595f887c2e0cee84f3c16cbf57c2c6bc790fb6e4a2e87830b"
+		},
+		{
+			"file": "lib/commcare/__tests__/proseRoundTripMessage.test.ts",
+			"status": "revised",
+			"review": "Read full55 baseline and validateTreeProse diagnostic routing. Narrow explicit injected failed-codec verdict for message formatting only; the same doc first passes strict persistence schema and complete gate, then exactly one finding must route to correct public copy. Restore injected state with afterEach. Actual codec representability belongs to its owner tests, no fabricated editor regression claim.",
+			"reviewedSha256": "dec67900c57a156a80bce624976eedce7c80630b9e2bcdee43667080fcc4573f"
+		},
+		{
+			"file": "lib/commcare/hqJson/__tests__/caseListProseProjection.test.ts",
+			"status": "revised",
+			"review": "Read full67 baseline and owning plain-select HQ projection/localization resolver. Replaced multiply-invalid reserved-case namespace/mismatched writer/missing worker ordering fixture with schema+whole-gate admitted followup and real worker UUID property catalog. Assert successful projection, then remove that identity and require ProseProjectionError. Narrow defensive corrupted-document boundary, not an admitted impossible state.",
+			"reviewedSha256": "4b6bd501b6b6b5aa67633423c60329cd732526aa1d50e331f02209808e2d6a00"
+		},
+		{
+			"file": "lib/commcare/__tests__/languageWire.test.ts",
+			"status": "revised",
+			"review": "Read full117 baseline, full languageWire.ts/classicLanguages.ts, multilingual contract and native HQ validate_lang. Replace same-owner expected Chinese code/name results with independent literals; finite language corpus now makes no totality proof claim. Real HQ validation consumes emitted six-scenario locale codes; native Core resolves actual named locale files and all form translations.",
+			"reviewedSha256": "580de6fc6c78365916f8307a204d04f9b9f25f4af985beb230ae9134b02095c9"
+		},
+		{
+			"file": "lib/commcare/validator/__tests__/localization.test.ts",
+			"status": "revised",
+			"review": "Read full206 baseline and entire translation overlay validator. Replaced mixed-invalid catchall and empty app fixtures with schema+whole-gate admitted survey; isolate unknown unit, wrong kind, changed protected ref, blank content and literal backslash-n. Assert entire finding arrays and exact language/unit IDs; stale/current fingerprint paired counterexample and valid identity-preserving target. Native emission proof independently verifies stale fallback and escaping.",
+			"reviewedSha256": "ddca01c3b55e00912e5089e94c3b0bde39c218e427a0089fec3e82a96365ae99"
+		},
+		{
+			"file": "lib/commcare/__tests__/localizationEmission.test.ts",
+			"status": "revised",
+			"review": "Read full639 baseline and production localization facade, wire plan, HQ column/Search projection and native locale parser/contributors. Replaced substring and flattened-itext assertions with shared6 admitted scenarios, exact locale resource identity/default links, XForm per-language default/plain itext values, translated/fallback JSON maps, target-only optional refs, escaping refusal and source immutability. Native actual HQ regeneration and Core locale reader/form prompt/menu/Search child APIs verify behavior across local+HQ artifacts; no client UI rendering claim.",
+			"reviewedSha256": "e3b34d19737b486ddbb97275e67e89972961c646a9915084f1278c4f4b8670cb"
+		},
+		{
+			"file": "lib/commcare/__tests__/workerIdentityWire.test.ts",
+			"status": "revised",
+			"review": "Read full248 baseline and worker-specific session/usercase emitter paths. Removed machine-path-skipped source-text authority check and invalid missing userPropertyOrder/type casts. Shared3 admitted slugs include hyphen and rename identity; exact parsed local/HQ source declarations and stored AST preservation. Native real CommCareSession merges menu/entry instances, actual CaseStorage usercase join excludes wrong user/type,24 data combinations prove independent session-menu and form-usercase resolution. Final type integration explicitly narrows optional userProperties before access and throws when fixture prerequisites are absent. It preserves all runtime assertions; the shared whole-unit integration validates the final narrowing.",
+			"reviewedSha256": "2e314f16112a2e261b7ad2aa902020da15865e0ac988e9b972ff33507f3c9076"
+		},
+		{
+			"file": "lib/commcare/__tests__/displayConditions.validation.test.ts",
+			"status": "revised",
+			"review": "Read full281 baseline and full displayConditions.ts owner plus typed relation contexts. Replaced empty forms/partial-rule validity claims with strict-schema/whole-gate admitted baseline for each predicate carrier, then isolated condition mutation. Actual typed lookup definitions replace fabricated type-map-only positive proof; lookup positive requires complete zero findings. Corrected reserved property alias name to family_name. Finite supported/refused carrier scenarios exercise complete gate; native lookup/date/search proof elsewhere owns executable on-device semantics.",
+			"reviewedSha256": "82c12a549eff07825887c2974863829ea89267c2ff4748ff131248effea74d3d"
+		},
+		{
+			"file": "lib/commcare/__tests__/moveReorderOnWire.test.ts",
+			"status": "revised",
+			"review": "Read full251 baseline and actual moveField/moveOption/moveColumn/moveModule reducer paths and dispatch. Preserve four actual mutation-to-emitter boundaries, but admit mutation batches and strict-schema/whole-gate check input/result. Replace substring index ordering with parsed bind+body, actual item/value sequence and exact Results/Details arrays; fix missing age catalog. Retain independently resolved target module/form identity across module move without false FormLink cast. This is structural emission ordering, not a native UI claim.",
+			"reviewedSha256": "f0d9cf53571a1338d0bd5a5b59907896def80cbd772b7e12158d3d882c3955f7"
+		},
+		{
+			"file": "lib/commcare/__tests__/entryPoints.test.ts",
+			"status": "revised",
+			"review": "Read full444 baseline and entry endpoint/session/form link production owners. Rebuilt shared seven schema/whole-gate admitted variants; exact reachable endpoint and claim structures preserve leaf text. Native actual HQ regenerates complete endpoint trees, Core binds arguments, stores actual selected-entity values, executes frame operations, handles registration computed UUIDs, and rejects missing/unexpected arguments. Historical HQ fixtures labeled historical; corrupt endpoint graph tests target structural oracle only. Controlled native storage; no endpoint HTTP claim.",
+			"reviewedSha256": "81d6ab4e1b694d70fff69b967acde4de3fb6fee9c525e6d2f5fdfabd11238cbd"
+		},
+		{
+			"file": "lib/commcare/__tests__/noMatchesEmission.test.ts",
+			"status": "revised",
+			"review": "Read full412 baseline and complete emissionPlan/searchNoMatches owners plus actual HQ details/actions/workflow and Core native action execution. Shared six schema/whole-gate admitted normal/bare/parent/home/multiple variants replace invalid parent-selection assumptions and preserve all parsed text. Native Core proves 0/1 result action visibility, UUID creation, carried search answer and return stack; actual HQ regenerates complete actions/frames. Found/fixed undeclared commcaresession from ignored stack condition and spurious registration parent selections; parent-bare is now correctly admitted. No real search or submit HTTP.",
+			"reviewedSha256": "a4f07e29b17045f432ff7c3ab4b7505577e245948cc8bf90dcc9686a66118120"
+		},
+		{
+			"file": "lib/commcare/expression/__tests__/onDeviceCompatibility.test.ts",
+			"status": "revised",
+			"review": "Read full classifier tests and onDeviceCompatibility.ts. These are private typed-context classification probes, not whole app or runtime acceptance. Replaced branded lookup ID casts with schema parsing and narrowed the comparison-operand claim. Existing native carrier proofs own actual date precision and field/relation/lookup execution; the classifier tests independently distinguish datetime refusals from admitted whole-day types across those input scopes. Five scoped tests pass.",
+			"reviewedSha256": "eb80f168fb186265ab1328b979eeba6c4f341595e6bafe502bf53760a9d26e72"
+		},
+		{
+			"file": "lib/commcare/__tests__/deepValidation.test.ts",
+			"status": "revised",
+			"review": "Read full2223-line baseline, full XPath/deep-validator/registry owners and TriggerDag. Removed copied function inventory/arity pins (independent native dispatch proof owns them). Private grammar/type/cycle probes explicitly distinguish partial contexts from app execution. Repaired invalid successful registration/followup/catalog fixtures; canonical case-reference and dangling-identity tests now start admitted. Replaced roughly500 repeated fixture lines with schema+whole-gate-admitted repeat baselines and one carrier mutation per failure, asserting exact full diagnostics and field locations, both modes and whitespace symmetry. Native XPath/container proofs own external runtime claims;110 scoped tests pass.",
+			"reviewedSha256": "6d383eb3f3493ab6b498ee4f4439a0a4915019e3ab411f0e178de0ae4a4c820e"
+		},
+		{
+			"file": "lib/commcare/__tests__/expander.test.ts",
+			"status": "revised",
+			"review": "Read full5871-line baseline and full expander/builder/form-action owners. Added mandatory schema/full-validator admission before every successful expansion, exposing35 initially failing fixture claims. Removed obsolete impossible states and duplicated Connect/rule-only coverage; replaced serialized XML substring/regex checks with parsed scoped data/control/bind/itext structure preserving mixed text and output nodes. Actual admitted reducer rename replaces fabricated renamed fixtures; isolated negative candidates preserve unique diagnostics. Optional capture supplies131 admitted documents to actual HQ import/case-meta/suite/locale contributors and Core:262 suites+268 forms parse, and native Tag10 evaluation replaces copied enum-replacement logic.140 unit tests pass; general corpus parsing is not all-form execution or full HQ build. Global typecheck23 exposed a missing required link UUID in the isolated dangling-target candidate. Preserve the admitted link identity by spreading that real link and alter only its target; schema-parse the candidate and require exactly FORM_LINK_TARGET_NOT_FOUND. Full expander140 tests pass and scoped Biome passes with informational suggestions only. Successful native fixture capture is unchanged; earlier native evidence retains its tested source hash.",
+			"reviewedSha256": "6de336a54dfc1c09b131f24e2347d5928e25fb5aa5093f67a74df40f5fc4d890"
+		},
+		{
+			"file": "lib/commcare/__tests__/hqJsonOracle.test.ts",
+			"status": "revised",
+			"review": "Read complete1011-line baseline and full1039-line private oracle. Partial wire shells now honestly isolate local consistency diagnostics; reachable projection examples require persisted schema and full validator plus actual lookup definitions/parsed identities. Exact error lists replace broad inclusion where one fault is intended. Native HQ43 captured controls execute Application.wrap/lazy action enums and top-level get_correct_app_class separately. This disproved import-refusal claims for RemoteApp and basic Module form tags; corrected checker documentation/diagnostics while retaining generator conventions.41 unit tests and native controls pass; no complete HQ validation/build claim.",
+			"reviewedSha256": "4635e5f4df61dd22ee3e49b558331d8e2f3db06000320c0ac5ccafb03f6b8683"
+		},
+		{
+			"file": "lib/commcare/__tests__/nestedMenus.test.ts",
+			"status": "revised",
+			"review": "Read full851-line baseline and session/form-link/expander plus native HQ selection/workflow and Core session owners. Replaced impossible shells, reserved metadata misuse, fake batch scalar reads and lossy XML normalization with ten schema/full-gate-admitted variants and parsed complete structural checks. Native execution found unsupported Core multi-nodeset equality for multi-parent selection; emit selected-ID membership now. Actual HQ loses multi-parent relation selection and a smaller same-case child maximum; bounded alternative investigation established target refusal, now enforced only for HQ export/publish with public guidance and route/SDK regressions. Core executes10 local variants and8 supported HQ variants, retaining2 explicit refused-HQ counterexamples and smaller-child prompt assertion.16 unit tests pass; no Android persistence or remote HTTP claim.",
+			"reviewedSha256": "5d59d7cd6fe8482c4e0d46e54352e1692b46e34662d3b052a8b3d4430f5b2412"
+		},
+		{
+			"file": "lib/commcare/predicate/__tests__/caseListFilterEmitter.test.ts",
+			"status": "revised",
+			"review": "Read full1041-line baseline and complete predicate emitter/term/relation owners. Reframed as private schema-parsed AST dispatch/binding/quoting probes; invalid between remains an explicit schema-bypass defense. Corrected unsafe-integer and invalid GPS-center positive inputs and misleading HQ acceptance comments. Added production-output corpus independently executed by Core:52 true/false neighbors cover operators, literal escaping, null/presence, input absence identity, same-row relations, malformed/out-of-range GPS short circuit and distinct kilometer/mile thresholds.100 unit tests+native corpus pass; no whole-app admission or HQ/SQL semantics implied.",
+			"reviewedSha256": "a7e038dcaad893f91f98d723b77aa4bf24800633e3c727a9193967c58839b007"
+		}
+	],
+	"changedPaths": [
+		"content/docs/nested-menus.mdx",
+		"lib/commcare/CLAUDE.md",
+		"lib/commcare/__tests__/compilerMedia.test.ts",
+		"lib/commcare/__tests__/connectDefaults.test.ts",
+		"lib/commcare/__tests__/connectSlugs.test.ts",
+		"lib/commcare/__tests__/connectWireFixtures.ts",
+		"lib/commcare/__tests__/containerLabels.test.ts",
+		"lib/commcare/__tests__/containerWireFixture.ts",
+		"lib/commcare/__tests__/countReference.test.ts",
+		"lib/commcare/__tests__/deepValidation.test.ts",
+		"lib/commcare/__tests__/derivedProfile.test.ts",
+		"lib/commcare/__tests__/displayConditions.validation.test.ts",
+		"lib/commcare/__tests__/expander.test.ts",
+		"lib/commcare/__tests__/expanderEvidence.ts",
+		"lib/commcare/__tests__/formBuilder.test.ts",
+		"lib/commcare/__tests__/formLinkWireFixture.ts",
+		"lib/commcare/__tests__/formSections.test.ts",
+		"lib/commcare/__tests__/hqJsonOracle.test.ts",
+		"lib/commcare/__tests__/imageMapColumn.test.ts",
+		"lib/commcare/__tests__/languageWire.test.ts",
+		"lib/commcare/__tests__/localizationEmission.test.ts",
+		"lib/commcare/__tests__/localizationWireFixture.ts",
+		"lib/commcare/__tests__/lookupAppFixtures.ts",
+		"lib/commcare/__tests__/lookupCarrierBoundary.test.ts",
+		"lib/commcare/__tests__/lookupSuite.test.ts",
+		"lib/commcare/__tests__/lookupXform.test.ts",
+		"lib/commcare/__tests__/mediaSuiteOracle.test.ts",
+		"lib/commcare/__tests__/mediaWireFixtures.ts",
+		"lib/commcare/__tests__/moveReorderOnWire.test.ts",
+		"lib/commcare/__tests__/multimediaEmission.test.ts",
+		"lib/commcare/__tests__/nestedMenuWireFixture.ts",
+		"lib/commcare/__tests__/nestedMenus.test.ts",
+		"lib/commcare/__tests__/projectSpaceCompatibility.test.ts",
+		"lib/commcare/__tests__/proseRoundTripMessage.test.ts",
+		"lib/commcare/__tests__/repeatModes.test.ts",
+		"lib/commcare/__tests__/reservedInstanceTags.test.ts",
+		"lib/commcare/__tests__/targetProfile.test.ts",
+		"lib/commcare/__tests__/workerIdentityWire.test.ts",
+		"lib/commcare/__tests__/workerWireFixture.ts",
+		"lib/commcare/formLinkProjection.ts",
+		"lib/commcare/hashtags/formContext.ts",
+		"lib/commcare/hqJson/__tests__/caseListProseProjection.test.ts",
+		"lib/commcare/hqJson/caseList.ts",
+		"lib/commcare/hqNestedSelection.ts",
+		"lib/commcare/lookup/__tests__/cellText.test.ts",
+		"lib/commcare/lookup/__tests__/fixtures.test.ts",
+		"lib/commcare/lookup/__tests__/lookupWireCorpus.ts",
+		"lib/commcare/lookup/__tests__/nativeLookupRelations.ts",
+		"lib/commcare/lookup/__tests__/selectSourceRows.test.ts",
+		"lib/commcare/lookup/__tests__/workbook.test.ts",
+		"lib/commcare/lookup/hqCellText.ts",
+		"lib/commcare/lookup/textWorkbook.ts",
+		"lib/commcare/lookup/workbook.ts",
+		"lib/commcare/multimedia/__tests__/bundle.test.ts",
+		"lib/commcare/multimedia/__tests__/hqJsonExportArchive.test.ts",
+		"lib/commcare/multimedia/__tests__/itextMedia.test.ts",
+		"lib/commcare/multimedia/__tests__/logoEntry.test.ts",
+		"lib/commcare/multimedia/__tests__/mediaSuiteXml.test.ts",
+		"lib/commcare/multimedia/__tests__/navMenuMedia.test.ts",
+		"lib/commcare/predicate/__tests__/caseListFilterEmitter.test.ts",
+		"lib/commcare/predicate/caseListFilterEmitter.ts",
+		"lib/commcare/session.ts",
+		"lib/commcare/validator/__tests__/formAttachmentCap.test.ts",
+		"lib/commcare/validator/__tests__/formSections.test.ts",
+		"lib/commcare/validator/__tests__/localization.test.ts",
+		"lib/commcare/validator/__tests__/lookupOptionsSource.test.ts",
+		"lib/commcare/validator/__tests__/lookupReferences.test.ts",
+		"lib/commcare/validator/hqJsonOracle.ts",
+		"lib/commcare/validator/lookupReferences.ts",
+		"lib/commcare/validator/mediaSuiteOracle.ts",
+		"lib/commcare/validator/rules/form.ts",
+		"lib/commcare/validator/rules/media/__tests__/imageMapValueUnique.test.ts",
+		"lib/commcare/validator/rules/media/__tests__/mediaAssetExists.test.ts",
+		"lib/commcare/validator/rules/media/__tests__/mediaAssetReady.test.ts",
+		"lib/commcare/validator/rules/media/__tests__/mediaKindMatches.test.ts",
+		"lib/commcare/xform/builder.ts",
+		"lib/commcare/xform/pathExpression.ts",
+		"lib/commcare/xpath/CLAUDE.md",
+		"lib/commcare/xpath/__tests__/authoringPreviewParity.test.ts",
+		"lib/commcare/xpath/__tests__/compatibility.test.ts",
+		"lib/commcare/xpath/__tests__/expressionAst.roundtrip.test.ts",
+		"lib/commcare/xpath/__tests__/functionCapabilities.test.ts",
+		"lib/commcare/xpath/__tests__/hashtagMatchers.divergence.test.ts",
+		"lib/commcare/xpath/__tests__/nativeXPathCorpus.ts",
+		"lib/commcare/xpath/__tests__/transpiler.test.ts",
+		"lib/commcare/xpath/index.ts",
+		"lib/commcare/xpath/javaRosaLowering.ts",
+		"lib/commcare/xpath/passes/dateArithmetic.ts",
+		"lib/commcare/xpath/transpiler.ts",
+		"lib/commcare/xpath/typeInfer.ts",
+		"lib/doc/__tests__/connectConfig.test.ts",
+		"lib/doc/userFacingErrors.ts",
+		"lib/export/CLAUDE.md",
+		"lib/export/__tests__/boundaryValidation.test.ts",
+		"lib/export/boundaryValidation.ts",
+		"scripts/fixtures/hq/README.md",
+		"scripts/fixtures/hq/connect-emission-proof.py",
+		"scripts/fixtures/hq/container-emission-proof.py",
+		"scripts/fixtures/hq/emit-connect-evidence.ts",
+		"scripts/fixtures/hq/emit-container-evidence.ts",
+		"scripts/fixtures/hq/emit-form-link-evidence.ts",
+		"scripts/fixtures/hq/emit-localization-evidence.ts",
+		"scripts/fixtures/hq/emit-lookup-evidence.ts",
+		"scripts/fixtures/hq/emit-media-evidence.ts",
+		"scripts/fixtures/hq/emit-nested-menu-evidence.ts",
+		"scripts/fixtures/hq/emit-predicate-evidence.ts",
+		"scripts/fixtures/hq/emit-worker-evidence.ts",
+		"scripts/fixtures/hq/emit-xpath-evidence.ts",
+		"scripts/fixtures/hq/expander-emission-proof.py",
+		"scripts/fixtures/hq/hq-json-oracle-proof.py",
+		"scripts/fixtures/hq/localization-emission-proof.py",
+		"scripts/fixtures/hq/lookup-workbook-proof.py",
+		"scripts/fixtures/hq/media-emission-proof.py",
+		"scripts/fixtures/hq/nested-menu-emission-proof.py",
+		"scripts/fixtures/hq/search-emission-proof.py",
+		"scripts/fixtures/hq/search-validation-proof.py",
+		"scripts/fixtures/javarosa/ConnectRuntimeTest.java",
+		"scripts/fixtures/javarosa/ContainerRuntimeTest.java",
+		"scripts/fixtures/javarosa/ExpanderRuntimeTest.java",
+		"scripts/fixtures/javarosa/FormLinkRuntimeTest.java",
+		"scripts/fixtures/javarosa/LocalizationRuntimeTest.java",
+		"scripts/fixtures/javarosa/LookupRuntimeTest.java",
+		"scripts/fixtures/javarosa/MediaRuntimeTest.java",
+		"scripts/fixtures/javarosa/NestedMenuRuntimeTest.java",
+		"scripts/fixtures/javarosa/PredicateRuntimeTest.java",
+		"scripts/fixtures/javarosa/README.md",
+		"scripts/fixtures/javarosa/TileGroupingRuntimeTest.java",
+		"scripts/fixtures/javarosa/WorkerIdentityRuntimeTest.java",
+		"scripts/fixtures/javarosa/XPathCarrierCompatibilityTest.java",
+		"scripts/fixtures/javarosa/resources/before-grouped-tile-instances.suite.xml"
+	],
+	"checks": [
+		{
+			"command": "Scoped 9-file Connect/XPath vitest with unit lane, one worker and detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/commcare/connect-xpath-unit.log",
+			"result": "9 files, 230 tests pass"
+		},
+		{
+			"command": "Native HQ Connect form regeneration and Connect app_xml extraction",
+			"log": "/tmp/nova-test-audit-parallel/commcare/connect-native-hq-second.log",
+			"result": "5 admitted documents; 15 artifacts accepted with exact metadata"
+		},
+		{
+			"command": "Native Core ConnectRuntimeTest",
+			"log": "/tmp/nova-test-audit-parallel/commcare/connect-native-core-second.log",
+			"result": "10 tests passed; exact report/artifact/source hashes in native-core-connect.json"
+		},
+		{
+			"command": "Native Core XPathCarrierCompatibilityTest using actual Nova generated lowerings and native arity matrix",
+			"log": "/tmp/nova-test-audit-parallel/commcare/xpath-native-core-third.log",
+			"result": "4 methods passed; 22 positive cases, 14 refusal paths, full native-dispatch inventory and arities 0-10"
+		},
+		{
+			"command": "10 actual lookup test files (one nonexistent requested extra path ignored by Vitest; not counted), unit lane one worker/leak detection",
+			"log": "/tmp/nova-test-audit-parallel/commcare/lookup-final-unit.log",
+			"result": "10 files 97 tests passed"
+		},
+		{
+			"command": "Export boundary unit file with HQ padding refusal regression",
+			"log": "/tmp/nova-test-audit-parallel/commcare/lookup-boundary-final.log",
+			"result": "39 tests passed"
+		},
+		{
+			"command": "Native HQ lookup workbook reader and regenerated forms",
+			"log": "/tmp/nova-test-audit-parallel/commcare/lookup-native-hq-final.log",
+			"result": "Typed values/50 columns/full Unicode strip classification pass; hashes native-hq-lookup.json"
+		},
+		{
+			"command": "Native Core LookupRuntimeTest",
+			"log": "/tmp/nova-test-audit-parallel/commcare/lookup-native-core-final.log",
+			"result": "6 methods pass; hashes native-core-lookup.json"
+		},
+		{
+			"command": "Explicit eight media Vitest files, --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/commcare/media-unit-final.log",
+			"result": "8 files, 53 tests passed"
+		},
+		{
+			"command": "Native actual HQ media corpus prepare; Core exact source validation; actual HQ regeneration/bulk import; full native MediaRuntimeTest",
+			"log": "/tmp/nova-test-audit-parallel/commcare/media-final-core.log",
+			"result": "Core 5 methods passed; HQ 4 scenarios with exact bytes and recorded source/artifact hashes; detailed native-hq-media.json/native-core-media.json"
+		},
+		{
+			"command": "Scoped xformOracle and bindingResolutionOracle unit tests; native XFormOracleRuntimeTest",
+			"log": "/tmp/nova-test-audit-parallel/commcare/oracle-unit-second.log",
+			"result": "2 files,81 tests passed; native 2 methods cover 67 parser cases and five runtime refusal cases, oracle-native-final.log."
+		},
+		{
+			"command": "5 discovered ordinary oracle/Connect/media files; SuiteOracleRuntimeTest and XFormOracleRuntimeTest",
+			"log": "/tmp/nova-test-audit-parallel/commcare/oracles-unit-final.log",
+			"result": "185 tests passed across 5 files (one nonexistent lookupSuiteEmission path was ignored and is not counted); native 6 methods passed suite-native-second.log, includes 81 suite and67 XForm parser cases plus actual session/locale runtime; scoped Biome passed."
+		},
+		{
+			"command": "9 exact column/tile files then4 exact search type/default/predicate files through scoped unit wrapper",
+			"log": "/tmp/nova-test-audit-parallel/commcare/column-rules-third.log",
+			"result": "44 tests passed9files; search-type-second.log48tests4files passed. search-type-first.log retains real failing omitted-mode unknown property regression before production fix."
+		},
+		{
+			"command": "search slots3 files, final screen file, global Search3+field-writer1 files scoped unit",
+			"log": "/tmp/nova-test-audit-parallel/commcare/search-global-first.log",
+			"result": "35tests4files pass (15field writer and20global Search); search-slots-second.log ref14+via7pass; search-screen-final.log7pass.19-file column scoped Biome pass; field-kind scoped Biome pass. Final narrowing regression run pending."
+		},
+		{
+			"command": "search-navigation-second: six exact files with async leak tracking",
+			"log": "/tmp/nova-test-audit-parallel/commcare/search-navigation-second.log",
+			"result": "66 tests passed"
+		},
+		{
+			"command": "HQ search-validation-proof.py actual selected validators",
+			"log": "/tmp/nova-test-audit-parallel/commcare/native-hq-search-validation.json",
+			"result": "4 paired refusal/acceptance families passed; no whole-build claim"
+		},
+		{
+			"command": "four form-link exact unit files with async leak tracking",
+			"log": "/tmp/nova-test-audit-parallel/commcare/form-link-four-second.log",
+			"result": "52 tests passed"
+		},
+		{
+			"command": "formContext exact unit file with async leak tracking",
+			"log": "/tmp/nova-test-audit-parallel/commcare/form-context-first.log",
+			"result": "32 tests passed"
+		},
+		{
+			"command": "actual HQ search-emission-proof.py --corpus links",
+			"log": "/tmp/nova-test-audit-parallel/commcare/native-hq-form-links.json",
+			"result": "7 admitted apps complete entries match actual HQ contributor workflow output"
+		},
+		{
+			"command": "actual Core FormLinkRuntimeTest",
+			"log": "/tmp/nova-test-audit-parallel/commcare/native-core-form-links.json",
+			"result": "2 native tests passed;42 completion scenarios plus4 invalid-session counterexamples"
+		},
+		{
+			"command": "Scoped 10-file profile/container/form-context/validator plus expander/formBuilder unit run",
+			"log": "/tmp/nova-test-audit-parallel/commcare/container-count-final-unit.log",
+			"result": "243 tests pass; explicit one-worker unit run with leak tracking"
+		},
+		{
+			"command": "Native HQ container-emission-proof and Core ContainerRuntimeTest",
+			"log": "/tmp/nova-test-audit-parallel/commcare/container-native-context-after.log",
+			"result": "16 native HQ imports/compilations; 7 JUnit tests including 32 local/HQ forms, initial-count stability, paired lexical counts, field-list prompts, late defaults and nested snapshots. Evidence native-hq-containers.json/native-core-containers.json."
+		},
+		{
+			"command": "Compatibility pair + planner/count four exact unit files",
+			"log": "/tmp/nova-test-audit-parallel/commcare/project-compatibility-first.log",
+			"result": "36 compatibility tests pass; planner/count31 pass in planner-collision-final.log, whose separate reserved-tag tests deliberately capture pre-fix failures. Eight-file scoped Biome passed."
+		},
+		{
+			"command": "Reserved instance names and all export-mode historical snapshots",
+			"log": "/tmp/nova-test-audit-parallel/commcare/collision-after-unit.log",
+			"result": "60 tests pass; native one test before proof native-core-lookup-collision.json with exact historical artifact/source/report hashes."
+		},
+		{
+			"command": "Localization4files+worker+display scoped unit; native HQ2corpora and Core2classes",
+			"log": "/tmp/nova-test-audit-parallel/commcare/text-native-core-third.log",
+			"result": "4 native methods pass, six localization apps +three worker slug apps.31tests4files pass localization-display-worker-second;16others pass localization-small-first (its remaining projection was repaired and passed the later run).8file scoped Biome passes. Exact artifacts/source/JUnit hashes native-core-localization.json and native-core-worker.json."
+		},
+		{
+			"command": "Complete-gate display conditions and actual mutation/emission order",
+			"log": "/tmp/nova-test-audit-parallel/commcare/move-display-unit.log",
+			"result": "19 tests pass across2 files; each scoped Biome passes."
+		},
+		{
+			"command": "Endpoint29 and no-matches12 scoped unit; actual HQ7+6 apps and Core EndpointRuntimeTest/NoMatchesRuntimeTest",
+			"log": "/tmp/nova-test-audit-parallel/commcare/navigation-native-core-first.log",
+			"result": "Three native test methods pass. Exact source/artifact/JUnit hashes in native-core-endpoint.json and native-core-no-matches.json; HQ records native-hq-endpoint.json and native-hq-no-matches.json."
+		},
+		{
+			"command": "Scoped onDeviceCompatibility Vitest with async resource detector",
+			"log": "/tmp/nova-test-audit-parallel/commcare/ondevice-method-final.log",
+			"result": "5 tests passed"
+		},
+		{
+			"command": "TileGroupingRuntimeTest plus scoped tileEmissionParity/suiteOracle.fuzz",
+			"log": "/tmp/nova-test-audit-parallel/commcare/tile-grouping-native-after.log",
+			"result": "Native2PASS and unit12PASS incl400 generated suites; native-core-tile-grouping.json retains before/after evidence."
+		},
+		{
+			"command": "Scoped final5 files plus optional evidence capture",
+			"log": "/tmp/nova-test-audit-parallel/commcare/final-five-first.log",
+			"result": "5files407testsPASS;131 admitted expander docs and43 private HQ controls captured."
+		},
+		{
+			"command": "Final native HQ oracle/expander/nested + Core predicate/expander/nested",
+			"log": "/tmp/nova-test-audit-parallel/commcare/final-native-batch.log",
+			"result": "All6 commandsPASS. HQ imports/regenerates131docs134forms; Core parses262suites268forms plus actual Tag10 evaluation.52 predicate programs and10 local/8 supported HQ nested variants pass. Six native JSON records preserve full source/artifact provenance."
+		},
+		{
+			"command": "Exact18 hash-reconciled rule files, one worker",
+			"log": "/tmp/nova-test-audit-parallel/commcare/final-hash-check.log",
+			"result": "18files135testsPASS after full current-file reread; current hashes recorded without relying on timestamps."
+		},
+		{
+			"command": "Scoped Biome on final5 test/source batch",
+			"log": "/tmp/nova-test-audit-parallel/commcare/final-five-lint.log",
+			"result": "PASS;8 informational useTemplate suggestions only, no warnings/errors."
+		},
+		{
+			"command": "Exact expander.test.ts scoped Vitest run",
+			"log": "/tmp/nova-test-audit-parallel/commcare/expander-identity-followon.log",
+			"result": "140 tests passed."
+		},
+		{
+			"command": "Scoped Biome",
+			"log": "/tmp/nova-test-audit-parallel/commcare/expander-identity-lint.log",
+			"result": "Passed; useTemplate informational suggestions only."
+		}
+	],
+	"bugs": [
+		{
+			"problem": "HQ workbook decoder strips leading/trailing Python whitespace from text, silently changing lookup values. JS trim also misclassifies U+FEFF and U+0085.",
+			"fix": "HQ-only export refusal with bounded row/column findings. Local CCZ and storage preserve values. Exhaustive Unicode native strip classification plus actual decoded counterexamples."
+		},
+		{
+			"problem": "SheetJS writes carriage return as _x000d_; native HQ openpyxl reader returns literal escape text.",
+			"fix": "Replace workbook writer with minimal inline-string XLSX using native XML references; independent native HQ reader preserves interior CR/LF and literal _x0041_."
+		},
+		{
+			"problem": "HQ EnumImage plain keys use equality and punctuation keys become expressions; local CCZ/Preview use token membership. Multitoken property active closed diverged in actual Core native comparison.",
+			"fix": "HQ image-map keys now explicit selected(., quotedValue) predicates, preserving Nova first-matching token semantics and literal punctuation including both quote delimiters."
+		},
+		{
+			"problem": "Media oracle accepted nested suite and int32 overflow, rejected signed +1, trimmed location paths, falsely rejected native-legal missing media path and empty media blocks.",
+			"fix": "Actual root and int32 parse checks; exact location bytes; remove non-native refusal checks. Correct duplicate resource documentation to first definition retained, proven in native ResourceTable."
+		},
+		"XForm oracle skipped empty expressions and invalid expression attributes on external binds, used wrong output precedence, rejected native-accepted unbound layout/repeat wrapper groups and omitted main root attributes. Fixed with actual Core parser corpus; wrong-root dangling references are explicitly stricter Nova checks because Core accepts parse.",
+		"CCZ detail titles referenced cchq.case without delivering its mapping, causing native NoLocalizedTextException. compiler.ts now writes cchq.case=Case in every locale table; native admitted compiled short/long titles render. Suite oracle no longer invents ambient locale/instance ids and stops at embedded fixture data, enforces empty expressions and signed int32 boundaries.",
+		"Simple search input with omitted mode bypassed nonexistent-property validation; searchInputModeMatchesPropertyType now always resolves property existence before optional explicit-mode check, tested omitted/exact/fuzzy through whole gate.",
+		{
+			"area": "XForm repeat initialization",
+			"finding": "Canonical nested query references omitted synthetic item nodes; child repeat setvalues ran before parent ids. Direct path counts additionally followed edited answers contrary to Nova initial fixed-count contract; late defaults and root-hoisted nested snapshots read wrong initial context.",
+			"fix": "Project form refs through actual FormPath locations for runtime and editor shadows; parent bookkeeping first; snapshot every count after defaults while preserving path lexical versus expression int coercion, scoped inside parent repeat rows when nested.",
+			"evidence": "Native before/fix logs and native-core-containers.json"
+		},
+		{
+			"finding": "Dynamic selected_cases lookup tag collision admitted by static-only reservation and hidden by source-switch-scanner test. Native FormDef silently replaces lookup fixture instance with selected-case virtual instance.",
+			"fix": "Domain owner reserves selected-case name grammar at create/rename. Shared validateLookupReferences returns LOOKUP_TAG_RESERVED_BY_RUNTIME with exact reference and rename guidance for historical persisted rows; root registers soundness severity. All three export modes tested."
+		},
+		"Bare no-matches return guard was the sole commcaresession dependency but entry dependency collection skipped operation.ifClause. Collect condition and child expressions, proven by admitted CCZ export and native Core action return.",
+		"selectableDatums incorrectly loaded catalog parents for registration/survey despite no existing-case requirement. Actual HQ regenerated no parent and both XForms correctly created unlinked primary cases. Skip selection for non-case-loading forms; remove false SEARCH_NO_MATCHES_ENTRY_PARENT_NEEDS_MENU_FORM gate. Explicit child-write indices remain distinct.",
+		"Grouped-tile computed parent datum read commcaresession/casedb without entry declarations. Native Core selection completion threw XPathMissingInstanceException. Collect final computed-datum expression dependencies for form and browse entries; 2 native tests execute all three grouped variants and retain the old refusal.",
+		"Nested relation with multiple selected parents used Core-unsupported nodeset-to-nodeset equality. Native Core threw XPathTypeMismatchException; use selected(join(...), index-value) membership, now executes c1/c2 against actual parent records.",
+		"HQ regeneration cannot preserve multi-parent relation selection or a smaller same-case child maximum in supported generic BasicModule representations. Native counterexamples plus alternate-encoding investigation prove loss. Local CCZ retains them; HQ boundary refuses before media/publish mutation, with exact target guidance and route/SDK proof.",
+		"Private HQ checker documentation incorrectly equated all conventions with Application.wrap refusal. Native HQ accepts unknown Form tags under BasicModule direct Form wrapping and dispatches RemoteApp. Corrected claims and diagnostics; retained intentional Nova generator convention checks."
+	],
+	"docsNeeded": [
+		{
+			"topic": "Connect native proof",
+			"records": [
+				"/tmp/nova-test-audit-parallel/commcare/native-hq-connect.json",
+				"/tmp/nova-test-audit-parallel/commcare/native-core-connect.json"
+			],
+			"text": "Connect tests share five admitted documents across ordinary artifact checks, native HQ regeneration, actual Connect metadata extraction and native Core initialization/recomputation/submission XML. Native proof substitutes only unused Connect database/HTTP imports. No opportunity DB, Connect receiver, remote write or rendered client is claimed. Add reproduction commands to fixture READMEs."
+		},
+		{
+			"topic": "Unused experimental XPath pipeline",
+			"text": "Removed unconsumed transpile/typeInfer/dateArithmetic experiment and its test suite. Production lowerXPathForJavaRosa remains the only raw-XPath emission boundary. Preview agent will update nearest Preview contract; root README/map wording can say XPath dialect and lowering instead of transpiler."
+		},
+		{
+			"topic": "Native XPath proof now uses actual production output",
+			"text": "Replaced Java reimplementation of normalize-space lowering with generated output from production lowerXPathForJavaRosa and admitted CCZ hidden calculation. Core checks actual registry dispatch and arity decisions; Preview NBSP selected/number fixes share native expected cases. Include source hashes of lowerer, registry, compatibility, corpus, producer and Java harness in final evidence."
+		},
+		{
+			"topic": "Lookup native evidence and boundary fixes",
+			"records": [
+				"/tmp/nova-test-audit-parallel/commcare/native-hq-lookup.json",
+				"/tmp/nova-test-audit-parallel/commcare/native-core-lookup.json"
+			],
+			"text": "HQ JSON/manual import and upload refuse text HQ would trim; local downloadable app preserves it. Custom inline-string XLSX writer preserves CR through native HQ. Add new validation code recovery copy and current native proof commands/limits. Nearest commcare CLAUDE lookup section still has stale claim only CCZ supports naming and CSQL rejects all lookup values; needs correction consistent with current implemented nested lookup query support. Root owns shared docs. No remote writes/native lookup persistence claimed."
+		},
+		{
+			"topic": "Media native evidence and image-map correction",
+			"records": [
+				"/tmp/nova-test-audit-parallel/commcare/native-hq-media.json",
+				"/tmp/nova-test-audit-parallel/commcare/native-core-media.json"
+			],
+			"text": "HQ image mapping now preserves Nova first matching token semantics and treats punctuation as literal data using expression keys. Native exact source validation must prepare via actual HQ Vellum stripping, certify with Core, then full HQ bulk proof; no blanket Formplayer mock. Core checks real prompts/constraints, menus, image maps and local media files. Update README commands and remove false media root-path requirement/empty-block fatal/duplicate last-wins claims; native Core ignores media path and retains first resource ID. MEDIA_NO_PATH/MEDIA_NO_RESOURCE unused code registry entries can be removed centrally. Domain modules.ts duplicates message incorrectly says image paths concatenate; correct enduring prose while preserving token semantics."
+		},
+		"Replace all fuzzer proves emitter total / legitimately emitted output means oracle always wrong language for xform/suite oracles with finite corpus and independently verified native consumer scope. Binding session missing structural leaf is not generically harmless empty: actual Core scalar calculate throws XPathTypeMismatch; undeclared session instance throws XPathMissingInstance. Binding no longer accepts mediaManifest fifth argument; media checks have one XForm oracle owner.",
+		"Native cchq.case title finding: HQ default=Case belongs to HQ app_strings generation, not Core runtime fallback. CCZ now registers title in all tables. Nearest CommCare CLAUDE and short/long/types comments corrected. Broad runtime-instance exemptions removed; fresh sessions contain only declared entry/menu plus actual frame instances. Suite native corpus labels stricter no-value/no-query-id guards as Nova conventions because native accepts them.",
+		"Search simple inputs must name an effective property regardless of whether mode is explicitly authored; removed obsolete idMappingValueRequired rule whose transient-row premise conflicted with domain schema. Shared userFacingErrors removal coordinated with root.",
+		"Native links corpus:7 admitted apps; HQ actual regeneration equal complete entries; Core actual completion 42 local/HQ/user scenarios. Core SessionInstanceBuilder proves absent source datum raises XPathTypeMismatchException; a present empty source becomes empty target selection with no prompt. Correct prior unconditional empty-case explanations; admission behavior unchanged.",
+		"Public form-sections/repeat guidance should state count-bound values initialize once at form start, or when an enclosing repeat row is created, and subsequent answer edits do not change that count. Canonical nested field refs omit wire-only item. Domain agent updates repeat.ts/SA metadata to remove false JavaRosa-spec attribution. CommCare CLAUDE updated.",
+		"Historical selected-case tag collisions: native-core-lookup-collision.json is pre-fix forensic evidence (temporary Java proof and captured formerly admitted XML); permanent tests verify admission and full export refusal. Lookup guidance should explain reserved export names and explicit rename repair; no automatic remote/local renaming.",
+		"Localization and worker native proof commands: emit-localization-evidence.ts /tmp/nova-localization-evidence; emit-worker-evidence.ts /tmp/nova-worker-evidence; localization-emission-proof.py supports --corpus localization(default)|worker. Core classes LocalizationRuntimeTest/WorkerIdentityRuntimeTest with resources from both directories copied to one. Evidence native-core-localization.json/native-core-worker.json. Native default HQ build2.53 stores menu refs on entries; actual Core CommCareSession context handles this. Native stock platform translations omitted, app custom strings/overlays and native serializer retained.",
+		"Endpoint/no-matches native producer, HQ and Core evidence added. No-matches registration correctly skips catalog parent selection, including hosts with no menu forms; removed false parent-needs-menu-form refusal. Nearest CommCare contract corrected. Native proof records describe exact limits; integrate fixture READMEs.",
+		"Fixture READMEs now cover every new producer/native class and exact limits. CommCare contract records grouped computed-datum declarations and nested HQ limits; public nested-menus docs and export contract updated. Integrate six final native evidence JSONs plus native-core-tile-grouping.json. validationRules baseline transferred solely to Doc; not included in these98 rows."
+	],
+	"blockedBy": []
+}

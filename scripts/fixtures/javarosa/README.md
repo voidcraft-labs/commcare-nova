@@ -1,9 +1,15 @@
 # Native CommCare Core proofs
 
-This fixture runs Nova's production `normalize-space()` lowering through the
-real CommCare Core evaluator and through XForm parsing and initialization. The
-frozen source used for the audit is CommCare Core
+These fixtures consume current Nova exports through native Core parsers,
+form entry, evaluation, navigation and case processing. Each family below states
+its actual consumer and limits. The frozen source used for the audit is CommCare Core
 `8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305`.
+
+First generate current XPath resources from the Nova checkout:
+
+```bash
+mise exec -- npx tsx scripts/fixtures/hq/emit-xpath-evidence.ts /tmp/nova-xpath-evidence
+```
 
 From a detached checkout of that SHA:
 
@@ -11,7 +17,9 @@ From a detached checkout of that SHA:
 mise exec java@17 gradle@8.1.1 -- gradle \
   -I /path/to/commcare-nova/scripts/fixtures/javarosa/compatibility-proof.init.gradle \
   -PnovaProofDir=/path/to/commcare-nova/scripts/fixtures/javarosa \
-  test --tests nova.compatibility.XPathCarrierCompatibilityTest --no-daemon
+  -PnovaProofResources=/tmp/nova-xpath-evidence \
+  test --tests nova.compatibility.XPathCarrierCompatibilityTest \
+  --no-daemon --max-workers=2 -Dorg.gradle.jvmargs=-Xmx768m
 ```
 
 The init script adds these proof sources and resources to Core's test source set;
@@ -49,6 +57,25 @@ This does not upload attachment bytes, submit to HQ or apply a server case
 transaction. Gradle XML reports live under `build/reports/tests/` in the Core
 checkout. The ordinary Nova tests check the same accepted fixtures and compiled
 artifacts without requiring a developer's native checkout.
+
+## Typed arithmetic
+
+`emit-arithmetic-evidence.ts /tmp/nova-arithmetic-evidence` produces the fully
+admitted `arithmeticFixture` through the production CCZ compiler. Run it with
+`node --conditions=react-server --import tsx` from the Nova checkout, then use
+the Gradle command above with `-PnovaProofResources=/tmp/nova-arithmetic-evidence`
+and `--tests nova.compatibility.ArithmeticRuntimeTest`.
+
+Four sign combinations initialize the actual form, set integer and decimal
+answers, submit through `XmlFormRecordProcessor`, and inspect stored cases.
+They verify integer quotients, signed remainders, a decimal answer containing
+`10`, and a literal beyond int4. The same document runs through the real
+Preview submission builder and PostgreSQL store. Separate native scalar probes
+retain Infinity/NaN on zero division; they do not prove non-finite case writes.
+Replacing only the exported integer quotient with raw division fails all four
+stored-value assertions. This proof covers the local CCZ form; it does not run
+HQ's import or server case processor, and it does not claim identical numeric
+precision across evaluators. See `native-core-arithmetic.json` for provenance.
 
 ## Case-operation execution
 
@@ -206,3 +233,72 @@ two matching children, plus unrelated and wrong-type rows. The native form-entry
 controller, serializer and case processor determine the final stored value.
 The in-memory native case store does not establish server transactions or
 rollback; no Android rendering, HQ submission or network request runs.
+
+## Location owners
+
+After the location producer and HQ proof in [../hq/README.md](../hq/README.md),
+run the same Gradle command with
+`-PnovaProofResources=/tmp/nova-location-evidence` and
+`--tests nova.compatibility.LocationOwnerRuntimeTest`.
+Five tests parse real HQ indexed restores into Core fixture storage and run local
+and HQ-regenerated forms through initialization, form entry, serialization and
+case processing. Both branches resolve their exact immediate or multi-level
+destination; skipping a non-owning intermediate place remains valid. Ordinary
+worker ownership works with empty location data. An empty fixture and a missing
+destination are refused through native evaluation or the emitted scalar guard,
+with no assertion of rollback in Core's in-memory fixture. Native storage and
+form processing run in memory; this does not submit to HQ or establish device
+UI behavior.
+
+The Android transaction wrapper was separately source-verified at
+`79d8418ab2dcd9846ae297c8f1edd189393b8e35`: synchronous
+`FormRecord.updateAndProcessRecord` and background
+`FormSubmissionHelper.checkFormRecordStatus` wrap the complete
+`FormRecordProcessor.process` call in the same user SQLCipher transaction used
+by `AndroidCaseXmlParser`. Both mark it successful only after processing returns
+and always end it, so the native invalid-case guard prevents transaction commit.
+This source check is distinct from running Android storage or UI tests.
+
+
+## Additional native consumers
+
+Use the bounded Gradle command above, replacing `-PnovaProofResources` with the
+producer's output directory and `--tests` with the class below. Run the matching
+producer and any HQ regeneration listed in [../hq/README.md](../hq/README.md)
+first. Generated resources are required; the checked-in static files retain only
+selected regression counterexamples.
+
+| Family | Native class | What runs |
+| --- | --- | --- |
+| Connect | `ConnectRuntimeTest` | Actual form initialization, computed metadata, worker/case selection and serialized namespace on CCZ and HQ paths. |
+| Oracle controls | `XFormOracleRuntimeTest`, `SuiteOracleRuntimeTest` | Real parser acceptance/refusal for finite corrupted XML corpora, plus native detail text evaluation. These deliberately malformed private fixtures are not admitted apps. |
+| Form links | `FormLinkRuntimeTest` | Native ordered stack frames, conditions and selection values from complete local/HQ suites. |
+| Media | `MediaRuntimeTest` | Native media manifest installation paths and localized prompt references; no remote download or Android rendering. |
+| Lookup data | `LookupRuntimeTest` | Actual fixture storage/install and replacement, current row/filter/label evaluation, dynamic choices, answer serialization and case processing. |
+| Groups/repeats | `ContainerRuntimeTest` | Native group relevance, repeat entry, per-row values and serialized case effects for local/HQ forms. |
+| Localization | `LocalizationRuntimeTest` | Native locale reader, language switching, prompts, user-facing text and serialized values; no text layout claim. |
+| Worker property identities | `WorkerIdentityRuntimeTest` | Real session-data references through form and suite expressions on both paths. |
+| Search endpoints | `EndpointRuntimeTest` | Native remote-request URLs and parameters; the HTTP request is not sent. |
+| No-match registration | `NoMatchesRuntimeTest` | Native result-count relevance, registration actions and source/target navigation state. |
+| Nested menus | `NestedMenuRuntimeTest` | Native selected-case membership, parent/child datum values and smaller child selection maxima. |
+| Expander corpus | `ExpanderRuntimeTest` | Full native suite/form parsing of the captured admitted corpus, plus actual double-digit choice-label substitution and evaluation. Form parsing does not initialize every corpus form. |
+| Predicate operators | `PredicateRuntimeTest` | Fifty-two schema-parsed private AST programs on native instance trees: positive/negative comparisons, precedence, quotes, presence, same-row relations and GPS guard short-circuiting, including distinct kilometer/mile boundaries. No whole-app admission, HQ build or database semantics are claimed. |
+
+The nested-menu producer intentionally retains two currently refused HQ projections
+as counterexamples. Core proves all ten local shapes work. The native HQ path
+loses a relation parent selected multiple times and fails to enforce a smaller
+child maximum; target admission refuses those two projections. The other eight
+HQ shapes retain complete native structural parity. These are wire/runtime
+checks, not Android interaction tests.
+
+XPath proofs execute the production lowerer and independently inspect native
+built-in dispatch and parser arities. They do not reconstruct a lowerer in Java.
+The parser's custom-function fallback is distinguished from actual native
+registration, and the raw `normalize-space()` negative remains deliberately
+unhandled. The finite corpus includes nonbreaking-space coercion neighbors.
+
+`TileGroupingRuntimeTest` uses `emit-tile-evidence` resources. It completes native
+case selection in three grouped form-entry variants and verifies the computed
+parent IDs. A retained pre-fix suite must throw for the missing session instance;
+the current suites resolve their declared instances. This executes session
+selection, independently of tile rendering.

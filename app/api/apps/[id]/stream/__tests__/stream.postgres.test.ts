@@ -37,8 +37,8 @@
  *   - Teardown: abort and cancel each disown the subscriptions, pumps, and
  *     intervals.
  *
- * Session/account resolution and the membership-row read are mocked; the route
- * still runs its real authorization transaction against the per-test Postgres.
+ * Session extraction is controlled; account and membership checks use the real
+ * migrated auth schema and authoritative app authorization transaction.
  * The route's cursor/frame logic, reload and revocation state machine,
  * teardown, plus the real LISTEN/NOTIFY path are the code under test.
  *
@@ -49,26 +49,16 @@
  * `__setListenerConfigForTests`.
  */
 
-import { type Kysely, sql, type Transaction } from "kysely";
-import {
-	afterAll,
-	afterEach,
-	beforeEach,
-	describe,
-	expect,
-	it,
-	vi,
-} from "vitest";
+import { type Kysely, sql } from "kysely";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import * as caseStoreConnection from "@/lib/case-store/postgres/connection";
-import { setupPerTestDatabase } from "@/lib/case-store/sql/__tests__/perTestDatabase";
 import { createReconciler, type MutationFrame } from "@/lib/collab/reconciler";
-import {
-	createPerTestAppDb,
-	type PerTestAppDb,
-} from "@/lib/db/__tests__/perTestAppDb";
+import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import * as apiKeys from "@/lib/db/api-keys";
+import * as appAccess from "@/lib/db/appAccess";
 import { RETENTION_COUNT } from "@/lib/db/constants";
-import { __setAppDbForTests, type AppDatabase } from "@/lib/db/pg";
+import type { AppDatabase } from "@/lib/db/pg";
+import * as presenceRoster from "@/lib/db/presenceRoster";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
@@ -79,68 +69,27 @@ import {
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 
-// ── Auth mocks (no Better Auth / membership tables for the relay) ──────────
-const {
-	requireSessionMock,
-	getSessionSafeMock,
-	resolveAppScopeMock,
-	resolveAppScopeInTransactionMock,
-	isUserActiveMock,
-} = vi.hoisted(() => ({
+// Session extraction is the authentication boundary; database authorization is real.
+const { requireSessionMock, getSessionSafeMock } = vi.hoisted(() => ({
 	requireSessionMock: vi.fn(),
 	getSessionSafeMock: vi.fn(),
-	resolveAppScopeMock: vi.fn(),
-	resolveAppScopeInTransactionMock: vi.fn(),
-	isUserActiveMock: vi.fn(),
 }));
-
-/* A real `AppAccessError` (the cadence revokes ONLY on this class, so the mock
- * must throw the genuine one for the `instanceof` gate to fire). */
-class MockAppAccessError extends Error {
-	readonly name = "AppAccessError";
-	constructor(readonly reason: string) {
-		super(reason);
-	}
-}
 
 vi.mock("@/lib/auth-utils", () => ({
 	requireSession: requireSessionMock,
 	getSessionSafe: getSessionSafeMock,
 }));
-/* `reauthorizeStreamScope` keeps its real shape: `withAppTx` around
- * `resolveAppScopeInTransaction`, so a test programs ONE mock and it drives the
- * connect gate, the app-change reauthorization, and the cadence re-check alike,
- * each on a genuine transaction against the per-test database. */
-vi.mock("@/lib/db/appAccess", async () => {
-	const { withAppTx } = await import("@/lib/db/pg");
-	return {
-		resolveAppScope: resolveAppScopeMock,
-		resolveAppScopeInTransaction: resolveAppScopeInTransactionMock,
-		reauthorizeStreamScope: (appId: string, userId: string) =>
-			withAppTx((tx) =>
-				resolveAppScopeInTransactionMock(tx, appId, userId, "view"),
-			),
-		AppAccessError: MockAppAccessError,
-	};
-});
-vi.mock("@/lib/db/api-keys", () => ({
-	isUserActive: isUserActiveMock,
-}));
-vi.mock("@/lib/db/projectMembership", () => ({
-	projectRoleFor: vi.fn(async () => "editor"),
-	projectRoleForInTransaction: vi.fn(async () => "editor"),
-}));
-
-/* The route reads its revocation cadence from `NOVA_STREAM_CADENCE_MS` at
- * MODULE LOAD, so set it before the dynamic import below: a short cadence lets
- * the revocation tests observe a `revoked` frame in well under a second instead
- * of waiting the prod ~10 s. Prod never sets this var. */
-const originalStreamEnv = {
-	cadence: process.env.NOVA_STREAM_CADENCE_MS,
-};
+const originalCadence = process.env.NOVA_STREAM_CADENCE_MS;
 process.env.NOVA_STREAM_CADENCE_MS = "150";
-
-const { GET } = await import("../route");
+const { GET } = await (async () => {
+	try {
+		return await import("../route");
+	} finally {
+		if (originalCadence === undefined)
+			delete process.env.NOVA_STREAM_CADENCE_MS;
+		else process.env.NOVA_STREAM_CADENCE_MS = originalCadence;
+	}
+})();
 const { POST: presencePost } = await import("../../presence/route");
 const { __setStreamReadTestHooksForTests } = await import(
 	"@/lib/db/streamReadTestHooks"
@@ -181,8 +130,6 @@ const LOOKUP_SOURCE_B = lookupOptionsSourceSchema.parse({
 	labelColumnId: "018f3e8a-7b2c-7def-8abc-1234567890b0",
 });
 
-const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 function deferredVoid(): { promise: Promise<void>; resolve: () => void } {
 	let resolve!: () => void;
 	const promise = new Promise<void>((done) => {
@@ -191,18 +138,15 @@ function deferredVoid(): { promise: Promise<void>; resolve: () => void } {
 	return { promise, resolve };
 }
 
-const dbHandle = setupPerTestDatabase({
-	schema: "migrated",
-	databaseNamePrefix: "stream_relay_",
+const h = setupAppStateTestDb("stream_relay_", {
+	authSchema: "migrated",
+	poolMax: 4,
 });
-
 let appDb: Kysely<AppDatabase>;
-let restoreCaseDatabase: (() => void) | undefined;
-let harness: PerTestAppDb;
 
 /** A minimal session shape the route reads (`session.user.id`). */
 function sessionFor(userId: string) {
-	return { user: { id: userId } } as never;
+	return { user: { id: userId } };
 }
 
 /**
@@ -492,18 +436,15 @@ async function writeLookupTable(projectId: string, tag: string): Promise<void> {
  * removes the listener's legitimate initial-connect catch-up poke, so a reader
  * that recovers below proves its OWN timer retried without any new notification. */
 async function warmStreamListener(): Promise<void> {
-	await new Promise<void>((resolve, reject) => {
-		const timeout = setTimeout(
-			() => reject(new Error("stream listener did not connect")),
-			2_000,
-		);
-		let unsubscribe = () => {};
-		unsubscribe = subscribeLookupProject(PROJECT, () => {
-			clearTimeout(timeout);
-			unsubscribe();
-			resolve();
-		});
+	let ready = false;
+	const unsubscribe = subscribeLookupProject(PROJECT, () => {
+		ready = true;
 	});
+	try {
+		await expect.poll(() => ready, { timeout: 2000 }).toBe(true);
+	} finally {
+		unsubscribe();
+	}
 }
 
 /** One parsed SSE frame. */
@@ -576,14 +517,20 @@ async function collectUntil(
 
 	// Kick off any side effect that should happen once the stream is open (e.g.
 	// committing a batch the LISTEN should then deliver).
-	const opened = Promise.resolve(opts.onOpen?.(() => frames));
+	const opened = Promise.resolve()
+		.then(() => opts.onOpen?.(() => frames))
+		.then(
+			() => ({ ok: true as const }),
+			(error) => {
+				controller.abort();
+				return { ok: false as const, error };
+			},
+		);
+	let producerOutcome: Awaited<typeof opened>;
 
 	try {
 		while (true) {
-			const chunk = await reader.read().catch(() => ({
-				done: true as const,
-				value: undefined,
-			}));
+			const chunk = await reader.read();
 			if (chunk.value) {
 				raw += decoder.decode(chunk.value, { stream: true });
 				frames.length = 0;
@@ -595,83 +542,54 @@ async function collectUntil(
 	} finally {
 		clearTimeout(deadline);
 		controller.abort();
-		await reader.cancel().catch(() => {});
-		// Surface an onOpen rejection (a failed commit) rather than letting it
-		// masquerade as "no frame delivered".
-		await opened;
+		try {
+			await reader.cancel();
+		} finally {
+			reader.releaseLock();
+			producerOutcome = await opened;
+		}
 	}
+	if (producerOutcome && !producerOutcome.ok) throw producerOutcome.error;
 	return { frames, controller };
 }
 
 beforeEach(async () => {
-	harness = createPerTestAppDb(dbHandle.uri);
-	appDb = harness.appDb;
-	__setAppDbForTests(appDb);
-	const caseDatabase = vi
-		.spyOn(caseStoreConnection, "getCaseStoreDatabase")
-		.mockResolvedValue(
-			appDb as unknown as Awaited<
-				ReturnType<typeof caseStoreConnection.getCaseStoreDatabase>
-			>,
-		);
-	restoreCaseDatabase = () => caseDatabase.mockRestore();
-	__setListenerConfigForTests(dbHandle.uri);
-
+	appDb = h.db();
+	__setListenerConfigForTests(h.uri());
+	await h.seedProjectMember(USER, PROJECT, "editor");
+	await h.seedProjectMember(USER, OTHER_PROJECT, "editor");
 	requireSessionMock.mockReset();
 	getSessionSafeMock.mockReset();
-	resolveAppScopeMock.mockReset();
-	resolveAppScopeInTransactionMock.mockReset();
-	isUserActiveMock.mockReset();
-	// Default: the actor is a live, active, authorized member.
 	getSessionSafeMock.mockResolvedValue(sessionFor(USER));
-	isUserActiveMock.mockResolvedValue(true);
-	resolveAppScopeMock.mockResolvedValue({
-		projectId: PROJECT,
-		role: "editor",
-		actorUserId: USER,
-	});
-	resolveAppScopeInTransactionMock.mockImplementation(
-		async (tx: Transaction<AppDatabase>, appId: string, userId: string) => {
-			const app = await tx
-				.selectFrom("apps")
-				.select(["mutation_seq", "status"])
-				.where("id", "=", appId)
-				.executeTakeFirst();
-			if (!app) throw new MockAppAccessError("not_found");
-			return {
-				projectId: PROJECT,
-				role: "editor",
-				canEdit: true,
-				baseSeq: Number(app.mutation_seq),
-				status: app.status,
-				actorUserId: userId,
-			};
-		},
-	);
 });
-
 afterEach(async () => {
 	__setStreamReadTestHooksForTests(null);
 	__setNextListenerCloseBarrierForTests(null);
-	// Close the dedicated LISTEN client BEFORE the per-test DROP DATABASE, a
-	// leaked LISTEN connection would be force-terminated by the drop and its
-	// reconnect timer would spin against a vanished database. Each response's
-	// cancellation or EOF already awaited its reads before fixture teardown.
 	await closeStreamListener();
 	__setListenerConfigForTests(null);
-	__setAppDbForTests(null);
-	restoreCaseDatabase?.();
-	restoreCaseDatabase = undefined;
-	await harness.destroy();
+	vi.restoreAllMocks();
 });
+async function removeMembership(projectId = PROJECT) {
+	await h
+		.pool()
+		.query(
+			'DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2',
+			[USER, projectId],
+		);
+}
 
-afterAll(() => {
-	if (originalStreamEnv.cadence === undefined) {
-		delete process.env.NOVA_STREAM_CADENCE_MS;
-	} else {
-		process.env.NOVA_STREAM_CADENCE_MS = originalStreamEnv.cadence;
+async function writeAndObserveLookup(tag: string) {
+	let notified = false;
+	const unsubscribe = subscribeLookupProject(PROJECT, () => {
+		notified = true;
+	});
+	try {
+		await writeLookupTable(PROJECT, tag);
+		await expect.poll(() => notified).toBe(true);
+	} finally {
+		unsubscribe();
 	}
-});
+}
 
 describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 	it("replays committed entries past the cursor as mutation frames with id:<seq>", async () => {
@@ -789,7 +707,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			async onOpen() {
 				// Let the dedicated LISTEN connection attach, then commit a batch the
 				// commit's `pg_notify` should deliver as a live `mutation` frame.
-				await delay(300);
+				await warmStreamListener();
 				await commitGuardedBatch({
 					appId,
 					expectedProjectId: PROJECT,
@@ -1039,7 +957,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const { frames } = await collectUntil(appId, {
 			since: 0,
 			async onOpen() {
-				await delay(300);
+				await warmStreamListener();
 				await writeLookupTable(PROJECT, "live_table");
 			},
 			predicate: (f) =>
@@ -1128,11 +1046,13 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const { frames } = await collectUntil(appId, {
 			since: 0,
 			async onOpen() {
-				await delay(300);
-				await Promise.all([
+				await warmStreamListener();
+				const writes = await Promise.allSettled([
 					writeLookupTable(PROJECT, "alpha_table"),
 					writeLookupTable(PROJECT, "beta_table"),
 				]);
+				for (const write of writes)
+					if (write.status === "rejected") throw write.reason;
 			},
 			predicate: (f) =>
 				f.some((x) => {
@@ -1163,7 +1083,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			since: 0,
 			timeoutMs: 1_200,
 			async onOpen() {
-				await delay(300);
+				await warmStreamListener();
 				await writeLookupTable(OTHER_PROJECT, "foreign_table");
 			},
 			predicate: () => false,
@@ -1191,7 +1111,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			async onOpen() {
 				// Let the LISTEN attach, then POST presence through the real route:
 				// its `notifyPresence` poke should drive a live roster frame.
-				await delay(300);
+				await warmStreamListener();
 				const res = await presencePost(
 					new Request(`http://localhost/api/apps/${appId}/presence`, {
 						method: "POST",
@@ -1369,7 +1289,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 	it("admits every post-baseline body before reloading for the baseline", async () => {
 		const appId = await seedApp(3);
-		await writeRawEntry(appId, 1, [{ kind: "retired-pre-horizon-vocabulary" }]);
+		await writeEntry(appId, 1);
 		await writeBaselineMarker(appId, 2);
 		await writeRawEntry(appId, 3, [
 			{ kind: "setAppName", name: "invalid", unexpected: true },
@@ -1436,41 +1356,24 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(frames.some((frame) => frame.event === "mutation")).toBe(false);
 	});
 
-	it.each([
-		["editor", true],
-		["viewer", false],
-	] as const)(
-		"reloads after app-change reauthorization succeeds as destination %s",
-		async (role, canEdit) => {
-			const appId = await seedApp(1);
-			await writeEntry(appId, 1, { kind: "blueprint-migration" });
-			resolveAppScopeInTransactionMock
-				.mockResolvedValueOnce({
-					projectId: PROJECT,
-					role: "editor",
-					canEdit: true,
-					baseSeq: GENESIS_SEQ + 1,
-					status: "complete",
-					actorUserId: USER,
-				})
-				.mockResolvedValue({
-					projectId: OTHER_PROJECT,
-					role,
-					canEdit,
-					baseSeq: GENESIS_SEQ + 1,
-					actorUserId: USER,
-				});
-
+	it.each(["editor", "viewer"] as const)(
+		"reloads after a real Project move with destination %s access",
+		async (role) => {
+			const appId = await seedApp(0);
+			await h.seedProjectMember(USER, OTHER_PROJECT, role);
+			await writeEmptyProjectMove(appId, PROJECT, OTHER_PROJECT);
 			const { frames } = await collectUntil(appId, {
-				since: 0,
 				predicate: (current) =>
 					current.some((frame) => frame.event === "reload"),
 			});
-
-			const reload = frames.find((frame) => frame.event === "reload");
-			expect(reload?.id).toBeUndefined();
-			expect(reload?.data).toEqual({ reason: "app-changed" });
-			expect(frames.some((frame) => frame.event === "revoked")).toBe(false);
+			expect(frames.filter((frame) => frame.event === "reload")).toEqual([
+				{ event: "reload", data: { reason: "app-changed" } },
+			]);
+			expect(
+				frames.some(
+					(frame) => frame.event === "revoked" || frame.event === "mutation",
+				),
+			).toBe(false);
 		},
 	);
 
@@ -1503,16 +1406,15 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const appId = await seedApp(2);
 		await writeEntry(appId, 1);
 		await writeEntry(appId, 2, { kind: "blueprint-migration" });
-		resolveAppScopeInTransactionMock
-			.mockResolvedValueOnce({
-				projectId: PROJECT,
-				role: "editor",
-				canEdit: true,
-				baseSeq: GENESIS_SEQ + 2,
-				status: "complete",
-				actorUserId: USER,
-			})
-			.mockRejectedValue(new MockAppAccessError("not_member"));
+		const realScope = appAccess.reauthorizeStreamScope;
+		let calls = 0;
+		vi.spyOn(appAccess, "reauthorizeStreamScope").mockImplementation(
+			async (...args) => {
+				const scope = await realScope(...args);
+				if (++calls === 1) await removeMembership();
+				return scope;
+			},
+		);
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
@@ -1620,13 +1522,24 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 			location: { kind: "not-a-real-kind" },
 		});
 
+		const projection = vi.spyOn(presenceRoster, "projectPresenceRoster");
 		const { frames } = await collectUntil(appId, {
-			since: 0,
-			timeoutMs: 3_000,
-			/* The independent lookup current page proves initial stream delivery ran;
-			 * the malformed presence page must not publish its valid subset. */
-			predicate: (f) => f.some((x) => x.event === "lookup-revision"),
+			onOpen: async () => {
+				await expect
+					.poll(() => projection.mock.calls.length)
+					.toBeGreaterThan(0);
+				await writeLookupTable(PROJECT, "after_roster_check");
+			},
+			predicate: (current) =>
+				current.some(
+					(frame) =>
+						frame.event === "lookup-revision" &&
+						(frame.data as { projectRevision: string }).projectRevision === "1",
+				),
 		});
+		expect(
+			projection.mock.results.some((result) => result.type === "throw"),
+		).toBe(true);
 
 		expect(frames.some((frame) => frame.event === "presence")).toBe(false);
 	});
@@ -1635,7 +1548,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const appId = await seedApp(0);
 		// The ban lands after connect: `isUserActive` reads a definitively
 		// banned/deleted user.
-		isUserActiveMock.mockResolvedValue(false);
+		await h
+			.pool()
+			.query("UPDATE auth_user SET banned = true WHERE id = $1", [USER]);
 
 		const { frames } = await collectUntil(appId, {
 			since: 0,
@@ -1648,20 +1563,9 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 
 	it("revokes within the cadence when membership is lost", async () => {
 		const appId = await seedApp(0);
-		// Connect-time scope passes; the cadence re-check then denies with a REAL
-		// `AppAccessError` (the only membership-loss signal that revokes).
-		resolveAppScopeInTransactionMock
-			.mockResolvedValueOnce({
-				projectId: PROJECT,
-				role: "editor",
-				canEdit: true,
-				baseSeq: GENESIS_SEQ,
-				status: "complete",
-				actorUserId: USER,
-			})
-			.mockRejectedValue(new MockAppAccessError("not_member"));
 
 		const { frames } = await collectUntil(appId, {
+			onOpen: () => removeMembership(),
 			since: 0,
 			timeoutMs: 3_000,
 			predicate: (f) => f.some((x) => x.event === "revoked"),
@@ -1685,85 +1589,71 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		expect(frames.some((f) => f.event === "revoked")).toBe(true);
 	});
 
-	it("does NOT revoke on a TRANSIENT backend blip (a non-AppAccessError throw, a null session, an isUserActive throw)", async () => {
-		const appId = await seedApp(0);
-		// Every cadence signal is transient/ambiguous: an authorized collaborator
-		// must NOT be booted.
-		getSessionSafeMock.mockResolvedValue(null);
-		isUserActiveMock.mockRejectedValue(new Error("pool exhausted"));
-		resolveAppScopeInTransactionMock
-			.mockResolvedValueOnce({
-				projectId: PROJECT,
-				role: "editor",
-				canEdit: true,
-				baseSeq: GENESIS_SEQ,
-				status: "complete",
-				actorUserId: USER,
-			})
-			.mockRejectedValue(new Error("db blip"));
-
-		// Wait past several cadence ticks (150 ms each) and assert NO revoke.
-		const { frames } = await collectUntil(appId, {
-			since: 0,
-			timeoutMs: 1_500,
-			predicate: () => false,
-		});
-
-		expect(frames.some((f) => f.event === "revoked")).toBe(false);
-	});
-
-	it.each([
-		[
-			"Project",
-			{
-				projectId: OTHER_PROJECT,
-				role: "editor",
-				canEdit: true,
-			},
-		],
-		[
-			"role",
-			{
-				projectId: PROJECT,
-				role: "admin",
-				canEdit: true,
-			},
-		],
-		[
-			"canEdit",
-			{
-				projectId: PROJECT,
-				role: "editor",
-				canEdit: false,
-			},
-		],
-	] as const)(
-		"reloads seq-less when captured %s changes",
-		async (_name, fresh) => {
+	it.each(["null session", "account read", "scope read"] as const)(
+		"keeps an authorized stream through transient %s failure and delivers the next real commit",
+		async (boundary) => {
 			const appId = await seedApp(0);
-			resolveAppScopeInTransactionMock
-				.mockResolvedValueOnce({
-					projectId: PROJECT,
-					role: "editor",
-					canEdit: true,
-					baseSeq: GENESIS_SEQ,
-					actorUserId: USER,
-				})
-				.mockResolvedValue({
-					...fresh,
-					baseSeq: GENESIS_SEQ,
-					actorUserId: USER,
+			await warmStreamListener();
+			let attempts = 0;
+			const realAccount = apiKeys.isUserActive;
+			const realScope = appAccess.reauthorizeStreamScope;
+			if (boundary === "null session")
+				getSessionSafeMock.mockImplementation(async () => {
+					attempts++;
+					return null;
 				});
-
+			if (boundary === "account read")
+				vi.spyOn(apiKeys, "isUserActive").mockImplementation(
+					async (...args) => {
+						if (++attempts <= 2) throw new Error("pool exhausted");
+						return realAccount(...args);
+					},
+				);
 			const { frames } = await collectUntil(appId, {
-				since: 0,
+				predicate: (current) =>
+					current.some((frame) => frame.event === "mutation"),
+				onOpen: async () => {
+					if (boundary === "scope read")
+						vi.spyOn(appAccess, "reauthorizeStreamScope").mockImplementation(
+							async (...args) => {
+								if (++attempts <= 2) throw new Error("scope pool exhausted");
+								return realScope(...args);
+							},
+						);
+					await expect.poll(() => attempts).toBeGreaterThanOrEqual(3);
+					await commitGuardedBatch({
+						appId,
+						expectedProjectId: PROJECT,
+						batchId: crypto.randomUUID(),
+						mutations: admitMutationBatch([
+							{ kind: "setAppName", name: "Still connected" },
+						]),
+						actorUserId: USER,
+						kind: "autosave",
+					});
+				},
+			});
+			expect(
+				frames
+					.filter((frame) => frame.event === "mutation")
+					.map((frame) => (frame.data as MutationFrame).mutations),
+			).toEqual([[{ kind: "setAppName", name: "Still connected" }]]);
+			expect(frames.some((frame) => frame.event === "revoked")).toBe(false);
+		},
+	);
+
+	it.each(["admin", "viewer"] as const)(
+		"reloads seq-less when real membership changes from editor to %s",
+		async (role) => {
+			const appId = await seedApp(0);
+			const { frames } = await collectUntil(appId, {
+				onOpen: () => h.seedProjectMember(USER, PROJECT, role),
 				predicate: (current) =>
 					current.some((frame) => frame.event === "reload"),
 			});
-
-			const reload = frames.find((frame) => frame.event === "reload");
-			expect(reload?.id).toBeUndefined();
-			expect(reload?.data).toEqual({ reason: "authorization-changed" });
+			expect(frames.filter((frame) => frame.event === "reload")).toEqual([
+				{ event: "reload", data: { reason: "authorization-changed" } },
+			]);
 			expect(frames.some((frame) => frame.event === "revoked")).toBe(false);
 		},
 	);
@@ -1771,9 +1661,7 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 	it("returns the IDOR-safe 404 when connect-time authorization denies", async () => {
 		const appId = await seedApp(0);
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
-		resolveAppScopeInTransactionMock.mockRejectedValue(
-			new MockAppAccessError("not_member"),
-		);
+		await removeMembership();
 
 		const res = await GET(
 			new Request(`http://localhost/api/apps/${appId}/stream`),
@@ -1803,6 +1691,8 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		});
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const controller = new AbortController();
+		const startedIntervals = vi.spyOn(globalThis, "setInterval");
+		const stoppedIntervals = vi.spyOn(globalThis, "clearInterval");
 		const res = await GET(
 			new Request(`http://localhost/api/apps/${appId}/stream?since=1`, {
 				signal: controller.signal,
@@ -1812,24 +1702,35 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const reader = res.body?.getReader();
 		if (!reader) throw new Error("stream had no body");
 
-		/* Let both readers start with a mutation retry pending, then exercise only
-		 * req.signal abort. Drain through
-		 * done without reader.cancel(), so this path cannot accidentally rely on the
-		 * underlying stream's cancel hook for cleanup. */
-		await vi.waitFor(() => expect(mutationAttempts).toBe(1));
-		await reader.read();
-		controller.abort();
-		let done = false;
-		while (!done) {
-			const result = await reader.read().catch(() => ({ done: true as const }));
-			done = result.done;
-		}
+		try {
+			/* Let both readers start with a mutation retry pending, then exercise only
+			 * req.signal abort. Drain through
+			 * done without reader.cancel(), so this path cannot accidentally rely on the
+			 * underlying stream's cancel hook for cleanup. */
+			await vi.waitFor(() => expect(mutationAttempts).toBe(1));
+			await reader.read();
+			controller.abort();
+			let done = false;
+			while (!done) {
+				const result = await reader.read();
+				done = result.done;
+			}
 
-		expect(controller.signal.aborted).toBe(true);
-		const attemptsAtAbort = { mutationAttempts, lookupAttempts };
-		await writeLookupTable(PROJECT, "after_abort");
-		await delay(400);
-		expect({ mutationAttempts, lookupAttempts }).toEqual(attemptsAtAbort);
+			expect(controller.signal.aborted).toBe(true);
+			const attemptsAtAbort = { mutationAttempts, lookupAttempts };
+			await writeAndObserveLookup("after_abort");
+			expect({ mutationAttempts, lookupAttempts }).toEqual(attemptsAtAbort);
+			expect(startedIntervals.mock.results.length).toBe(2);
+			for (const interval of startedIntervals.mock.results)
+				expect(stoppedIntervals).toHaveBeenCalledWith(interval.value);
+		} finally {
+			controller.abort();
+			try {
+				await reader.cancel();
+			} finally {
+				reader.releaseLock();
+			}
+		}
 	});
 
 	it("tears down on stream cancel without requiring request abort", async () => {
@@ -1848,6 +1749,8 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		});
 		requireSessionMock.mockResolvedValue(sessionFor(USER));
 		const controller = new AbortController();
+		const startedIntervals = vi.spyOn(globalThis, "setInterval");
+		const stoppedIntervals = vi.spyOn(globalThis, "clearInterval");
 		const res = await GET(
 			new Request(`http://localhost/api/apps/${appId}/stream?since=1`, {
 				signal: controller.signal,
@@ -1857,16 +1760,27 @@ describe("/stream relay (Postgres LISTEN/NOTIFY)", () => {
 		const reader = res.body?.getReader();
 		if (!reader) throw new Error("stream had no body");
 
-		await vi.waitFor(() => expect(mutationAttempts).toBe(1));
-		await reader.cancel();
-		expect(controller.signal.aborted).toBe(false);
-		const attemptsAtCancel = { mutationAttempts, lookupAttempts };
-		await writeLookupTable(PROJECT, "after_cancel");
-		await delay(400);
-		expect({ mutationAttempts, lookupAttempts }).toEqual(attemptsAtCancel);
-		/* A second consumer-level cancel is a no-op at the stream layer; the
-		 * route's teardown is independently idempotent for cancel+abort races. */
-		controller.abort();
-		expect(controller.signal.aborted).toBe(true);
+		try {
+			await vi.waitFor(() => expect(mutationAttempts).toBe(1));
+			await reader.cancel();
+			expect(controller.signal.aborted).toBe(false);
+			const attemptsAtCancel = { mutationAttempts, lookupAttempts };
+			await writeAndObserveLookup("after_cancel");
+			expect({ mutationAttempts, lookupAttempts }).toEqual(attemptsAtCancel);
+			/* A second consumer-level cancel is a no-op at the stream layer; the
+			 * route's teardown is independently idempotent for cancel+abort races. */
+			controller.abort();
+			expect(controller.signal.aborted).toBe(true);
+			expect(startedIntervals.mock.results.length).toBe(2);
+			for (const interval of startedIntervals.mock.results)
+				expect(stoppedIntervals).toHaveBeenCalledWith(interval.value);
+		} finally {
+			try {
+				await reader.cancel();
+			} finally {
+				reader.releaseLock();
+				controller.abort();
+			}
+		}
 	});
 });

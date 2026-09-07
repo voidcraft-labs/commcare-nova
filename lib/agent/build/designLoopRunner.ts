@@ -61,6 +61,7 @@ import {
 	createDesignAgent,
 	DESIGN_WAIT_FOR_INPUT_TOOL,
 	type DesignAgentStep,
+	hasAuthoritativeDesignStateMessage,
 	isExactRequiredDesignQuestionCall,
 	REQUIRED_DESIGN_QUESTIONS_HEADER,
 	requiredDesignQuestionAuthorizationKey,
@@ -220,15 +221,6 @@ function readDesignToolDiagnostic(output: Record<string, unknown> | null): {
 	};
 }
 
-/** A fresh contract is being designed; replacing any persisted contract is a
- * revision from the person's point of view even though the same semantic
- * `finishDesign` call closes both kinds of workspace. */
-export function contractSubmissionPulsePhase(
-	hasPersistedContract: boolean,
-): DesignPulsePhase {
-	return hasPersistedContract ? "revise" : "design";
-}
-
 export function designToolPulsePhase(
 	toolName: string,
 	current: DesignPulsePhase,
@@ -364,12 +356,6 @@ export function trailingSuccessfulDesignWait(
 		return null;
 	}
 	return null;
-}
-
-export function designModelContextTrailsSuccessfulWait(
-	messages: readonly ModelMessage[],
-): boolean {
-	return trailingSuccessfulDesignWait(messages) !== null;
 }
 
 export function designWaitResponsePrefix(args: {
@@ -1396,6 +1382,14 @@ export async function validateAuthorizedProjectLookupEvidence(
 					});
 					continue;
 				}
+				if (definition.tableRevision !== intent.expectedTableRevision) {
+					issues.push({
+						path: [...path, "expectedTableRevision"],
+						message:
+							"This Project lookup table changed after its changes were designed. Inspect its current revision and update the proposed changes.",
+					});
+					continue;
+				}
 				const columnIds = new Set(
 					definition.columns.map((column) => column.id),
 				);
@@ -1497,6 +1491,7 @@ export async function validateAuthorizedProjectLookupEvidence(
 export async function runDesignAgentLoop(
 	args: DesignLoopRunnerArgs,
 ): Promise<DesignLoopOutcome> {
+	args.signal.throwIfAborted();
 	const authority = {
 		actorUserId: args.actorUserId,
 		runId: args.runId,
@@ -1907,6 +1902,8 @@ export async function runDesignAgentLoop(
 			promptCacheKey: `nova:design:${args.designSessionId}`,
 			fatalError: () => repair.fatalError(),
 			requiredUserQuestions,
+			isAuthoritativeStateMessage: (message) =>
+				hasAuthoritativeDesignStateMessage(modelContextCurrentItems, message),
 			freshStateMessage: async () =>
 				stateMessageFor(evaluateDesignGates(await loadAncestry())),
 			onCompactionState: async ({ boundaryDigest, message }) => {
@@ -2111,7 +2108,7 @@ export async function runDesignAgentLoop(
 			await appendContext(stateKey, [stateMessage]);
 		}
 		const prompt = modelContext;
-		const result = await agent.stream({ prompt });
+		const result = await agent.stream({ prompt, abortSignal: args.signal });
 		const drained = Promise.resolve(result.consumeStream()).catch(() => {});
 
 		/* Forward chunks into the run's one write choke point. The
@@ -2375,6 +2372,7 @@ export async function runDesignAgentLoop(
 			});
 		}
 		await drained;
+		args.signal.throwIfAborted();
 		const incomplete = [...toolStreams.entries()].find(
 			([, tracked]) => !tracked.inputAvailable && !tracked.outcomeEmitted,
 		);

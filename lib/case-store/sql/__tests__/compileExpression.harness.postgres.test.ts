@@ -25,6 +25,7 @@ import {
 	matchNone,
 	now,
 	prop,
+	qualifiedLiteral,
 	relationStep,
 	selfPath,
 	switchCase,
@@ -402,6 +403,53 @@ describe("compileExpression — round-trip — coercion arms", () => {
 // expected value differs.
 
 describe("compileExpression — arithmetic", () => {
+	test("bound numeric answers keep declared types for all operators", async ({
+		db,
+	}) => {
+		const left = testUuid("arithmetic-left");
+		const right = testUuid("arithmetic-right");
+		for (const [type, a, b, quotient, remainder] of [
+			["int", "10", "3", 3, 1],
+			["int", "-10", "3", -3, -1],
+			["int", "10", "-3", -3, 1],
+			["int", "-10", "-3", 3, -1],
+			["int", "2147483648", "3", 715827882, 2],
+			["decimal", "10", "3", 10 / 3, 1],
+			["decimal", "10.5", "3", 3.5, 1.5],
+		] as const) {
+			const ctx = {
+				...makeCtx(db),
+				formFieldTypes: new Map([
+					[left, type],
+					[right, "int" as const],
+				]),
+				bindings: {
+					formFields: new Map([
+						[left, a],
+						[right, b],
+					]),
+				},
+			};
+			for (const [op, expected] of [
+				["div", quotient],
+				["mod", remainder],
+				["+", Number(a) + Number(b)],
+				["-", Number(a) - Number(b)],
+				["*", Number(a) * Number(b)],
+			] as const) {
+				const expression = arith(
+					op,
+					term(formField(left)),
+					term(formField(right)),
+				);
+				const row = await db
+					.selectNoFrom(compileExpression(expression, ctx).as("value"))
+					.executeTakeFirstOrThrow();
+				expect(typeof row.value).not.toBe("boolean");
+				expect(Number(row.value)).toBe(expected);
+			}
+		}
+	});
 	test("evaluates ordinary numeric literals and preserves integer versus decimal operations", async ({
 		db,
 	}) => {
@@ -412,6 +460,11 @@ describe("compileExpression — arithmetic", () => {
 			[arith("div", term(literal(10)), term(literal(3))), 3],
 			[arith("mod", term(literal(10)), term(literal(3))), 1],
 			[arith("div", term(literal(10.5)), term(literal(3))), 3.5],
+			[arith("div", term(literal(2147483648)), term(literal(3))), 715827882],
+			[
+				arith("div", term(qualifiedLiteral(10, "decimal")), term(literal(3))),
+				10 / 3,
+			],
 			[arith("+", term(literal(10)), term(literal(0.5))), 10.5],
 			[arith("-", term(literal(-2147483649)), term(literal(1))), -2147483650],
 			[arith("+", term(literal(2147483648)), term(literal(1))), 2147483649],
@@ -1054,12 +1107,31 @@ describe("compileExpression — round-trip — count arm", () => {
 			count(ancestorPath(relationStep("parent", "household"))),
 			makeCtx(db),
 		);
+		const arithmeticCount = compileExpression(
+			arith(
+				"div",
+				arith(
+					"*",
+					count(
+						ancestorPath(relationStep("parent")),
+						eq(prop("household", "size"), literal(4)),
+					),
+					term(literal(10)),
+				),
+				term(literal(3)),
+			),
+			{ ...makeCtx(db), currentCaseType: "patient" },
+		);
 		const rows = await db
 			.selectFrom("cases as c")
 			.where("c.case_id", "=", PATIENT_CASE_ID)
-			.select(sql<number>`${expr}`.as("v"))
+			.select([
+				sql<number>`${expr}`.as("v"),
+				arithmeticCount.as("arithmetic_count"),
+			])
 			.execute();
 		expect(Number(rows[0].v)).toBe(1);
+		expect(Number(rows[0].arithmetic_count)).toBe(3);
 	});
 
 	test("count returns zero when no ancestor matches", async ({ db }) => {

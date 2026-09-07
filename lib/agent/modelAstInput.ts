@@ -175,7 +175,7 @@ function normalizeValue(value: unknown): unknown {
 			});
 		case "count":
 			return source.where === undefined
-				? normalizeAny(source)
+				? normalizeMembers(source)
 				: withMembers(source, { where: normalizePredicate(source.where) });
 		case "format-date":
 			return withMembers(source, { date: normalizeValue(source.date) });
@@ -247,7 +247,7 @@ function normalizePredicate(value: unknown): unknown {
 		case "exists":
 		case "missing":
 			return source.where === undefined
-				? normalizeAny(source)
+				? normalizeMembers(source)
 				: withMembers(source, { where: normalizePredicate(source.where) });
 		default:
 			return normalizeMembers(source);

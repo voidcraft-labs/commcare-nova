@@ -22,11 +22,9 @@
  *
  * Three things this rule deliberately does NOT do:
  *
- *   - It does not reject a cell on a column that is hidden from
- *     Results. That column's cell is inert, and keeping it means
- *     unhiding the column restores the placement the author drew.
- *   - It does not reject a cell when the layout is off, for the same
- *     reason.
+ *   - It does not require placement on a column hidden from Results;
+ *     stored placements still have to fit the grid.
+ *   - It does not require placement when the layout is off.
  *   - **It does not require a hidden, order-driving column to be
  *     placed.** Sorting by something a worker doesn't see is an
  *     ordinary case-list pattern and it works unchanged on a tile.

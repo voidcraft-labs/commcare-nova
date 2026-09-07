@@ -1,0 +1,57 @@
+{
+	"owner": "builder",
+	"baselineOwner": "application",
+	"scope": "Bounded native full-browser integration supplement for the case-changes journey; original Application whole-file review remains authoritative for other journeys. Root concurrently corrected separate form-links persistence readiness in this same file.",
+	"priorWholeFileReview": {
+		"report": "/tmp/nova-test-audit-parallel/application/report.json",
+		"file": "e2e/tests/authed.spec.ts",
+		"reviewedSha256": "54b78897c1141be32833f241e0c365aca9c9cd993e66ee0461d7b0bebd01912a"
+	},
+	"files": [
+		{
+			"file": "e2e/tests/authed.spec.ts",
+			"status": "revised",
+			"review": "Traced focused row key handler through case-operation move planner, current document read, shared commit admission and reactive lookup context. Failure snapshot contains Project-data-loading refusal, proving the key reached commit admission; Home had correctly refused earlier at the ordering planner. The prior test checked absence of a commit-generated error before any commit, which cannot establish lookup readiness. Revised initial native setup holds real Server Action reads, proves the catalog is loading while that alert is absent, releases and joins all handlers, then observes the existing production catalog ready state before the unchanged Home/ArrowUp sequence. Focus is asserted before and after the single successful row move. No timeout increase, action retry, production change, or mocked catalog response. Preserve original whole-file Application review when overlaying this supplement.",
+			"reviewedSha256": "34dcf5bc928771c55a2c0a814098552d857dedeb8a8dce1ed608f8eed97fa098"
+		}
+	],
+	"changedPaths": ["e2e/tests/authed.spec.ts"],
+	"productionChanges": [],
+	"reviewedProductionSha256": {
+		"components/builder/case-operations/CaseOperationsCanvas.tsx": "81b935919434c575a6a85540b7954177a5ff1bc313d58516501ac6ac891ac406",
+		"components/builder/case-operations/CaseOperationRow.tsx": "cc6d4c53d3a141e034a44696a8847ee79e1c7dc768938628dd38d2e0ef8fc77d",
+		"components/builder/case-operations/keyboardMove.ts": "47a0b5211d658792d9c81b75e5e32dfeb99be35e35f9a719aded7187df4c0789",
+		"lib/doc/hooks/useCaseOperations.ts": "cd777b1491e7e328720b5a3c222a18a28cb98b6d151849fb0f7ce334537f5826",
+		"lib/doc/hooks/useBlueprintMutations.ts": "5748c2c83387cdcecfcad5d68d83d95350104be4cd0e9104f0445851ff7878bc",
+		"lib/doc/builderWriteAdmission.ts": "bb38eaaa0155668ad9b5ce6403c2d5c9b8015605aac307a86064f6c9cf43d322",
+		"lib/doc/lookupCommitContext.tsx": "b1069b52c1dd19948cac79a89e31aef8bb76084bf47dd79ae964e26aafabf0a9",
+		"components/builder/lookup/BuilderLookupCatalogProvider.tsx": "06985e34ab86880159a021dd66b381cc351c579b11b5ab3ded60197360a25774",
+		"lib/preview/hooks/useReloadableResource.ts": "64b4185ee4f2a164ce4f12e3e2c9cf37792ed85b6c18d91b34a6d4fab1e115ae"
+	},
+	"finding": {
+		"kind": "test readiness invariant",
+		"cause": "Absence of an inline refusal before a gesture was mistaken for Project catalog readiness. The catalog legitimately remained loading under full-suite load.",
+		"correction": "Observe the actual existing catalog state; hold the real initial reads to make the distinction deterministic."
+	},
+	"checks": [
+		{
+			"command": "Root full-browser integration",
+			"log": "/tmp/nova-root-integration-browser.log",
+			"result": "226/228 passed; case-changes failure preserved alongside independent form-links readiness failure."
+		},
+		{
+			"command": "mise exec -- npx biome check --write e2e/tests/authed.spec.ts",
+			"log": "/tmp/nova-test-audit-parallel/builder/case-changes-integration-biome.log",
+			"result": "1 file checked and formatted with no remaining diagnostics."
+		},
+		{
+			"command": "Root-coordinated fresh-seed native rerun using unchanged production artifact, no retries, trace on",
+			"log": "/tmp/nova-root-browser-readiness.log",
+			"result": "Both readiness scenarios passed in18.2s; complete case-changes journey passed8.7s, including held actual read/load observation and keyboard focus. Root form-links scenario independently passed its acknowledged-save/submission journey."
+		}
+	],
+	"blockedBy": [],
+	"integrationNotes": [
+		"Native rerun retains the known usercase duplicate-key server warnings from the unchanged build. Application owns that separate production correction; these passing readiness scenarios do not claim it is fixed."
+	]
+}

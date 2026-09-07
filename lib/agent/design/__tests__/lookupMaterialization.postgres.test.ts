@@ -1,8 +1,11 @@
+import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import type { DesignArtifactWriteAuthority } from "@/lib/agent/design/artifactStore";
 import {
 	type AppDesignContract,
 	appDesignContractBaseSchema,
+	appDesignContractSchema,
 } from "@/lib/agent/design/contract";
 import { sealArtifactEnvelope } from "@/lib/agent/design/envelope";
 import { computeLookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
@@ -23,8 +26,9 @@ import {
 	makeLookupContract,
 	messageRef,
 } from "./fixtures";
+import { persistAcceptedRevisionFixture } from "./persistedFixtures";
 
-const h = setupAppStateTestDb("design_lookup_materialization_");
+const h = setupAppStateTestDb("design_lookup_materialization_", { poolMax: 3 });
 
 const RUN_ID = "run-design-lookup";
 const ACTOR = "lookup-designer";
@@ -66,114 +70,36 @@ async function seedAcceptedRevision(
 		run_actor_user_id: ACTOR,
 		run_lease_expires_at: new Date(Date.now() + 60_000),
 	});
-	const packageDigest = "a".repeat(64);
-	const draftEnvelope = sealArtifactEnvelope({
-		artifactType: "design-contract" as const,
-		artifactSchemaVersion: contract.schemaVersion,
-		artifactId: crypto.randomUUID(),
+	const persisted = await persistAcceptedRevisionFixture({
 		designSessionId,
-		revision: 1,
-		parentArtifactId: null,
-		sourcePackageDigest: packageDigest,
-		inputArtifactDigests: [],
-		promptVersion: "design-test-v2",
-		producer: {
-			provider: "openai",
-			modelId: "design-test",
-			finishReason: "stop",
-		},
-		createdAt: new Date().toISOString(),
-		payload: storedPayload,
+		authority: authority(),
+		contract,
 	});
-	const acceptedEnvelope = sealArtifactEnvelope({
-		artifactType: "design-contract" as const,
-		artifactSchemaVersion: contract.schemaVersion,
-		artifactId: crypto.randomUUID(),
-		designSessionId,
-		revision: 2,
-		parentArtifactId: draftEnvelope.artifactId,
-		sourcePackageDigest: packageDigest,
-		inputArtifactDigests: [draftEnvelope.artifactDigest],
-		promptVersion: "design-test-v2",
-		producer: {
-			provider: "openai",
-			modelId: "design-test",
-			finishReason: "stop",
-		},
-		createdAt: new Date().toISOString(),
-		payload: storedPayload,
-	});
-	await h
-		.db()
-		.insertInto("design_source_packages")
-		.values({
-			id: crypto.randomUUID(),
-			design_session_id: designSessionId,
-			project_id: PROJECT,
-			package_digest: packageDigest,
-			created_by_run_id: RUN_ID,
-			payload: JSON.stringify({
-				schemaVersion: 1,
-				designSessionId,
-				projectId: PROJECT,
-				packageDigest,
-				claims: [],
-				sources: [messageRef()],
-				requestBlockCount: 1,
-				attachmentCount: 0,
-				imageCount: 0,
-				projectedBytes: 32,
-				extensionProof: {
-					foundationDigest: "1".repeat(64),
-					requestBlockDigests: ["2".repeat(64)],
-					claimDigests: [],
-					attachmentDigests: [],
-					imageDigests: [],
-					sourceIndexDigests: ["3".repeat(64)],
-				},
-			}),
-		})
-		.execute();
-	await h
-		.db()
-		.insertInto("design_revisions")
-		.values({
-			id: draftEnvelope.artifactId,
-			design_session_id: designSessionId,
-			revision: 1,
-			parent_revision_id: null,
-			lifecycle: "draft",
-			artifact_digest: draftEnvelope.artifactDigest,
-			contract_digest: canonicalJsonDigest(storedPayload),
-			source_package_digest: packageDigest,
-			producer_model: "design-test",
-			prompt_version: "design-test-v2",
-			created_by_run_id: RUN_ID,
-			envelope: JSON.stringify(draftEnvelope),
-		})
-		.execute();
-	await h
-		.db()
-		.insertInto("design_revisions")
-		.values({
-			id: acceptedEnvelope.artifactId,
-			design_session_id: designSessionId,
-			revision: 2,
-			parent_revision_id: draftEnvelope.artifactId,
-			lifecycle: "accepted",
-			artifact_digest: acceptedEnvelope.artifactDigest,
-			contract_digest: canonicalJsonDigest(storedPayload),
-			source_package_digest: packageDigest,
-			producer_model: "design-test",
-			prompt_version: "design-test-v2",
-			created_by_run_id: RUN_ID,
-			envelope: JSON.stringify(acceptedEnvelope),
-		})
-		.execute();
+	let accepted = persisted.accepted;
+	if (storedPayload !== contract) {
+		// Explicit legacy-storage reader control. Normal accepted fixtures enter
+		// through the actual source, draft, independent review and acceptance writers.
+		const { artifactDigest: _digest, ...unsealed } = accepted.envelope;
+		const envelope = sealArtifactEnvelope({
+			...unsealed,
+			payload: storedPayload,
+		});
+		await h
+			.db()
+			.updateTable("design_revisions")
+			.set({
+				envelope: JSON.stringify(envelope),
+				artifact_digest: envelope.artifactDigest,
+				contract_digest: canonicalJsonDigest(storedPayload),
+			})
+			.where("id", "=", accepted.id)
+			.execute();
+		accepted = { ...accepted, artifactDigest: envelope.artifactDigest };
+	}
 	return {
 		designSessionId,
-		designRevisionId: acceptedEnvelope.artifactId,
-		designRevisionDigest: acceptedEnvelope.artifactDigest,
+		designRevisionId: accepted.id,
+		designRevisionDigest: accepted.artifactDigest,
 	};
 }
 
@@ -195,55 +121,425 @@ async function seedSuccessorAcceptedRevision(
 	const previous = await h
 		.db()
 		.selectFrom("design_revisions")
-		.select("revision")
-		.where("design_session_id", "=", prior.designSessionId)
-		.orderBy("revision", "desc")
+		.select(["id", "revision", "artifact_digest"])
+		.where("id", "=", prior.designRevisionId)
 		.executeTakeFirstOrThrow();
-	const revision = Number(previous.revision) + 1;
-	const envelope = sealArtifactEnvelope({
-		artifactType: "design-contract" as const,
-		artifactSchemaVersion: contract.schemaVersion,
-		artifactId: crypto.randomUUID(),
+	const { accepted } = await persistAcceptedRevisionFixture({
 		designSessionId: prior.designSessionId,
-		revision,
-		parentArtifactId: prior.designRevisionId,
-		sourcePackageDigest: "a".repeat(64),
-		inputArtifactDigests: [prior.designRevisionDigest],
-		promptVersion: "design-test-v2",
-		producer: {
-			provider: "openai" as const,
-			modelId: "design-test",
-			finishReason: "stop",
+		authority: authority(),
+		contract,
+		predecessor: {
+			id: previous.id,
+			revision: Number(previous.revision),
+			artifactDigest: previous.artifact_digest,
 		},
-		createdAt: new Date().toISOString(),
-		payload: contract,
 	});
-	await h
-		.db()
-		.insertInto("design_revisions")
-		.values({
-			id: envelope.artifactId,
-			design_session_id: prior.designSessionId,
-			revision,
-			parent_revision_id: prior.designRevisionId,
-			lifecycle: "accepted",
-			artifact_digest: envelope.artifactDigest,
-			contract_digest: canonicalJsonDigest(contract),
-			source_package_digest: "a".repeat(64),
-			producer_model: "design-test",
-			prompt_version: "design-test-v2",
-			created_by_run_id: RUN_ID,
-			envelope: JSON.stringify(envelope),
-		})
-		.execute();
 	return {
 		designSessionId: prior.designSessionId,
-		designRevisionId: envelope.artifactId,
-		designRevisionDigest: envelope.artifactDigest,
+		designRevisionId: accepted.id,
+		designRevisionDigest: accepted.artifactDigest,
 	};
 }
 
+async function existingLookupFixture() {
+	const created = await h
+		.db()
+		.transaction()
+		.execute((tx) =>
+			applyLookupAuthoringBatchInTransaction(tx, scope, {
+				createTables: [
+					{
+						key: "existing",
+						name: "Existing risk",
+						tag: "existing_risk",
+						columns: [
+							{
+								key: "value",
+								wireName: "value",
+								label: "Value",
+								dataType: "text",
+							},
+							{
+								key: "label",
+								wireName: "label",
+								label: "Label",
+								dataType: "text",
+							},
+							{
+								key: "number",
+								wireName: "number",
+								label: "Number",
+								dataType: "text",
+							},
+							{
+								key: "discard",
+								wireName: "discard",
+								label: "Discard",
+								dataType: "text",
+							},
+						],
+						rows: ["low", "high", "priority"].map((value) => ({
+							key: value,
+							cells: [
+								{ columnKey: "value", value },
+								{ columnKey: "label", value: value.toUpperCase() },
+							],
+						})),
+					},
+				],
+			}),
+		);
+	const table = created.tables[0];
+	const column = (key: string) => {
+		const id = table.columnIds.find((item) => item.key === key)?.id;
+		if (id === undefined) throw new Error(`Missing fixture column ${key}`);
+		return id;
+	};
+	const row = (key: string) => {
+		const id = table.rowIds.find((item) => item.key === key)?.id;
+		if (id === undefined) throw new Error(`Missing fixture row ${key}`);
+		return id;
+	};
+	const contract = makeContract();
+	const risk = contract.records[0]?.properties.find(
+		(property) => property.id === ids.factRisk,
+	);
+	if (risk === undefined) throw new Error("Missing risk property");
+	delete risk.choiceValues;
+	risk.choiceSource = {
+		kind: "existing-project-lookup",
+		tableId: table.tableId,
+		valueColumnId: column("value"),
+		labelColumnId: column("label"),
+		inspection: computeLookupChoiceProjectionAttestation({
+			tableRevision: created.projectRevision,
+			tableName: "Existing risk",
+			valueColumnLabel: "Value",
+			labelColumnLabel: "Label",
+			rows: ["low", "high", "priority"].map((value) => ({
+				rowId: row(value),
+				value,
+				label: value.toUpperCase(),
+			})),
+		}),
+	};
+	return { table, column, row, contract };
+}
+
 describe("accepted design lookup materialization", () => {
+	it("refuses a source package whose payload Project disagrees with its stored authority", async () => {
+		const lineage = await seedAcceptedRevision();
+		await sql`UPDATE design_source_packages SET payload = jsonb_set(payload, '{projectId}', '"another-project"'::jsonb) WHERE design_session_id = ${lineage.designSessionId}`.execute(
+			h.db(),
+		);
+		await expect(materialize(lineage)).rejects.toThrow(
+			"different identity or digest",
+		);
+		expect((await getAllLookupDefinitions(scope)).definitions).toEqual([]);
+	});
+	it("materializes ordered existing-table edits through the real authoring and governance writers", async () => {
+		const { table, column, row, contract } = await existingLookupFixture();
+		const extra = did(700),
+			extra2 = did(701),
+			urgent = did(702),
+			tail = did(703);
+		const rowEvidence = {
+			sourceRefs: [messageRef()],
+			summary: "The request specifies these exact risk rows.",
+		};
+		const col = (key: string) => ({
+			kind: "existing-column" as const,
+			columnId: column(key),
+		});
+		contract.lookupTables = [
+			{
+				kind: "modify-existing",
+				id: ids.lookupRisk,
+				tableId: table.tableId,
+				expectedTableRevision: "1" as never,
+				purpose: "Apply the reviewed shared risk update",
+				authorization: {
+					kind: "direct-user-request",
+					sourceRefs: [messageRef()],
+					impactSummary: "Changes the shared risk table.",
+				},
+				operations: [
+					{ kind: "update-table", name: "Reviewed risk", tag: "reviewed_risk" },
+					{
+						kind: "update-column",
+						columnId: column("label"),
+						label: "Display",
+						wireName: "caption",
+					},
+					{
+						kind: "update-column",
+						columnId: column("number"),
+						dataType: "int",
+					},
+					{
+						kind: "add-column",
+						column: {
+							id: extra,
+							wireName: "extra",
+							label: "Extra",
+							dataType: "text",
+						},
+						after: col("label"),
+					},
+					{
+						kind: "add-column",
+						column: {
+							id: extra2,
+							wireName: "front",
+							label: "Front",
+							dataType: "text",
+						},
+						after: { kind: "added-column", columnId: extra },
+					},
+					{
+						kind: "move-column",
+						column: { kind: "added-column", columnId: extra2 },
+					},
+					{ kind: "remove-column", columnId: column("discard") },
+					{
+						kind: "update-row",
+						rowId: row("low"),
+						cells: [
+							{ column: col("value"), value: "routine" },
+							{ column: col("label"), value: "Routine" },
+							{ column: col("number"), value: 1 },
+							{
+								column: { kind: "added-column", columnId: extra },
+								value: "alpha",
+							},
+						],
+						rowEvidence,
+					},
+					{ kind: "remove-row", rowId: row("high") },
+					{
+						kind: "add-row",
+						rowId: urgent,
+						after: { kind: "existing-row", rowId: row("low") },
+						cells: [
+							{ column: col("value"), value: "urgent" },
+							{ column: col("label"), value: "Urgent" },
+							{ column: col("number"), value: 2 },
+						],
+						rowEvidence,
+					},
+					{
+						kind: "add-row",
+						rowId: tail,
+						after: { kind: "added-row", rowId: urgent },
+						cells: [
+							{ column: col("value"), value: "tail" },
+							{ column: col("label"), value: "Tail" },
+						],
+						rowEvidence,
+					},
+					{ kind: "move-row", row: { kind: "added-row", rowId: urgent } },
+					{
+						kind: "move-row",
+						row: { kind: "existing-row", rowId: row("priority") },
+						after: { kind: "added-row", rowId: tail },
+					},
+				],
+			},
+		];
+		const admitted = appDesignContractSchema.parse(contract);
+		const receipt = await materialize(
+			await seedAcceptedRevision(admitted),
+			admitted,
+		);
+		if (receipt === null) throw new Error("Expected receipt");
+		const addedId = (designId: string) => {
+			const binding = receipt.payload.bindings.find(
+				(item) => item.designId === designId,
+			);
+			if (binding === undefined) throw new Error("Missing created identity");
+			return binding.lookupId;
+		};
+		expect(
+			await h
+				.db()
+				.selectFrom("lookup_tables")
+				.select(["name", "tag"])
+				.where("id", "=", table.tableId)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ name: "Reviewed risk", tag: "reviewed_risk" });
+		expect(
+			await h
+				.db()
+				.selectFrom("lookup_columns")
+				.select(["id", "wire_name", "label", "data_type"])
+				.where("table_id", "=", table.tableId)
+				.orderBy("order_key")
+				.execute(),
+		).toEqual([
+			{
+				id: addedId(extra2),
+				wire_name: "front",
+				label: "Front",
+				data_type: "text",
+			},
+			{
+				id: column("value"),
+				wire_name: "value",
+				label: "Value",
+				data_type: "text",
+			},
+			{
+				id: column("label"),
+				wire_name: "caption",
+				label: "Display",
+				data_type: "text",
+			},
+			{
+				id: addedId(extra),
+				wire_name: "extra",
+				label: "Extra",
+				data_type: "text",
+			},
+			{
+				id: column("number"),
+				wire_name: "number",
+				label: "Number",
+				data_type: "int",
+			},
+		]);
+		expect(
+			await h
+				.db()
+				.selectFrom("lookup_rows")
+				.select(["id", "values"])
+				.where("table_id", "=", table.tableId)
+				.orderBy("order_key")
+				.execute(),
+		).toEqual([
+			{
+				id: addedId(urgent),
+				values: {
+					[column("value")]: "urgent",
+					[column("label")]: "Urgent",
+					[column("number")]: 2,
+				},
+			},
+			{
+				id: row("low"),
+				values: {
+					[column("value")]: "routine",
+					[column("label")]: "Routine",
+					[column("number")]: 1,
+					[addedId(extra)]: "alpha",
+				},
+			},
+			{
+				id: addedId(tail),
+				values: { [column("value")]: "tail", [column("label")]: "Tail" },
+			},
+			{
+				id: row("priority"),
+				values: {
+					[column("value")]: "priority",
+					[column("label")]: "PRIORITY",
+				},
+			},
+		]);
+		expect(receipt.payload.projectRevision).toBe("2");
+		expect(
+			await h
+				.db()
+				.selectFrom("design_lookup_protections")
+				.select("column_id")
+				.where("materialization_id", "=", receipt.id)
+				.execute(),
+		).toEqual(
+			expect.arrayContaining(
+				[
+					null,
+					addedId(extra),
+					addedId(extra2),
+					column("value"),
+					column("label"),
+					column("number"),
+				].map((column_id) => ({ column_id })),
+			),
+		);
+	});
+
+	it("replaces the complete row set with minted identities while preserving the existing columns", async () => {
+		const { table, column, row, contract } = await existingLookupFixture();
+		contract.lookupTables = [
+			{
+				kind: "modify-existing",
+				id: ids.lookupRisk,
+				tableId: table.tableId,
+				expectedTableRevision: "1" as never,
+				purpose: "Replace reviewed values",
+				authorization: {
+					kind: "direct-user-request",
+					sourceRefs: [messageRef()],
+					impactSummary: "Replaces all rows in the shared risk table.",
+				},
+				operations: [
+					{
+						kind: "replace-rows",
+						rowEvidence: {
+							sourceRefs: [messageRef()],
+							summary: "The request names exactly the two replacement values.",
+						},
+						rows: ["routine", "urgent"].map((value, index) => ({
+							id: did(750 + index),
+							cells: [
+								{
+									column: {
+										kind: "existing-column",
+										columnId: column("value"),
+									},
+									value,
+								},
+								{
+									column: {
+										kind: "existing-column",
+										columnId: column("label"),
+									},
+									value: value.toUpperCase(),
+								},
+							],
+						})),
+					},
+				],
+			},
+		];
+		const admitted = appDesignContractSchema.parse(contract);
+		const receipt = await materialize(
+			await seedAcceptedRevision(admitted),
+			admitted,
+		);
+		if (receipt === null) throw new Error("Expected receipt");
+		const rows = await h
+			.db()
+			.selectFrom("lookup_rows")
+			.select(["id", "values"])
+			.where("table_id", "=", table.tableId)
+			.orderBy("order_key")
+			.execute();
+		expect(rows).toEqual(
+			["routine", "urgent"].map((value, index) => ({
+				id: receipt.payload.bindings.find(
+					(binding) => binding.designId === did(750 + index),
+				)?.lookupId,
+				values: {
+					[column("value")]: value,
+					[column("label")]: value.toUpperCase(),
+				},
+			})),
+		);
+		expect(rows.map(({ id }) => id)).not.toEqual(
+			expect.arrayContaining([row("low"), row("high"), row("priority")]),
+		);
+		expect(receipt.payload.projectRevision).toBe("2");
+	});
 	it("normalizes a digest-verified historical list selection before materializing", async () => {
 		const contract = designedLookupContract();
 		const stored = structuredClone(contract) as unknown as Record<
@@ -305,6 +601,80 @@ describe("accepted design lookup materialization", () => {
 			"lookup-row",
 			"lookup-row",
 		]);
+		const table = first.payload.bindings.find(
+			(binding) => binding.kind === "lookup-table",
+		);
+		const value = first.payload.bindings.find(
+			(binding) => binding.designId === ids.lookupRiskValue,
+		);
+		const label = first.payload.bindings.find(
+			(binding) => binding.designId === ids.lookupRiskLabel,
+		);
+		if (
+			table?.kind !== "lookup-table" ||
+			value?.kind !== "lookup-column" ||
+			label?.kind !== "lookup-column"
+		)
+			throw new Error("Missing actual lookup identities");
+		expect(
+			await h
+				.db()
+				.selectFrom("lookup_tables")
+				.select(["id", "name", "tag", "project_id"])
+				.where("project_id", "=", PROJECT)
+				.execute(),
+		).toEqual([
+			{
+				id: table.lookupId,
+				name: "Risk levels",
+				tag: "risk_levels",
+				project_id: PROJECT,
+			},
+		]);
+		expect(
+			await h
+				.db()
+				.selectFrom("lookup_columns")
+				.select(["id", "wire_name", "label", "data_type"])
+				.where("table_id", "=", table.lookupId)
+				.orderBy("order_key")
+				.execute(),
+		).toEqual([
+			{
+				id: value.lookupId,
+				wire_name: "value",
+				label: "Value",
+				data_type: "text",
+			},
+			{
+				id: label.lookupId,
+				wire_name: "label",
+				label: "Label",
+				data_type: "text",
+			},
+		]);
+		expect(
+			await h
+				.db()
+				.selectFrom("lookup_rows")
+				.select(["id", "values"])
+				.where("table_id", "=", table.lookupId)
+				.orderBy("order_key")
+				.execute(),
+		).toEqual([
+			{
+				id: first.payload.bindings.find(
+					(binding) => binding.designId === ids.lookupRiskRoutine,
+				)?.lookupId,
+				values: { [value.lookupId]: "routine", [label.lookupId]: "Routine" },
+			},
+			{
+				id: first.payload.bindings.find(
+					(binding) => binding.designId === ids.lookupRiskPriority,
+				)?.lookupId,
+				values: { [value.lookupId]: "priority", [label.lookupId]: "Priority" },
+			},
+		]);
 		expect(
 			await h
 				.db()
@@ -326,6 +696,117 @@ describe("accepted design lookup materialization", () => {
 				.executeTakeFirstOrThrow(),
 		).toEqual({ n: "3" });
 		expect((await getAllLookupDefinitions(scope)).projectRevision).toBe("1");
+	});
+
+	it("converges competing materializers through actual PostgreSQL lock waits", async () => {
+		const lineage = await seedAcceptedRevision();
+		const results = await whileBlocked(
+			h,
+			(pg) =>
+				pg.query("SELECT id FROM design_sessions WHERE id=$1 FOR UPDATE", [
+					lineage.designSessionId,
+				]),
+			() => Promise.allSettled([materialize(lineage), materialize(lineage)]),
+			async (settled, pg) => {
+				expect(settled).toBe(false);
+				const deadline = Date.now() + 2_000;
+				for (;;) {
+					await pg.query("SELECT pg_stat_clear_snapshot()");
+					const waiters = await pg.query<{ n: number }>(
+						"SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname=current_database() AND wait_event_type='Lock'",
+					);
+					if (waiters.rows[0].n >= 2) break;
+					if (Date.now() > deadline)
+						throw new Error("Both materializers did not reach SQL lock waits");
+					await new Promise<void>((resolve) => setImmediate(resolve));
+				}
+			},
+		);
+		const receipts = results.map((result) => {
+			if (result.status === "rejected") throw result.reason;
+			if (result.value === null) throw new Error("Expected a lookup receipt");
+			return result.value;
+		});
+		expect(receipts[0].id).toBe(receipts[1].id);
+		expect(receipts[0].payload).toEqual(receipts[1].payload);
+		expect(
+			await h
+				.db()
+				.selectFrom("design_lookup_materializations")
+				.select("id")
+				.execute(),
+		).toEqual([{ id: receipts[0].id }]);
+		expect((await getAllLookupDefinitions(scope)).projectRevision).toBe("1");
+	});
+
+	it("rolls back created rows and revisions when the final protection insert fails", async () => {
+		const lineage = await seedAcceptedRevision();
+		await sql`CREATE FUNCTION reject_lookup_protection() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected final protection failure'; END $$`.execute(
+			h.db(),
+		);
+		await sql`CREATE TRIGGER reject_lookup_protection BEFORE INSERT ON design_lookup_protections FOR EACH ROW EXECUTE FUNCTION reject_lookup_protection()`.execute(
+			h.db(),
+		);
+		try {
+			await expect(materialize(lineage)).rejects.toThrow(
+				"injected final protection failure",
+			);
+			for (const table of [
+				"lookup_tables",
+				"lookup_columns",
+				"lookup_rows",
+				"design_lookup_materializations",
+				"design_lookup_protections",
+			] as const) {
+				expect(await h.db().selectFrom(table).select("id").execute()).toEqual(
+					[],
+				);
+			}
+			expect((await getAllLookupDefinitions(scope)).projectRevision).toBe("0");
+		} finally {
+			await sql`DROP TRIGGER reject_lookup_protection ON design_lookup_protections`.execute(
+				h.db(),
+			);
+			await sql`DROP FUNCTION reject_lookup_protection()`.execute(h.db());
+		}
+		expect((await materialize(lineage))?.payload.projectRevision).toBe("1");
+	});
+
+	it("binds a recovered receipt to its stored revision metadata", async () => {
+		const lineage = await seedAcceptedRevision();
+		const receipt = await materialize(lineage);
+		if (receipt === null) throw new Error("Expected a lookup receipt");
+		const forged = {
+			...receipt.payload,
+			designRevisionId: crypto.randomUUID(),
+		};
+		await h
+			.db()
+			.updateTable("design_lookup_materializations")
+			.set({
+				mapping: JSON.stringify(forged),
+				result_digest: canonicalJsonDigest(forged),
+			})
+			.where("id", "=", receipt.id)
+			.execute();
+		await expect(materialize(lineage)).rejects.toThrow("stored lineage");
+	});
+
+	it("refuses genesis revalidation for a different design session", async () => {
+		const lineage = await seedAcceptedRevision();
+		await materialize(lineage);
+		await expect(
+			h
+				.db()
+				.transaction()
+				.execute((tx) =>
+					assertDesignLookupMaterializationCurrentInTransaction(tx, {
+						...lineage,
+						designSessionId: crypto.randomUUID(),
+						projectId: PROJECT,
+					}),
+				),
+		).rejects.toThrow("stored lineage");
 	});
 
 	it("releases only superseded revision protections, including a no-lookup successor", async () => {

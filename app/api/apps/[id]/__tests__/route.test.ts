@@ -6,7 +6,7 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import {
 	AppAccessError,
@@ -22,22 +22,32 @@ import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { GET, PUT } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/db/appAccess", () => ({
-	AppAccessError: class AppAccessError extends Error {
-		readonly name = "AppAccessError";
-		constructor(readonly reason: string) {
-			super(reason);
-		}
-	},
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
 	resolveAppAccess: vi.fn(),
 	resolveAuthorizedAppSnapshot: vi.fn(),
 }));
+
 vi.mock("@/lib/db/applyBlueprintChange", () => ({
 	applyBlueprintChange: vi.fn(),
 }));
 
 const SESSION = { user: { id: "user-1" } };
-const DOC = buildDoc({ appName: "Nutrition visits", modules: [] });
+const DOC = buildDoc({
+	appName: "Nutrition visits",
+	modules: [
+		{
+			name: "Visits",
+			forms: [
+				{
+					name: "Visit",
+					type: "survey",
+					fields: [f({ id: "note", kind: "text" })],
+				},
+			],
+		},
+	],
+});
 const BLUEPRINT = toPersistableDoc(DOC);
 
 function request(): Request {
@@ -64,8 +74,8 @@ beforeEach(() => {
 			blueprint: BLUEPRINT,
 			mutation_seq: 42,
 			connect_type: null,
-			module_count: 0,
-			form_count: 0,
+			module_count: 1,
+			form_count: 1,
 			status: "complete",
 			error_type: null,
 			deleted_at: null,
@@ -88,8 +98,8 @@ beforeEach(() => {
 			blueprint: BLUEPRINT,
 			mutation_seq: 42,
 			connect_type: null,
-			module_count: 0,
-			form_count: 0,
+			module_count: 1,
+			form_count: 1,
 			status: "complete",
 			error_type: null,
 			deleted_at: null,
@@ -126,14 +136,10 @@ describe("GET /api/apps/[id]", () => {
 			blueprint: BLUEPRINT,
 			baseSeq: 42,
 		});
-		expect(Object.keys(body).toSorted()).toEqual(
-			["projectId", "role", "canEdit", "blueprint", "baseSeq"].toSorted(),
-		);
 	});
 
 	it("keeps authorization denial IDOR-opaque", async () => {
-		const denied = new Error("not_member");
-		denied.name = "AppAccessError";
+		const denied = new AppAccessError("not_member");
 		vi.mocked(resolveAuthorizedAppSnapshot).mockRejectedValueOnce(denied);
 
 		const response = await GET(request(), params());

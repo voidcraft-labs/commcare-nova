@@ -1,6 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { type ZodError, z } from "zod";
-import { declaredBodyTooLarge, isClientAbort } from "@/lib/apiError";
+import {
+	ApiError,
+	declaredBodyTooLarge,
+	isClientAbort,
+	readBodyBytes,
+} from "@/lib/apiError";
 import { requireSession } from "@/lib/auth-utils";
 import { AppAccessError, resolveProjectAccess } from "@/lib/db/appAccess";
 import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
@@ -97,11 +102,9 @@ function invalidInput(error: ZodError): LookupFailure<"invalid_input"> {
 }
 
 /**
- * `measuredBytes` is the size actually seen: the declared `Content-Length` on
- * the pre-buffer rejection, the buffered length afterwards. Naming it is what
- * separates "your file is 12.4 MB, the limit is 8 MB" from a generic refusal
- * the author cannot act on. It is absent only when a chunked request declared
- * no length at all, and the sentence says so rather than inventing a number.
+ * A declared oversized request can name its complete Content-Length. A body
+ * refused while streaming has not been read to completion, so its actual size
+ * is unknown and the message states only that it exceeds the import limit.
  */
 function csvTooLarge(measuredBytes?: number): LookupFailure<"invalid_csv"> {
 	const limit = formatLookupBytes(LOOKUP_MAX_CSV_BYTES);
@@ -189,10 +192,7 @@ export async function POST(req: NextRequest, context: RouteContext) {
 			});
 		}
 
-		const bytes = new Uint8Array(await req.arrayBuffer());
-		if (bytes.byteLength > LOOKUP_MAX_CSV_BYTES) {
-			return failureResponse(csvTooLarge(bytes.byteLength), 413);
-		}
+		const bytes = await readBodyBytes(req, LOOKUP_MAX_CSV_BYTES);
 		const parsed = parseLookupCsv(bytes);
 		if (!parsed.success) return failureResponse(parsed);
 		const validated = validateLookupCsv(parsed.value, current.columns);
@@ -205,6 +205,9 @@ export async function POST(req: NextRequest, context: RouteContext) {
 		});
 		return NextResponse.json({ success: true, value: receipt });
 	} catch (error) {
+		if (error instanceof ApiError && error.status === 413) {
+			return failureResponse(csvTooLarge(), 413);
+		}
 		if (isClientAbort(error)) {
 			log.warn("[lookup/import] client aborted request", {
 				err: error instanceof Error ? error.message : "aborted",

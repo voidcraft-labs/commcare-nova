@@ -1,4 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/** Admitted domain commands through the actual workspace and reducer over
+ * controlled host receipts. No browser layout or SQL transaction claim. */
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { type BlueprintDoc, plainColumn, tileCell } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -14,25 +16,7 @@ import {
 	MOD_A,
 	makeCaseListDoc,
 	makeCaseListFixture,
-	makeCaseListMcpFixture,
 } from "./fixtures";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 function completedResult(
 	result: ConfigureCaseSelectionResult,
@@ -110,7 +94,7 @@ function linkedFollowupDoc(args?: {
 								{
 									name: "case_id",
 									xpath: {
-										parts: [{ kind: "text", text: "case-id" }],
+										parts: [{ kind: "text", text: "'case-id'" }],
 									},
 								},
 							],
@@ -242,16 +226,22 @@ describe("configureCaseSelection", () => {
 		);
 	});
 
-	it("refuses a module with no case list without mutating it", async () => {
+	it("refuses a survey module with no case list without mutating it", async () => {
 		const doc = followupDoc();
+		const {
+			caseType: _caseType,
+			caseListConfig: _caseListConfig,
+			...surveyModule
+		} = doc.modules[MOD_A];
 		const h = makeCaseListFixture({
 			...doc,
-			modules: {
-				...doc.modules,
-				[MOD_A]: { ...doc.modules[MOD_A], caseListConfig: undefined },
+			modules: { ...doc.modules, [MOD_A]: surveyModule },
+			forms: {
+				...doc.forms,
+				[FORM_A]: { ...doc.forms[FORM_A], type: "survey" },
 			},
 		});
-		const before = h.currentDoc();
+		const before = structuredClone(h.currentDoc());
 
 		const result = await h.runTool(configureCaseSelectionTool, {
 			moduleUuid: MOD_A,
@@ -267,7 +257,7 @@ describe("configureCaseSelection", () => {
 
 	it("returns exact coordinated approvals without mutating, then applies one atomic retry", async () => {
 		const h = makeCaseListFixture(linkedFollowupDoc());
-		const before = h.currentDoc();
+		const before = structuredClone(h.currentDoc());
 		const first = await h.runTool(configureCaseSelectionTool, {
 			moduleUuid: MOD_A,
 			selection: { kind: "multiple", maximum: 8 },
@@ -380,7 +370,7 @@ describe("configureCaseSelection", () => {
 
 	it("returns UUID-located blockers without mutating", async () => {
 		const h = makeCaseListFixture(linkedFollowupDoc({ authoredDatums: true }));
-		const before = h.currentDoc();
+		const before = structuredClone(h.currentDoc());
 		const result = await h.runTool(configureCaseSelectionTool, {
 			moduleUuid: MOD_A,
 			selection: { kind: "multiple", maximum: 8 },
@@ -438,23 +428,6 @@ describe("configureCaseSelection", () => {
 		expect(result.mutations).toEqual([]);
 		const completed = completedResult(result.result);
 		expect(completed.outcome).toBe("unchanged");
-	});
-
-	it("emits the same mutation batch through chat and MCP contexts", async () => {
-		const doc = followupDoc();
-		const chat = makeCaseListFixture(doc);
-		const mcp = makeCaseListMcpFixture(doc);
-		const input = {
-			moduleUuid: MOD_A,
-			selection: { kind: "multiple" as const, maximum: 12 },
-		};
-
-		const [chatResult, mcpResult] = await Promise.all([
-			chat.runTool(configureCaseSelectionTool, input),
-			mcp.runTool(configureCaseSelectionTool, input),
-		]);
-
-		expect(chatResult.mutations).toEqual(mcpResult.mutations);
-		expect(chat.currentDoc()).toEqual(mcp.currentDoc());
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 });

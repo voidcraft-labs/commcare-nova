@@ -18,27 +18,34 @@ import type { Database } from "@/lib/case-store/sql/database";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { createExplicitBlankApp } from "@/lib/db/appGenesis";
 import { commitGuardedBatch } from "@/lib/db/apps";
+import { createAndClaimDesignSessionRun } from "@/lib/db/designSessions";
+import { hydratePersistedBlueprint } from "@/lib/doc/fieldParent";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import type { Mutation } from "@/lib/doc/types";
-import type {
-	Automation,
-	BlueprintDoc,
-	Field,
-	Form,
-	Module,
-	Uuid,
+import {
+	type Automation,
+	type BlueprintDoc,
+	type Field,
+	type Form,
+	type Module,
+	plainColumn,
+	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { asUuid } from "@/lib/domain/uuid";
+import { lookupRevisionSchema } from "@/lib/lookup/schema";
 import { emptyGenesisBase } from "../baseLoader";
 import { commitDesignChangeSet } from "../commit";
 import { canonicalJsonDigest } from "../digest";
 import {
+	ChangeSetRequestIdCollisionError,
 	ChangeSetScopeLostError,
 	ChangeSetStagingRejectedError,
 } from "../errors";
-import { CHANGE_SET_TOOL_REGISTRY } from "../registry";
-import { changeSetHandleSchema } from "../schemas";
+import {
+	changeSetHandleSchema,
+	nonAppliedMutationReplayResultSchema,
+} from "../schemas";
 import {
 	beginAppEditChangeSet,
 	beginGenesisChangeSet,
@@ -46,7 +53,6 @@ import {
 	loadChangeSetSteps,
 	loadHandleBindings,
 	lookupStageRequest,
-	stageChangeSetRequest,
 } from "../store";
 import type { ChangeSetLineage } from "../types";
 import {
@@ -115,8 +121,10 @@ const host: ChangeSetWorkspaceHost = {
 /* Every change-set identity column is FK-bound (design_sessions with the
  * design-session unit; revision/plan/attempt with the orchestrator unit),
  * so the lineage helper seeds the whole FK-valid chain. */
-async function lineage(): Promise<ChangeSetLineage> {
-	const seeded = await h.seedDesignLineage();
+async function lineage(existingSessionId?: string): Promise<ChangeSetLineage> {
+	const seeded = await h.seedDesignLineage(
+		existingSessionId ? { existingSessionId } : undefined,
+	);
 	return {
 		designSessionId: seeded.designSessionId,
 		designRevisionId: seeded.designRevisionId,
@@ -149,7 +157,7 @@ async function createTestApp(): Promise<TestApp> {
 			status: "complete",
 		},
 	);
-	const doc = structuredClone(receipt.blueprint) as unknown as BlueprintDoc;
+	const doc = hydratePersistedBlueprint(receipt.blueprint);
 	return { appId: receipt.appId, starter: receipt.starter, doc };
 }
 
@@ -378,7 +386,7 @@ describe("private staging isolation", () => {
 		expect(await canonicalTableCounts(app.appId)).toEqual(before);
 	});
 
-	it("replays a lost response with identical receipt, handles, and revision — and survives process death", async () => {
+	it("replays a lost response with identical receipt, handles, and revision — after opening a fresh workspace", async () => {
 		const app = await createTestApp();
 		const { changeSet, workspace } = await openWorkspace(app.appId);
 		const input = {
@@ -416,7 +424,7 @@ describe("private staging isolation", () => {
 		expect(replay.replayed).toBe(true);
 		expect(replay.receipt).toEqual(first.receipt);
 
-		/* A NEW process: rehydrate from durable state alone. */
+		/* A fresh workspace rehydrates from durable state alone. */
 		const reopened = await ChangeSetMutationWorkspace.open(host, changeSet.id);
 		expect(reopened.currentSnapshot().revision).toBe(1);
 		expect(canonicalJsonDigest(reopened.currentSnapshot().doc.modules)).toBe(
@@ -434,6 +442,42 @@ describe("private staging isolation", () => {
 		});
 		expect(replayAfterDeath.replayed).toBe(true);
 		expect(replayAfterDeath.receipt).toEqual(first.receipt);
+	});
+
+	it("resynchronizes a workspace opened before another continuation stored the same request", async () => {
+		const app = await createTestApp();
+		const { changeSet, workspace: stale } = await openWorkspace(app.appId);
+		const winner = await ChangeSetMutationWorkspace.open(host, changeSet.id);
+		const call = {
+			toolName: "updateApp",
+			requestId: "parallel-continuation",
+			input: { name: "Durable winner" },
+		};
+		const first = await winner.stageDispatch(call);
+		expect(first.receipt?.disposition).toBe("staged");
+		const replay = await stale.stageDispatch(call);
+		expect(replay.replayed).toBe(true);
+		expect(replay.receipt).toEqual(first.receipt);
+		expect(stale.currentSnapshot()).toEqual(winner.currentSnapshot());
+		expect(await loadChangeSetSteps(changeSet.id)).toHaveLength(1);
+	});
+	it("refuses an altered raw request containing an own prototype-named member during replay", async () => {
+		const app = await createTestApp();
+		const { workspace } = await openWorkspace(app.appId);
+		const call = {
+			toolName: "updateApp",
+			requestId: "raw-digest",
+			input: { name: "Durable name" },
+		};
+		expect((await workspace.stageDispatch(call)).receipt?.disposition).toBe(
+			"staged",
+		);
+		await expect(
+			workspace.stageDispatch({
+				...call,
+				input: JSON.parse('{"name":"Durable name","__proto__":{"x":1}}'),
+			}),
+		).rejects.toBeInstanceOf(ChangeSetRequestIdCollisionError);
 	});
 
 	it("prunes a removed handle from the verified projection while retaining its append-only declaration", async () => {
@@ -492,7 +536,7 @@ describe("private staging isolation", () => {
 		expect(reopened.currentExecutionCheckpoint().handles).toEqual([]);
 	});
 
-	it("carries worker symbols across model steps, process recovery, commit, and a later slice", async () => {
+	it("carries worker symbols across tool steps, workspace recovery, commit, and a later slice", async () => {
 		const app = await createTestApp();
 		const sharedLineage = await lineage();
 		const first = await beginAppEditChangeSet({
@@ -824,19 +868,6 @@ describe("private staging isolation", () => {
 	});
 
 	it("dispatches the organization-deriving tools, whose reads answer from the overlay", async () => {
-		/* These three used to be fenced out of the registry because their
-		 * bodies read the persisted app instead of the workspace snapshot —
-		 * which would have made an executor's own staged state invisible to
-		 * its read-backs. They are overlay-native now, so membership alone is
-		 * not the claim: each read must SEE what this change set staged. */
-		for (const toolName of [
-			"getAutomations",
-			"getOrganization",
-			"updateAutomation",
-		]) {
-			expect(CHANGE_SET_TOOL_REGISTRY.has(toolName)).toBe(true);
-		}
-
 		const app = await createTestApp();
 		const { changeSet, workspace } = await openWorkspace(app.appId);
 
@@ -958,45 +989,109 @@ describe("private staging isolation", () => {
 
 	it("replays a typed case-selection pause with its exact confirmation contract", async () => {
 		const app = await createTestApp();
+		const sourceModule = asUuid(crypto.randomUUID());
+		const targetModule = asUuid(crypto.randomUUID());
+		const sourceForm = asUuid(crypto.randomUUID());
+		const targetForm = asUuid(crypto.randomUUID());
+		const link = asUuid(crypto.randomUUID());
+		const mutations: Mutation[] = [
+			{ kind: "declareCaseType", caseType: "patient" },
+		];
+		for (const [moduleUuid, formUuid, id, name] of [
+			[sourceModule, sourceForm, "patients", "Patients"],
+			[targetModule, targetForm, "linked_visits", "Linked visits"],
+		] as const) {
+			const column = asUuid(crypto.randomUUID());
+			mutations.push(
+				{
+					kind: "addModule",
+					module: {
+						uuid: moduleUuid,
+						id,
+						name,
+						caseType: "patient",
+						caseListConfig: {
+							columns: [
+								plainColumn(column, "case_name", "Patient", {
+									visibleInDetail: true,
+									visibleInList: true,
+								}),
+							],
+							listColumnOrder: [column],
+							detailColumnOrder: [column],
+							searchInputs: [],
+						},
+					},
+				},
+				{
+					kind: "addForm",
+					moduleUuid,
+					form: {
+						uuid: formUuid,
+						id,
+						name,
+						type: "followup",
+						...(moduleUuid === sourceModule
+							? {
+									formLinks: [
+										{
+											uuid: link,
+											target: {
+												type: "form",
+												moduleUuid: targetModule,
+												formUuid: targetForm,
+											},
+										},
+									],
+								}
+							: {}),
+					},
+				},
+				{
+					kind: "addField",
+					parentUuid: formUuid,
+					field: starterFieldClone(app.doc, app.starter.fieldUuid),
+				},
+			);
+		}
+		await commitGuardedBatch({
+			appId: app.appId,
+			batchId: crypto.randomUUID(),
+			mutations: admitMutationBatch(mutations),
+			actorUserId: ACTOR,
+			kind: "autosave",
+			expectedProjectId: PROJECT,
+		});
+		const before = await canonicalTableCounts(app.appId);
 		const { changeSet, workspace } = await openWorkspace(app.appId);
-		const linkedModuleUuid = asUuid(crypto.randomUUID());
 		const input = {
-			moduleUuid: app.starter.moduleUuid,
+			moduleUuid: sourceModule,
 			selection: { kind: "multiple", maximum: 8 },
 		};
-		const needsChanges = {
-			kind: "mutate" as const,
-			mutations: [],
-			result: {
-				outcome: "needs_changes" as const,
-				needs: "confirmation" as const,
-				message:
-					"Changing case selection also changes one linked module. No changes were applied.",
-				selection: { kind: "multiple" as const, maximum: 8 },
-				requiredConfirmedModuleUuids: [linkedModuleUuid],
-				confirmationToken: "a".repeat(64),
-				coordinatedChanges: [
-					{
-						moduleUuid: linkedModuleUuid,
-						moduleName: "Linked visits",
-						selection: { kind: "multiple" as const, maximum: 8 },
-						clearedPersistentTile: false,
-						reasons: [],
-					},
-				],
-				clearedPersistentTile: false,
-				blockers: [],
-				summary: { location: "Patients" },
-			},
-		};
-
-		const first = await workspace.invoke({
+		const first = await workspace.stageDispatch({
 			toolName: "configureCaseSelection",
 			requestId: "selection-needs-confirmation",
 			input,
-			execute: async () => needsChanges,
 		});
-		expect(first).toEqual(needsChanges);
+		const needsChanges = nonAppliedMutationReplayResultSchema.parse(
+			first.result,
+		);
+		expect(needsChanges).toMatchObject({
+			kind: "mutate",
+			mutations: [],
+			result: {
+				outcome: "needs_changes",
+				needs: "confirmation",
+				requiredConfirmedModuleUuids: [targetModule],
+				coordinatedChanges: [
+					{
+						moduleUuid: targetModule,
+						moduleName: "Linked visits",
+						reasons: [{ kind: "form-link", linkUuid: link }],
+					},
+				],
+			},
+		});
 		const stored = await lookupStageRequest(
 			changeSet.id,
 			"selection-needs-confirmation",
@@ -1005,18 +1100,17 @@ describe("private staging isolation", () => {
 			disposition: "noop",
 			replayResult: needsChanges,
 		});
-
 		const reopened = await ChangeSetMutationWorkspace.open(host, changeSet.id);
-		const replayExecute = vi.fn(async () => needsChanges);
-		const replay = await reopened.invoke({
+		const replay = await reopened.stageDispatch({
 			toolName: "configureCaseSelection",
 			requestId: "selection-needs-confirmation",
 			input,
-			execute: replayExecute,
 		});
-
-		expect(replay).toEqual(needsChanges);
-		expect(replayExecute).not.toHaveBeenCalled();
+		expect(replay.replayed).toBe(true);
+		expect(replay.result).toEqual(needsChanges);
+		expect(replay.receipt).toEqual(first.receipt);
+		expect(await loadChangeSetSteps(changeSet.id)).toEqual([]);
+		expect(await canonicalTableCounts(app.appId)).toEqual(before);
 	});
 
 	it("rejects an organization-deriving write that carried no revision fence (READ_SET_UNRECORDED)", async () => {
@@ -1084,6 +1178,21 @@ describe("private staging isolation", () => {
 
 	it("fences batch-exclusive mutations: exclusive-not-alone and exclusive-set-closed", async () => {
 		const app = await createTestApp();
+		await commitGuardedBatch({
+			appId: app.appId,
+			batchId: crypto.randomUUID(),
+			mutations: admitMutationBatch([
+				{ kind: "declareCaseType", caseType: "client" },
+				{
+					kind: "addCaseProperty",
+					caseType: "client",
+					property: { name: "old_name", label: proseText("Old name") },
+				},
+			]),
+			actorUserId: ACTOR,
+			kind: "autosave",
+			expectedProjectId: PROJECT,
+		});
 		const { workspace } = await openWorkspace(app.appId);
 		await workspace.stageDispatch({
 			toolName: "createModule",
@@ -1110,56 +1219,29 @@ describe("private staging isolation", () => {
 			},
 		});
 
-		const notAlone = await workspace.invoke({
-			toolName: "renameCaseProperties-direct",
-			requestId: "call-2",
-			input: { renames: 1 },
-			execute: async (ctx) =>
-				ctx.applyBatch({
-					mutations: [
-						{
-							kind: "renameCaseProperties",
-							renames: [
-								{ caseType: "client", from: "old_name", to: "new_name" },
-							],
-						},
-					] satisfies Mutation[],
-				}),
-		});
-		expect(notAlone.ok).toBe(false);
-		expect(!notAlone.ok && notAlone.error).toContain("batch-exclusive");
-
-		/* A set already holding its exclusive step admits nothing further.
-		 * (The exclusive step itself is seeded through the store — a REAL
-		 * rename needs a case-typed base app, which is the rename suite's
-		 * territory; the fence under test here is the closed-set arm.) */
-		const second = await openWorkspace(app.appId);
-		await stageChangeSetRequest({
-			changeSetId: second.changeSet.id,
-			requestId: "seed-exclusive",
+		const renameInput = {
+			renames: [{ caseType: "client", from: "old_name", to: "new_name" }],
+		};
+		const notAlone = await workspace.stageDispatch({
 			toolName: "renameCaseProperties",
-			inputDigest: canonicalJsonDigest("seed-exclusive"),
-			expectedRevision: 0,
-			actorUserId: ACTOR,
-			runId: RUN,
-			outcome: {
-				kind: "stage",
-				mutations: admitMutationBatch([
-					{ kind: "setAppName", name: "Exclusive placeholder" },
-				]),
-				stageSlices: [],
-				handles: [],
-				retainedHandleUuids: [],
-				readSet: [],
-				exclusiveKind: "renameCaseProperties",
-				diagnostics: {
-					candidateDigest: canonicalJsonDigest("candidate"),
-					findingCount: 0,
-					findingFingerprints: [],
-					canCommit: false,
-				},
-			},
+			requestId: "call-2",
+			input: renameInput,
 		});
+		expect(notAlone.receipt?.disposition).toBe("rejected");
+		expect(notAlone.receipt?.error?.code).toBe("EXCLUSIVE_NOT_ALONE");
+		const second = await openWorkspace(app.appId);
+		const exclusive = await second.workspace.stageDispatch({
+			toolName: "renameCaseProperties",
+			requestId: "seed-exclusive",
+			input: renameInput,
+		});
+		expect(exclusive.receipt?.disposition).toBe("staged");
+		expect(
+			second.workspace
+				.currentSnapshot()
+				.doc.caseTypes?.find((caseType) => caseType.name === "client")
+				?.properties.map((property) => property.name),
+		).toContain("new_name");
 		const reopened = await ChangeSetMutationWorkspace.open(
 			host,
 			second.changeSet.id,
@@ -1199,18 +1281,24 @@ describe("private staging isolation", () => {
 describe("genesis staging", () => {
 	it("lets a materialization-root executor catalog-read before app birth", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
-		const proposedAppId = crypto.randomUUID();
+		const claimed = await createAndClaimDesignSessionRun({
+			projectId: PROJECT,
+			actorUserId: ACTOR,
+			runId: RUN,
+			cost: 100,
+		});
+		const proposedAppId = claimed.proposedAppId;
 		const changeSet = await beginGenesisChangeSet({
 			proposedAppId,
 			projectId: PROJECT,
 			baseSnapshotDigest: emptyGenesisBase(proposedAppId).digest,
-			lineage: await lineage(),
+			lineage: await lineage(claimed.designSessionId),
 			ownerUserId: ACTOR,
 			ownerRunId: RUN,
 		});
 		const lookupCatalog = vi.fn(async () => ({
 			projectId: PROJECT,
-			projectRevision: "9" as never,
+			projectRevision: lookupRevisionSchema.parse("9"),
 			definitions: [],
 		}));
 		const workspace = await ChangeSetMutationWorkspace.open(
@@ -1234,12 +1322,18 @@ describe("genesis staging", () => {
 
 	it("stages automation writes against the honest revision-zero place snapshot", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
-		const proposedAppId = crypto.randomUUID();
+		const claimed = await createAndClaimDesignSessionRun({
+			projectId: PROJECT,
+			actorUserId: ACTOR,
+			runId: RUN,
+			cost: 100,
+		});
+		const proposedAppId = claimed.proposedAppId;
 		const changeSet = await beginGenesisChangeSet({
 			proposedAppId,
 			projectId: PROJECT,
 			baseSnapshotDigest: emptyGenesisBase(proposedAppId).digest,
-			lineage: await lineage(),
+			lineage: await lineage(claimed.designSessionId),
 			ownerUserId: ACTOR,
 			ownerRunId: RUN,
 		});
@@ -1268,13 +1362,19 @@ describe("genesis staging", () => {
 
 	it("builds a private candidate over the empty base and reaches export readiness", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
-		const proposedAppId = crypto.randomUUID();
+		const claimed = await createAndClaimDesignSessionRun({
+			projectId: PROJECT,
+			actorUserId: ACTOR,
+			runId: RUN,
+			cost: 100,
+		});
+		const proposedAppId = claimed.proposedAppId;
 		const base = emptyGenesisBase(proposedAppId);
 		const changeSet = await beginGenesisChangeSet({
 			proposedAppId,
 			projectId: PROJECT,
 			baseSnapshotDigest: base.digest,
-			lineage: await lineage(),
+			lineage: await lineage(claimed.designSessionId),
 			ownerUserId: ACTOR,
 			ownerRunId: RUN,
 		});
@@ -1331,12 +1431,18 @@ describe("genesis staging", () => {
 
 	it("refuses the app-edit commit path for a genesis set", async () => {
 		await h.seedProjectMember(ACTOR, PROJECT, "owner");
-		const proposedAppId = crypto.randomUUID();
+		const claimed = await createAndClaimDesignSessionRun({
+			projectId: PROJECT,
+			actorUserId: ACTOR,
+			runId: RUN,
+			cost: 100,
+		});
+		const proposedAppId = claimed.proposedAppId;
 		const changeSet = await beginGenesisChangeSet({
 			proposedAppId,
 			projectId: PROJECT,
 			baseSnapshotDigest: emptyGenesisBase(proposedAppId).digest,
-			lineage: await lineage(),
+			lineage: await lineage(claimed.designSessionId),
 			ownerUserId: ACTOR,
 			ownerRunId: RUN,
 		});
@@ -1439,6 +1545,39 @@ describe("commitDesignChangeSet", () => {
 		expect(retry.receipt).toEqual(outcome.receipt);
 		expect(await canonicalTableCounts(app.appId)).toEqual(after);
 	});
+
+	it.each(["other owner", "other run", "revoked membership"])(
+		"refuses committed receipt replay after %s",
+		async (reason) => {
+			const app = await createTestApp();
+			const { changeSet } = await stageCompleteWorkflow(app.appId);
+			const args = {
+				changeSetId: changeSet.id,
+				actorUserId: ACTOR,
+				runId: RUN,
+				kind: "mcp" as const,
+				expectedRevision: 1,
+			};
+			expect((await commitDesignChangeSet(args)).kind).toBe("committed");
+			const before = await canonicalTableCounts(app.appId);
+			if (reason === "revoked membership") {
+				await h
+					.pool()
+					.query(
+						'DELETE FROM auth_member WHERE "userId" = $1 AND "organizationId" = $2',
+						[ACTOR, PROJECT],
+					);
+			}
+			await expect(
+				commitDesignChangeSet({
+					...args,
+					...(reason === "other owner" && { actorUserId: "unrelated-user" }),
+					...(reason === "other run" && { runId: "unrelated-run" }),
+				}),
+			).rejects.toBeInstanceOf(ChangeSetScopeLostError);
+			expect(await canonicalTableCounts(app.appId)).toEqual(before);
+		},
+	);
 
 	it("merges cleanly over a newer canonical head (clean replay)", async () => {
 		const app = await createTestApp();

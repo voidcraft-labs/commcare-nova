@@ -13,33 +13,36 @@ import {
 import { orderedFieldUuids } from "@/lib/doc/fieldWalk";
 import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { addFieldsTool } from "../addFields";
 
 /** A one-form survey doc with three text fields (qa, qb, qc), HYDRATED so its
- *  existing fields carry the `order` keys the anchor computes bounds from —
+ *  existing fields and their membership sequences have the persisted shape —
  *  exactly the shape the SA's chokepoint-hydrated session doc has. */
 function threeFieldDoc(): BlueprintDoc {
-	return hydratePersistedBlueprint(
-		toPersistableDoc(
-			buildDoc({
-				modules: [
-					{
-						name: "M",
-						forms: [
-							{
-								name: "F",
-								type: "survey",
-								fields: [
-									f({ kind: "text", id: "qa", label: proseText("A") }),
-									f({ kind: "text", id: "qb", label: proseText("B") }),
-									f({ kind: "text", id: "qc", label: proseText("C") }),
-								],
-							},
-						],
-					},
-				],
-			}),
+	return expectAdmittedDoc(
+		hydratePersistedBlueprint(
+			toPersistableDoc(
+				buildDoc({
+					modules: [
+						{
+							name: "M",
+							forms: [
+								{
+									name: "F",
+									type: "survey",
+									fields: [
+										f({ kind: "text", id: "qa", label: proseText("A") }),
+										f({ kind: "text", id: "qb", label: proseText("B") }),
+										f({ kind: "text", id: "qc", label: proseText("C") }),
+									],
+								},
+							],
+						},
+					],
+				}),
+			),
 		),
 	);
 }
@@ -149,4 +152,17 @@ describe("add_fields anchored insert lands at the anchor in display order", () =
 		expect("message" in out.result).toBe(true);
 		expect(displayIds(h.currentDoc())).toEqual(["qa", "qb", "qc", "qx"]);
 	});
+});
+
+it("refuses a missing anchor without changing the document", async () => {
+	const doc = threeFieldDoc();
+	const h = makeToolWorkspaceHarness(doc);
+	const result = await h.runTool(addFieldsTool, {
+		...address(doc),
+		fields: [textField("qx")],
+		afterFieldUuid: crypto.randomUUID(),
+	});
+	expect(result.result).toHaveProperty("error");
+	expect(h.currentDoc()).toEqual(doc);
+	expect(h.recordMutations).not.toHaveBeenCalled();
 });

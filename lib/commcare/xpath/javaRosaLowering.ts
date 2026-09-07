@@ -1,9 +1,7 @@
 /**
  * Proven Nova-XPath → JavaRosa lowering boundary.
  *
- * This is intentionally separate from `transpiler.ts`: that older experiment
- * contains a date-semantics transform which has no production runtime proof.
- * Wire emitters call this module, whose pass list contains only equivalences
+ * Wire emitters call this module, whose transformations contain only equivalences
  * verified against the real commcare-core evaluator.
  */
 

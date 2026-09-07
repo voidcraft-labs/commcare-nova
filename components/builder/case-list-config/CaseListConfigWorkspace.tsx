@@ -186,7 +186,6 @@ import { TILE_PRESETS, type TilePresetId } from "./tile/tilePresets";
 import {
 	type CaseDisplaySurface,
 	projectCaseWorkspaceColumns,
-	pruneStoppedSortOrphans,
 	removeColumnFromDisplay,
 	showColumnOnDisplay,
 } from "./workspaceProjection";
@@ -1072,8 +1071,8 @@ function useController(target: CaseListWorkspaceTarget | null) {
 		commitMany(
 			columnSnapshotBatchMutations(
 				requireRetainedModuleUuid(moduleUuid),
-				config.columns,
-				pruneStoppedSortOrphans(config.columns, next),
+				config,
+				next,
 			),
 		);
 	};

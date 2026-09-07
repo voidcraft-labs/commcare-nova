@@ -1,66 +1,15 @@
 /**
- * Install-time XPath-resolution oracle.
- *
- * The XForm parse-time oracle (`xformOracle.ts`) mirrors CommCare's parse
- * contract — it proves the form is well-formed XML, every bind has a
- * resolvable nodeset, every XPath surface parses as XPath. That contract
- * stops at parse: a `calculate="instance('commcaresession')/session/data/X"`
- * where `X` was never declared as a session datum is structurally valid XML
- * and structurally valid XPath. JavaRosa accepts it at parse and crashes at
- * form-init when the calculate tries to evaluate (`XPathTypeMismatchException`,
- * which CommCare surfaces as "A part of your application is invalid.").
- *
- * This oracle walks the ANY-expression XPath surfaces on a form — bind
- * `calculate`/`relevant`/`constraint`/`required`/`readonly`, `<setvalue
- * value>`, and body `<output value>` — and resolves each reference
- * against the symbols available at the form's evaluation context:
- *
- *   1. `instance('commcaresession')/session/data/<X>` — `<X>` must be the
- *      `id` of a session datum declared on the form's `<entry>` in
- *      `suite.xml`. The XForm has no way to know what the session looks
- *      like; the caller passes the entry's declared datum ids in.
- *   2. `instance('commcaresession')/session/context/<X>` — `<X>` must be
- *      one of the closed set of fields CommCare populates on the session
- *      context (`commcare-core .../session/SessionInstanceBuilder.java::
- *      addMetadata`).
- *   3. `instance('<id>')` for any non-`commcaresession` `<id>` — `<id>` must
- *      appear in the XForm's `<model><instance id="..."/>` declarations.
- *      JavaRosa's `EvaluationContext.resolveReference` throws
- *      `XPathMissingInstanceException` at evaluation when the instance
- *      isn't in scope; the parse-time check leaves the gap.
- *
- * Form-path references inside expression bodies are intentionally NOT
- * checked: a missing `/data/...` reference resolves to an empty node-set
- * at runtime — degraded UX (an empty `<output>` value, a `false` branch
- * on a relevant) rather than an install-time crash. Dangling bind
- * NODESETS — the install-time-fatal case — are caught by the XForm
- * parse-time oracle's `XFORM_DANGLING_BIND` check.
- *
- * Test-oracle posture: a failure here is a generator bug, not a fixable
- * authoring state. Unlike the XForm + suite oracles (which compileCcz throws
- * on as a defense-in-depth backstop), THIS oracle is fuzz-only — invoked
- * from `__tests__/bindingResolutionOracle.fuzz.test.ts` to prove emitter
- * totality. The user-visible gate for the only authoring shape that would
- * reach an unresolved reference today is the doc-layer rule
- * `validator/rules/form.ts::caseHashtagOnCreateForm`.
- *
- * Out of scope (covered elsewhere):
- *   - XPath syntactic validity: `xformOracle.ts` (non-path nodeset,
- *     unparseable expressions).
- *   - XPath type compatibility: `validator/typeChecker.ts`.
- *   - Function arity / signature: `validator/functionRegistry.ts`.
- *   - Dependency cycles: doc-layer `validateBlueprintDeep` via `TriggerDag`.
- *
- * Known intentional gap: `SessionInstanceBuilder.addUserQueryData` writes
- * `stringquery` / `fingerprintquery` into `session/data/*` at runtime after
- * the user performs a case-search. Those names aren't declared as `<datum>`
- * entries in `suite.xml`, so a reference to either would false-positive
- * here. No Nova-emitted XPath references them today.
+ * Static reference joins for generated XForms and their suite entry datums.
+ * This test-only oracle checks declarations and Nova's closed session context.
+ * It does not execute XPath or install media. XFormOracleRuntimeTest proves
+ * missing session leaves and undeclared instances can refuse scalar calculation
+ * differently; references are checked before their evaluation context is known.
+ * Media references belong to xformOracle.ts; syntax belongs to pathExpression.
+ * Runtime search-produced session data is outside the declared datum contract.
  */
 
 import type { SyntaxNode } from "@lezer/common";
-import { isTag } from "domhandler";
-import { getAttributeValue, getChildren } from "domutils";
+import { getAttributeValue } from "domutils";
 import { parser } from "@/lib/commcare/xpath";
 import { COMMCARE_SESSION_CONTEXT_FIELDS } from "../sessionContext";
 import {
@@ -89,14 +38,6 @@ const SESSION_CONTEXT_FIELDS: ReadonlySet<string> = new Set(
 );
 
 /**
- * The `jr://file/` prefix every CommCare media reference carries inside an
- * itext `<value form="image|audio|video">` sibling. The media-resolution check
- * strips this prefix before comparing against the manifest, which carries the
- * `commcare/<hash><ext>` wire paths the compiler bundled into the CCZ.
- */
-const JR_FILE_PREFIX = "jr://file/";
-
-/**
  * The XPath surfaces JavaRosa evaluates at install / form-init time. Each
  * lives on the form's `<model>` block (binds + setvalues) or in the body
  * (`<output>`). The XForm oracle's PATH/ANY classifiers gate which attrs
@@ -111,32 +52,12 @@ interface XPathSurface {
 	readonly origin: string;
 }
 
-/**
- * Public entry — validates every install-time XPath surface on the form
- * against the supplied symbol sets. The caller (typically `compileCcz`)
- * threads in:
- *
- *   - `sessionDatumIds`: the `id` of every `<datum>` declared on the
- *     form's `<entry>` in `suite.xml`. Built by walking the entry the
- *     compiler has already derived for this form.
- *   - `mediaManifest`, optional: the closed set of `commcare/<hash><ext>`
- *     wire paths bundled into the CCZ archive. When supplied, the oracle
- *     additionally proves every `<value form="image|audio|video">jr://...`
- *     itext sibling resolves into that set. Defense-in-depth alongside
- *     the parse-time check `xformOracle::validateXForm` runs on the
- *     same surface — same install-fatal contract from two angles:
- *     parse-time totality + install-time resolution.
- *
- * Returns an empty array on a clean form; one `ValidationError` per
- * unresolved reference otherwise. Each error code names what kind of
- * resolution failed so callers can route them differently if needed.
- */
+/** Resolve emitted references against actual form declarations and entry datums. */
 export function validateBindingResolution(
 	xml: string,
 	formName: string,
 	moduleName: string,
 	sessionDatumIds: ReadonlySet<string>,
-	mediaManifest?: ReadonlySet<string>,
 ): ValidationError[] {
 	const built = buildXFormDataModel(xml, formName, moduleName);
 	if ("fatal" in built) return [built.fatal];
@@ -148,16 +69,15 @@ export function validateBindingResolution(
 	for (const surface of collectXPathSurfaces(model)) {
 		const refs = analyzeXPath(surface.expr);
 
-		// Rule 3: every `instance('<id>')` ref where id is not commcaresession
+		// Rule 3: every `instance('<id>')` reference, including session,
 		// must appear in the XForm's `<model><instance id=...>` declarations.
 		for (const id of refs.instanceIds) {
-			if (id === "commcaresession") continue;
 			if (model.declaredInstanceIds.has(id)) continue;
 			errors.push(
 				validationError(
 					"BINDING_RESOLUTION_INSTANCE_UNDECLARED",
 					"form",
-					`"${formName}" references instance("${id}") in ${surface.origin}, but the form's <model> has no <instance id="${id}"> declaration. CommCare will reject this form at form-init with "A part of your application is invalid." Check that the XForm emitter declared the secondary instance for whatever the form needs. This is a bug in the form generator.`,
+					`"${formName}" references instance("${id}") in ${surface.origin}, but the form's <model> has no <instance id="${id}"> declaration. CommCare cannot evaluate this undeclared instance. Check that the XForm emitter declared the secondary instance for whatever the form needs. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -171,7 +91,7 @@ export function validateBindingResolution(
 				validationError(
 					"BINDING_RESOLUTION_SESSION_DATUM_UNDECLARED",
 					"form",
-					`"${formName}" references session datum "${datumId}" in ${surface.origin} (via instance('commcaresession')/session/data/${datumId}), but no <datum id="${datumId}"> is declared on this form's <entry> in suite.xml. CommCare will reject this form at form-init with "A part of your application is invalid." Check that the entry emits a datum for whatever the form needs. This is a bug in the form generator.`,
+					`"${formName}" references session datum "${datumId}" in ${surface.origin} (via instance('commcaresession')/session/data/${datumId}), but no <datum id="${datumId}"> is declared on this form's <entry> in suite.xml. A direct calculation from this missing datum can fail at initialization, and other expressions cannot read the intended value. Check that the entry emits a datum for whatever the form needs. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -185,99 +105,18 @@ export function validateBindingResolution(
 				validationError(
 					"BINDING_RESOLUTION_SESSION_CONTEXT_UNKNOWN",
 					"form",
-					`"${formName}" references session/context/${ctxName} in ${surface.origin}, but CommCare only populates these context fields: ${[...SESSION_CONTEXT_FIELDS].sort().join(", ")}. An unknown context name resolves to an empty node-set at runtime. This is a bug in the form generator.`,
+					`"${formName}" references session/context/${ctxName} in ${surface.origin}, but CommCare only populates these context fields: ${[...SESSION_CONTEXT_FIELDS].sort().join(", ")}. A missing structural context name can fail when CommCare evaluates the expression. This is a bug in the form generator.`,
 					loc,
 				),
 			);
 		}
 
-		// Form-path references inside expression bodies (`<output value>`,
-		// bind `calculate`/`relevant`/etc.) intentionally do NOT enforce
-		// path existence: JavaRosa resolves a missing path to an empty
-		// node-set at runtime, which is degraded UX (an empty label
-		// output, an `if(...)` branch that evaluates false) rather than
-		// an install-time crash. Dangling bind NODESETS, by contrast,
-		// ARE install-time-fatal — `xformOracle.ts::checkBinds` already
-		// flags them via `XFORM_DANGLING_BIND`. The instance + session
-		// rules above carry this oracle's full install-time-fatal
-		// coverage.
-	}
-
-	// Rule 4 (optional) — every itext `<value form="image|audio|video">jr://...`
-	// path must resolve to a bundled wire path in the manifest. The check is
-	// install-time-fatal: at form-init JavaRosa walks the itext entries and
-	// resolves each media value through the media-suite installer; a
-	// reference without a corresponding installed file falls back to the
-	// localization default (empty) and renders as a broken icon. Mirrors the
-	// parse-time check `xformOracle::checkMediaValues` runs on the same
-	// surface — both fire; both are correct boundaries.
-	for (const err of checkItextMediaValues(
-		model,
-		mediaManifest,
-		formName,
-		loc,
-	)) {
-		errors.push(err);
+		// Local form-path existence is outside this declaration-join oracle.
+		// Core can reject missing structural paths during calculation; domain
+		// identity validation and the XForm bind/control checks own those paths.
 	}
 
 	return errors;
-}
-
-/**
- * Walk every `<value form="image|audio|video">` sibling inside the form's
- * itext block(s) and resolve its `jr://file/...` text content against the
- * supplied manifest. Skipped when `mediaManifest === undefined` — the
- * media-OFF path emits no media values and has nothing to resolve.
- */
-function checkItextMediaValues(
-	model: XFormDataModel,
-	mediaManifest: ReadonlySet<string> | undefined,
-	formName: string,
-	loc: ValidationLocation,
-): ValidationError[] {
-	if (mediaManifest === undefined) return [];
-	const errors: ValidationError[] = [];
-
-	for (const valueEl of model.definitionElements.filter(
-		(el) => el.name === "value",
-	)) {
-		const form = getAttributeValue(valueEl, "form");
-		if (form !== "image" && form !== "audio" && form !== "video") continue;
-
-		const refText = readElementText(valueEl).trim();
-		if (refText === "") continue;
-		if (!refText.startsWith(JR_FILE_PREFIX)) continue;
-
-		const wirePath = refText.slice(JR_FILE_PREFIX.length);
-		if (mediaManifest.has(wirePath)) continue;
-
-		errors.push(
-			validationError(
-				"BINDING_RESOLUTION_MEDIA_REF_UNDECLARED",
-				"form",
-				`"${formName}" carries an itext <value form="${form}"> referencing "${refText}", but the install-time media manifest has no entry for "${wirePath}". CommCare resolves this jr:// reference against media_suite.xml's local resources at install; an unresolved reference renders as a broken icon. This is a bug in the form generator.`,
-				loc,
-			),
-		);
-	}
-
-	return errors;
-}
-
-/**
- * Concatenate every direct text-child of an element. Mirrors `domhandler`'s
- * `Text` node layout — adjacent text segments stay as sibling children, and
- * the equivalent of `parser.nextText()` is a children sweep with `.data`
- * concatenation.
- */
-function readElementText(el: import("domhandler").Element): string {
-	let acc = "";
-	for (const child of getChildren(el)) {
-		if (isTag(child)) continue;
-		const data = (child as { data?: string }).data;
-		if (typeof data === "string") acc += data;
-	}
-	return acc;
 }
 
 /**
@@ -336,9 +175,13 @@ function collectXPathSurfaces(model: XFormDataModel): XPathSurface[] {
 	for (const output of model.definitionElements.filter(
 		(el) => el.name === "output",
 	)) {
-		const value = getAttributeValue(output, "value");
+		const value =
+			getAttributeValue(output, "ref") ?? getAttributeValue(output, "value");
 		if (value) {
-			surfaces.push({ expr: value, origin: `<output value=...>` });
+			surfaces.push({
+				expr: value,
+				origin: `<output ${getAttributeValue(output, "ref") !== undefined ? "ref" : "value"}=...>`,
+			});
 		}
 	}
 

@@ -81,13 +81,13 @@ export async function POST(req: NextRequest) {
 		} | null;
 
 		if (!body) throw new ApiError("App data is required", 400);
-		if (!body.domain?.trim()) {
+		if (typeof body.domain !== "string" || !body.domain.trim()) {
 			throw new ApiError("Project space is required", 400);
 		}
 		if (!isValidDomainSlug(body.domain.trim())) {
 			throw new ApiError("Invalid project space name", 400);
 		}
-		if (!body.appName?.trim()) {
+		if (typeof body.appName !== "string" || !body.appName.trim()) {
 			throw new ApiError("App name is required", 400);
 		}
 		if (typeof body.appId !== "string") {

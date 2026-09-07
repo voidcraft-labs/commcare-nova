@@ -7,7 +7,6 @@ import {
 	cancelAttachmentEntry,
 	captureAttachmentEntryWriteAuthority,
 	clearAttachmentNotReady,
-	discardAttachment,
 	discardAttachmentEntry,
 	discardAttachmentInvariantRecovery,
 	getAttachmentSlotDraft,
@@ -26,16 +25,36 @@ import {
 	rememberOwnedStagedAttachment,
 	rememberSignatureDraft,
 	resolveAttachmentSlotKey,
-	retargetAttachment,
 	retryAttachmentRetarget,
 	runAttachmentTask as runAttachmentTaskProduction,
 	runFormAttachmentBarrier,
 	runWithAttachmentEntryWriteAuthority,
 	setAttachmentEntryAuthority as setAttachmentEntryAuthorityProduction,
-	stageAttachment,
 } from "../attachmentClient";
 
 const explicitlyManagedAuthorities = new Set<string>();
+const queuedEntries = new Set<string>();
+const releaseGates = new Set<() => void>();
+const ownedTasks: Promise<void>[] = [];
+function ownTask(promise: Promise<unknown>): void {
+	ownedTasks.push(
+		promise.then(
+			() => undefined,
+			(error: unknown) => {
+				if (!isAttachmentTaskAbort(error)) throw error;
+			},
+		),
+	);
+}
+async function disposeCoordinator(): Promise<void> {
+	for (const entryKey of queuedEntries) cancelAttachmentEntry(entryKey);
+	for (const release of releaseGates) release();
+	await __resetAttachmentCoordinatorForTests();
+	await Promise.all(ownedTasks);
+	queuedEntries.clear();
+	releaseGates.clear();
+	ownedTasks.length = 0;
+}
 
 function defaultAuthority(entryKey: string): AttachmentEntryAuthoritySnapshot {
 	return {
@@ -84,7 +103,10 @@ function runAttachmentTask<T>(
 	args: Parameters<typeof runAttachmentTaskProduction<T>>[0],
 ): ReturnType<typeof runAttachmentTaskProduction<T>> {
 	ensureDefaultAuthority(args.entryKey);
-	return runAttachmentTaskProduction(args);
+	const task = runAttachmentTaskProduction(args);
+	queuedEntries.add(args.entryKey);
+	ownTask(task);
+	return task;
 }
 
 function defaultSegmentKeys(pathTemplate: string, fieldUuid: string): string[] {
@@ -152,11 +174,12 @@ function deletedCaptureMove(args: {
 }
 
 function deferred<T>() {
-	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((accept) => {
-		resolve = accept;
-	});
-	return { promise, resolve };
+	const gate = Promise.withResolvers<T>();
+	releaseGates.add(() =>
+		gate.reject(new DOMException("Controlled peer closed", "AbortError")),
+	);
+	ownTask(gate.promise);
+	return { promise: gate.promise, resolve: gate.resolve };
 }
 
 function waitForAbort(
@@ -177,81 +200,19 @@ function waitForAbort(
 	});
 }
 
-function waitForBodyAbort(
-	signal: AbortSignal | null | undefined,
-): Promise<ArrayBuffer> {
-	return new Promise((_resolve, reject) => {
-		if (signal === undefined || signal === null) {
-			reject(
-				new Error("Expected response-body read to carry an abort signal."),
-			);
-			return;
-		}
-		if (signal.aborted) {
-			reject(signal.reason);
-			return;
-		}
-		signal.addEventListener("abort", () => reject(signal.reason), {
-			once: true,
-		});
-	});
+/** Coordinator tests control only the HTTP boundary. Replies are real,
+ * single-consumption Responses with independently supplied server paths. */
+function reply(instancePath?: string): Response {
+	return instancePath === undefined
+		? new Response(null, { status: 204 })
+		: Response.json({ instancePath });
 }
-
-/**
- * Test doubles implement the same response-body methods production consumes.
- * Compact per-test objects are normalized here, never in application code.
- */
 function stubFetch(fetchMock: ReturnType<typeof vi.fn>): void {
-	vi.stubGlobal(
-		"fetch",
-		async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-			const response = (await (
-				fetchMock as (input: RequestInfo | URL, init?: RequestInit) => unknown
-			)(input, init)) as Partial<Response>;
-			if (response instanceof Response) return response;
-
-			const providedJson =
-				typeof response.json === "function"
-					? response.json.bind(response)
-					: undefined;
-			const providedArrayBuffer =
-				typeof response.arrayBuffer === "function"
-					? response.arrayBuffer.bind(response)
-					: undefined;
-			let requestedInstancePath: string | undefined;
-			if (init?.method === "PATCH" && typeof init.body === "string") {
-				const parsed = JSON.parse(init.body) as { instancePath?: unknown };
-				if (typeof parsed.instancePath === "string") {
-					requestedInstancePath = parsed.instancePath;
-				}
-			}
-			const json = async (): Promise<unknown> => {
-				if (providedJson !== undefined) return providedJson();
-				if (providedArrayBuffer !== undefined) await providedArrayBuffer();
-				return requestedInstancePath === undefined
-					? {}
-					: { instancePath: requestedInstancePath };
-			};
-			const arrayBuffer = async (): Promise<ArrayBuffer> => {
-				if (providedArrayBuffer !== undefined) return providedArrayBuffer();
-				if (providedJson !== undefined) await providedJson();
-				return new ArrayBuffer(0);
-			};
-			const status = response.status ?? (response.ok === false ? 500 : 200);
-			return {
-				...response,
-				ok: response.ok ?? (status >= 200 && status < 300),
-				status,
-				json,
-				arrayBuffer,
-				text: async () => "",
-			} as Response;
-		},
-	);
+	vi.stubGlobal("fetch", fetchMock);
 }
 
 afterEach(async () => {
-	await __resetAttachmentCoordinatorForTests();
+	await disposeCoordinator();
 	explicitlyManagedAuthorities.clear();
 	vi.useRealTimers();
 	vi.unstubAllGlobals();
@@ -411,7 +372,7 @@ describe("form attachment coordinator", () => {
 
 		const restoredAuthority = captureAttachmentEntryWriteAuthority(entryKey, 2);
 		expect(restoredAuthority).toBeDefined();
-		stubFetch(vi.fn().mockResolvedValue({ ok: true, status: 200 }));
+		stubFetch(vi.fn().mockImplementation(() => reply()));
 		expect(
 			discardAttachmentInvariantRecovery({
 				appId: "app-1",
@@ -562,7 +523,9 @@ describe("form attachment coordinator", () => {
 					return waitForAbort(init?.signal);
 				}
 				order.push(patchCount === 2 ? "restored-retarget" : "next-retarget");
-				return Promise.resolve({ ok: true, status: 200 });
+				return Promise.resolve(
+					reply(patchCount === 2 ? "/data/evidence" : "/data/archive"),
+				);
 			}),
 		);
 
@@ -706,7 +669,7 @@ describe("form attachment coordinator", () => {
 					return waitForAbort(init?.signal);
 				}
 				order.push("restored-retarget");
-				return Promise.resolve({ ok: true, status: 200 });
+				return Promise.resolve(reply("/data/evidence"));
 			}),
 		);
 		const moved = reconcileAttachmentAuthoredPathMigration({
@@ -961,7 +924,7 @@ describe("form attachment coordinator", () => {
 				sizeBytes: 3,
 			},
 		});
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi.fn().mockImplementation(() => reply());
 		stubFetch(fetchMock);
 		markAttachmentNotReady(
 			entryKey,
@@ -1094,6 +1057,7 @@ describe("form attachment coordinator", () => {
 			await active;
 			expect(submitted).toBe(true);
 		} finally {
+			await disposeCoordinator();
 			vi.useRealTimers();
 		}
 	});
@@ -1181,11 +1145,7 @@ describe("form attachment coordinator", () => {
 				// remains unavailable when dormancy cancels the client boundary.
 				return lostResponse.promise;
 			})
-			.mockResolvedValueOnce({
-				ok: true,
-				status: 200,
-				json: async () => ({ instancePath: "/data/visits[0]/photo" }),
-			});
+			.mockResolvedValueOnce(reply("/data/visits[0]/photo"));
 		stubFetch(fetchMock);
 		const maintenance = reconcileAttachmentRepeatCompaction({
 			appId: "app-1",
@@ -1238,12 +1198,9 @@ describe("form attachment coordinator", () => {
 			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
 		).toBeUndefined();
 
-		lostResponse.resolve({
-			ok: true,
-			status: 200,
-			json: async () => ({ instancePath: "/data/visits[0]/photo" }),
-		} as Response);
-		await Promise.resolve();
+		const late = reply("/data/visits[0]/photo");
+		lostResponse.resolve(late);
+		await vi.waitFor(() => expect(late.bodyUsed).toBe(true));
 		expect(
 			getAttachmentSlotIssue({ appId: "app-1", entryKey, slotKey }),
 		).toBeUndefined();
@@ -1309,7 +1266,7 @@ describe("form attachment coordinator", () => {
 		await expect(maintenance).resolves.toEqual([]);
 	});
 
-	it("keeps a confirmed row owned by the entry across ordinary component unmounts", async () => {
+	it("discards the exact retained owner when its entry ends", async () => {
 		const staged = {
 			attachmentId: "attachment-keep",
 			attachmentName: "attachment-keep.png",
@@ -1324,7 +1281,7 @@ describe("form attachment coordinator", () => {
 			attachment: staged,
 		});
 
-		// A relevance/group/edit-mode remount performs no ownership mutation.
+		// Direct coordinator ownership; component remounts are covered by field tests.
 		expect(
 			getOwnedStagedAttachment({
 				appId: "app-1",
@@ -1333,7 +1290,7 @@ describe("form attachment coordinator", () => {
 			}),
 		).toEqual(staged);
 
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi.fn().mockImplementation(() => reply());
 		stubFetch(fetchMock);
 		await discardAttachmentEntry({
 			appId: "app-1",
@@ -1401,7 +1358,7 @@ describe("form attachment coordinator", () => {
 					expectedInstancePath: oldPath,
 					instancePath: newPath,
 				});
-				return { ok: true, status: 200 };
+				return reply(newPath);
 			});
 			stubFetch(fetchMock);
 
@@ -1470,7 +1427,7 @@ describe("form attachment coordinator", () => {
 				expectedInstancePath: "/data/photo",
 				instancePath: "/data/evidence",
 			});
-			return { ok: true, status: 200 };
+			return reply("/data/evidence");
 		});
 		stubFetch(fetchMock);
 		const maintenance = reconcileAttachmentAuthoredPathMigration({
@@ -1522,7 +1479,11 @@ describe("form attachment coordinator", () => {
 				sizeBytes: 3,
 			},
 		});
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi
+			.fn()
+			.mockImplementationOnce(() => reply("/data/visit[0]/photo"))
+			.mockImplementationOnce(() => reply("/data/visit/photo"))
+			.mockImplementation(() => reply());
 		stubFetch(fetchMock);
 
 		await reconcileAttachmentAuthoredPathMigration({
@@ -1630,7 +1591,7 @@ describe("form attachment coordinator", () => {
 				sizeBytes: 3,
 			},
 		});
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi.fn().mockImplementation(() => reply());
 		stubFetch(fetchMock);
 
 		await reconcileAttachmentAuthoredPathMigration({
@@ -1696,7 +1657,7 @@ describe("form attachment coordinator", () => {
 				sizeBytes: 3,
 			},
 		});
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi.fn().mockImplementation(() => reply());
 		stubFetch(fetchMock);
 
 		await reconcileAttachmentAuthoredPathMigration({
@@ -2004,7 +1965,7 @@ describe("form attachment coordinator", () => {
 			listAttachmentInvariantRecoveries({ appId: "app-1", entryKey }),
 		).toHaveLength(1);
 
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi.fn().mockImplementation(() => reply());
 		stubFetch(fetchMock);
 		await reconcileAttachmentAuthoredPathMigration({
 			appId: "app-1",
@@ -2069,7 +2030,7 @@ describe("form attachment coordinator", () => {
 				expectedInstancePath: "/data/visits[1]/photo",
 				instancePath: "/data/visits[0]/photo",
 			});
-			return { ok: true, status: 200 };
+			return reply("/data/visits[0]/photo");
 		});
 		stubFetch(fetchMock);
 
@@ -2131,7 +2092,7 @@ describe("form attachment coordinator", () => {
 		stubFetch(
 			vi.fn(async (_url, init?: RequestInit) => {
 				if (init?.method !== "PATCH") {
-					return { ok: true, status: 200 };
+					return reply();
 				}
 				patchBodies.push(JSON.parse(String(init.body)));
 				patch += 1;
@@ -2246,7 +2207,7 @@ describe("form attachment coordinator", () => {
 		stubFetch(
 			vi.fn().mockImplementation(async () => {
 				order.push("discard");
-				return { ok: true, status: 200 };
+				return reply();
 			}),
 		);
 		const maintenance = reconcileAttachmentRepeatCompaction({
@@ -2268,7 +2229,7 @@ describe("form attachment coordinator", () => {
 		).toBeUndefined();
 	});
 
-	it("does not let a hung repeat-removal DELETE hold the form queue", async () => {
+	it("allows the form queue to settle before a signal-aware removal DELETE finishes", async () => {
 		const entryKey = "entry-hung-repeat-delete";
 		const slotKey = "photo:removed-row";
 		registerAttachmentSlotPath({
@@ -2355,7 +2316,9 @@ describe("form attachment coordinator", () => {
 				});
 			},
 		});
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
+		const fetchMock = vi
+			.fn()
+			.mockImplementation(() => reply("/data/visits[0]/signature"));
 		stubFetch(fetchMock);
 		const maintenance = reconcileAttachmentRepeatCompaction({
 			appId: "app-1",
@@ -2411,9 +2374,11 @@ describe("form attachment coordinator", () => {
 		let offline = true;
 		const fetchMock = vi.fn().mockImplementation(async (_url, init) => {
 			if (init?.method === "PATCH") {
-				return { ok: !offline, status: offline ? 409 : 200 };
+				return offline
+					? new Response(null, { status: 409 })
+					: reply("/data/visits[0]/photo");
 			}
-			return { ok: true, status: 200 };
+			return reply();
 		});
 		stubFetch(fetchMock);
 
@@ -2455,594 +2420,5 @@ describe("form attachment coordinator", () => {
 		await expect(
 			runFormAttachmentBarrier(entryKey, async () => "submitted"),
 		).resolves.toBe("submitted");
-	});
-});
-
-describe("stageAttachment", () => {
-	it("confirms after an ambiguous create-only 412", async () => {
-		const fetchMock = vi
-			.fn()
-			.mockResolvedValueOnce({
-				ok: true,
-				json: async () => ({
-					attachmentId: "attachment-1",
-					attachmentName: "attachment-1.png",
-					uploadUrl: "https://storage.test/upload",
-					uploadContentType: "image/png",
-					uploadHeaders: { "x-goog-if-generation-match": "0" },
-				}),
-			})
-			.mockResolvedValueOnce({ ok: false, status: 412 })
-			.mockResolvedValueOnce({
-				ok: true,
-				json: async () => ({
-					attachmentId: "attachment-1",
-					attachmentName: "attachment-1.png",
-					originalFilename: "photo.png",
-					sizeBytes: 3,
-				}),
-			});
-		stubFetch(fetchMock);
-
-		await expect(
-			stageAttachment({
-				appId: "app-1",
-				entryKey: "11111111-1111-4111-8111-111111111111",
-				fieldUuid: "22222222-2222-4222-8222-222222222222",
-				instancePath: "/data/photo",
-				file: { name: "photo.png", size: 3 } as File,
-			}),
-		).resolves.toMatchObject({
-			attachmentId: "attachment-1",
-			attachmentName: "attachment-1.png",
-		});
-		expect(fetchMock).toHaveBeenCalledTimes(3);
-	});
-
-	it("compensates a failed PUT out of band without waiting for DELETE", async () => {
-		const fetchMock = vi
-			.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-				waitForAbort(init?.signal),
-			)
-			.mockResolvedValueOnce({
-				ok: true,
-				json: async () => ({
-					attachmentId: "attachment-compensate",
-					attachmentName: "attachment-compensate.png",
-					uploadUrl: "https://storage.test/upload",
-					uploadContentType: "image/png",
-					uploadHeaders: { "x-goog-if-generation-match": "0" },
-				}),
-			} as Response)
-			.mockResolvedValueOnce({ ok: false, status: 500 } as Response);
-		stubFetch(fetchMock);
-
-		await expect(
-			stageAttachment({
-				appId: "app-1",
-				entryKey: "11111111-1111-4111-8111-111111111111",
-				fieldUuid: "22222222-2222-4222-8222-222222222222",
-				instancePath: "/data/photo",
-				file: { name: "photo.png", size: 3 } as File,
-			}),
-		).rejects.toThrow();
-		expect(fetchMock).toHaveBeenCalledTimes(3);
-		expect(fetchMock).toHaveBeenLastCalledWith(
-			"/api/apps/app-1/attachments/attachment-compensate",
-			expect.objectContaining({ method: "DELETE" }),
-		);
-	});
-
-	it("times out a hung initiate request", async () => {
-		vi.useFakeTimers();
-		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-			waitForAbort(init?.signal),
-		);
-		stubFetch(fetchMock);
-
-		const stage = stageAttachment({
-			appId: "app-1",
-			entryKey: "11111111-1111-4111-8111-111111111111",
-			fieldUuid: "22222222-2222-4222-8222-222222222222",
-			instancePath: "/data/photo",
-			file: { name: "photo.png", size: 3 } as File,
-		});
-		const rejection = expect(stage).rejects.toThrow(/timed out/i);
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-	});
-
-	it("keeps the initiate deadline open through a stalled success body", async () => {
-		vi.useFakeTimers();
-		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-			Promise.resolve({
-				ok: true,
-				json: () => waitForAbort(init?.signal),
-			} as unknown as Response),
-		);
-		stubFetch(fetchMock);
-
-		const stage = stageAttachment({
-			appId: "app-1",
-			entryKey: "11111111-1111-4111-8111-111111111111",
-			fieldUuid: "22222222-2222-4222-8222-222222222222",
-			instancePath: "/data/photo",
-			file: { name: "photo.png", size: 3 } as File,
-		});
-		const rejection = expect(stage).rejects.toThrow(/timed out/i);
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-	});
-
-	it("keeps the initiate deadline open through a stalled error body", async () => {
-		vi.useFakeTimers();
-		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-			Promise.resolve({
-				ok: false,
-				status: 409,
-				json: () => waitForAbort(init?.signal),
-			} as unknown as Response),
-		);
-		stubFetch(fetchMock);
-
-		const stage = stageAttachment({
-			appId: "app-1",
-			entryKey: "11111111-1111-4111-8111-111111111111",
-			fieldUuid: "22222222-2222-4222-8222-222222222222",
-			instancePath: "/data/photo",
-			file: { name: "photo.png", size: 3 } as File,
-		});
-		const rejection = expect(stage).rejects.toThrow(/timed out/i);
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-		expect(fetchMock).toHaveBeenCalledTimes(1);
-	});
-
-	it("times out a hung PUT and schedules cleanup for the minted attempt", async () => {
-		vi.useFakeTimers();
-		let call = 0;
-		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-			call += 1;
-			if (call === 1) {
-				return Promise.resolve({
-					ok: true,
-					json: async () => ({
-						attachmentId: "attachment-put-timeout",
-						attachmentName: "attachment-put-timeout.png",
-						uploadUrl: "https://storage.test/upload",
-						uploadContentType: "image/png",
-						uploadHeaders: { "x-goog-if-generation-match": "0" },
-					}),
-				} as Response);
-			}
-			if (init?.method === "DELETE") {
-				return Promise.resolve({ ok: true, status: 200 } as Response);
-			}
-			return waitForAbort(init?.signal);
-		});
-		stubFetch(fetchMock);
-
-		const stage = stageAttachment({
-			appId: "app-1",
-			entryKey: "11111111-1111-4111-8111-111111111111",
-			fieldUuid: "22222222-2222-4222-8222-222222222222",
-			instancePath: "/data/photo",
-			file: { name: "photo.png", size: 3 } as File,
-		});
-		const rejection = expect(stage).rejects.toThrow(/timed out/i);
-		await Promise.resolve();
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-		await vi.waitFor(() =>
-			expect(fetchMock).toHaveBeenLastCalledWith(
-				"/api/apps/app-1/attachments/attachment-put-timeout",
-				expect.objectContaining({ method: "DELETE" }),
-			),
-		);
-	});
-
-	it("keeps the PUT deadline open through a stalled success body", async () => {
-		vi.useFakeTimers();
-		const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-			if (String(input) === "https://storage.test/upload") {
-				return Promise.resolve({
-					ok: true,
-					status: 200,
-					arrayBuffer: () => waitForBodyAbort(init?.signal),
-				} as unknown as Response);
-			}
-			if (init?.method === "DELETE") {
-				return Promise.resolve({ ok: true, status: 200 } as Response);
-			}
-			if (fetchMock.mock.calls.length === 1) {
-				return Promise.resolve({
-					ok: true,
-					json: async () => ({
-						attachmentId: "attachment-put-body-timeout",
-						attachmentName: "attachment-put-body-timeout.png",
-						uploadUrl: "https://storage.test/upload",
-						uploadContentType: "image/png",
-						uploadHeaders: { "x-goog-if-generation-match": "0" },
-					}),
-				} as Response);
-			}
-			return Promise.resolve({
-				ok: true,
-				json: async () => ({
-					attachmentId: "attachment-put-body-timeout",
-					attachmentName: "attachment-put-body-timeout.png",
-					originalFilename: "photo.png",
-					sizeBytes: 3,
-				}),
-			} as Response);
-		});
-		stubFetch(fetchMock);
-
-		const stage = stageAttachment({
-			appId: "app-1",
-			entryKey: "11111111-1111-4111-8111-111111111111",
-			fieldUuid: "22222222-2222-4222-8222-222222222222",
-			instancePath: "/data/photo",
-			file: { name: "photo.png", size: 3 } as File,
-		});
-		const rejection = expect(stage).rejects.toThrow(/timed out/i);
-		await Promise.resolve();
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-		expect(
-			fetchMock.mock.calls.filter(
-				([input]) => String(input) === "https://storage.test/upload",
-			),
-		).toHaveLength(1);
-		expect(
-			fetchMock.mock.calls.some(([, init]) => init?.method === "POST"),
-		).toBe(true);
-	});
-
-	it("keeps external cancellation attached while a PUT response body stalls", async () => {
-		const controller = new AbortController();
-		const bodyStarted = deferred<void>();
-		const fetchMock = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
-			if (String(input) === "https://storage.test/upload") {
-				return Promise.resolve({
-					ok: true,
-					status: 200,
-					arrayBuffer: () => {
-						bodyStarted.resolve();
-						return waitForBodyAbort(init?.signal);
-					},
-				} as unknown as Response);
-			}
-			if (init?.method === "DELETE") {
-				return Promise.resolve({ ok: true, status: 200 } as Response);
-			}
-			return Promise.resolve({
-				ok: true,
-				json: async () => ({
-					attachmentId: "attachment-put-body-abort",
-					attachmentName: "attachment-put-body-abort.png",
-					uploadUrl: "https://storage.test/upload",
-					uploadContentType: "image/png",
-					uploadHeaders: { "x-goog-if-generation-match": "0" },
-				}),
-			} as Response);
-		});
-		stubFetch(fetchMock);
-
-		const stage = stageAttachment({
-			appId: "app-1",
-			entryKey: "11111111-1111-4111-8111-111111111111",
-			fieldUuid: "22222222-2222-4222-8222-222222222222",
-			instancePath: "/data/photo",
-			file: { name: "photo.png", size: 3 } as File,
-			signal: controller.signal,
-		});
-		const rejection = expect(stage).rejects.toMatchObject({
-			name: "AbortError",
-		});
-		await bodyStarted.promise;
-		controller.abort(new DOMException("Question hidden", "AbortError"));
-
-		await rejection;
-	});
-
-	it("times out a hung confirm and schedules cleanup for the uploaded attempt", async () => {
-		vi.useFakeTimers();
-		let call = 0;
-		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-			call += 1;
-			if (call === 1) {
-				return Promise.resolve({
-					ok: true,
-					json: async () => ({
-						attachmentId: "attachment-confirm-timeout",
-						attachmentName: "attachment-confirm-timeout.png",
-						uploadUrl: "https://storage.test/upload",
-						uploadContentType: "image/png",
-						uploadHeaders: { "x-goog-if-generation-match": "0" },
-					}),
-				} as Response);
-			}
-			if (call === 2 || init?.method === "DELETE") {
-				return Promise.resolve({ ok: true, status: 200 } as Response);
-			}
-			return waitForAbort(init?.signal);
-		});
-		stubFetch(fetchMock);
-
-		const stage = stageAttachment({
-			appId: "app-1",
-			entryKey: "11111111-1111-4111-8111-111111111111",
-			fieldUuid: "22222222-2222-4222-8222-222222222222",
-			instancePath: "/data/photo",
-			file: { name: "photo.png", size: 3 } as File,
-		});
-		const rejection = expect(stage).rejects.toThrow(/timed out/i);
-		await Promise.resolve();
-		await Promise.resolve();
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-		await vi.waitFor(() =>
-			expect(fetchMock).toHaveBeenLastCalledWith(
-				"/api/apps/app-1/attachments/attachment-confirm-timeout",
-				expect.objectContaining({ method: "DELETE" }),
-			),
-		);
-	});
-
-	it("keeps the confirm deadline open through a stalled success body", async () => {
-		vi.useFakeTimers();
-		let call = 0;
-		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-			call += 1;
-			if (call === 1) {
-				return Promise.resolve({
-					ok: true,
-					json: async () => ({
-						attachmentId: "attachment-confirm-body-timeout",
-						attachmentName: "attachment-confirm-body-timeout.png",
-						uploadUrl: "https://storage.test/upload",
-						uploadContentType: "image/png",
-						uploadHeaders: { "x-goog-if-generation-match": "0" },
-					}),
-				} as Response);
-			}
-			if (call === 2 || init?.method === "DELETE") {
-				return Promise.resolve({ ok: true, status: 200 } as Response);
-			}
-			return Promise.resolve({
-				ok: true,
-				json: () => waitForAbort(init?.signal),
-			} as unknown as Response);
-		});
-		stubFetch(fetchMock);
-
-		const stage = stageAttachment({
-			appId: "app-1",
-			entryKey: "11111111-1111-4111-8111-111111111111",
-			fieldUuid: "22222222-2222-4222-8222-222222222222",
-			instancePath: "/data/photo",
-			file: { name: "photo.png", size: 3 } as File,
-		});
-		const rejection = expect(stage).rejects.toThrow(/timed out/i);
-		await Promise.resolve();
-		await Promise.resolve();
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-		await vi.waitFor(() =>
-			expect(fetchMock).toHaveBeenLastCalledWith(
-				"/api/apps/app-1/attachments/attachment-confirm-body-timeout",
-				expect.objectContaining({ method: "DELETE" }),
-			),
-		);
-	});
-
-	it("keeps the confirm deadline open through a stalled error body", async () => {
-		vi.useFakeTimers();
-		let call = 0;
-		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => {
-			call += 1;
-			if (call === 1) {
-				return Promise.resolve({
-					ok: true,
-					json: async () => ({
-						attachmentId: "attachment-confirm-error-body-timeout",
-						attachmentName: "attachment-confirm-error-body-timeout.png",
-						uploadUrl: "https://storage.test/upload",
-						uploadContentType: "image/png",
-						uploadHeaders: { "x-goog-if-generation-match": "0" },
-					}),
-				} as Response);
-			}
-			if (call === 2 || init?.method === "DELETE") {
-				return Promise.resolve({ ok: true, status: 200 } as Response);
-			}
-			return Promise.resolve({
-				ok: false,
-				status: 409,
-				json: () => waitForAbort(init?.signal),
-			} as unknown as Response);
-		});
-		stubFetch(fetchMock);
-
-		const stage = stageAttachment({
-			appId: "app-1",
-			entryKey: "11111111-1111-4111-8111-111111111111",
-			fieldUuid: "22222222-2222-4222-8222-222222222222",
-			instancePath: "/data/photo",
-			file: { name: "photo.png", size: 3 } as File,
-		});
-		const rejection = expect(stage).rejects.toThrow(/timed out/i);
-		await Promise.resolve();
-		await Promise.resolve();
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-		await vi.waitFor(() =>
-			expect(fetchMock).toHaveBeenLastCalledWith(
-				"/api/apps/app-1/attachments/attachment-confirm-error-body-timeout",
-				expect.objectContaining({ method: "DELETE" }),
-			),
-		);
-	});
-
-	it("bounds and cancels repeat retarget requests", async () => {
-		vi.useFakeTimers();
-		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-			waitForAbort(init?.signal),
-		);
-		stubFetch(fetchMock);
-
-		const retarget = retargetAttachment({
-			appId: "app-1",
-			attachmentId: "attachment-retarget-timeout",
-			expectedInstancePath: "/data/visits[1]/photo",
-			instancePath: "/data/visits[0]/photo",
-		});
-		const rejection = expect(retarget).rejects.toThrow(/timed out/i);
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-		expect(fetchMock).toHaveBeenCalledWith(
-			"/api/apps/app-1/attachments/attachment-retarget-timeout",
-			expect.objectContaining({
-				method: "PATCH",
-				signal: expect.any(AbortSignal),
-			}),
-		);
-	});
-
-	it("keeps the retarget deadline open through a stalled success body", async () => {
-		vi.useFakeTimers();
-		const fetchMock = vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-			Promise.resolve({
-				ok: true,
-				status: 200,
-				arrayBuffer: () => waitForBodyAbort(init?.signal),
-			} as unknown as Response),
-		);
-		stubFetch(fetchMock);
-
-		const retarget = retargetAttachment({
-			appId: "app-1",
-			attachmentId: "attachment-retarget-body-timeout",
-			expectedInstancePath: "/data/visits[1]/photo",
-			instancePath: "/data/visits[0]/photo",
-		});
-		const rejection = expect(retarget).rejects.toThrow(/timed out/i);
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-	});
-
-	it("keeps external cancellation attached while a retarget body stalls", async () => {
-		const controller = new AbortController();
-		const bodyStarted = deferred<void>();
-		stubFetch(
-			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-				Promise.resolve({
-					ok: true,
-					status: 200,
-					arrayBuffer: () => {
-						bodyStarted.resolve();
-						return waitForBodyAbort(init?.signal);
-					},
-				} as unknown as Response),
-			),
-		);
-		const retarget = retargetAttachment({
-			appId: "app-1",
-			attachmentId: "attachment-retarget-body-abort",
-			expectedInstancePath: "/data/visits[1]/photo",
-			instancePath: "/data/visits[0]/photo",
-			signal: controller.signal,
-		});
-		const rejection = expect(retarget).rejects.toMatchObject({
-			name: "AbortError",
-		});
-		await bodyStarted.promise;
-		controller.abort(new DOMException("Question hidden", "AbortError"));
-
-		await rejection;
-	});
-
-	it("keeps the cleanup deadline open through a stalled success body", async () => {
-		vi.useFakeTimers();
-		stubFetch(
-			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-				Promise.resolve({
-					ok: true,
-					status: 200,
-					arrayBuffer: () => waitForBodyAbort(init?.signal),
-				} as unknown as Response),
-			),
-		);
-		const cleanup = discardAttachment({
-			appId: "app-1",
-			attachmentId: "attachment-delete-body-timeout",
-		});
-		const rejection = expect(cleanup).rejects.toThrow(/timed out/i);
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-	});
-
-	it("keeps the cleanup deadline open through a stalled error body", async () => {
-		vi.useFakeTimers();
-		stubFetch(
-			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-				Promise.resolve({
-					ok: false,
-					status: 503,
-					arrayBuffer: () => waitForBodyAbort(init?.signal),
-				} as unknown as Response),
-			),
-		);
-		const cleanup = discardAttachment({
-			appId: "app-1",
-			attachmentId: "attachment-delete-error-body-timeout",
-		});
-		const rejection = expect(cleanup).rejects.toThrow(/timed out/i);
-		await vi.advanceTimersByTimeAsync(30_000);
-
-		await rejection;
-	});
-
-	it("keeps external cancellation attached while a cleanup body stalls", async () => {
-		const controller = new AbortController();
-		const bodyStarted = deferred<void>();
-		stubFetch(
-			vi.fn((_input: RequestInfo | URL, init?: RequestInit) =>
-				Promise.resolve({
-					ok: true,
-					status: 200,
-					arrayBuffer: () => {
-						bodyStarted.resolve();
-						return waitForBodyAbort(init?.signal);
-					},
-				} as unknown as Response),
-			),
-		);
-		const cleanup = discardAttachment({
-			appId: "app-1",
-			attachmentId: "attachment-delete-body-abort",
-			signal: controller.signal,
-		});
-		const rejection = expect(cleanup).rejects.toMatchObject({
-			name: "AbortError",
-		});
-		await bodyStarted.promise;
-		controller.abort(new DOMException("Entry retired", "AbortError"));
-
-		await rejection;
 	});
 });

@@ -1,0 +1,6 @@
+{
+	"file": "e2e/lib/chat-controls-client.tsx",
+	"beforeSha256": "6f1f5fa09ce8abc121520d3dfe94942794e3238709546c1f0af4ea331d670b0f",
+	"afterSha256": "b5ff30150973f0eb1edfb45280cf9053ce969d0d3efc651621bc5b6b807d9e3f",
+	"review": "Formatting only: collapse restoreAccess method chain without changing its syntax or behavior. Prior supplemental native evidence remains authoritative."
+}

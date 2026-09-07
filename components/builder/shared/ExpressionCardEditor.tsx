@@ -41,7 +41,7 @@
 
 "use client";
 import { useCallback, useMemo } from "react";
-import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
+import { useBuilderLookupCatalog } from "@/components/builder/lookup/catalogContext";
 import { useValidityPropagator } from "@/components/builder/shared/useInnerValidityShadow";
 import {
 	type PredicateEditVerdict,
@@ -50,11 +50,6 @@ import {
 import type { CaseType, UserProperty } from "@/lib/domain";
 import {
 	ANY_CONSTRAINT,
-	acceptsType,
-	type CheckError,
-	checkExpression,
-	checkValueExpression,
-	describe,
 	type SlotConstraint,
 	type TypeContext,
 	type ValueExpression,
@@ -66,6 +61,7 @@ import {
 } from "./editorContext";
 import type { CaseDataScope, EvaluationTarget } from "./editorSchemas";
 import type { OperationValueScope } from "./expressionEditorSchemas";
+import { expressionEditorErrors } from "./expressionEditorValidity";
 import type { EditorFormFieldDecl } from "./formFieldPresentation";
 import type {
 	EditorLookupTableDecl,
@@ -203,21 +199,10 @@ export function ExpressionCardEditor({
 	// won't accept. Valid-by-construction editing can't reach that
 	// backstop: the kind menu + value sources only offer admissible
 	// values, but a checker-invalid in-memory draft still surfaces it.
-	const errors = useMemo<readonly CheckError[]>(() => {
-		const result = checkValueExpression(value, typeCtx);
-		const collected: CheckError[] = result.ok ? [] : [...result.errors];
-		if (constraint.accepts !== "any") {
-			const resolved = checkExpression(value, typeCtx, [], []);
-			if (resolved !== undefined && !acceptsType(constraint, resolved)) {
-				collected.push({
-					path: [],
-					code: "constraint-value",
-					message: `This value works out to ${describe(resolved)}, which doesn't fit this spot`,
-				});
-			}
-		}
-		return collected;
-	}, [value, typeCtx, constraint]);
+	const errors = useMemo(
+		() => expressionEditorErrors(value, typeCtx, constraint),
+		[value, typeCtx, constraint],
+	);
 
 	const validityIndex = useMemo(() => buildValidityIndex(errors), [errors]);
 	const admitRuntimeExpression = useCallback(

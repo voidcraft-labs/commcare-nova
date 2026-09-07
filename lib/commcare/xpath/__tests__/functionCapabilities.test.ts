@@ -1,101 +1,83 @@
 import { describe, expect, it } from "vitest";
-import { FUNCTION_REGISTRY } from "../../validator/functionRegistry";
 import {
 	assertCsqlQueryFunction,
 	assertCsqlValueFunction,
-	CSQL_QUERY_FUNCTIONS,
-	CSQL_VALUE_FUNCTIONS,
 	inspectXPathFunctionCalls,
-	JAVAROSA_CONTEXT_FUNCTIONS,
-	JAVAROSA_LOWERED_FUNCTIONS,
-	JAVAROSA_NATIVE_FUNCTIONS,
-	JAVAROSA_PATH_INITIALIZERS,
 	javaRosaFunctionCapability,
 } from "../functionCapabilities";
 
-describe("XPath carrier capability contract", () => {
-	it("admits only JavaRosa-native, lowered, or path-initializer functions", () => {
-		for (const name of FUNCTION_REGISTRY.keys()) {
-			expect(javaRosaFunctionCapability(name), name).not.toBe("unsupported");
-		}
-		expect(FUNCTION_REGISTRY.has("normalize-space")).toBe(true);
-		expect(FUNCTION_REGISTRY.has("last")).toBe(false);
-		expect(FUNCTION_REGISTRY.has("substring")).toBe(false);
-		expect(FUNCTION_REGISTRY.has("here")).toBe(false);
+// Native dispatch is proved by XPathCarrierCompatibilityTest against the actual
+// exported table. These tests own classification and structural call discovery.
+describe("XPath capability classification", () => {
+	it.each([
+		["replace", "native"],
+		["normalize-space", "lowered"],
+		["current", "path-initializer"],
+		["instance", "path-initializer"],
+		["here", "context-handler"],
+		["invented", "unsupported"],
+	] as const)("classifies %s as %s", (name, expected) => {
+		expect(javaRosaFunctionCapability(name)).toBe(expected);
 	});
-
-	it("tracks Core's native table independently from path intrinsics", () => {
-		expect(JAVAROSA_NATIVE_FUNCTIONS.size).toBe(76);
-		expect(JAVAROSA_NATIVE_FUNCTIONS.has("replace")).toBe(true);
-		expect(JAVAROSA_NATIVE_FUNCTIONS.has("normalize-space")).toBe(false);
-		expect([...JAVAROSA_LOWERED_FUNCTIONS]).toEqual(["normalize-space"]);
-		expect([...JAVAROSA_PATH_INITIALIZERS].sort()).toEqual([
-			"current",
-			"instance",
-		]);
-		expect([...JAVAROSA_CONTEXT_FUNCTIONS]).toEqual(["here"]);
-	});
-
-	it("classifies ordinary functions and path intrinsics without a Preview subset", () => {
-		expect(inspectXPathFunctionCalls("concat('a', 'b')")).toMatchObject([
-			{ name: "concat", javaRosa: "native", argumentCount: 2 },
-		]);
-		expect(inspectXPathFunctionCalls("concat(/data/items)")).toMatchObject([
-			{ name: "concat", javaRosa: "native", argumentCount: 1 },
-		]);
-		expect(
-			inspectXPathFunctionCalls(
-				"instance('commcaresession')/session/context/userid",
-			),
-		).toMatchObject([
+	it("finds nested calls, exact arity and offsets while ignoring literal spellings and axis tests", () => {
+		const source =
+			"concat('if(1,2,3)', normalize-space(' x '), current()/parent::node()/name)";
+		expect(inspectXPathFunctionCalls(source)).toEqual([
 			{
-				name: "instance",
-				javaRosa: "path-initializer",
+				name: "concat",
+				from: 0,
+				argumentCount: 3,
+				javaRosa: "native",
 				validPathInitializer: true,
 			},
-		]);
-		expect(
-			inspectXPathFunctionCalls("instance('casedb')/casedb/case"),
-		).toMatchObject([
 			{
-				name: "instance",
-				javaRosa: "path-initializer",
+				name: "normalize-space",
+				from: source.indexOf("normalize-space"),
+				argumentCount: 1,
+				javaRosa: "lowered",
 				validPathInitializer: true,
 			},
-		]);
-		expect(inspectXPathFunctionCalls("current()/name")).toMatchObject([
 			{
 				name: "current",
+				from: source.indexOf("current"),
+				argumentCount: 0,
 				javaRosa: "path-initializer",
 				validPathInitializer: true,
 			},
 		]);
-		expect(inspectXPathFunctionCalls("instance(#form/id)/name")).toMatchObject([
-			{
-				name: "instance",
-				validPathInitializer: false,
-			},
-		]);
-		expect(
-			inspectXPathFunctionCalls("current('unexpected')/name"),
-		).toMatchObject([
-			{
-				name: "current",
-				validPathInitializer: false,
-			},
-		]);
 	});
-
-	it("keeps CSQL value and query whitelists distinct", () => {
-		expect(CSQL_VALUE_FUNCTIONS.has("date-add")).toBe(true);
-		expect(CSQL_VALUE_FUNCTIONS.has("normalize-space")).toBe(false);
-		expect(CSQL_QUERY_FUNCTIONS.has("selected-any")).toBe(true);
-		expect(CSQL_QUERY_FUNCTIONS.has("normalize-space")).toBe(false);
-		expect(() => assertCsqlValueFunction("normalize-space")).toThrow(
-			"CCHQ does not register it as a value function",
-		);
-		expect(() => assertCsqlQueryFunction("normalize-space")).toThrow(
+	it.each([
+		["instance('casedb')/casedb/case", true],
+		["instance('casedb')", false],
+		["instance(#form/id)/name", false],
+		["instance('casedb', 'extra')/name", false],
+		["current()/name", true],
+		["current('unexpected')/name", false],
+		["current()", false],
+	] as const)(
+		"checks the path-initializer position and literal arguments of %s",
+		(source, valid) => {
+			const calls = inspectXPathFunctionCalls(source);
+			expect(calls).toHaveLength(1);
+			expect(calls[0].validPathInitializer).toBe(valid);
+		},
+	);
+	it("keeps CSQL query and value guards distinct with successful counterparts", () => {
+		expect(() => assertCsqlValueFunction("date-add")).not.toThrow();
+		expect(() => assertCsqlQueryFunction("selected-any")).not.toThrow();
+		expect(() => assertCsqlQueryFunction("date-add")).toThrow(
 			"CCHQ does not register it as a query function",
 		);
+		expect(() => assertCsqlValueFunction("selected-any")).toThrow(
+			"CCHQ does not register it as a value function",
+		);
+		for (const name of ["normalize-space", "unknown"]) {
+			expect(() => assertCsqlValueFunction(name)).toThrow(
+				"CCHQ does not register it as a value function",
+			);
+			expect(() => assertCsqlQueryFunction(name)).toThrow(
+				"CCHQ does not register it as a query function",
+			);
+		}
 	});
 });

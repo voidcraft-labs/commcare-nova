@@ -113,34 +113,25 @@ they cannot become a subtly wrong arithmetic, name, or nested expression.
 **A device's `locations` fixture is HQ's to deliver, not Nova's.**
 `FlatLocationSerializer` runs on RESTORE, from the domain's own `SQLLocation`
 rows, so nothing Nova exports carries it and nothing Nova could export would:
-a `.ccz` is an app, and this fixture is per worker. Nova emits it anyway, as a
-TEST ASSET (`lib/commcare/locations/__tests__/flatLocationsFixture.ts`), for one
-reason — the lowering has to be provable against the exact bytes a device reads,
-and a shape nobody can execute is a shape nobody can check. It is the wire's
-specimen, not a delivery path, and it lives beside the test that reads it so
-nobody mistakes it for one. It matches
-`locations/fixtures.py::FlatLocationSerializer.get_xml_nodes` node for node: the
-sorted app-wide index schema, places ordered by `site_code`, one `{code}_id`
-attribute per level present-and-empty except for the place itself and each
-ancestor, HQ's seven children in order, and one `location_data` carrying every
-declared field. It is a RESTORE fixture and never a suite one — it carries
-`user_id` and differs per worker, which is exactly what `suiteOracle::checkFixtures`
-rejects inside a `<suite>`. The instance declaration that would otherwise void
-it silently rides the XForm already: a location term is authorable in exactly
-one slot, a case operation's `owner`, and reaches the XForm through the
-AST-level accumulator rather than as text, so no authored placeholder question
-exists for an author to wonder about.
+a `.ccz` is an app, and this fixture is per worker. The native compatibility
+scripts execute HQ's actual `FlatLocationSerializer.get_xml_nodes` and index
+schema producer over supplied ORM rows, then parse the resulting restores into
+Core's indexed fixture storage. Both local and HQ-regenerated forms consume
+those bytes through native form initialization and case processing. The corpus
+covers immediate and multi-rung owner hops, independent branch identities,
+skipped intermediate places, empty fixtures and missing destinations. Core's
+in-memory storage proves evaluation and refusal, not transaction rollback.
 
-**The bytes are load-bearing rather than plausible.** One authored rule has two
-independent lowerings — XPath over the fixture, and a recursive CTE over
-`app_locations` — that share a rule but no code path, so they can drift into
-disagreement with no symptom until a device assigns a case somewhere the
-preview did not. Over generated organizations, every owner/destination pair the
-commit gate admits resolves to the same place id on both sides, with the wire
-side evaluated by a Lezer-driven reference evaluator that knows nothing about
-organizations. An ambiguous hop is skipped rather than compared:
-`assertReverseHopTargetsUnambiguous` refuses that shape and both sides pick
-arbitrarily, so comparing them would test two coin flips.
+The companion Postgres tests create valid branches through the organization
+service, execute the actual recursive owner SQL, and verify that adding an
+ambiguous destination rolls back the rows and revision together. These are
+explicit expected destinations rather than a copied serializer/evaluator pair.
+HQ footprint SQL and remote restore are outside this native corpus.
+
+A location term occupies exactly one slot, a case operation's complete owner
+expression. Its AST accumulator automatically declares the XForm instance.
+The per-worker fixture never belongs in the app's suite, and no placeholder
+question is needed to force its declaration.
 
 **Export is closed for one owner shape, and no longer for two.** A
 `fixed-location` owner emits a Nova place UUID as a literal `owner_id`, which

@@ -1,8 +1,17 @@
 # Findings from the test-suite audit
 
-This records behavior discovered by executing replacement tests. The audit is
-still in progress; `manifest.json` tracks direct file review separately from
-passing tests.
+This records behavior discovered by executing replacement tests. All 1,195
+original test files have direct method-review records in `manifest.json`.
+Integration follow-ups and aggregate validation remain separately documented;
+a reviewed file and a passing test establish different things.
+
+The sections below retain the evidence gathered during review, including the
+state of related work at each checkpoint. Historical references to pending
+reviews or failed intermediate runs are superseded by the final manifest and
+its supplemental reports. The original denominator remains 1,195: 821 revised,
+97 retained, 272 removed, four rewritten and one replaced. Every final original
+file hash, including null for removed files, has been verified against the
+working tree. New replacement suites are recorded separately.
 
 ## Compiler defects corrected during review
 
@@ -20,26 +29,38 @@ passing tests.
   and `10 - (5 - 2)` was exposed to SQL's left associativity. Arithmetic nodes
   now retain parentheses. Real Postgres assertions require `20` and `7`.
 
-## Unresolved arithmetic contract discrepancy
+## Typed arithmetic contract preserved across runtime boundaries
 
-Nova's current domain checker resolves `int div int` to `int`, and its Postgres
-runtime returns `3` for `10 div 3`. CommCare Core's `XPathArithExpr.evalRaw`
-converts both operands to doubles and uses `aval / bval`; its result retains
-the fraction. The on-device emitter currently emits the division directly.
+The existing domain contract remains `int` / `int` → `int`, with division
+truncated toward zero; a decimal operand keeps the fractional result. No
+stored expression or destination was retagged. The device emitter now removes
+the signed remainder before nonzero integer division. The SQL compiler casts
+operands to `numeric` and truncates declared integer division, preserving large
+integral literals without imposing an int4 or int8 intermediate limit.
 
-Evidence inspected locally:
+Real bound form answers exposed another failure: two untyped SQL parameters
+made division ambiguous, while `%` silently selected pg_trgm's text operator
+and returned `false`. Committed field declarations now travel through the
+submission program and XForm emitter; lookup folding and row filters preserve
+numeric column and field types too. The current answer `"10"` does not turn a
+declared decimal field into an integer.
 
-- `lib/domain/predicate/typeChecker.ts`, the `arith` result-type rule.
-- `lib/commcare/expression/onDeviceEmitter.ts`, arithmetic emission.
-- `commcare-core/src/main/java/org/javarosa/xpath/expr/XPathArithExpr.java`,
-  `evalRaw` and `DIVIDE`.
-- [Postgres mathematical operators](https://www.postgresql.org/docs/18/functions-math.html),
-  which specify truncation for division of integral operands.
+The same fully admitted `arithmeticFixture` runs through the actual Preview
+FormEngine, authoritative program builder and Postgres storage, and through
+the production CCZ form, native Core initialization, serialization and
+`XmlFormRecordProcessor`. Four sign combinations verify stored integer
+quotients, signed remainders, decimal results and `2147483648 div 3 = 715827882`.
+Restoring raw division in the exported form fails all four native stored-value
+assertions. Exact native provenance is in `native-core-arithmetic.json`.
 
-The literal/grouping fixes preserve the current Nova type contract. Changing
-that contract needs a decision covering existing integer destinations and
-saved expressions, followed by validation across SQL and wire consumers. This
-is an open finding, not a claim of arithmetic parity across targets.
+The proof is deliberately bounded. Core uses binary floating point and
+Postgres uses numeric arithmetic: `0.3 mod 0.1` still differs (`0.09999999999999998`
+versus `0`). PostgreSQL refuses division/modulo by zero with `22012`; native
+scalar division retains positive/negative Infinity or NaN through an explicit
+zero branch. These scalar observations do not establish successful non-finite
+case writes. Raw XPath retains its independent native division semantics, and
+finite-range/precision limits remain evaluator-specific. This correction does
+not claim unrestricted arithmetic parity across targets.
 
 ## Archive member normalization corrected during review
 
@@ -106,10 +127,9 @@ that actual reporting channel; a real browser beacon proves the guard rejects
 such a report even when the endpoint returns 204.
 
 An intermittent native ResizeObserver undelivered-notifications event exposed
-that gap during the language and inline-editing journeys. Subsequent instrumented
-and ordinary runs did not reproduce it. No observer or reporter suppression was
-added. The layout cause remains an open investigation, now covered by the guard
-when Nova reports it.
+that gap during the language and inline-editing journeys. The later nested
+floating-surface investigation below reproduced the geometry feedback and fixed
+the shared menu/popover motion. No observer or reporter suppression was added.
 
 ## Static boundaries and model transport
 
@@ -2566,3 +2586,186 @@ detector reports 11 SDK PROMISE-only diagnostics; stream aggregates, HTTP
 responses and the private peer transport are awaited and closed. No live model
 request is made. Integration typecheck16 reports no errors in this method;
 concurrent application and validator fixture errors remain separately assigned.
+
+### Integrated domain, application, Builder, document and Preview reviews
+
+The completed reviews under `reviews/` retain file-by-file decisions, exact
+reviewed test hashes, negative-control evidence, commands and limitations.
+`manifest.json` links original files to those records. Added tests are recorded
+in their reports and do not increase the original 1,195-file denominator.
+Direct review and final aggregate validation remain separate gates. The first
+integration covers the completed domain/validator, application, Builder,
+document, Preview and model-method assignments, including the executor and
+design-loop follow-ons. The complete CommCare and final validator reviews are
+also integrated with their native evidence and exact reviewed hashes.
+
+The domain review replaces registry copies and self-derived expectations with
+schema-admitted witnesses, actual tool/document transitions, independent JSON
+schema validation and native provider/database boundaries where necessary.
+Notable reproduced failures include recursive normalization of unfiltered
+relation predicates, nullable enum/constant schema projection, inherited MIME
+keys, nonfinite numeric case writes, lost own JSON properties, stale staged
+receipt replay and incomplete provider responses accepted as successful
+extractions or translations. The temporal tests compare final instants with
+native Date, including northern/southern transitions and half-hour changes.
+Their separate follow-on reviews cover all transferred validator methods with
+complete admitted neighboring documents and independently injected faults.
+
+Preserving an own `__proto__` member corrects canonical hashing and handle
+resolution. Previously encoded durable model-message members already used
+key-entry arrays and retain their historical digests. Old raw request receipts
+whose input lost such a member now refuse an ambiguous replay rather than
+reuse it. No stored seal was rewritten and no production data scan is claimed.
+
+Application methods retain the real request, SDK, compiler and stream adapters
+while controlling the external peer or storage service that the method names.
+The native database suites separately prove lock waits, authorization,
+revocation, terminal append ownership and replay. Reproduced fixes include
+bounded request-body consumption, authorization before dev-upload reads,
+URL-origin redirect validation, exact lookup design lineage, stale table
+revision refusal, publishing consent reset and run cancellation. Orchestration
+now joins its active database heartbeat before returning. These controlled
+provider responses establish protocol handling and durability, not model
+judgment or every successful localization branch.
+
+Builder methods move state ownership into production functions when the old
+suite could only reach it through fabricated React interactions. Native Chromium
+checks retain the actual controls, Motion, document admission and relevant
+server boundaries for focus, keyboard, layout, editing and persistence. They
+exposed refused prose drafts being lost, optional editors resurrecting after
+selection changes, missing-table selectors switching source, incorrect
+connected-case metadata and incompatible preserved-filter choices. Other
+native fixes restore date keyboard focus, image-only rich-text table cells,
+responsive breadcrumb bounds, live reduced-motion changes and compact drawer
+Escape handling. An independent review covers 87 production files; structural
+comparison confirms 66 extracted function bodies match their predecessors,
+while changed functions and their consumers were separately inspected.
+
+The final document methods prove complete case-workspace mutations and real
+browser focus. Adding previously undisplayed Default order information now
+creates its hidden column atomically with both display permutations. Retained
+column formats recheck the current case and Search context. Predicate summaries
+preserve logical grouping, and Quick Filter reads the visible link fallback.
+Pending sample creation keeps its progress surface. Reparented tree rows no
+longer restore focus to an exiting animated copy. Existing document/report
+records retain the earlier reducer, identity, reconciliation and transaction
+findings.
+
+Preview methods exercise the real form engines, retained data snapshots,
+controller resource resumes, submission programs and XPath workers. They caught
+lost Search answers on case-data resume, a text default of `false` being dropped,
+Java/JavaScript whitespace differences and late selection/rename callbacks
+remaining authoritative after unmount. Real browser drag completion distinguishes
+a registered placeholder from Escape or an outside-canvas drop. Unexpected
+server errors now keep private details out of user-facing retry messages.
+
+Chat methods retain the installed SDK conversion and Motion lifecycle. A final
+answer retires its question synchronously; an unmounted card cannot retain the
+typed-answer route. Transcript healing keeps a strictly extending text or
+reasoning part when metadata agrees, including equal-length part arrays. Native
+compaction recovery identifies authoritative state by durable origin after the
+checkpoint, so copied user headings and older server packets cannot suppress
+fresh state. PostgreSQL fixtures compare actual durable response items and
+completion records rather than absent properties.
+
+The final design-loop method uses actual admitted source packages, registered
+tools, native Responses streaming and PostgreSQL workspaces. Exact operation
+replay previously failed after a later write resolved its forward references:
+the prepared binding list changed even though the authored operation did not.
+The replay fallback now compares canonical stored and incoming operations and
+requires every supplied binding to match its existing identity and kind. Changed
+operations, unknown handles, wrong identities and wrong kinds refuse without
+changing durable rows. No historical receipt digest is rewritten.
+
+Executor cases create actual accepted designs, attempts and app genesis through
+the production persistence and document gates. Setup failures and progress
+callback failures previously left the deadline timer armed; a final persistence
+failure could do so too. The timer now belongs to the protected execution scope
+and is cleared before awaiting final persistence. The absolute deadline still
+starts at the original invocation. An unused lost-tool-result recovery helper
+was removed after checking serving callers; supervisor recovery continues from
+the canonical committed slice through a fresh generation.
+
+The location review removes the test-only fixture serializer and XPath evaluator.
+Its replacement obtains fixture bytes from HQ's actual serializer and restores
+them into Core's indexed storage. Admitted local and HQ-regenerated forms resolve
+exact branch identities and reject missing destinations. Real organization
+service writes separately prove SQL owner resolution and atomic ambiguity
+refusal. Core's in-memory storage does not roll back earlier parsed writes;
+the Android complete-form transaction wrapper was verified in source, not
+executed on a device.
+
+Each report states its own async-resource limits. Where the installed SDK or a
+native library leaves an inert Promise diagnostic, that diagnostic is retained;
+actual owned streams, timers, peer transports and database writes are joined or
+closed. A passing Promise-only diagnostic does not establish model quality,
+network delivery, process-crash recovery or any other unexecuted behavior.
+
+The case-list review replaces seven private emitter suites with eight admitted
+applications and native HQ/Core consumers. Actual entity construction and
+sorting distinguish numeric order from lexical order, decimal and name ties,
+hidden columns, independent Results/Details arrangements and local versus
+remote supporting cases. Core reproduced inline Search displaying parent
+rank 20 while sorting on local parent rank 2. Sort retargeting now follows the
+actual instance source. Three native methods cover 36 dataset/path combinations;
+nine ordinary tests check the complete compiled artifacts.
+
+The full unit integration run also exposed grouped-menu entries whose final
+computed datums read undeclared instances. Native Core reproduced the missing
+session exception while completing selection. Entry dependency collection now
+reads final computed expressions for both form and browse entries. The retained
+pre-fix suite fails at that native boundary; current grouped variants complete
+selection and resolve the actual parent identities. The strict suite oracle
+continues to require declarations rather than granting ambient instance access.
+
+Aggregate follow-ups preserve historical receipt-reader scenarios while
+constructing current designs through the stricter planning gate. The shared
+document-admission helper now clones the persistence projection and existing
+parent index without trying to clone store methods or repairing the document.
+Its 121 unit consumers pass 1,768 tests; both database consumers passed the full
+Postgres run. New lookup refusal codes also have dedicated public messages;
+the unchanged error-message suite catches an internal fallback disclosure.
+
+The production browser run exposed a worker-record identity collision across
+apps: the global case primary key was the worker ID, while lookup was scoped
+to the app. Worker records now resolve by app, Project, type and `hq_user_id`;
+existing identities remain intact, and new IDs include app identity. Concurrent
+creation adopts the exact valid winner only after the failed insert transaction
+has rolled back. Submission, durable patches and persona removal use the resolved
+row ID. Nine native Postgres cases cover app isolation, concurrent creation,
+legacy identities, Project moves, real form writes and replay, plus closed,
+ambiguous and wrong-owner refusals. All 29 authenticated browser journeys pass
+on a fresh production build without the duplicate worker-record warning.
+
+Two browser integration failures were missing synchronization in the tests.
+The after-submit linking journey now awaits the actual successful autosave
+response before reloading. The case-change journey first observes a deliberately
+held resource read, releases it, and waits for the real ready state before
+issuing keyboard edits. The original assertions remain; an absent refusal alert
+does not establish resource readiness.
+
+The final React reassessment moves domain projection and transition claims out
+of simulated DOM. Remaining React tests exercise actual effect, subscription,
+registration and cleanup obligations. Native Chromium checks now cover actual
+form controls, repeated accessible names and retained input identity, delayed
+location callbacks across access reset, camera-track release, ordered case
+continuation, and Project changes during form work. Controlled external peers
+are documented explicitly; these checks do not claim live Google services or
+server attachment persistence.
+
+Two full-app Preview journeys use real Next routes and PostgreSQL: another
+Builder tab removes the selected persona, requiring explicit recovery, and
+browser Back cancels child parent-selection before opening the parent's own
+workflow. The worker commit guard retains only its pre-I/O fast path and
+best-effort failure policy. Actual worker rename, closure and cross-app
+identity are tested at the database boundary instead of duplicated store mocks.
+
+Native persona creation exposed Users controls advertising edits before Project
+lookup definitions were available. Add, row editing, assignments and removal
+now use the same admission as the mutation gate. Disclosures, cancellation and
+unfinished drafts remain available. Three native component journeys hold the
+catalog's transport response, then exercise loading, failed refresh, retry and
+viewer access through the actual provider, document store and controls. These
+use a controlled replacement at the compiled Server Action boundary; full-app
+persona creation and recovery retain the real Next transport. The seven-file
+production correction also received an independent source review.

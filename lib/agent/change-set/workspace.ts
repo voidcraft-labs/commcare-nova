@@ -387,6 +387,12 @@ export class ChangeSetMutationWorkspace implements ToolWorkspace {
 				) {
 					throw new ChangeSetRequestIdCollisionError();
 				}
+				// A different continuation may have committed after this workspace
+				// opened. Its receipt can only be replayed against durable state that
+				// includes the winning step and the winner's allocated identities.
+				if (stored.resultingRevision > this.changeSet.revision) {
+					await this.resyncFromDurable();
+				}
 				return {
 					replayed: true,
 					result: this.replayedResult(stored.receipt) as T,

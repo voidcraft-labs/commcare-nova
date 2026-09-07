@@ -41,6 +41,15 @@ interface ExactVerdictTask {
 	) => void;
 }
 
+/** A cancelled importScripts/module fetch may enqueue its error before
+ * terminate finishes. Its owner still cancels that event after retirement;
+ * detaching the handler lets an abandoned proof become a window error. */
+function retireCaseWriteWorker(worker: Worker): void {
+	worker.onmessage = null;
+	worker.onerror = (event) => event.preventDefault();
+	worker.terminate();
+}
+
 const EMPTY_VERDICTS = new Map<string, CaseWriteChoiceVerdict>();
 const PERSISTABLE_DOC_CACHE = new WeakMap<
 	object,
@@ -138,7 +147,7 @@ export function useCaseWriteChoiceVerdicts(
 					worker.onmessage = null;
 					worker.onerror = null;
 					if (retireWorker) {
-						worker.terminate();
+						retireCaseWriteWorker(worker);
 						if (workerRef.current === worker) workerRef.current = null;
 					}
 					if (exactTaskRef.current === task) exactTaskRef.current = null;
@@ -271,7 +280,7 @@ export function useCaseWriteChoiceVerdicts(
 		return () => {
 			mountedRef.current = false;
 			exactTaskRef.current?.finish(undefined, false, true);
-			workerRef.current?.terminate();
+			if (workerRef.current !== null) retireCaseWriteWorker(workerRef.current);
 			workerRef.current = null;
 		};
 	}, []);

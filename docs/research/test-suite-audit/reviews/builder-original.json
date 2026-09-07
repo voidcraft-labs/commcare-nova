@@ -1,0 +1,1409 @@
+{
+	"owner": "builder",
+	"files": [
+		{
+			"file": "components/builder/shared/__tests__/useStableListIdentity.test.tsx",
+			"status": "removed",
+			"review": "Replaced renderHook lifecycle imitation with direct tests of extracted production stableListIdentity render/stage/commit owner. Covers cloned duplicate occurrences, rejection, external reconciliation, abandoned render and newer pending intent; 11 model tests pass. Native React binding passed: row-local drafts survive document clones and duplicate moves (application/native-components-fourth.log); additional actual AST identity/focus cases passed in native-components-fifteenth.log.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/useReorderableList.test.tsx",
+			"status": "removed",
+			"review": "Replaced captured mocked DnD monitor and hook rendering with production resolveListDrop shared by hover and commit. 22 direct cases exercise current identity, foreign/malformed/removed payloads, admission changes, insertion direction and keyboard boundaries. Native logical-group drag moves a saved clause while preserving its actual control node; native-components-fifteenth.log passed all10 targeted cases.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/predicateTransitions.test.tsx",
+			"status": "removed",
+			"review": "Replaced DOM-driven transition tests with direct production planPredicateTransition cases. Reproduced text-pattern loss missing from confirmation planner, then fixed owner. Native pattern-loss confirmation and expression replacement cancel/confirm/focus journeys passed in native-components-fourth.log; unrelated failures in that historical batch were fixed and verified separately.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/literalRebuild.test.ts",
+			"status": "revised",
+			"review": "Removed dead legacy literal parser whose only caller was its tests; actual production rebuildLiteralPreservingDataType now has strict qualifier preservation and nonmutation evidence across all qualifier types plus unqualified values. 14 direct tests pass.",
+			"reviewedSha256": "fabd1ecd2b0ec5236ed84bebb4f958862792910e361db02d77d482c6024562f6",
+			"preIntegrationReviewedSha256": "feb7f0e03d772ee6e19f484aaa5b9d004bc8eabc1b5659f12974b2ebc3f6ec8e",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/builder/shared/__tests__/globalSeedNeutrality.test.ts",
+			"status": "revised",
+			"review": "Removed copied partial predicate interpreter. Real evaluatePreviewSearchPredicate now establishes default seed neutrality against actual preview session context. Six tests pass; claim is preview runtime, not device wire.",
+			"reviewedSha256": "416577d76c8cae3a4d118e2ee21584567ac427343f846527f277b37282007a35",
+			"preIntegrationReviewedSha256": "58c9f488774d765fe552a3e0b85938e5ca26e65770f9f1f8dc675f065a9131ec",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/builder/shared/__tests__/verbMenuBuildFuzz.test.ts",
+			"status": "revised",
+			"review": "Finite offered-verb corpus executes production replacement and full expression type check with exact successful result; removed permissive unknown-property and empty-match exemptions that contradicted valid-by-construction. Four tests pass; finite private editor boundary only.",
+			"reviewedSha256": "eff6c90f77281c27c463da087d1dd41282932348815fe33aa2b39be9ebe7c299",
+			"preIntegrationReviewedSha256": "69328e178843986de0d379a158503087bc7b0bb35870789dc089c5112146d8fa",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/builder/shared/__tests__/validByConstruction.test.ts",
+			"status": "revised",
+			"review": "Removed mirrored literal typing and empty accepts-any inventory assertion; actual literalType and production seed/reseed functions prove private type bridge consistency. Four tests pass; full document and native consumer claims excluded.",
+			"reviewedSha256": "c55e2b62ce4dc9ed67e1c4f7357eb71582704112380a45bda7c604abff92f8a0",
+			"preIntegrationReviewedSha256": "89193836ec6b7a9423f1a74a028188a34961440a50acf66e36a7a4b45ea125a7",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/builder/shared/__tests__/editorSchemas.test.ts",
+			"status": "revised",
+			"review": "Removed copied kind inventories, component typeof assertions and default-parse loops. Retained actual contextual availability, default seed and global predicate contracts; mapped type owns compile-time registry exhaustiveness. Included in 23-test registry batch.",
+			"reviewedSha256": "3b8e0fe7d467208d95a3e3c4c6592d18746cd3383487883fb52770b859480097"
+		},
+		{
+			"file": "components/builder/shared/__tests__/operationScopeFailsClosed.test.ts",
+			"status": "retained",
+			"review": "Full test and production editorTypeContext/reseed inspection: direct tests of actual contextual scope refusing unavailable operation roots and preserving admitted cases. No simulated UI or independent type checker imitation. Included in 23-test registry batch.",
+			"reviewedSha256": "25dc7ee3244bdc9d8353d35ffbad2ce4e877ab4e5d9a0f87e2cad35ebb6b7943"
+		},
+		{
+			"file": "components/builder/shared/__tests__/expressionEditorSchemas.test.ts",
+			"status": "revised",
+			"review": "Removed production-dead parallel applicable oracle and copied inventories. Tests actual contextual authorability and defaultExpressionForSlot seeds used by menu, including typed if/switch/coalesce branches and datetime adaptation; private type boundary, no native carrier claim. Six tests pass.",
+			"reviewedSha256": "3dc8661d2329a9f09bcaeed4528c036e7a0495b1bf5e51bfc639c7f917fd5b6f"
+		},
+		{
+			"file": "components/builder/shared/__tests__/expressionReplacement.test.ts",
+			"status": "revised",
+			"review": "Expanded direct production preservation planner proof from two coercions to authored child identity/order, collection type refusal, childless clocks and lossful arithmetic reset. Nine tests pass.",
+			"reviewedSha256": "128ff2b2f6af8a20a20ef65940cd54d69df89a3fa31dfcea052ab6704c9f405d"
+		},
+		{
+			"file": "components/builder/shared/__tests__/keyboardReorderPlan.test.ts",
+			"status": "retained",
+			"review": "Full test/source inspection: direct pure production keyboard destination and edge-refusal plan tests with no DnD adapter capture or rendered-hook imitation. Included in 21-test picker-model batch; its file passed.",
+			"reviewedSha256": "89ace7100f845128a1a38c9754555213f2a9d403c4dd67fc969839dd7d18a8ca"
+		},
+		{
+			"file": "components/builder/shared/__tests__/preservedOperandSwap.test.tsx",
+			"status": "removed",
+			"review": "Renamed pure tests to preservedOperandSwap.test.ts and replaced manually reconstructed caller fallback with actual buildPredicateKindReplacement. Strict absent-key evidence retained. File passed picker-model batch.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/searchInputPresentation.test.ts",
+			"status": "revised",
+			"review": "Actual label projection tests extended for absent identity, blank label and trimmed case-insensitive duplicates; output strings are visible product contract, not copied implementation constants. Three tests pass.",
+			"reviewedSha256": "b41c6b1c4d5d95672941749485c37e3d3ac0e78c11e8a8525235b26c8273564b"
+		},
+		{
+			"file": "components/builder/shared/__tests__/runtimeMatchModes.test.ts",
+			"status": "revised",
+			"review": "Removed same-oracle agreement test and copied MATCH_MODES inventory. Real verb admission is checked against explicit four-mode server policy plus device/mixed/absent scope. Names narrowed to editor policy; not native Core acceptance proof. Four tests pass.",
+			"reviewedSha256": "b0076275771276fb2299b08a0e915d4ed1ee321839513fa4e6e675e0fee325de"
+		},
+		{
+			"file": "components/builder/shared/__tests__/selectedCaseScope.test.ts",
+			"status": "revised",
+			"review": "Replaced tests of domain traversal helpers with actual editor caseDataScopeAdmission for own/related reads and counts in selected/per-case/global scopes. Removed unnecessary casts. Retained separate never-match carrier axis and actual seed tests. Shared batch passes.",
+			"reviewedSha256": "67a16784e502f2db6d5e1ee906c8711b04c6c746028351f6665f3a1ce8a173e2"
+		},
+		{
+			"file": "components/builder/shared/__tests__/path.test.ts",
+			"status": "revised",
+			"review": "Read complete ruleNavigation and path owners. Removed runtime-dead deserializePath and tests proving only its invented roundtrip. Retained exact mixed AST location/replacement and sibling constraints; added invalid/deleted/fractional indices plus wrong-family rejection with nonmutation. Shared batch passes.",
+			"reviewedSha256": "0735b727967c9caad7e91fb642725c8eb0154da1f2bc565d038a0663918c5d15",
+			"preIntegrationReviewedSha256": "43d677756ee5318191734f9c97a0bd634c6eea39e394a52f7aec4bab05dae7e7",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/builder/shared/__tests__/propertyDisplay.test.ts",
+			"status": "revised",
+			"review": "Replaced copied text-run projector with actual projectProseTemplate. Tests production fallback versus authored labels and ambiguous identity disambiguation; no schema/carrier claims. Shared batch passes.",
+			"reviewedSha256": "830d7365ac291f2ac559ca3a541aedc457c5c7f437c2cc232df07e04f3fc1906"
+		},
+		{
+			"file": "components/builder/shared/__tests__/relationDestination.test.ts",
+			"status": "revised",
+			"review": "Clarified repair projection is intentionally not type admission (ambiguous canonical path uses first candidate for editable recovery). Expanded custom absent/undeclared target cases and off-graph declared target. Shared batch passes.",
+			"reviewedSha256": "4b5844740747b3d385acce7564f25fb229c90f731028ff74905afe8e26ab6383",
+			"preIntegrationReviewedSha256": "e7f215d20a50f5d850676fc7e2cf4256a80055e83cbd52babef0662b071ad568",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/builder/shared/__tests__/predicateLabels.test.ts",
+			"status": "retained",
+			"review": "Full test and currentVerbLabel/predicateFocusTitle owner inspection. Narrow visible outcome-label contract across menu/focus naming; no behavior or compatibility overclaim. Shared batch passes.",
+			"reviewedSha256": "595d8d6729d7113ca75d7cb75a4bba223da4ff9ac230764df2ce158c9d8a07c7"
+		},
+		{
+			"file": "components/shadcn/__tests__/calendar.test.tsx",
+			"status": "removed",
+			"review": "Replaced happy-dom class-name snapshots with two Chromium viewport journeys proving actual 44px geometry, containment, native ArrowRight focus, Enter selection, month navigation and dropdowns. Native test exposed missing DayButton ref; fixed production and both cases pass in native-components-fourth.log.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/shadcn/__tests__/combobox.test.tsx",
+			"status": "removed",
+			"review": "Replaced CSS-disabled snapshot with actual native combobox opening and disabled option pointer refusal in builder-controls; actual production generated CSS and Base UI, no observer stand-ins. Native case passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/shadcn/__tests__/select.test.tsx",
+			"status": "removed",
+			"review": "Replaced JSX/class snapshots with native stored-value selection and measured compact/wrapped selected label overflow at constrained width. Native case passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/shadcn/input-group.test.tsx",
+			"status": "removed",
+			"review": "Replaced CSS-token assertions with Chromium computed outline/ring before and during actual keyboard focus for both input and textarea groups, including disabled button behavior. Native case passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/roundTripPreservation.test.tsx",
+			"status": "removed",
+			"review": "Read full 1638-line baseline and actual editor/relation owners. Removed repetitive mount-no-op, DOM-simulated confirmations, and CSS assertions. Production expressionReplacement/predicateTransitions/relationPathModel tests now establish actual preservation/loss planning; native controlled AST scenarios cover cancel/confirm/focus, relation removal/rebinding and custom direction/name, plus property scope and membership recovery. Existing 5 native scenarios pass (relation removal final proof in native-components-fifth.log); no full wire roundtrip claim.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/tableRowSeed.test.ts",
+			"status": "revised",
+			"review": "Replaced UUID casts with schema validation, removed copied offered-kind inventory, retained actual default seeds and pair-preserving scope checks through production registry/type checker. Draft-models batch passes; private editor boundary only.",
+			"reviewedSha256": "e2800d5a1982603ce714e6d58a7cf139a21a835b9d55ffe5aeb96c0a90a222fc",
+			"preIntegrationReviewedSha256": "b3881b4a70148616b4dcab1d77c04ba1fb043188baf3628343a6bd28cf039f4c",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/shadcn/__tests__/dialog.test.tsx",
+			"status": "removed",
+			"review": "Replaced happy-dom class/token snapshots with Chromium 320px long-copy geometry, actual portal direction and nested popover/select pointer interactions, dialog close/confirmation focus restoration and 44px target measurements after computed transform settles. Native sixth log passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/CustomDatePatternInput.test.tsx",
+			"status": "removed",
+			"review": "Replaced fake focus/selection and CSS assertions with production datePatternDraft parser/insertion decisions plus Chromium native selected-range replacement/caret restoration, invalid local draft refusal and semantic preset switch. Direct three-case model and native date-pattern scenario pass; imported bytes untouched until actual commit.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/CaseTypePicker.test.tsx",
+			"status": "removed",
+			"review": "Removed mocked useCaseTypes and ResizeObserver/class snapshots. Actual planCaseTypeCreation/display model covers normalization, duplicate/platform/context refusal and collision disambiguation (4 pass); native real BlueprintDocProvider proves bounded popup, refused duplicate Enter, stored identity selection, natural phrase create and clear with returned focus.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/expression/ConcatCard.test.tsx",
+			"status": "removed",
+			"review": "Removed tests manually rebuilding a reordered constructor (no production reorder executed), handle-count smoke and fake focus. Actual Chromium editor moves second row with Home, asserts AST order and same native focused handle across cloned controlled state, removes to nonempty final row with surviving focus, and appends; seventh native log passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/expression/CoalesceCard.test.tsx",
+			"status": "removed",
+			"review": "Removed constructor restatement and fake-DOM focus tests. Chromium runs actual fallback list keyboard edit and cloned state identity, native removal focus, final-value refusal and append; direct shared reorder/identity owners cover adversarial semantics. Seventh native log passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/expression/SwitchCard.test.tsx",
+			"status": "removed",
+			"review": "Removed manually reconstructed reorder, schema claim that merely counted a fixture, handle smoke and fake focus. Actual Chromium switch edits preserve on/fallback, keyboard row identity and native removal focus, protect final choice and append type-compatible numeric when/then under real checker. Shared literal draft/type preservation + native date editor cover actual delegated input owner. Seventh native log passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/PredicateSlotCard.test.tsx",
+			"status": "removed",
+			"review": "Replaced JSX/CSS snapshots and callback spy tests with Chromium controlled optional predicate: actual invalid historical AST propagates false, Clear retires its shadow to true/undefined, Add commits canonical match-all and remains valid. Uses actual provider and checker. Seventh native log passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/ExpressionCardEditor.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM checker callback and mount-only tests. Actual expressionEditorErrors production projection has four direct nested/root mismatch and corrected-context cases; native arith/if card scenarios establish single visible diagnostics and real React validity propagation with correction. Both native cases passed eighth batch.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/expression/ArithCard.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM class-based diagnostic counting. Production expressionEditorErrors handles exact checker paths; native arith-error fixture uses a historical invalid AST and observes one visible precise finding, invalid callback, then correction and valid callback. Eighth batch passed.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/expression/IfCard.test.tsx",
+			"status": "removed",
+			"review": "Removed simulated-DOM boolean callback and CSS error assertions. Native if-error mounts actual mixed predicate/expression editor, observes one finding and invalid callback, then actual external correction clears finding and updates validity. Eighth batch passed.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/LiteralValueInput.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM typing and attribute snapshots after extracting actual text/numeric draft commit owner (13 direct cases: invalid/corrected/no-op/empty/qualifier preservation) and native blur correction + actual date input commits. Ninth browser batch passes integer rejection/correction preserving qualifier and native typed date. Numeric TermCard now shares same production planner; decimal compatibility verified explicitly.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/PropertyPicker.test.tsx",
+			"status": "removed",
+			"review": "Removed simulated dropdown clicks and CSS wrapping checks. Native real PropertyPicker with BlueprintDocProvider proves readable long label geometry, friendly/stored query matching, exact selected property identity, query reset, missing choice recovery, and creation callback. Ninth browser batch passed.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/PredicateCardEditor.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM validity callbacks, mount smoke, class wrapping and menu-click type claims. Actual checkErrorPresentation direct cases retain error projection; native comparison-missing/match-missing/match-empty scenarios prove one visible path-correct diagnostic, invalid callback and repaired valid callback. Actual slot default tests cover datetime adaptation; native menus own real wrapping. Eleventh native batch passed all three predicate diagnostic scenarios.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/MatchCard.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM text/ARIA mounts. Native actual MatchCard cases prove both exact value-path empty match errors and descendant missing-property errors are visible once and clear after actual controlled repair with valid callback. Eleventh native batch passed.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/WithinDistanceCard.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM number sanitization and manually drained select timers. Production positiveDistance draft owner has nine direct nonfinite/empty/negative/zero/fraction/scientific/overflow cases; native actual number input and unit menu retain invalid draft, accept correction and refuse overflowing kilometer-to-mile change while retaining saved unit. 16-test card model batch and eleventh native batch pass.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/MultiSelectContainsCard.test.tsx",
+			"status": "removed",
+			"review": "Removed simulated chip clicking/focus and fixture-only option labels. Extracted production option/replacement owner; reproduced and fixed related-reference option lookup using origin instead of destination. Direct tests use type-checked related AST and retain quantifier/path plus nonempty repair boundary. Native related chips prove exact destination identities, duplicate-label disambiguation, next-chip and final-add focus; eleventh batch passed.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/PredicateWorkbenchCaseSearchAdmission.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM source/select menu clicks and permissive teardown wait. Actual workbenchExpressionAdmission now composes exact nested replacement with real whole-candidate runtime verdict; direct cases cover both search targets, nested second source, repairing historical source, date interval and datetime-loss policy. Native full Workbench menu displays/refuses second source. 45-test model batch and tenth native batch pass; this is authoring policy, not native wire proof.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/expressionCards.smoke.test.tsx",
+			"status": "removed",
+			"review": "Read full registry, top-level editor and card implementations. Removed registry inventory loop that schema-parsed constructor output then asserted a fake-DOM first child; it did not prove authoring semantics or mounting runtime. Mapped registry types own registration; direct actual scoped seed/transition models and native interaction/diagnostic journeys now prove meaningful editor behavior. No claim of exhaustive runtime coverage from a finite registry corpus.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards.smoke.test.tsx",
+			"status": "removed",
+			"review": "Read full registry, top-level editor and card implementations. Removed registry inventory loop that schema-parsed constructor output then asserted a fake-DOM first child; it did not prove authoring semantics or mounting runtime. Mapped registry types own registration; direct actual scoped seed/transition models and native interaction/diagnostic journeys now prove meaningful editor behavior. No claim of exhaustive runtime coverage from a finite registry corpus.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/SlotCardHeader.test.tsx",
+			"status": "removed",
+			"review": "Removed simulated heading ancestry inspection. Native slot disclosure test proves real accessible heading, Enter activation, aria-controls, visible section, and retained focus; thirteenth browser batch passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/PredicateWorkbenchFocusRequest.test.tsx",
+			"status": "removed",
+			"review": "Removed mocked scroll/focus harness. Native Workbench test follows nested groups, exact requested leaf, repeated fresh request tokens, actual heading focus, keyboard breadcrumb/back restoration and measured scroll; twelfth browser batch passes. Real navigation/model owner tests complement browser binding.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/PredicateWorkbenchSentinelAuthoring.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM sentinel gestures. Actual transition planner tests plus native Always match and Never match replacement journeys prove authored-value confirmation, cancel preservation and exact native trigger focus; twelfth browser batch passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/PredicateWorkbenchPeerAdd.test.tsx",
+			"status": "removed",
+			"review": "Removed 887-line fake-DOM workbench exercise including fabricated scroll metrics. Actual logicalGroupModel owns move/group/ungroup/remove/collapse mutations and sidecar operations; native Workbench grouping, navigation, diagnostics, root special conditions and expression drill-down cover browser wiring/focus. Native eleventh and twelfth batches pass. Finite policy witnesses do not claim whole-carrier gate completeness.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/ComparisonCard.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM cascade and error rendering tests. Actual replaceComparisonSubject owner tests exercise atomic dependent reseeding, compatible subtree preservation and typed temporal qualifiers; native comparison error presentation, value-source swaps and constrained numeric draft recovery prove the wired behavior. Model and ninth/eleventh native batches pass.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/expression/TermCard.test.tsx",
+			"status": "removed",
+			"review": "Removed 893-line simulated menu/draft/focus lifecycle. Production termEditorModel directly owns allowed sources, viable seeds, UUID catalog selection, unavailable-source refusal, term meaningfulness and literal shapes; literalDraft owns correction admission. Native witnesses cover number/text/raw-name drafts, related-source cache restoration, exact UUID rename/missing recovery, and real keyboard literal-shape submenu with typed-date cancel/replace/restoration. Ninth through thirteenth native batches pass; finite catalog witnesses retain scoped limits.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/FriendlyConditionSeeds.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM optional filter additions. Actual conditionSeeds owner tests cover destination/global rebinding, real relation fallback, and unavailable isolated scopes; native Count/Exists add and delete journeys now prove real control wiring and absent optional key after save (fourteenth batch).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/expression/CountCard.test.tsx",
+			"status": "removed",
+			"review": "Moved genuine countDefault/hasCountableRelation cases to pure countDefault.test.ts, retaining actual viable parent/child/isolated behavior. Replaced fake menu/factory mixing with native Count destination filter addition and preserved-candidate refusal/correction, using actual relation picker and saved AST (fourteenth batch).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/RelationPathBuilderAdmission.test.tsx",
+			"status": "removed",
+			"review": "Removed mocked admitChange callbacks that merely retold caller answers. Actual relatedPathEdit policy now checks the complete Count/Exists/Workbench retained filter in its new destination and runtime; native real catalog option refusal, preserved saved AST and successful selection after explicit filter removal pass (fourteenth/fifteenth batches). No claim of every containing app carrier.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/cards/LogicalGroupCard.test.tsx",
+			"status": "removed",
+			"review": "Removed direct builder restatements and grip-presence-as-DnD claims. Real logicalGroupModel mutations own zero/one/many reductions and exact sidecar operations; actual native drag of West before North proves production draggable/drop-target/monitor wiring and exact row control identity. Native Workbench action grouping/collapse covers second adapter (eleventh/fifteenth batches).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/shared/__tests__/stableAstRowIdentity.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM focus/date-event simulation. Actual stableListIdentity render/stage/commit model owns immutable reconciliation and native browser tests prove exact date input identity plus focus after schema-cloned scalar saves through logical group, Workbench group, active expression, membership, concat, coalesce and switch; real boolean choice retains focus too (fifteenth batch).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/projectLookupDefinitionContext.test.ts",
+			"status": "removed",
+			"review": "Full source graph inspection found useProjectLookupDefinitions has no production caller: OptionsSourceEditor now consumes the shared BuilderLookupCatalogProvider. Removed the dead hook, its private focused-table generation projection and 219-line tests of the obsolete architecture, rather than strengthening tests for a path no author reaches. Current catalog provider is the live ownership boundary.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/TextEditor.test.tsx",
+			"status": "removed",
+			"review": "Replaced fake DOM TipTap timing tests with actual native RefLabelInput and document gate. A real read-only refusal erased local prose before fix; native red-to-green now preserves draft/focus and one rejection, followed by successful correction and explicit clear.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/OptionsEditor.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked label primitive, ambiguous row selectors and canned gates. Direct actual options draft/label/media owners plus native real TipTap, row identity through key-order echoes, persisted option UUIDs, add/remove floor, actual permission refusal and restored correction; reference-bearing placeholder label preserves stored token.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/requiredState.test.ts",
+			"status": "revised",
+			"review": "Direct production presentation transition owner retained with accurate AST projection scope;14 cases pass. Native real Required binding is separately in progress.",
+			"reviewedSha256": "26a60590b052673bfc10188477b27ff15d31f23b1a42c3e1b3992a39dd3b9092"
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/settleDraft.test.ts",
+			"status": "revised",
+			"review": "Tests the extracted actual options draft owner; import no longer mounts OptionsEditor to call one function. Five direct cases pass and native committed/refused row lifecycle also passes.",
+			"reviewedSha256": "1c279c607c15ff5a1970d1124f70d626076bc055368c965c8bbec1a639d9c05d"
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/destinationRef.test.ts",
+			"status": "revised",
+			"review": "Replaced constant pin with actual selected-case and created-case identity composition owner, moved out of component for direct tests. Presentation guidance has separate four-case production function evidence.",
+			"reviewedSha256": "a0b50de9bb8c41666b807bc4cff937707fa90acb4a02cb261949aadbf9bca899"
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/XPathEditor.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked XPathField/prose primitive/parse mutation callbacks with native actual XPathEditor, CodeMirror and RefLabelInput through real document gate. Native validates optional-message empty cancel/save/refused clear/restored clear; Required native parsed condition lifecycle separately passes. Pure visibility owner remains direct tests; unresolved-reference ownership is covered by doc projection and native expression UUID tests.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/validateMsgVisibility.test.ts",
+			"status": "revised",
+			"review": "Actual editor/pill projection owner retained with accurate RefLabelInput contract; nine direct cases pass. Native XPathEditor now proves actual message visibility and save/clear transitions separately.",
+			"reviewedSha256": "bb2baef7ee75c489c153ce480c8d7a0dbe2702c53f0c845e44664a42e9648af3"
+		},
+		{
+			"file": "components/builder/inspector/__tests__/lazyInspectorBodies.test.ts",
+			"status": "revised",
+			"review": "Actual recoverable import state owner exercised directly with native promises rather than a mounted fake. Covers shared in-flight request identity, rejection then retry, cached readiness, snapshot identity and unsubscription. Every request joined, subscription removed on failure. Two tests pass.",
+			"reviewedSha256": "275de5500c77258e6693b3f1f60b29aef3e355095360d1676c882ff6f9ebd6a3"
+		},
+		{
+			"file": "components/builder/editor/__tests__/partitionEditorEntries.test.ts",
+			"status": "revised",
+			"review": "Actual section partition owner directly exercises independent/pending visibility, autofocus intent, hidden nonaddable entries and satisfaction. Replaced forged UUID and excess component casts with valid identity and typed fixture. Fourteen tests pass; browser owns rendered focus. Integration follow-up: Re-read all 197 test lines and 137 production helper lines. Removed unnecessary happy-dom directive: all 14 retained cases call the real pure partition owner with typed entries/valid UUIDs. No DOM, focus, or user interaction claim.",
+			"reviewedSha256": "ac66735fd2bde3a3944f980a3f016e25c7ccf87c03cc08260c79f2f8b9fda2b4",
+			"preSupplementReviewedSha256": "9f71fc54ff53c558d7d3522d1125e86fb7f7ac138a5364cf817c76282f34b5ad",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/builder/editor/__tests__/renameOutcome.test.ts",
+			"status": "retained",
+			"review": "Full actual FieldIdentitySection classifier and verdict consumer inspected. Direct discriminated-outcome tests establish concise UI message projection, empty no-op priority and successful handoff; intentionally takes actual classifier input verdict rather than claiming identifier validation. Four tests pass.",
+			"reviewedSha256": "928d39920024509ca1319b71ecba83894642a789820aa23f372251a00ae0925c"
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/OptionsSourceEditor.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked catalog, field enumeration, captured Workbench props and canned mutation outcomes with direct actual source draft/completion model (5 tests), actual normalized-doc eligibility evidence in lib/doc, and native full OptionsSourceEditor/Workbench/doc-gate staging, cancel, confirmed identities, filter commit and missing-catalog recovery. Native exposed Base UI restoring initial inline source when selected table disappeared; disabled missing identity fixes it. No network catalog-loading claim.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/editor/__tests__/useEntryActivation.test.tsx",
+			"status": "removed",
+			"review": "Replaced hook-rendered activation imitation with actual reduceEntryActivation owner and native FieldEditorSection lifecycle. Native proves Required add pill, new hint autofocus, field switch away/back forgetting pending intent, saved/clear lifecycle and blank Escape UI-only cancellation. Four direct model cases and native twenty-third case pass.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/editor/__tests__/useSectionActivation.test.tsx",
+			"status": "removed",
+			"review": "Replaced hook-rendered activation imitation with actual reduceEntryActivation owner and native FieldEditorSection lifecycle. Native proves Required add pill, new hint autofocus, field switch away/back forgetting pending intent, saved/clear lifecycle and blank Escape UI-only cancellation. Four direct model cases and native twenty-third case pass.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/editor/__tests__/FieldEditorPanel.test.tsx",
+			"status": "revised",
+			"review": "Retained direct production registry section-visibility projection; removed reconstructed Required activation default. Native FieldEditorSection uses real requiredEntry factory and actual updateField gate, proving add-pill activates true rather than conditional AST. Included 26-test activation models batch and native twenty-third activation pass.",
+			"reviewedSha256": "0eb3f8bcc100fd991a1d6b43628e701c763268b7a063fe95b0ceaf65e56265d0"
+		},
+		{
+			"file": "components/builder/inspector/__tests__/OptionalMarkdownRow.test.tsx",
+			"status": "removed",
+			"review": "Removed fake-DOM class/presence inventory in favor of native 300px formatting toolbar geometry, keyboard submenu, actual table dimensions, image dialog insertion and exact saved Markdown reopen. Native reproduced image-only table-cell data loss and passes after real MarkdownTable serializer fix.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/editor/fields/__tests__/CaseWriteEditor.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked route/doc/case catalog/worker surface with actual caseWriteGuidance direct projection cases (20-test field-presentations batch) and native CaseWriteEditor with admitted real doc, real route, actual worker and canonical updateField gate. Native verifies accessible several-case help and committed email destination.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/app-setup/__tests__/ValueField.test.tsx",
+			"status": "removed",
+			"review": "Removed callback spy/manual rerender tests. Native actual Persona values with real doc/session/user catalog and updatePersonaValue gate distinguishes inherited undefined, explicit blank, sentinel-like authored choice and free-text override/removal in saved canonical values.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/app-setup/__tests__/publishingSectionModel.test.ts",
+			"status": "revised",
+			"review": "Full production fold/projection and actual PublishingSection caller read. Replaced self-imported label oracle with visible Released text and added superseded failure after newer success. Actual target identity, held records, stale generations, in-place mapping and server-aware republish semantics. Included 46-test setup-projections pass.",
+			"reviewedSha256": "974be2182ebf2d4f91a6fa825d0d61571c9bdb5d87271941e04ddbdf91834e35"
+		},
+		{
+			"file": "components/builder/app-setup/languagePicker/__tests__/pickerModel.test.ts",
+			"status": "revised",
+			"review": "Full production pickerModel and test read. Real registry dependency retained, no mirror ranker. Removed same-import row-limit oracle, tightened absent identity keys and stale-script refusal, and added not-yet-exhausted regional identity control. Renamed empty-query test to match actual unbounded-catalog claim. Included46-test setup-projections pass.",
+			"reviewedSha256": "d2a58bee82b9a59cb38b7175ab8a5be5e883fceda77d2f5207c1581e35fe7fed"
+		},
+		{
+			"file": "components/builder/app-setup/__tests__/DraftCommitField.test.tsx",
+			"status": "removed",
+			"review": "Replaced canned mutation-refusal and manual-render tests with actual draftCommitModel (5 direct cases) and native WorkerInformationSubsection under complete admitted doc, real user-property catalog and inline gate. Native proves empty/illegal drafts, dirty peer refusal and Escape, exact node identity across collapse, persona-backed choices narrowing rejection/correction, real saved reference removal block and Close focus restoration.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/app-setup/__tests__/WorkerInformationSubsection.test.tsx",
+			"status": "removed",
+			"review": "Replaced canned mutation-refusal and manual-render tests with actual draftCommitModel (5 direct cases) and native WorkerInformationSubsection under complete admitted doc, real user-property catalog and inline gate. Native proves empty/illegal drafts, dirty peer refusal and Escape, exact node identity across collapse, persona-backed choices narrowing rejection/correction, real saved reference removal block and Close focus restoration.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-operations/__tests__/caseOperationValidByConstruction.test.ts",
+			"status": "revised",
+			"review": "Replaced partial case-operations validator and unknown-property tolerance with complete absolute evaluateCommit for finite real menu/seed corpus. Gate exposed duplicate field/operation identity, empty registration and missing primary case-name writer in old fixtures; corrected complete fixtures and real worker ordering. All12 cases now pass with no finding exemptions. Claims narrowed from exhaustive/native to finite full-doc admission.",
+			"reviewedSha256": "14a824436309dc648364b0b734f818085a0dd1eb4dfc317257588399c6418e67"
+		},
+		{
+			"file": "components/builder/case-operations/__tests__/formFieldScope.test.ts",
+			"status": "revised",
+			"review": "Read full picker and shared domain repeat/key scope owners. Retained direct actual scope filtering and real formFieldEntriesFor canonical ordering evidence; corrected header that overclaimed full gate coverage. Direct projection suite passes.",
+			"reviewedSha256": "751a82d244e1150989daf0f9979883c5d9708716b3bc8cd1e5c46bbc839264c3"
+		},
+		{
+			"file": "components/builder/case-operations/__tests__/refusalCopy.test.ts",
+			"status": "revised",
+			"review": "Read full production refusal projection. Retained explicit semantic target-type versus reference versus execution-order sentences, self-blocker disambiguation and missing-reference fallback; replaced forged UUIDs with schema-valid fixture IDs. These are word projections, not planner or native proofs.",
+			"reviewedSha256": "42ad845234b71ca1d8fbd8e1d5e56d66063cadecc4eb2aaebe7d60987ad4e582"
+		},
+		{
+			"file": "components/builder/case-operations/__tests__/keyboardMove.test.ts",
+			"status": "revised",
+			"review": "Read full keyboard owner and shared production reorder planner. Direct actual planner answers verify typed dependency refusal wording and missing identities; replaced forged UUIDs and partial successful move assertions. No fake keyboard DOM; browser binding belongs to workspace journey.",
+			"reviewedSha256": "ba990bd011cf6241881bc5496558faab9dae6e605808980c5eae2fd72ef328ba"
+		},
+		{
+			"file": "components/builder/case-operations/__tests__/operationSentence.test.ts",
+			"status": "revised",
+			"review": "Read full production sentence owner. Retained concrete action/target/multiplicity/write/link/facet projections and unresolved identity fallback. Replaced forbidden id-of runtime-target fixture with valid expression target; removed canned global banned-word inventory that overclaimed all prose and could reject authored names.",
+			"reviewedSha256": "dd7c897a0231b2deefdb933cd787bf6d8d4fe4ee2922947c09af13b9023a6109"
+		},
+		{
+			"file": "components/builder/form-links/__tests__/refusalCopy.test.ts",
+			"status": "revised",
+			"review": "Read full production refusal and afterSubmitCopy owners. Retained positional/cycle/missing/self/fallback consequence projections with explicit sentences; replaced forged missing UUID. No independent planner or native execution claim.",
+			"reviewedSha256": "8c22a0d88bc801c91d77c327cae2f315c66d5855900d24c34d3356b36763d84e"
+		},
+		{
+			"file": "components/builder/form-links/__tests__/linkSentence.test.ts",
+			"status": "revised",
+			"review": "Read sentence/after-submit owners and actual useFormLinkProjection. Removed fake condition printer that returned authored prose for an empty expression; test now uses real projectXPath over parsed reference AST. Retained actual afterSubmitPlan + destination projection transitions and finite copy expectations.",
+			"reviewedSha256": "11ada1e9d1b8ab8d1e5808250d49c9cdff7b6d2a87e0d27f40d7c12565fb575e"
+		},
+		{
+			"file": "components/builder/form-links/__tests__/formLinkValidByConstruction.test.ts",
+			"status": "revised",
+			"review": "Replaced copied picker targets and partial admission with actual formLinkTargetChoices, absolute schema plus whole-doc gate admission before and after actual planner/reducer transitions. Three unreachable starting fixtures now explicitly pin fallback. Every offered keyboard position requires true admission. Finite menu/seed corpus of 14 tests passes, not native device or exhaustive language proof.",
+			"reviewedSha256": "e1ca3b1427a556e4e19138724348c5ea1c5ef7dcd1e26bbc69b5b76272fe726f"
+		},
+		{
+			"file": "components/builder/form-links/__tests__/seeds.test.ts",
+			"status": "revised",
+			"review": "Read full production seeds and real target caller. Removed expected values imported from seed constants; parsed independent false() and empty-string ASTs with actual form parser and exact key absence. Four direct seed cases pass; native UI wiring covered separately.",
+			"reviewedSha256": "d37088ab9eef82ffe188f47234a35c1ad84acd982182183ae6e0945b4a19dd65"
+		},
+		{
+			"file": "components/builder/case-operations/__tests__/seeds.test.ts",
+			"status": "revised",
+			"review": "Read full seed/reshape implementation and actual commit-gate fixture corpus. Preserved real gate admission. Replaced declaration mutation-kind inventory with actual reducer plus effective case catalog consequence. Added close-operation reshape preservation of writes and explicit incompatible facet removal/loss list. Twenty-seven direct cases pass.",
+			"reviewedSha256": "769074c00a69ba1c7a5b2d034fb7e272dd00c4f28af78f509c63df197abef4d3"
+		},
+		{
+			"file": "components/builder/detail/appSettings/__tests__/connectDraft.test.ts",
+			"status": "revised",
+			"review": "Moved pure draft owner out of 1092-line React dialog; test now parses and prints real field UUID ASTs from a schema/gate-admitted app instead of callbacks returning expected values and inert unresolved text. Independent default spellings and exact absence checks. Reproduced unsafe whole-hour acceptance and fixed parser to safe integers. Nine cases pass.",
+			"reviewedSha256": "c409ffc5c21d3e4725011a2a4a5c29c4cefa8c912fdfdedd2975b256cc3cd200"
+		},
+		{
+			"file": "components/builder/detail/appSettings/__tests__/connectIdAssignment.test.ts",
+			"status": "revised",
+			"review": "Read actual assignment/finalization and both dialog callers. Retained collision/order/scoping corpus; added actual connectIdHelpers plus draftIdsValid refusal for duplicated identities and ignored removed-form participation. Imported extracted production model rather than full React manager. Fourteen cases pass.",
+			"reviewedSha256": "e9d7eb2a326796038a539921ee34ab89208911895be76a92c951a66745a38f48"
+		},
+		{
+			"file": "components/builder/project-data/__tests__/projectDataReadIdentity.test.ts",
+			"status": "revised",
+			"review": "Read complete synchronous identity fence plus live resource identity composition in useProjectData. Direct tests are the correct boundary for exposing an exact owned snapshot or masking stale data/failure; matching identity now proves reference preservation. Four cases pass; native route paint evidence remains authed workspace journey.",
+			"reviewedSha256": "c3eee8ae31e35a75ecbdf85d60032cc6d53130a8335170a5efaa504dd9a3a0b3"
+		},
+		{
+			"file": "components/builder/project-data/__tests__/csvImportModel.test.ts",
+			"status": "revised",
+			"review": "Read full selection owner and actual lookupCsvClient parser/validator. Kept local checked-byte/schema/revision ownership tests; strengthened copied schema evidence by mutating original label after review and checking saved independent schema. Revision fixtures now use real schema. Five cases pass; tests claim selection decisions, not asynchronous transport or SQL replacement.",
+			"reviewedSha256": "9fea5bf011afab189443ee9867387aa581511f4dd1da09a75c047a39a24dc60c"
+		},
+		{
+			"file": "components/builder/project-data/__tests__/projectDataModel.test.ts",
+			"status": "revised",
+			"review": "Read whole baseline and production model. Tightened typed revision/reset/recovery assertions to exact identifiers, state and errors. Reproduced real date-time truncation at a second T separator, fixed production finalization to refuse malformed values. Removed replacementConflictVerdict production-dead helper and tests after proving no production caller. 51 actual model tests pass in project-data-live-model.log; other four related files 84 pass in project-and-connect-models.log before dead helper removal. Native real controller/revision/focus journey passed in the production authed shared-table case (application/production-smoke-second.log, 15.1s); that corrected production batch passed all24 cases.",
+			"reviewedSha256": "e121e0eeec09eefef532d6784879bb9c94d1753f2399e75e385fd9f2c2df2163"
+		},
+		{
+			"file": "components/builder/data-review/__tests__/dataReviewModel.test.ts",
+			"status": "revised",
+			"review": "Read whole baseline and production owner. Replaced same-name group count with deterministic case and row identity evidence, added collection-shape and independent value-array evidence. Actual numeric overflow regression produced accepted Infinity for int and decimal before fix; production now refuses nonfinite numbers. 20 model tests pass, review-publish-models.log; fail-before data-review-before.log.",
+			"reviewedSha256": "fa35d3822ac74f5fbb68a2b446b647fc5a22eb42ceaf46bc8fb0725a8b03cfcc"
+		},
+		{
+			"file": "components/builder/detail/formSettings/__tests__/noMatchesAfterSubmit.test.ts",
+			"status": "revised",
+			"review": "Read whole baseline and actual projection owner. Kept finite scalar/multiple search-navigation decision cases; replaced options-count-only assertion with exact identity/label options. Four pure model tests pass in review-publish-models.log. No runtime/device or UI claim.",
+			"reviewedSha256": "8ef5d83c70d1f2ad77cefb2a57bc549f7fc9630f5437450d04edc6cff06e8294"
+		},
+		{
+			"file": "components/builder/detail/moduleSettings/__tests__/MenuPlacementSection.test.ts",
+			"status": "revised",
+			"review": "Read whole baseline, actual placement owner and settings consumer. Added empty destination/self-exclusion, stale identity and both boundary refusals, previous-sibling anchor when moving from third place. Strict result proves reorders omit parent so stale ordering cannot change current hierarchy. Four model tests pass in review-publish-models.log; native hierarchy binding remains Application scope.",
+			"reviewedSha256": "56bbddf6e38124bc16c019450151c65a2a30c4585172c77e36ba548baf512b86"
+		},
+		{
+			"file": "components/builder/conditions/__tests__/displayConditionCopy.test.ts",
+			"status": "revised",
+			"review": "Read whole baseline and production carrier projection owner. Removed fixed constant-string test; strengthened selected-case scope note to explicitly prove connected-case information is unavailable rather than merely containing its name. Seven finite carrier-dependent scope/copy tests pass in review-publish-models.log. No device execution claim.",
+			"reviewedSha256": "8b0c02da21c86c56c78d8d17e45c344fade88842d8d872c3e04bd9a1f436e4df"
+		},
+		{
+			"file": "components/builder/__tests__/casePropertyRenameDraft.test.ts",
+			"status": "revised",
+			"review": "Read whole baseline and production rename-choice owner. Added cross-case-type same-name source independence and malformed tuple shape refusals, retained exact inventory/source/selection cases. Ten pure tests pass in review-publish-models.log.",
+			"reviewedSha256": "ca649422b3856a231a1c00d742f198c2d54d58d3eb70950685e98112b9438058"
+		},
+		{
+			"file": "components/builder/__tests__/publishOutcome.test.ts",
+			"status": "revised",
+			"review": "Read whole baseline, actual result projection, DeploymentView/record/artifact/resource contracts. Removed all as-never fixture escapes, supplied required resources phase, typed complete fixtures. Strengthened landed/refused durable record to exact nested output (old boolean not-null check could pass false), added resource identity preservation and record-without-artifact no-invention checks. Fourteen pure tests pass in review-publish-models.log; native publish remains separate boundary.",
+			"reviewedSha256": "041b099a7f7c18ab046a9f004424e65d1d629dd777098977d1a0dfa63a2829b9"
+		},
+		{
+			"file": "components/builder/__tests__/xpathDraftReconciliation.test.ts",
+			"status": "revised",
+			"review": "Read whole baseline and complete production reconciliation plus grammar-owned hashtag parser. Retained meaningful three-way identity/ambiguous/sticky conflict corpus. Added quoted hashtag text preservation, duplicate UUID ambiguity refusal, unrelated catalog-only change no false conflict. 21 actual reconciler tests pass in review-publish-models.log.",
+			"reviewedSha256": "7688b647f5d3833b8409a6e4e346f42c45164246363b95a1bc5af388e1a8e86d"
+		},
+		{
+			"file": "components/builder/case-operations/__tests__/CaseTargetDraftContext.test.tsx",
+			"status": "removed",
+			"review": "Read whole baseline and actual provider/reducer. Replaced probe-only fake DOM with production caseTargetDraft reducer tests (previously reported) plus native actual CaseOperationInspectorBody + CaseOperationDetailCanvas over admitted doc/shared provider: begin leaves saved document/history unchanged, canvas cancel removes draft across rail, complete literal commits through real gate. Native fifth log pass.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/case-operations/__tests__/CaseTargetPicker.test.tsx",
+			"status": "removed",
+			"review": "Read whole baseline and actual picker. Replaced callback spies/disabled-attribute assertions with native actual rail/canvas case target journey, including real picker without calculation owner unavailable, saved doc unchanged, owner-present calculation draft and admitted commit, reselect no-op. Native fifth log pass.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/form-links/__tests__/CarryValuesSection.test.tsx",
+			"status": "removed",
+			"review": "Read whole baseline and actual section/model/carry owner. Removed fabricated cast FormLinksView verdicts and fake XPath editor/parser. Actual carryValuesModel direct tests cover defensive recovery arms; native admitted docs/useFormLinks gate covers single-case automatic to manual exact parsed datum map, cancel and confirm focus, return to exact automatic link, plus complete-selection mode with no scalar manual choice. Native fourth complete-selection and fifth single-case passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/detail/formSettings/__tests__/CloseConditionSection.test.tsx",
+			"status": "removed",
+			"review": "Read complete baseline and actual section state/mutation owner. Removed fake FieldPicker and Happy DOM gesture reproduction. Production authed native Always to actual field chooser and answer, durable mutation, rename/move reference projection, Preview and return to Always all pass in production-smoke-second.log (8.7s).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/project-data/__tests__/ProjectDataWorkspaceLazyProvider.test.tsx",
+			"status": "removed",
+			"review": "Read complete baseline and real lazy wrapper/controller bridge. Removed injected fake controller lifecycle probe and test-only controllerComponent production seam. Strengthened actual production authed lookup journey with dirty real row editor route off Project data to actual form, browser Back, exact raw draft recovery; entire server-backed journey passed production-smoke-second.log (15.1s).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/project-data/__tests__/LookupOrderingSection.test.tsx",
+			"status": "removed",
+			"review": "Read complete baseline and actual ordering section/write owner. Removed fake state/actions mock-count and DOM focus imitation. Actual production authed lookup journey moves identified column and newly created row both directions through real revision-fenced writes, verifies reciprocal native focus at first/last boundaries and same focus while enabled, restores order and deletes owned added row. Entire journey passed production-smoke-second.log (15.1s).",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/contexts/__tests__/EditGuardContext.test.tsx",
+			"status": "removed",
+			"review": "Read whole baseline and actual registration/consultation owner. Removed fake renderHook enabled toggle posing as unmount, duplicate lifecycle imitation and provider-error console suppression. Extracted exact production createEditGuard owner used by React provider; three direct cases establish default/cleanup, current live decision and stale old-owner cleanup retaining latest blocker. Pass edit-guard-model.log. Actual native form identity journey separately exercises invalid edit refusal and selection retention.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/detail/moduleSettings/__tests__/MenuPlacementSectionValue.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked module/select/media callbacks and fake-DOM text/class assertions with four native module-settings journeys. Actual BlueprintDoc mutation gate, full ModuleSettings panel, EditableTitle, media client/library/budget/slots and browser focus/geometry prove name and reparent persistence, actual viewer refusal, case-type cancellation/success/formless guidance plus real gate clear/switch refusals, and independent icon/audio attach/clear for module tile and case-list link. Six relevant browser checks passed in browser-content-and-modules-final.log; unrelated runtime preference check failed and is under repair.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/detail/moduleSettings/__tests__/ModuleAppearanceSection.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked module/select/media callbacks and fake-DOM text/class assertions with four native module-settings journeys. Actual BlueprintDoc mutation gate, full ModuleSettings panel, EditableTitle, media client/library/budget/slots and browser focus/geometry prove name and reparent persistence, actual viewer refusal, case-type cancellation/success/formless guidance plus real gate clear/switch refusals, and independent icon/audio attach/clear for module tile and case-list link. Six relevant browser checks passed in browser-content-and-modules-final.log; unrelated runtime preference check failed and is under repair.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/detail/moduleSettings/__tests__/ModuleCaseTypeSection.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked module/select/media callbacks and fake-DOM text/class assertions with four native module-settings journeys. Actual BlueprintDoc mutation gate, full ModuleSettings panel, EditableTitle, media client/library/budget/slots and browser focus/geometry prove name and reparent persistence, actual viewer refusal, case-type cancellation/success/formless guidance plus real gate clear/switch refusals, and independent icon/audio attach/clear for module tile and case-list link. Six relevant browser checks passed in browser-content-and-modules-final.log; unrelated runtime preference check failed and is under repair.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/detail/moduleSettings/__tests__/ModuleNameSection.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked module/select/media callbacks and fake-DOM text/class assertions with four native module-settings journeys. Actual BlueprintDoc mutation gate, full ModuleSettings panel, EditableTitle, media client/library/budget/slots and browser focus/geometry prove name and reparent persistence, actual viewer refusal, case-type cancellation/success/formless guidance plus real gate clear/switch refusals, and independent icon/audio attach/clear for module tile and case-list link. Six relevant browser checks passed in browser-content-and-modules-final.log; unrelated runtime preference check failed and is under repair.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/detail/moduleSettings/__tests__/ModuleSettingsButton.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked module/select/media callbacks and fake-DOM text/class assertions with four native module-settings journeys. Actual BlueprintDoc mutation gate, full ModuleSettings panel, EditableTitle, media client/library/budget/slots and browser focus/geometry prove name and reparent persistence, actual viewer refusal, case-type cancellation/success/formless guidance plus real gate clear/switch refusals, and independent icon/audio attach/clear for module tile and case-list link. Six relevant browser checks passed in browser-content-and-modules-final.log; unrelated runtime preference check failed and is under repair.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/EditableTitle.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked module/select/media callbacks and fake-DOM text/class assertions with four native module-settings journeys. Actual BlueprintDoc mutation gate, full ModuleSettings panel, EditableTitle, media client/library/budget/slots and browser focus/geometry prove name and reparent persistence, actual viewer refusal, case-type cancellation/success/formless guidance plus real gate clear/switch refusals, and independent icon/audio attach/clear for module tile and case-list link. Six relevant browser checks passed in browser-content-and-modules-final.log; unrelated runtime preference check failed and is under repair.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/contexts/__tests__/DragStateContext.test.tsx",
+			"status": "removed",
+			"review": "Full owner/call-site audit found no production reader or writer of this context. Its tests only restated React state/context propagation. Preview owner removed sole dead VirtualFormList provider and unused setter; removed the unconsumed context rather than manufacturing a new state-model suite.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/ContentFrame.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked Motion calls and invented clientWidth with actual native browser geometry of two real ContentFrames across Preview. Normal motion produces observed intermediate transforms, reduced preference stays at zero, runtime matchMedia change settles live glide. This exposed the original Motion hook snapshot limitation masked by its mocked return; native synchronized negative control fails original hook and passes real useSyncExternalStore subscription. Logs browser-content-frames.log, browser-content-frames-negative.log, browser-content-frames-change-third.log.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/contexts/__tests__/ScrollRegistryContext.test.tsx",
+			"status": "removed",
+			"review": "Extracted exact production scroll registry owner used by provider. Four direct tests verify replaced registrations/stale cleanup, matching pending identity/exact-once consumption, immediate scroll independent of pending state, and reentrant next pending request. Removed false unmount proof that mounted a fresh provider. Native scroll geometry belongs to form/navigation browser journeys; direct suite claims the imperative registry only. scroll-registry-model.log 4 passed.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/BuilderReferenceProvider.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked ReferenceProviderWrapper capture with extracted production referenceContextChanged predicate used by actual store subscription. Direct cases compare real buildLintContext for rename versus irrelevant case-write edit and cover entity replacement and independent order/catalog/worker projections. Seven tests pass in preview-and-reference-models.log; no fake subscription or React lifecycle claim.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/usePreviewModeTransition.test.tsx",
+			"status": "removed",
+			"review": "Replaced renderHook with extracted production previewModeNavigation decision actually consumed before session flip. Six cases preserve Search/Results/Details, replace running record URL with Details on exit, and newly cover both setup-only surfaces pushing Home on entry. Real native full-layout Preview button journey separately establishes React/URL binding.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/PreviewToggle.test.tsx",
+			"status": "removed",
+			"review": "Removed duplicated mocked session/router toggle forwarding suite. Actual previewModeNavigation tests establish record-exit semantics, and native full production Builder layout test clicks real Preview/Back to edit and retains the live composer through transition.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/data-review/__tests__/CaseDetailDialog.test.tsx",
+			"status": "removed",
+			"review": "Read full baseline and actual dialog. Removed mocked useCaseData/session rendering for pure row projection; actual production caseDetailRows now owns the exact dialog rows. Three direct tests exercise canonical scalar precedence over shadowed JSONB, declared and retired keys, option-label projection with unknown stored tokens and exact order, and null versus zero/false. No database/hook authorization claim; native full-app data-review paths own binding. Two-model scoped run passed 25 tests in automation-and-case-detail-models.log.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/BuilderContentArea.test.tsx",
+			"status": "removed",
+			"review": "Read all 558 baseline lines and complete 799-line owner. Removed Motion stand-ins, fabricated breakpoints, placeholder child trees and jsdom focus claims. Fresh production native builder-layout-audit journey passes actual 360/300/56px and handset layouts, reciprocal focus, reduced-motion chat dismissal, native modal Tab/Escape, offscreen clipping, single main landmark, and identity of the real composer and draft across Preview and resizing. Native journey found actual Escape swallowing in app-tree sibling buttons; fixed shared CollapseChevron and TreeRowDelete propagation. Full fresh build+native final proof production-builder-layout-fifth.log passed; native case-workspace integration owns inspector-specific paths.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/detail/formSettings/__tests__/InlineField.test.tsx",
+			"status": "removed",
+			"review": "Full baseline and production InlineField audited. Removed happy-dom blur/keydown event imitation. Native builder-controls test exercises real Connect identifier validity, refused Enter and blur, retained draft and valid mutation on the actual field. Passed browser-builder-last-controls-fifth.log; semantic Connect rules remain in domain models.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/GenerationProgress.test.tsx",
+			"status": "removed",
+			"review": "Full baseline and actual GenerationProgress owner audited. Removed DOM class/style tests and fake stage props treated as layout proof. Native builder-controls test verifies actual failed milestone text, disclosure/error geometry and collapse after recovery. Passed browser-builder-last-controls-fifth.log; lifecycle stage derivation remains application-owned model coverage.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/LocationChoiceSelect.test.tsx",
+			"status": "removed",
+			"review": "Full baseline and production choice component audited. Removed fake geometry and programmatic popup event assertions. Native builder-controls test pages and searches actual rows, keeps a refused exact match unselectable and observes popup geometry. Passed browser-builder-last-controls-fifth.log. This proves UI selection binding, not organization persistence.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/app-setup/__tests__/PersonaRemoveConfirm.test.tsx",
+			"status": "removed",
+			"review": "Full baseline137 and production203 audited. Replaced mocked count action and happy-dom focus with native session-controls test that holds the actual transport request, verifies exact persona/app request identity, disables destructive action until count, exposes transport failure/retry, restores Cancel focus, and removes through actual blueprint mutation gate then focuses the surviving list target. Passed browser-builder-session-first.log. Transport peer controls count result; database count correctness remains server-owned.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/PreviewIdentityMenu.test.tsx",
+			"status": "removed",
+			"review": "Full baseline54 and actual160 owner audited. Replaced mutable fake session hooks and synthetic clicks with native session-controls radio menu against actual session/doc stores: edit mode hides menu, Preview me/persona selection, native trigger focus, co-edit removal preserves unavailable identity, me reset. Passed browser-builder-session-first.log.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/AccessStatus.test.tsx",
+			"status": "removed",
+			"review": "Full baseline and production access surfaces audited. Removed simulated DOM and mocked capability state. Native builder-controls access cases exercise actual session transitions, portal quarantine/focus during refresh, editing refusal/recovery, viewer status and retained change announcement. The latest viewer/live-region test passed browser-builder-last-controls-sixth.log; earlier portal/access tests passed recorded builder controls batches. This proves session/UI binding, with authoritative access checks owned by application.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/app-setup/__tests__/DeepLinksSection.test.tsx",
+			"status": "removed",
+			"review": "Full baseline199 and actual DeepLinksSection300 owner audited. Removed useEntryPoints/catalog/navigation callback mocks and fake Preview launch. Actual production native deep-links journey saves/reloads UUID-linked rename, keyboard traversal and390px geometry, opens authenticated Project viewer without authoring controls, holds real Server Action reads to prove write admission until catalog readiness, launches exact selected real case rather than first row, and removes with canonical route recovery. Passed latest production-provider-links.log. Detailed gate/reference decisions remain doc-owned tests.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/BuilderProvider.test.tsx",
+			"status": "removed",
+			"review": "Full baseline171 and actual provider334 owner audited. Removed invalid empty Blueprint fixture, fake unauthenticated auth and EventSource=undefined nonbrowser branch. Post-effect renderHook result never proved its claimed first-frame loading. Actual production native Builder layout loads hydrated existing app and preserves real mounted composer; /build/new native test proves owner idle and authenticated active-Project viewer read-only state with no creation, and full deep-link actual provider resolves catalog/readiness. Passed production-provider-links.log and production-builder-layout-fifth.log. No first-paint flash guarantee claimed.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/BreadcrumbNavigation.test.tsx",
+			"status": "removed",
+			"review": "Full baseline and production BuilderPageNavigation audited. Removed class/free ResizeObserver imitation and fake320px label. Actual production landmark presentation extracted as lean BuilderPageNavigation owner called by real BreadcrumbStrip; native builder-controls checks contextual Back callback, actual collapsed/expanded page navigation, native keyboard focus, narrow containment and compact leaf semantics. Passed browser-builder-last-controls-seventh.log.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/SubheaderToolbar.test.tsx",
+			"status": "removed",
+			"review": "Full baseline222 and actual breadcrumb owner audited. Removed fabricated clientWidth/scrollWidth and ResizeObserver callback tests. Native viewport resize1600to320 measures actual labels, exposes complete clipped name by real keyboard tooltip, opens exact ancestor path and returns focus, checks no horizontal overflow and compact leaf semantics. Found real invisible width-probe causing792px overflow; fixed with inert clipping parent preserving unconstrained natural measurement. Passed browser-builder-last-controls-seventh.log.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/PresenceRoster.test.tsx",
+			"status": "removed",
+			"review": "Full baseline and actual roster owner audited. Removed mocked presence/doc/router and class-size assertions. Production rendering extracted into PresenceRosterView with actual auth/presence/router wrapper preserved. Native browser verifies loaded real Next Image, three independent44px targets with non-overlapping geometry, overflow selection and compact5-peer menu, selection callbacks and return focus. Passed browser-builder-last-controls-seventh.log. Presence transport and follow routing remain doc/application native ownership.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/app-setup/__tests__/AutomationsSection.test.tsx",
+			"status": "removed",
+			"review": "Read all2222 baseline lines and all4527 original production lines. Removed sprawling happy-dom UI tests built around fake collections, navigation, organization and commit outcomes. Actual editor calls extracted automationEditorModel:22 direct cases cover cloning/Immer isolation, schema-admitted defaults and kind transitions, day/month remapping/order, strict reminder drafts, recipient singleton/location/Connect/filter admission, exact references and finding paths. Seven native real-doc/gate journeys cover narrow add/refusal/save/removal+focus, survey draft/partial dependencies, weekly/monthly canonical schedule identity, viewer/stale co-editor conflict/removal, real transport preview/copy/error/retry, structured message and exact-spaced/typed filters, repeated condition/change/event focus. All7 collectively pass automation second/third/fourth/fifth logs. Peer controls only ServerAction organization/count transport; these are UI/admission tests, not live HQ execution or database count evidence. Wire/server automation semantics remain their actual owner tests.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/__tests__/useBuilderShortcuts.test.tsx",
+			"status": "removed",
+			"review": "Full baseline311 and production313 audited. Removed mock hooks, fake location snapshots and hand-invoked handlers. Native session-controls registers actual useBuilderShortcuts through actual keyboard manager with real doc/session/routing/EditGuard providers. Native keys traverse live UUID selection, duplicate through gate, undo/redo actual history, reorder/delete actual fields; input Tab remains browser behavior, viewer retains navigation but refuses mutations, and refreshing access suppresses shortcuts. Native4 collectively pass first/second/third logs. Platform modifier follows browser descriptor, whose UA can differ from test runner OS; no shortcut hook stub.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/appTree/__tests__/useAppTreeSelection.test.tsx",
+			"status": "removed",
+			"review": "Full baseline126 and production70 audited. Removed mocked routing/scroll-registry hand-invocation order, which could not prove actual selection fulfillment. Native production builder-layout-audit now opens schema-admitted seeded real form, observes last field initially below actual inner VirtualFormList viewport, clicks actual AppTree field button, checks current UUID URL/selection plus actual BuilderLayout scroll and visible target, then selects an already-mounted first field and verifies scroll returns to it. Production-tree-scroll-second.log passes. Companion doc-owned AppTree native methods own module/form/case/rail routes.",
+			"reviewedSha256": null
+		}
+	],
+	"changedPaths": [
+		"components/builder/BreadcrumbStrip.tsx",
+		"components/builder/BuilderContentArea.tsx",
+		"components/builder/BuilderPageNavigation.tsx",
+		"components/builder/BuilderReferenceProvider.tsx",
+		"components/builder/CLAUDE.md",
+		"components/builder/ContentFrame.tsx",
+		"components/builder/PresenceRoster.tsx",
+		"components/builder/PresenceRosterView.tsx",
+		"components/builder/RefLabelInput.tsx",
+		"components/builder/SubheaderToolbar.tsx",
+		"components/builder/__tests__/AccessStatus.test.tsx",
+		"components/builder/__tests__/BreadcrumbNavigation.test.tsx",
+		"components/builder/__tests__/BuilderContentArea.test.tsx",
+		"components/builder/__tests__/BuilderProvider.test.tsx",
+		"components/builder/__tests__/BuilderReferenceProvider.test.tsx",
+		"components/builder/__tests__/ContentFrame.test.tsx",
+		"components/builder/__tests__/EditableTitle.test.tsx",
+		"components/builder/__tests__/GenerationProgress.test.tsx",
+		"components/builder/__tests__/LocationChoiceSelect.test.tsx",
+		"components/builder/__tests__/PresenceRoster.test.tsx",
+		"components/builder/__tests__/PreviewIdentityMenu.test.tsx",
+		"components/builder/__tests__/PreviewToggle.test.tsx",
+		"components/builder/__tests__/SubheaderToolbar.test.tsx",
+		"components/builder/__tests__/casePropertyRenameDraft.test.ts",
+		"components/builder/__tests__/previewModeNavigation.test.ts",
+		"components/builder/__tests__/publishOutcome.test.ts",
+		"components/builder/__tests__/referenceContextChanged.test.ts",
+		"components/builder/__tests__/useBuilderShortcuts.test.tsx",
+		"components/builder/__tests__/usePreviewModeTransition.test.tsx",
+		"components/builder/__tests__/xpathDraftReconciliation.test.ts",
+		"components/builder/app-setup/AutomationsSection.tsx",
+		"components/builder/app-setup/DraftCommitField.tsx",
+		"components/builder/app-setup/__tests__/AutomationsSection.test.tsx",
+		"components/builder/app-setup/__tests__/DeepLinksSection.test.tsx",
+		"components/builder/app-setup/__tests__/DraftCommitField.test.tsx",
+		"components/builder/app-setup/__tests__/PersonaRemoveConfirm.test.tsx",
+		"components/builder/app-setup/__tests__/ValueField.test.tsx",
+		"components/builder/app-setup/__tests__/WorkerInformationSubsection.test.tsx",
+		"components/builder/app-setup/__tests__/automationEditorModel.test.ts",
+		"components/builder/app-setup/__tests__/draftCommitModel.test.ts",
+		"components/builder/app-setup/__tests__/publishingSectionModel.test.ts",
+		"components/builder/app-setup/automationEditorModel.ts",
+		"components/builder/app-setup/draftCommitModel.ts",
+		"components/builder/app-setup/languagePicker/__tests__/pickerModel.test.ts",
+		"components/builder/appTree/__tests__/useAppTreeSelection.test.tsx",
+		"components/builder/case-operations/CaseTargetDraftContext.tsx",
+		"components/builder/case-operations/__tests__/CaseTargetDraftContext.test.tsx",
+		"components/builder/case-operations/__tests__/CaseTargetPicker.test.tsx",
+		"components/builder/case-operations/__tests__/caseOperationValidByConstruction.test.ts",
+		"components/builder/case-operations/__tests__/caseTargetDraft.test.ts",
+		"components/builder/case-operations/__tests__/formFieldScope.test.ts",
+		"components/builder/case-operations/__tests__/keyboardMove.test.ts",
+		"components/builder/case-operations/__tests__/operationSentence.test.ts",
+		"components/builder/case-operations/__tests__/refusalCopy.test.ts",
+		"components/builder/case-operations/__tests__/seeds.test.ts",
+		"components/builder/case-operations/caseTargetDraft.ts",
+		"components/builder/conditions/__tests__/displayConditionCopy.test.ts",
+		"components/builder/contexts/ScrollRegistryContext.tsx",
+		"components/builder/contexts/__tests__/DragStateContext.test.tsx",
+		"components/builder/contexts/__tests__/EditGuardContext.test.tsx",
+		"components/builder/contexts/__tests__/ScrollRegistryContext.test.tsx",
+		"components/builder/contexts/__tests__/scrollRegistry.test.ts",
+		"components/builder/contexts/scrollRegistry.ts",
+		"components/builder/data-review/CaseDetailDialog.tsx",
+		"components/builder/data-review/__tests__/CaseDetailDialog.test.tsx",
+		"components/builder/data-review/__tests__/caseDetailRows.test.ts",
+		"components/builder/data-review/__tests__/dataReviewModel.test.ts",
+		"components/builder/data-review/caseDetailRows.ts",
+		"components/builder/data-review/dataReviewModel.ts",
+		"components/builder/detail/appSettings/ConnectEnableDialog.tsx",
+		"components/builder/detail/appSettings/ConnectManagerDialog.tsx",
+		"components/builder/detail/appSettings/__tests__/connectDraft.test.ts",
+		"components/builder/detail/appSettings/__tests__/connectIdAssignment.test.ts",
+		"components/builder/detail/appSettings/connectDraft.ts",
+		"components/builder/detail/formSettings/__tests__/CloseConditionSection.test.tsx",
+		"components/builder/detail/formSettings/__tests__/InlineField.test.tsx",
+		"components/builder/detail/formSettings/__tests__/noMatchesAfterSubmit.test.ts",
+		"components/builder/detail/moduleSettings/__tests__/MenuPlacementSection.test.ts",
+		"components/builder/detail/moduleSettings/__tests__/MenuPlacementSectionValue.test.tsx",
+		"components/builder/detail/moduleSettings/__tests__/ModuleAppearanceSection.test.tsx",
+		"components/builder/detail/moduleSettings/__tests__/ModuleCaseTypeSection.test.tsx",
+		"components/builder/detail/moduleSettings/__tests__/ModuleNameSection.test.tsx",
+		"components/builder/detail/moduleSettings/__tests__/ModuleSettingsButton.test.tsx",
+		"components/builder/editor/__tests__/FieldEditorPanel.test.tsx",
+		"components/builder/editor/__tests__/entryActivationModel.test.ts",
+		"components/builder/editor/__tests__/partitionEditorEntries.test.ts",
+		"components/builder/editor/__tests__/useEntryActivation.test.tsx",
+		"components/builder/editor/__tests__/useSectionActivation.test.tsx",
+		"components/builder/editor/entryActivationModel.ts",
+		"components/builder/editor/fieldEditorSchemas.ts",
+		"components/builder/editor/fields/CaseWriteEditor.tsx",
+		"components/builder/editor/fields/OptionsEditor.tsx",
+		"components/builder/editor/fields/OptionsSourceEditor.tsx",
+		"components/builder/editor/fields/TextEditor.tsx",
+		"components/builder/editor/fields/XPathEditor.tsx",
+		"components/builder/editor/fields/__tests__/CaseWriteEditor.test.tsx",
+		"components/builder/editor/fields/__tests__/OptionsEditor.test.tsx",
+		"components/builder/editor/fields/__tests__/OptionsSourceEditor.test.tsx",
+		"components/builder/editor/fields/__tests__/TextEditor.test.tsx",
+		"components/builder/editor/fields/__tests__/XPathEditor.test.tsx",
+		"components/builder/editor/fields/__tests__/caseWritePresentation.test.ts",
+		"components/builder/editor/fields/__tests__/destinationRef.test.ts",
+		"components/builder/editor/fields/__tests__/optionsDraftModel.test.ts",
+		"components/builder/editor/fields/__tests__/optionsSourceModel.test.ts",
+		"components/builder/editor/fields/__tests__/projectLookupDefinitionContext.test.ts",
+		"components/builder/editor/fields/__tests__/requiredState.test.ts",
+		"components/builder/editor/fields/__tests__/settleDraft.test.ts",
+		"components/builder/editor/fields/__tests__/validateMsgVisibility.test.ts",
+		"components/builder/editor/fields/caseWritePresentation.ts",
+		"components/builder/editor/fields/optionsDraftModel.ts",
+		"components/builder/editor/fields/optionsSourceModel.ts",
+		"components/builder/editor/fields/projectLookupDefinitionContext.ts",
+		"components/builder/editor/fields/requiredState.ts",
+		"components/builder/editor/fields/useProjectLookupDefinitions.ts",
+		"components/builder/editor/requiredEntry.ts",
+		"components/builder/editor/useEntryActivation.ts",
+		"components/builder/form-links/CarryValuesSection.tsx",
+		"components/builder/form-links/LinkConditionEditor.tsx",
+		"components/builder/form-links/__tests__/CarryValuesSection.test.tsx",
+		"components/builder/form-links/__tests__/carryValuesModel.test.ts",
+		"components/builder/form-links/__tests__/formLinkValidByConstruction.test.ts",
+		"components/builder/form-links/__tests__/linkSentence.test.ts",
+		"components/builder/form-links/__tests__/refusalCopy.test.ts",
+		"components/builder/form-links/__tests__/seeds.test.ts",
+		"components/builder/form-links/carryValuesModel.ts",
+		"components/builder/form-links/sessionExpression.ts",
+		"components/builder/inspector/OptionalMarkdownRow.tsx",
+		"components/builder/inspector/__tests__/OptionalMarkdownRow.test.tsx",
+		"components/builder/inspector/__tests__/lazyInspectorBodies.test.ts",
+		"components/builder/lookup/BuilderLookupCatalogProvider.tsx",
+		"components/builder/lookup/catalogContext.ts",
+		"components/builder/previewModeNavigation.ts",
+		"components/builder/project-data/__tests__/LookupOrderingSection.test.tsx",
+		"components/builder/project-data/__tests__/ProjectDataWorkspaceLazyProvider.test.tsx",
+		"components/builder/project-data/__tests__/csvImportModel.test.ts",
+		"components/builder/project-data/__tests__/projectDataModel.test.ts",
+		"components/builder/project-data/__tests__/projectDataReadIdentity.test.ts",
+		"components/builder/project-data/projectDataModel.ts",
+		"components/builder/referenceContextChanged.ts",
+		"components/builder/shared/CaseTypePicker.tsx",
+		"components/builder/shared/ExpressionCardEditor.tsx",
+		"components/builder/shared/PredicateWorkbench.tsx",
+		"components/builder/shared/__tests__/CaseTypePicker.test.tsx",
+		"components/builder/shared/__tests__/CustomDatePatternInput.test.tsx",
+		"components/builder/shared/__tests__/ExpressionCardEditor.test.tsx",
+		"components/builder/shared/__tests__/FriendlyConditionSeeds.test.tsx",
+		"components/builder/shared/__tests__/LiteralValueInput.test.tsx",
+		"components/builder/shared/__tests__/PredicateCardEditor.test.tsx",
+		"components/builder/shared/__tests__/PredicateSlotCard.test.tsx",
+		"components/builder/shared/__tests__/PredicateWorkbenchCaseSearchAdmission.test.tsx",
+		"components/builder/shared/__tests__/PredicateWorkbenchFocusRequest.test.tsx",
+		"components/builder/shared/__tests__/PredicateWorkbenchPeerAdd.test.tsx",
+		"components/builder/shared/__tests__/PredicateWorkbenchSentinelAuthoring.test.tsx",
+		"components/builder/shared/__tests__/PropertyPicker.test.tsx",
+		"components/builder/shared/__tests__/RelationPathBuilderAdmission.test.tsx",
+		"components/builder/shared/__tests__/SlotCardHeader.test.tsx",
+		"components/builder/shared/__tests__/cards.smoke.test.tsx",
+		"components/builder/shared/__tests__/cards/ComparisonCard.test.tsx",
+		"components/builder/shared/__tests__/cards/LogicalGroupCard.test.tsx",
+		"components/builder/shared/__tests__/cards/MatchCard.test.tsx",
+		"components/builder/shared/__tests__/cards/MultiSelectContainsCard.test.tsx",
+		"components/builder/shared/__tests__/cards/WithinDistanceCard.test.tsx",
+		"components/builder/shared/__tests__/cards/expression/ArithCard.test.tsx",
+		"components/builder/shared/__tests__/cards/expression/CoalesceCard.test.tsx",
+		"components/builder/shared/__tests__/cards/expression/ConcatCard.test.tsx",
+		"components/builder/shared/__tests__/cards/expression/CountCard.test.tsx",
+		"components/builder/shared/__tests__/cards/expression/IfCard.test.tsx",
+		"components/builder/shared/__tests__/cards/expression/SwitchCard.test.tsx",
+		"components/builder/shared/__tests__/cards/expression/TermCard.test.tsx",
+		"components/builder/shared/__tests__/caseTypePickerModel.test.ts",
+		"components/builder/shared/__tests__/checkErrorPresentation.test.ts",
+		"components/builder/shared/__tests__/comparisonModel.test.ts",
+		"components/builder/shared/__tests__/conditionSeeds.test.ts",
+		"components/builder/shared/__tests__/countDefault.test.ts",
+		"components/builder/shared/__tests__/datePatternDraft.test.ts",
+		"components/builder/shared/__tests__/distanceDraft.test.ts",
+		"components/builder/shared/__tests__/editorSchemas.test.ts",
+		"components/builder/shared/__tests__/expressionCards.smoke.test.tsx",
+		"components/builder/shared/__tests__/expressionEditorSchemas.test.ts",
+		"components/builder/shared/__tests__/expressionEditorValidity.test.ts",
+		"components/builder/shared/__tests__/expressionReplacement.test.ts",
+		"components/builder/shared/__tests__/globalSeedNeutrality.test.ts",
+		"components/builder/shared/__tests__/literalDraft.test.ts",
+		"components/builder/shared/__tests__/literalRebuild.test.ts",
+		"components/builder/shared/__tests__/logicalGroupModel.test.ts",
+		"components/builder/shared/__tests__/membershipLiteralContext.test.ts",
+		"components/builder/shared/__tests__/multiSelectModel.test.ts",
+		"components/builder/shared/__tests__/path.test.ts",
+		"components/builder/shared/__tests__/predicateTransitions.test.ts",
+		"components/builder/shared/__tests__/predicateTransitions.test.tsx",
+		"components/builder/shared/__tests__/preservedOperandSwap.test.ts",
+		"components/builder/shared/__tests__/preservedOperandSwap.test.tsx",
+		"components/builder/shared/__tests__/propertyDisplay.test.ts",
+		"components/builder/shared/__tests__/relatedPathEdit.test.ts",
+		"components/builder/shared/__tests__/relationDestination.test.ts",
+		"components/builder/shared/__tests__/relationPathModel.test.ts",
+		"components/builder/shared/__tests__/reorderableList.test.ts",
+		"components/builder/shared/__tests__/roundTripPreservation.test.tsx",
+		"components/builder/shared/__tests__/runtimeMatchModes.test.ts",
+		"components/builder/shared/__tests__/searchInputPresentation.test.ts",
+		"components/builder/shared/__tests__/selectedCaseScope.test.ts",
+		"components/builder/shared/__tests__/stableAstRowIdentity.test.tsx",
+		"components/builder/shared/__tests__/stableListIdentity.test.ts",
+		"components/builder/shared/__tests__/tableRowSeed.test.ts",
+		"components/builder/shared/__tests__/termEditorModel.test.ts",
+		"components/builder/shared/__tests__/useReorderableList.test.tsx",
+		"components/builder/shared/__tests__/useStableListIdentity.test.tsx",
+		"components/builder/shared/__tests__/validByConstruction.test.ts",
+		"components/builder/shared/__tests__/verbMenuBuildFuzz.test.ts",
+		"components/builder/shared/__tests__/workbenchAdmission.test.ts",
+		"components/builder/shared/cards/ChildPredicateEditor.tsx",
+		"components/builder/shared/cards/ComparisonCard.tsx",
+		"components/builder/shared/cards/ExistsCard.tsx",
+		"components/builder/shared/cards/InCard.tsx",
+		"components/builder/shared/cards/LogicalGroupCard.tsx",
+		"components/builder/shared/cards/MatchCard.tsx",
+		"components/builder/shared/cards/MultiSelectContainsCard.tsx",
+		"components/builder/shared/cards/WithinDistanceCard.tsx",
+		"components/builder/shared/cards/expression/CountCard.tsx",
+		"components/builder/shared/cards/expression/TermCard.tsx",
+		"components/builder/shared/caseTypePickerModel.ts",
+		"components/builder/shared/comparisonModel.ts",
+		"components/builder/shared/conditionSeed.ts",
+		"components/builder/shared/datePatternDraft.ts",
+		"components/builder/shared/distanceDraft.ts",
+		"components/builder/shared/expressionEditorSchemas.ts",
+		"components/builder/shared/expressionEditorValidity.ts",
+		"components/builder/shared/literalDraft.ts",
+		"components/builder/shared/literalRebuild.ts",
+		"components/builder/shared/logicalGroupModel.ts",
+		"components/builder/shared/membershipLiteralContext.ts",
+		"components/builder/shared/multiSelectModel.ts",
+		"components/builder/shared/path.ts",
+		"components/builder/shared/primitives/CustomDatePatternInput.tsx",
+		"components/builder/shared/primitives/LiteralValueInput.tsx",
+		"components/builder/shared/primitives/RelationPathBuilder.tsx",
+		"components/builder/shared/relatedPathEdit.ts",
+		"components/builder/shared/relationPathModel.ts",
+		"components/builder/shared/stableListIdentity.ts",
+		"components/builder/shared/termEditorModel.ts",
+		"components/builder/shared/useReorderableList.ts",
+		"components/builder/shared/useStableListIdentity.ts",
+		"components/builder/shared/workbenchAdmission.ts",
+		"components/builder/usePreviewModeTransition.ts",
+		"components/builder/useReducedMotionPreference.ts",
+		"components/shadcn/__tests__/calendar.test.tsx",
+		"components/shadcn/__tests__/combobox.test.tsx",
+		"components/shadcn/__tests__/dialog.test.tsx",
+		"components/shadcn/__tests__/select.test.tsx",
+		"components/shadcn/calendar.tsx",
+		"components/shadcn/input-group.test.tsx",
+		"e2e/lib/builder-automations-boundary.ts",
+		"e2e/lib/builder-automations-client.tsx",
+		"e2e/lib/builder-controls-client.tsx",
+		"e2e/lib/builder-session-controls-boundary.ts",
+		"e2e/lib/builder-session-controls-client.tsx",
+		"e2e/lib/builder-workflows-boundary.ts",
+		"e2e/lib/builder-workflows-fixtures.tsx",
+		"e2e/lib/componentPeer.ts",
+		"e2e/tests/builder-automations.spec.ts",
+		"e2e/tests/builder-controls.spec.ts",
+		"e2e/tests/builder-layout-audit.spec.ts",
+		"e2e/tests/builder-session-controls.spec.ts",
+		"lib/tiptap/markdownExtensions.ts",
+		"lib/tiptap/markdownTable.ts"
+	],
+	"checks": [
+		{
+			"command": "scoped vitest stableListIdentity.test.ts reorderableList.test.ts --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/builder/initial-models.log",
+			"result": "2 files, 33 tests passed; 529ms"
+		},
+		{
+			"command": "scoped vitest (exact command captured in log)",
+			"log": "/tmp/nova-test-audit-parallel/builder/pattern-before.log",
+			"result": "Red control: 1 of 12 tests failed because text pattern was silently dropped"
+		},
+		{
+			"command": "scoped vitest (exact command captured in log)",
+			"log": "/tmp/nova-test-audit-parallel/builder/pattern-after.log",
+			"result": "26 tests passed after production pattern-loss fix"
+		},
+		{
+			"command": "scoped vitest (exact command captured in log)",
+			"log": "/tmp/nova-test-audit-parallel/builder/editor-invariants.log",
+			"result": "14 tests passed"
+		},
+		{
+			"command": "scoped vitest (exact command captured in log)",
+			"log": "/tmp/nova-test-audit-parallel/builder/editor-registry.log",
+			"result": "23 tests passed"
+		},
+		{
+			"command": "scoped command captured in log",
+			"log": "/tmp/nova-test-audit-parallel/builder/relation-before.log",
+			"result": "Red control: 2/11 failed; custom destination replaced or removed across direction change"
+		},
+		{
+			"command": "scoped command captured in log",
+			"log": "/tmp/nova-test-audit-parallel/builder/relation-after.log",
+			"result": "20 tests passed across relation model and expression preservation"
+		},
+		{
+			"command": "scoped command captured in log",
+			"log": "/tmp/nova-test-audit-parallel/builder/picker-models.log",
+			"result": "3 files passed; expression default test had fixture field-name errors, corrected in shared-models run"
+		},
+		{
+			"command": "scoped command captured in log",
+			"log": "/tmp/nova-test-audit-parallel/builder/shared-models.log",
+			"result": "7 files, 56 tests passed"
+		},
+		{
+			"command": "scoped command captured in log",
+			"log": "/tmp/nova-test-audit-parallel/builder/controls-bundle.log",
+			"result": "Production editor browser bundle succeeds after separating real lookup context from provider action import"
+		},
+		{
+			"command": "native Builder+Preview selected browser batch",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-fourth.log",
+			"result": "9 Builder tests passed; two Builder fixture expectations corrected after inspection (transition settling and actual surviving-row focus); Preview separate process define issue handled"
+		},
+		{
+			"command": "scoped 3-file draft/lookup seed batch",
+			"log": "/tmp/nova-test-audit-parallel/builder/draft-models.log",
+			"result": "24 tests passed"
+		},
+		{
+			"command": "scoped caseTypePickerModel test",
+			"log": "/tmp/nova-test-audit-parallel/builder/case-type-model.log",
+			"result": "4 tests passed"
+		},
+		{
+			"command": "native selected Builder rerun",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-fifth.log",
+			"result": "Connection removal/rebind/cancel/focus scenario passes; dialog geometry fixture rounding corrected, rerun pending"
+		},
+		{
+			"command": "selected native Builder dialog/date/case-type/literal batch",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-sixth.log",
+			"result": "Dialog, date-pattern and case-type scenarios passed; literal fixture lacked required provider, corrected and queued"
+		},
+		{
+			"command": "selected native Builder literal/list/optional-condition batch",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-seventh.log",
+			"result": "Concat, coalesce, switch and optional-condition scenarios passed; literal fixture constructor corrected, rerun pending"
+		},
+		{
+			"command": "scoped actual termEditorModel/literalDraft tests",
+			"log": "/tmp/nova-test-audit-parallel/builder/term-model.log",
+			"result": "2 files, 19 tests passed"
+		},
+		{
+			"command": "selected native Builder literal/diagnostic/property/numeric batch",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-eighth.log",
+			"result": "Both arith/if diagnostic scenarios passed. Other expectations corrected after source inspection: blur commit, scoped status and decimal-compatible numeric constraint. No integer-term production defect."
+		},
+		{
+			"command": "selected native Builder five-scenario batch",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-ninth.log",
+			"result": "Literal drafts, property search, numeric term, and source replacement passed. Raw-user collection succeeded; postcommit input accessible-name expectation corrected, rerun queued."
+		},
+		{
+			"command": "scoped workbench/model/type-fixture corrections batch",
+			"log": "/tmp/nova-test-audit-parallel/builder/workbench-models.log",
+			"result": "8 files,45 tests passed"
+		},
+		{
+			"command": "scoped multiple-choice actual owner red control",
+			"log": "/tmp/nova-test-audit-parallel/builder/multi-select-before.log",
+			"result": "3 of4 tests failed: origin option label/seed and unresolved-origin fallback"
+		},
+		{
+			"command": "scoped card owners after destination fix",
+			"log": "/tmp/nova-test-audit-parallel/builder/card-models-after.log",
+			"result": "3 files,16 tests passed"
+		},
+		{
+			"command": "scoped membership widget-context red control",
+			"log": "/tmp/nova-test-audit-parallel/builder/membership-before.log",
+			"result": "1 of2 failed: parent date reference selected same-named origin integer property"
+		},
+		{
+			"command": "scoped membership widget-context after destination fix",
+			"log": "/tmp/nova-test-audit-parallel/builder/membership-after.log",
+			"result": "2 tests passed"
+		},
+		{
+			"command": "selected native Builder Workbench/user-field batch",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-tenth.log",
+			"result": "Raw user-field and whole-rule search refusal passed; navigation/grouping assertions corrected from native evidence"
+		},
+		{
+			"command": "selected native Builder diagnostic/choice/distance/Workbench batch",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-eleventh.log",
+			"result": "Workbench grouping plus all5 diagnostic/choice/distance scenarios passed. Navigation keyboard/back/scroll passed; final external focus expected wrong enclosing heading, corrected to exact requested leaf."
+		},
+		{
+			"command": "Application coordinated native builder-controls twelfth",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-twelfth.log",
+			"result": "5 passed: exact nested navigation and scroll, worker UUID rename/missing recovery, connected membership date widget, Always/Never confirmation and focus."
+		},
+		{
+			"command": "Application coordinated native builder-controls thirteenth",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-thirteenth.log",
+			"result": "2 passed: slot disclosure and actual keyboard literal type submenu with saved-date restoration."
+		},
+		{
+			"command": "Scoped relatedPathEdit and conditionSeeds unit run",
+			"log": "/tmp/nova-test-audit-parallel/builder/related-path-after.log",
+			"result": "2 files,10 tests passed. New related candidate owner integrated in Count/Exists/Workbench; native adapter follow-up pending."
+		},
+		{
+			"command": "Application coordinated native builder-controls fourteenth and fifteenth",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-fifteenth.log",
+			"result": "Fourteenth 4/5 passed (only stale Workbench delete label); fifteenth corrected Workbench + all8 native AST identity/focus and logical drag witnesses passed10/10."
+		},
+		{
+			"command": "Native Options and prose refusal regression",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-prose-after.log",
+			"result": "3 cases passed after real prose refusal red-to-green fix; Options key-order identity and reference-bearing labels also passed."
+		},
+		{
+			"command": "Actual options-source draft model",
+			"log": "/tmp/nova-test-audit-parallel/builder/options-source-model.log",
+			"result": "5 cases passed; native adapter pending."
+		},
+		{
+			"command": "Scoped inspector activation/partition/registry/import batch",
+			"log": "/tmp/nova-test-audit-parallel/builder/field-activation-models.log",
+			"result": "5 files,26 tests passed. Registry native Required-pill binding pending; model tests do not claim native focus."
+		},
+		{
+			"command": "Native XPath validation-message and Required lifecycle",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-controls-twentieth.log",
+			"result": "2 targeted cases passed. Separate lookup/markdown/activation cases reproduced failures; no partial batch success claim."
+		},
+		{
+			"command": "Native lookup source regression after retaining missing identity",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-controls-twentyfirst.log",
+			"result": "Lookup choice-source case passed. Markdown/activation were separate failures being resolved."
+		},
+		{
+			"command": "Native FieldEditorSection activation regression",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-controls-twentythird.log",
+			"result": "Activation targeted case passes; separate Markdown serialization and case-write fixture failures are tracked independently."
+		},
+		{
+			"command": "Native markdown/case-write/persona-value targeted batch",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-controls-twentyfifth.log",
+			"result": "Markdown image-table serialization save/reopen, actual worker-admitted case storage and persona values all pass. Worker-information case separately had an expected-message mismatch and is queued."
+		},
+		{
+			"command": "Scoped actual publishing fold and language picker projection",
+			"log": "/tmp/nova-test-audit-parallel/builder/setup-projections.log",
+			"result": "2 files,46 tests passed."
+		},
+		{
+			"command": "Native complete worker information flow",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-worker-information.log",
+			"result": "1 native case passed (1.5s): local drafts, peer edits, disclosure identity, actual gate refusal/recovery and referenced removal focus."
+		},
+		{
+			"command": "Scoped actual shared draftCommitModel",
+			"log": "/tmp/nova-test-audit-parallel/builder/setup-draft-model.log",
+			"result": "5 direct cases pass."
+		},
+		{
+			"command": "Complete absolute case-operation corpus gate after fixture corrections",
+			"log": "/tmp/nova-test-audit-parallel/builder/case-operations-gate-valid-fixtures.log",
+			"result": "12 cases pass; original narrowed gate hid invalid fixtures, recorded red case-operations-gate-before.log."
+		},
+		{
+			"command": "Scoped direct case-operation and after-submit projections",
+			"log": "/tmp/nova-test-audit-parallel/builder/operation-projections.log",
+			"result": "6 files,59 tests passed."
+		},
+		{
+			"command": "Scoped operation/link seeds corpus",
+			"log": "/tmp/nova-test-audit-parallel/builder/operation-seeds-admitted.log",
+			"result": "3 files, 45 tests passed"
+		},
+		{
+			"command": "Scoped Project data and Connect models",
+			"log": "/tmp/nova-test-audit-parallel/builder/project-and-connect-models.log",
+			"result": "5 files, 84 tests passed before dead replacementConflictVerdict removal; projectDataModel final recheck queued"
+		},
+		{
+			"command": "Case-target draft and carried-value projection owners",
+			"log": "/tmp/nova-test-audit-parallel/builder/draft-carry-real-selection.log",
+			"result": "2 files, 8 tests passed; native bindings pending"
+		},
+		"Native module settings four journeys PASS: /tmp/nova-test-audit-parallel/application/browser-content-and-modules-final.log (four module plus two initial Motion modes passed; preference transition separate).",
+		{
+			"command": "Real automation draft model and case-detail row projection",
+			"log": "/tmp/nova-test-audit-parallel/builder/automation-and-case-detail-models.log",
+			"result": "2 files, 25 tests passed"
+		},
+		{
+			"command": "Fresh production build and complete native Builder layout journey",
+			"log": "/tmp/nova-test-audit-parallel/application/production-builder-layout-fifth.log",
+			"result": "Build and 1 native journey passed; Escape regression fixed"
+		},
+		{
+			"command": "playwright builder-controls native place choice|native generation|native inline validity",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-builder-last-controls-fifth.log",
+			"result": "3 focused tests passed; separate Chrome/access selector failures corrected and queued."
+		},
+		{
+			"command": "playwright builder-session-controls persona removal and preview identity",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-builder-session-first.log",
+			"result": "2 passing native tests; shortcuts fixture missing required EditGuardProvider corrected separately."
+		},
+		{
+			"command": "production playwright authed new-app provider and deep-links",
+			"log": "/tmp/nova-test-audit-parallel/application/production-provider-links.log",
+			"result": "2 passing journeys; actual owner/viewer Project provider, actual DB-backed link authoring/readiness/Preview."
+		},
+		{
+			"command": "native builder-controls breadcrumb overflow/roster",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-builder-last-controls-seventh.log",
+			"result": "1 passing native test after fixing reproduced invisible-measurement overflow; real compiled Next Image loaded."
+		},
+		{
+			"command": "native builder-session-controls actual mutation shortcuts",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-builder-session-third.log",
+			"result": "1 passing native key/mutation/undo/redo/reorder/delete journey; all4 session controls collectively pass."
+		},
+		{
+			"command": "native builder-automations exact message/filter authoring",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-builder-automations-fifth.log",
+			"result": "1 passing exact-whitespace/typed-identity gate journey; all7 automation native journeys collectively pass."
+		},
+		{
+			"command": "production native AppTree field selection scroll",
+			"log": "/tmp/nova-test-audit-parallel/application/production-tree-scroll-second.log",
+			"result": "1 passing complete actual AppTree/route/VirtualFormList/BuilderLayout selection-and-scroll journey."
+		}
+	],
+	"bugs": [
+		"CalendarDayButton omitted its button ref: native ArrowRight could not move date focus. Added ref binding; native keyboard/geometry cases now pass at 320 and 768px.",
+		"Condition kind replacement could discard an authored matches-pattern pattern without confirmation. Added planner loss and reproduced red-to-green direct regression.",
+		"Custom saved relation switching child to either-direction silently substituted canonical parent destination; reverse dropped explicit target. relationPathModel now uses actual custom catalog, preserves explicit target and allows existing custom target at graph leaf.",
+		"Multiple-choice conditions on a connected case used origin choice options, including wrong first-token seeds. Resolve saved property relation destination for both display and reset; 3 direct reds became green and native related chips pass.",
+		"Membership conditions with a connected-case property used origin property metadata for their literal widget. A valid parent date reference could render a same-named origin integer control; actual widget-context red-to-green now resolves the subject destination. Native connected-case widget binding passed in recorded builder-controls batches.",
+		"Count, Exists and focused Workbench relation changes offered destinations incompatible with an authored nested filter. The old callbacks deliberately emitted a repair state the commit gate refuses. Shared relatedPathEdit now admits the full preserved candidate before selection and invokes Count mounting admission; native tests show options disabled until the author explicitly removes the incompatible filter.",
+		"RefLabelInput ignored actual rejected commit outcomes and discarded the local prose draft. Real native permission revocation reproduced the failure; the primitive now preserves draft/focus until success, and all three consumers forward outcomes with one inline refusal. Native prose and Options cases pass after fix.",
+		"OptionsSourceEditor omitted a selected table after catalog removal; Base UI then called onValueChange with the initial inline source, unintentionally staging inline choices. Native red-to-green proves retaining the missing saved identity as a disabled selector item preserves the saved source and shows its missing-table notice.",
+		"Optional entry activation was only hidden across field selection changes, so switching back resurrected the abandoned editor. Production state now forgets pending scope. Native also exposed Required add pill creating conditional AST and blank new hint Escape failing to dismiss; actual requiredEntry factory and explicit empty cancellation now satisfy native lifecycle.",
+		"Installed tiptap-markdown0.9 serializes a table cell only when textContent is nonempty, silently losing image-only cells and typed inline atoms. Actual MarkdownTable extension now serializes every cell content and retains complex-table HTML fallback; native real editor save/reopen preserves exact image Markdown bytes.",
+		"Connect draft hour parser accepted unsafe integral values beyond domain persistence range; Number.isSafeInteger now rejects before finalization. Fail-before connect-safe-hours-before.log, passing project-and-connect-models.log.",
+		"Project data date-time finalization silently dropped text after a second T separator even though the visible recovery model retained it. Exact component model regression fails before guard and passes after rejecting multiple separators. Fail-before project-date-before.log.",
+		"Data review numeric replacement accepted digit strings overflowing Number as Infinity (both int and decimal), which is not a finite JSON value. Exact fail-before data-review-before.log; production Number.isFinite finalization guard; seven-file 80-test pass review-publish-models.log.",
+		{
+			"file": "components/builder/SubheaderToolbar.tsx",
+			"finding": "Invisible unconstrained breadcrumb width probe added792px horizontal scroll overflow at320px after collapse.",
+			"fix": "Inert clipping parent encloses width probe, preserving actual natural measurement while preventing page overflow.",
+			"evidence": "browser-builder-last-controls-sixth.log failed overflow792; seventh passed."
+		},
+		"Installed Motion useReducedMotion reads preference only once; changing the OS preference during an active ContentFrame glide did not stop translation. Added actual matchMedia change subscription via useReducedMotionPreference (useSyncExternalStore) used by ContentFrame and BuilderContentArea. Synchronized native runtime-change test passes; temporarily restoring original Motion hook fails the same native negative control. Evidence browser-content-frames-change-third.log and browser-content-frames-negative.log.",
+		"AppTree collapse and ordinary delete buttons stopped every key event, swallowing Escape before the actual compact Structure drawer could close. Removed obsolete blanket handlers from independent sibling controls; inline delete confirmation keeps its own Escape handling. Full fresh production Builder layout journey now passes native Tab/Escape focus handoffs at800/390px, plus compositor identity and responsive widths. Evidence production-builder-layout-fifth.log."
+	],
+	"docsNeeded": [
+		"content/docs/case-workspace.mdx after pattern paragraph: Changing a condition asks for confirmation before removing its text pattern or other authored values.",
+		"Public case-workspace docs: Switching a saved connection between child-only and either-direction retains its connection name and destination. Nearest builder CLAUDE updated for pattern loss, custom direction and speculative identity commits.",
+		"Public case-workspace docs: Conditions that use information from a connected case use that case type's choices and value controls, including when the originating case has an information item with the same name.",
+		"Public case-workspace docs: A connection that cannot use the saved condition is unavailable. Remove or change that condition before choosing the new connection. Builder CLAUDE should explain preserved-filter admission rather than intermediate invalid author states.",
+		"Public Builder docs: A refused wording change keeps your text open with the reason; correct it and save again. RefLabelInput callers must return commit outcomes and own one inline notice; nearest CLAUDE will be updated.",
+		"Public choices docs: If the table for a question is unavailable, its saved source remains selected and is named as unavailable; Nova does not switch it to inline options.",
+		"Builder optional hint activation ends when changing fields or canceling a blank new hint. Required add pill immediately makes the answer required; no conditional editor until explicitly chosen.",
+		"Rich text images in table cells survive saving and reopening, including cells with no text. Markdown toolbar and contenteditable have explicit accessible names.",
+		"Builder CLAUDE updated for real Connect draft model and safe-hour bound, Project data malformed datetime refusal. Root public docs may mention malformed date/time stays for correction; no new product workflow."
+	],
+	"blockedBy": [],
+	"productFindings": [
+		"Motion useReducedMotion snapshots preference at mount; ContentFrame runtime cancellation and BuilderContentArea sidebar behavior now subscribe to actual matchMedia changes. Original native synchronized negative control failed, fixed live subscription passed."
+	]
+}

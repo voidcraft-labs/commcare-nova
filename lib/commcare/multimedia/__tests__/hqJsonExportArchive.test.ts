@@ -17,41 +17,22 @@
 
 import AdmZip from "adm-zip";
 import { describe, expect, it } from "vitest";
-import type { IconRef } from "@/lib/domain/builtinIcons";
-import type { LookupTableId } from "@/lib/domain/lookupIds";
-import type { LookupWorkbook } from "../../lookup/workbook";
-import type { HqApplication } from "../../types";
+import { mediaWireFixture } from "@/lib/commcare/__tests__/mediaWireFixtures";
+import { expandDoc } from "@/lib/commcare/expander";
+import { lookupWireCorpus } from "@/lib/commcare/lookup/__tests__/lookupWireCorpus";
+import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { buildLookupWorkbook } from "@/lib/commcare/lookup/workbook";
 import type { AssetManifest } from "../assetWirePath";
 import { buildHqJsonExportArchive } from "../hqJsonExportArchive";
 
-const HQ = { _id: "app" } as unknown as HqApplication;
+const { doc, assets: ONE_ASSET } = mediaWireFixture();
+const HQ = expandDoc(doc, { assets: ONE_ASSET });
 const NO_MEDIA: AssetManifest = new Map();
-const ONE_ASSET: AssetManifest = new Map([
-	[
-		"asset-1" as IconRef,
-		{
-			assetId: "asset-1" as IconRef,
-			wirePath: "commcare/abc123.png",
-			kind: "image" as const,
-			mimeType: "image/png",
-			contentHash: "abc123",
-			extension: ".png",
-			bytes: Buffer.from([1, 2, 3]),
-		},
-	],
-]);
-const ONE_TABLE: LookupWorkbook = {
-	bytes: Uint8Array.from([4, 5, 6]),
-	tables: [
-		{
-			tableId: "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId,
-			tag: "statuses",
-			columnCount: 2,
-			rowCount: 3,
-		},
-	],
-	totalWorkbookRows: 6,
-};
+const corpus = lookupWireCorpus();
+const ONE_TABLE = buildLookupWorkbook(
+	lookupWireNaming(corpus.definitions),
+	corpus.rowsByTable,
+);
 
 function memberNames(buf: Buffer): string[] {
 	return new AdmZip(buf).getEntries().map((e) => e.entryName);
@@ -115,7 +96,8 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 		/* No media in this export, so no step about a file that isn't here. */
 		expect(text).not.toContain("multimedia.zip");
 		/* The tables are named, so a reader can see what replacing will touch. */
-		expect(text).toContain("statuses");
+		expect(text).toContain("records");
+		expect(text).toContain("empty");
 	});
 
 	it("carries media alone without a workbook, keeping the app step numbered first", () => {
@@ -139,6 +121,28 @@ describe("buildHqJsonExportArchive member-name sanitization", () => {
 		expect(text).toContain("=== 1. Upload the lookup tables ===");
 		expect(text).toContain("=== 2. Import the app ===");
 		expect(text).toContain("=== 3. Import the media ===");
+	});
+
+	it("preserves actual app, lookup and deduplicated media payloads through both archive layers", () => {
+		const zip = new AdmZip(
+			buildHqJsonExportArchive("Media proof", HQ, ONE_ASSET, ONE_TABLE),
+		);
+		expect(JSON.parse(zip.readAsText("Media proof.json"))).toEqual(HQ);
+		expect(zip.readFile("lookup-tables.xlsx")).toEqual(
+			Buffer.from(ONE_TABLE.bytes),
+		);
+		const bytes = zip.readFile("multimedia.zip");
+		if (!bytes) throw new Error("Missing media archive");
+		const media = new AdmZip(bytes);
+		const expected = new Map(
+			[...ONE_ASSET.values()].map((asset) => [asset.wirePath, asset.bytes]),
+		);
+		expect(
+			new Map(
+				media.getEntries().map((entry) => [entry.entryName, entry.getData()]),
+			),
+		).toEqual(expected);
+		expect(expected.size).toBe(5);
 	});
 
 	it("PRESERVES non-Latin / accented names (a ZIP member is UTF-8)", () => {

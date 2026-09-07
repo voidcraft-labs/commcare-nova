@@ -1,6 +1,12 @@
+// Complete-runner diagnostics on deliberately invalid user collections. These
+// candidates are not claimed to have passed schema or persistence admission.
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, withUserSequences } from "@/lib/__tests__/docHelpers";
+import {
+	expectAdmittedDoc,
+	surveyFixture,
+} from "@/lib/agent/__tests__/admittedFixture";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
@@ -29,7 +35,7 @@ function userDoc(): BlueprintDoc {
 	const personaOneUuid = testUuid("persona-one");
 	const personaTwoUuid = testUuid("persona-two");
 	return withUserSequences({
-		...buildDoc(),
+		...expectAdmittedDoc(surveyFixture()),
 		userProperties: {
 			[propertyUuid]: {
 				uuid: propertyUuid,
@@ -85,7 +91,7 @@ describe("user finding identity and scoping", () => {
 		(slug) => {
 			const propertyUuid = testUuid(`property-${slug}`);
 			const doc: BlueprintDoc = withUserSequences({
-				...buildDoc(),
+				...expectAdmittedDoc(surveyFixture()),
 				userProperties: {
 					[propertyUuid]: {
 						uuid: propertyUuid,
@@ -179,7 +185,7 @@ describe("user finding identity and scoping", () => {
 		// the sequence decides what the author sees, so the findings must not
 		// move when the storage map happens to enumerate the other way.
 		const make = (reverse: boolean): BlueprintDoc => ({
-			...buildDoc(),
+			...expectAdmittedDoc(surveyFixture()),
 			userProperties: Object.fromEntries(
 				(reverse ? [...properties].reverse() : properties).map((property) => [
 					property.uuid,
@@ -231,23 +237,23 @@ describe("user finding identity and scoping", () => {
 		expect(duplicateFindings(make(true))).toMatchObject(expected);
 	});
 
-	it("requires references to resolve through own record membership", () => {
+	it("reports missing role and worker-property identities", () => {
 		const roleUuid = testUuid("role");
 		const personaUuid = testUuid("persona");
 		const doc: BlueprintDoc = withUserSequences({
-			...buildDoc(),
+			...expectAdmittedDoc(surveyFixture()),
 			userTypes: {
 				[roleUuid]: {
 					uuid: roleUuid,
 					name: "Role",
-					values: Object.fromEntries([["constructor", "poison"]]),
+					values: { [testUuid("missing-property")]: "orphaned" },
 				},
 			},
 			personas: {
 				[personaUuid]: {
 					uuid: personaUuid,
 					name: "Asha",
-					userTypeUuid: testUuid("constructor"),
+					userTypeUuid: testUuid("missing-role"),
 				},
 			},
 		});
@@ -267,7 +273,7 @@ describe("user finding identity and scoping", () => {
 				details: {
 					ownerKind: "userType",
 					ownerUuid: roleUuid,
-					propertyUuid: "constructor",
+					propertyUuid: testUuid("missing-property"),
 				},
 			},
 		]);
@@ -276,7 +282,7 @@ describe("user finding identity and scoping", () => {
 	it("gives duplicate accepted values a stable property finding", () => {
 		const propertyUuid = testUuid("property-choices");
 		const doc: BlueprintDoc = withUserSequences({
-			...buildDoc(),
+			...expectAdmittedDoc(surveyFixture()),
 			userProperties: {
 				[propertyUuid]: {
 					uuid: propertyUuid,
@@ -295,11 +301,11 @@ describe("user finding identity and scoping", () => {
 		]);
 	});
 
-	it("does not read an inherited prototype member as a persona choice value", () => {
-		const propertyUuid = testUuid("constructor");
+	it("admits a persona with no optional choice value", () => {
+		const propertyUuid = testUuid("optional-choice");
 		const personaUuid = testUuid("persona");
 		const doc: BlueprintDoc = withUserSequences({
-			...buildDoc(),
+			...expectAdmittedDoc(surveyFixture()),
 			userProperties: Object.fromEntries([
 				[
 					propertyUuid,
@@ -319,7 +325,7 @@ describe("user finding identity and scoping", () => {
 			},
 		});
 
-		expect(() => runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).not.toThrow();
+		expectAdmittedDoc(doc);
 		expect(
 			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
 				(finding) => finding.code === "USER_DATA_INVALID_CHOICE",

@@ -59,7 +59,14 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **React profiling is a separate development harness.** `npm run profile:react`
   uses `e2e/react-profile/`, a dedicated `nova_react_profile` database, the same
   no-LLM seed, one headed Chromium page, and an authenticated loopback-only
-  React DevTools daemon. It deliberately does NOT reuse this suite's production
+  React DevTools daemon. With no arguments it runs only `builder-smoke.spec.ts`;
+  explicit Playwright arguments select other scenarios. Exports have unique test
+  identities, every export is analyzed, and measurements remain diagnostic rather
+  than CI latency budgets. CPU sessions and active React recordings are closed by
+  test teardown, including when an interaction assertion fails. Native Playwright
+  discovery allocates an independent large app per scenario, repeat and retry;
+  a field rename in one profile cannot change another profile's starting state. It deliberately
+  does NOT reuse this suite's production
   web server: React's component profiler hook must install before development
   React initializes. Never add the profiler to the smoke config, run the
   upstream package initializer, or leave its daemon alive after the browser.
@@ -77,10 +84,10 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **The case-changes journey gets one complete universe per attempt.** It
   reorders and extends the blueprint, then submits real changes into saved case
   rows, so a retry cannot reuse the prior attempt's app. `seed.ts` materializes
-  one app + lookup + case row per possible attempt
-  (`CASE_CHANGES_FIXTURE_COUNT`), and the spec selects
-  `seed.caseChanges[testInfo.retry]`. Keep that attempt-indexed contract when
-  extending the journey.
+  one app + lookup + case row for every discovered `@case-changes` test, repeat,
+  and retry. `requireScenarioSeed(seed.caseChangesScenarios, testInfo)` selects
+  that exact fixture, so the identity-projection and submission journeys never
+  share mutable state. Discovery runs before seeding through the smoke harness.
 - **The organization journey also gets one app per attempt.** It authors levels
   through blueprint mutations and places through the app-scoped organization
   store; assigns a persona; authors fixed and reverse case owners; exercises
@@ -134,11 +141,15 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   owns a fixed-entity-id patient Search / Results / Details blueprint plus eight stable
   displayed rows. `seed.ts` installs it through `appendSyntheticBatch`, materializes
   its case schema, inserts the rows through the tenant-bound case store, and writes the
-  minted app/case ids + canonical routes under `.caseWorkspace` in `seed.json`.
+  minted app/case ids + canonical routes under `.caseWorkspace` in `seed.json`
+  for manual exploration. Automated `@case-workspace` tests resolve their own
+  `.caseWorkspaceScenarios` entry by Playwright identity, repeat and retry. Each
+  gets a distinct Project, app, case rows and lookup tables; restoring a gesture
+  inside one test is an assertion, not an isolation mechanism.
   `npm run case:manual` is the opt-in, forged-session, open-ended browser harness; its
   Playwright project is registered only under `CASE_WORKSPACE_MANUAL=1`, so CI cannot
   enter the forever-wait.
-- **The `multiplayer` project drives FOUR seeded users** in two blocks:
+- **The `multiplayer` project drives FOUR seeded users per scenario** in two blocks:
   the two-user matrix (the mechanism) and a four-user co-editing storm (the
   crowd-scale proof — simultaneous four-writer disjoint storm, same-slot
   contention convergence, crowd undo isolation, offline catch-up on a
@@ -180,9 +191,9 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
     carries a POPULATED, fixed-uuid blueprint installed via
     `appendSyntheticBatch` over `createApp`'s canonical sequence-1 starter, so
     both users deep-link straight to any entity.
-  - The suite shares ONE seeded app and mutates it cumulatively, so each test
-    asserts the CHANGE it makes (a unique marker), never a seed starting value a
-    prior test may have already edited.
+  - Every discovered scenario, repeat and retry owns a distinct app and Project.
+    Its four peers share only that scenario's state. Native assertions may rely
+    on the authored fixture values because no earlier test can edit them.
   - Co-edit targets: the module/form-name `EditableTitle` (`<input>`,
     `data-testid="editable-title"` — its unfocused value tracks the entity name,
     so a peer's input reflects a rename the instant the reconciler folds the
@@ -224,3 +235,9 @@ away from the Builder, returns with native Back navigation, and verifies the
 visible title is read-only. It restores the exact prior membership role in
 `finally`. This proves permission refresh on return; it does not claim the
 current no-store Builder document was retained in BFCache.
+
+Automated multiplayer scenarios use native Playwright discovery identities to
+allocate separate Projects, apps, users and sessions for every repeat and retry.
+Manual multiplayer retains its single shared fixture. Contexts are owned as soon
+as they are created, partial parallel openings are joined, and membership
+restoration errors fail teardown.

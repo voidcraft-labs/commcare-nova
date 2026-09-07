@@ -1,0 +1,33 @@
+{
+	"scope": "Five native Core methods consume four actual HQ indexed location restores and both local and HQ-regenerated forms; exact owner branches and missing-destination refusals.",
+	"junit": {
+		"name": "nova.compatibility.LocationOwnerRuntimeTest",
+		"tests": "5",
+		"skipped": "0",
+		"failures": "0",
+		"errors": "0",
+		"timestamp": "2026-09-07T04:01:05",
+		"hostname": "DIM-A127",
+		"time": "0.201"
+	},
+	"methods": [
+		"missingIntermediatePlaceStillReachesTheOwningAncestor",
+		"nonOwningIntermediateLevelDoesNotChangeTheDestination",
+		"directHopSelectsItsOwnBranchFromRealIndexedFixture",
+		"ordinaryOwnerDoesNotNeedLocationData",
+		"missingDestinationRefusesTheSubmittedForm"
+	],
+	"junitSha256": "d96ce3d2a31a903a0c25fd5e18904a22a2fe02112cc17c42fabf5f2501f3db63",
+	"sourceHashes": {
+		"lib/commcare/locations/__tests__/instanceDeclaration.test.ts": "13d907c86bcc1e1f2e552173078683d9dfe0de20854a0acf8c49e245cff25924",
+		"lib/commcare/locations/__tests__/ownerHopParity.harness.postgres.test.ts": "d65c46f8ef623b25256bc90cb1944b46335b3e9b0d12e9ebd7f967c6335f1f35",
+		"lib/commcare/locations/__tests__/locationOwnerFixture.ts": "7bbedb0b72bd3d9eded7b4f58793955e3efee380315e9e6c41456d5b7dd016db",
+		"scripts/fixtures/hq/emit-location-evidence.ts": "5f858c3bab9f2f70fc746edb624bbe6c4e6f3d2cb7d007fe4d15282e6f79bdfc",
+		"scripts/fixtures/hq/location-emission-proof.py": "fa97596e0bfdcd87da0170eec458957749c91fcc2263cae7252a700efbd094ea",
+		"scripts/fixtures/javarosa/LocationOwnerRuntimeTest.java": "e4cc1b6910e4e4dac3e5b0e27c0ff38ad156ac98320ac135df3b1466ef2d678d",
+		"lib/export/boundaryValidation.ts": "39f424e698a579a7cde75b474d1ff485b492bf46ee17d0040655b8dfc249b6b0"
+	},
+	"reviewReport": "reviews/application-locations.json",
+	"limits": "Native Core execution with in-memory case storage. No Android rendering, resource install, network or server transaction execution.",
+	"androidTransactionSourceEvidence": "native-android-location-transactions.md"
+}

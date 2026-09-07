@@ -73,7 +73,7 @@ function isReasoningPart(part: Part): boolean {
 }
 
 function isToolPart(part: Part): boolean {
-	return part.type.startsWith("tool-");
+	return part.type.startsWith("tool-") || part.type === "dynamic-tool";
 }
 
 /** Render an answered `askQuestions` part as plain dialogue text — the same
@@ -132,7 +132,10 @@ export function sanitizeHistoricalReasoningParts<M extends UIMessage>(
 			const parts: Part[] = [];
 			for (const p of m.parts) {
 				if (isReasoningPart(p)) continue;
-				if (p.type === "tool-askQuestions") {
+				if (
+					p.type === "tool-askQuestions" ||
+					(p.type === "dynamic-tool" && p.toolName === "askQuestions")
+				) {
 					const text = askQuestionsPartToText(p);
 					if (text.length > 0)
 						parts.push({ type: "text", text } as unknown as Part);

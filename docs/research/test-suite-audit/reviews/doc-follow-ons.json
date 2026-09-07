@@ -1,0 +1,121 @@
+{
+	"owner": "doc",
+	"files": [
+		{
+			"file": "components/builder/__tests__/CaseDataManager.test.tsx",
+			"status": "removed",
+			"review": "Replaced fully mocked case-count/mutation/session/routing hooks and fabricated HappyDOM focus guards with native Chromium through actual CaseDataManager, resource/mutation hooks, admitted doc, session authority and real URL/toast infrastructure. Four methods prove pending creation/replacement focus, Tab/ShiftTab/outside/Escape containment, cancellation, generic errors without server diagnostics, retries, actual callback argument transport, count invalidation, viewer write gating, and access-refresh late-result suppression. Server Action transport is an owned offline HTTP peer; database transaction/data generation correctness remains in Postgres suites. Real controls enabled during pending creation were missed by mocked focus tests and are fixed.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/appTree/__tests__/InsertionMenus.test.tsx",
+			"status": "removed",
+			"review": "Fully read baseline and AddModulePopover/AddFormMenu/TreeInsertionAffordance owners. Removed mocked scaffold/mutation/session/context callbacks and class-string assertions. Native Chromium now uses admitted real document, actual hooks/reducer/gate, popover and submenu keyboard/geometry behavior. Creates case-list root with catalog identity and no forms, survey child under exact chosen parent with born-valid form, and survey form under existing survey module; verifies persisted schema, membership/order, field birth and canonical identity URLs. Also proves unavailable case-managing types disabled and popover back navigation. No claim of server persistence; actual store/gate boundary is tested.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/appTree/__tests__/ModuleMenuDestinations.test.tsx",
+			"status": "removed",
+			"review": "Fully read baseline plus ModuleCard/AppTreeRail owners. Removed mocked module/routing/session/selection seams and callback-only navigation assertions. Native Chromium verifies expanded Care parent opens actual module identity route, its separate Cases opens Results, compact parent and case entries retain those separate destinations, and a qualified Care > Visits > Follow up control uses keyboard to select exact form URL. Real labels humanize Patient cases; expanded selected form stays aria-current after rail switch. This proves production components/routing/identity with admitted fixture; separate production BuilderLayout native tree scroll proves actual canvas integration.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/appTree/__tests__/AppTree.test.tsx",
+			"status": "removed",
+			"review": "Fully read original181 lines and AppTree owner. Retired synthetic ModuleCard with Complete placement callbacks, all entity/routing/search/selection mocks, fake hierarchy and preload invocation assertions. Native Chromium uses actual tree, real subscribed identity document, real search filter, session and URL selection: searches actual field IDs, force-reveals collapsed ancestry, Space selects exact UUID, Escape/clear restore entities, real locked state disables controls. Actual placement commits root-to-child, child-to-root and sibling order through reducer/gate while retaining form identity and restoring actual native trigger focus. Focus trace proved old fake Complete placement test missed outgoing AnimatePresence row taking focus; fix excludes absent rows from live target lookup. Production BuilderLayout tree-scroll journey separately verifies offscreen and mounted field scroll integration. Chunk-prefetch call-count details are intentionally not treated as user behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/builder/appTree/__tests__/TreeChrome.test.tsx",
+			"status": "removed",
+			"review": "Fully read164 lines and all shared row/action/delete/insertion plus ModuleCard/AppTreeRail owners. Removed happy-dom class-substring CSS assertions, mocked move result and fake onDelete(false), and detached string-helper examples. Native Chromium measures actual 44px collapse/search/module-action/rail/confirm targets, keyboard activates independent selection, renders humanized Patient cases and qualified parent/form rail path, disables/hides actual viewer and unfinished-build writes, commits real placement and restores live-row focus. Native two-step delete moves focus into actual confirmation; Escape returns without doc change, actual gate refuses deleting last survey form with unchanged persisted blueprint and focus restored plus user-facing refusal. Native insertion tests prove real available actions/scaffolds; insertion intent pure rules remain independently covered outside this baseline.",
+			"reviewedSha256": null
+		}
+	],
+	"changedPaths": [
+		"lib/db/__tests__/commitGuardedBatchTransactions.postgres.test.ts",
+		"components/builder/__tests__/CaseDataManager.test.tsx",
+		"components/builder/CaseDataManager.tsx",
+		"e2e/lib/builder-data-client.tsx",
+		"e2e/lib/builder-data-boundary.ts",
+		"e2e/tests/builder-data.spec.ts",
+		"components/builder/appTree/__tests__/InsertionMenus.test.tsx",
+		"components/builder/appTree/__tests__/ModuleMenuDestinations.test.tsx",
+		"e2e/lib/builder-tree-client.tsx",
+		"e2e/lib/builder-tree-boundary.ts",
+		"e2e/tests/builder-tree.spec.ts",
+		"components/builder/appTree/__tests__/AppTree.test.tsx",
+		"components/builder/appTree/__tests__/TreeChrome.test.tsx",
+		"components/builder/appTree/ModuleActions.tsx",
+		"components/builder/CLAUDE.md"
+	],
+	"checks": [
+		{
+			"command": "Scoped complete commitGuardedBatchTransactions Postgres suite with poolMax2",
+			"log": "/tmp/nova-test-audit-parallel/doc/organization-fence-suite.log",
+			"result": "31 tests pass, exit0; new organization concurrency proof uses distinct SQL sessions and observed blocker chain."
+		},
+		{
+			"command": "Native builder-data4 methods in final focused batches",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-builder-data-fifth.log",
+			"result": "Creation passes after fix; replacement passed third batch, count/viewer and access-refresh passed second batch. All4methods verified."
+		},
+		{
+			"command": "Native AppTree third focused run search, expanded/compact destinations, insertion",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-builder-tree-third.log",
+			"result": "3 methods pass. Fourth placement method still under investigation and is not counted as proof for remaining baselines."
+		},
+		{
+			"command": "Native AppTree6 methods across final focused batches",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-builder-tree-fifth.log",
+			"result": "Actual reparent/sibling move focus passes after presence fix; first3 methods passed third batch, deletion refusal and viewer/locked passed second. All6 verified."
+		},
+		{
+			"command": "Actual production BuilderLayout tree to virtualized canvas selection/scroll journey (Builder-owned)",
+			"log": "/tmp/nova-test-audit-parallel/application/production-tree-scroll-second.log",
+			"result": "PASS2s: selects offscreen Next dose exact UUID and canvas visible scroll target, then mounted first Visit note and scroll back."
+		},
+		{
+			"command": "Scoped Biome AppTree native files and ModuleActions source",
+			"result": "PASS exit0."
+		}
+	],
+	"bugs": [
+		{
+			"file": "components/builder/CaseDataManager.tsx",
+			"description": "Pending sample creation left Case type picker and Manage case properties enabled; controls could change the visible scope or hide the only progress surface via direct local state. Case type, Manage properties and Review data now disable while pending. Native third run failed enabled picker; fifth passes disabled controls and actual Tab/ShiftTab/outside/Escape plus success/error retry."
+		},
+		{
+			"file": "components/builder/appTree/ModuleActions.tsx",
+			"description": "Make top-level committed correct module membership but AppTree focus lookup selected exiting child node retained by AnimatePresence; removing it dropped focus to body. Diagnostic fourth run captured old child trigger focus and no focus on new root; useIsPresent now omits departing data-module-actions target. Native fifth passes both reparent directions, sibling move and focus."
+		}
+	],
+	"docsNeeded": [
+		"CaseData pending creation keeps its progress surface and disables scope/property/review navigation until settled. Exact public case-workspace paragraph sent root; nearest CLAUDE sentence sent Builder.",
+		"Nearest Builder CLAUDE updated to state departing animated rows excluded from placement focus. Existing public focus promise remains same; source fix restores it."
+	],
+	"blockedBy": [],
+	"adjacentRevisited": [
+		{
+			"file": "lib/db/__tests__/commitGuardedBatchTransactions.postgres.test.ts",
+			"review": "Added actual automation criterion commit racing production updateLocation. Held organization row proves location writer holds app SHARE; pg_blocking_pids then proves canonical commit waits on that writer, not pool queue. Rename advances organization revision while blueprint remains untouched; exact stale refusal leaves original blueprint/seq/history, then same batch at refreshed revision commits. All31 tests pass with poolMax2. Existing sequential stale/idempotent test retained for separate retry behavior."
+		}
+	],
+	"changedPathSha256": {
+		"lib/db/__tests__/commitGuardedBatchTransactions.postgres.test.ts": "129322a05e99d4342f7990359d87c1645ee91359dcc13e822440345012e77ac1",
+		"components/builder/__tests__/CaseDataManager.test.tsx": null,
+		"components/builder/CaseDataManager.tsx": "10d1be1ae9283ce495f1007ee43c138b3d0ce12c6d0c4d1d5780e57bb234b536",
+		"e2e/lib/builder-data-client.tsx": "4dfa37d2d02455fe0385357b9501950156e024e823a3e78ce14445581fb2f321",
+		"e2e/lib/builder-data-boundary.ts": "e2bd81d5d62c67c5938cda7eb4e21871fa7da2057c10ed4666462b8915ebd3da",
+		"e2e/tests/builder-data.spec.ts": "47d471a37d570ba4f8c37b447a56a0914ce1bae08d621392c23d33472ca5a8e8",
+		"components/builder/appTree/__tests__/InsertionMenus.test.tsx": null,
+		"components/builder/appTree/__tests__/ModuleMenuDestinations.test.tsx": null,
+		"e2e/lib/builder-tree-client.tsx": "eb6d9643b4a89716b04cdd4a770ce1d1216cbdf2cb73a5ab250caecfc24fa071",
+		"e2e/lib/builder-tree-boundary.ts": "9ce531040cb09e1e51a9a4a35dedb86e5b44daea6e53659cd11c764274cc2cf8",
+		"e2e/tests/builder-tree.spec.ts": "d1828ff757ed139371318a131d0a819683431802da97dc15cc6271ca4c06b68b",
+		"components/builder/appTree/__tests__/AppTree.test.tsx": null,
+		"components/builder/appTree/__tests__/TreeChrome.test.tsx": null,
+		"components/builder/appTree/ModuleActions.tsx": "10a63f4e220878a3d3f15c38f26092ec42d22561638c0542b731365dd46b72a1",
+		"components/builder/CLAUDE.md": "94744dce7ee7600931215df12f1925a2056962e81010b13e5572248519c6dad1"
+	}
+}

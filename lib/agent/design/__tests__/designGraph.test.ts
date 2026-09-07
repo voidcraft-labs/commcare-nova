@@ -1,23 +1,20 @@
 import { describe, expect, it } from "vitest";
+import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import {
 	appDesignContractSchema,
-	constructibleFactDataShapes,
 	designConstructionIssues,
+	designConstructionQuestionRequirements,
 	type ExistingLookupChoiceSource,
 	existingLookupChoicePostChangeIssues,
-	factDataShapeCarriers,
-	factDataShapeSchema,
-	workflowRecordEffectSchema,
 } from "@/lib/agent/design/contract";
+import { designIdentityCollisions } from "@/lib/agent/design/graph";
 import { computeLookupChoiceProjectionAttestation } from "@/lib/agent/design/lookupChoiceAttestation";
-import { casePropertyDataTypes } from "@/lib/domain/casePropertyTypes";
-import { fieldKinds } from "@/lib/domain/fields";
 import {
 	lookupColumnIdSchema,
 	lookupRowIdSchema,
 	lookupTableIdSchema,
 } from "@/lib/domain/lookupIds";
-import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
+import { lookupRevisionSchema } from "@/lib/lookup/schema";
 import {
 	addPatientReviewWorkflow,
 	cloneContract,
@@ -25,6 +22,7 @@ import {
 	fixtureValue,
 	ids,
 	makeContract,
+	makeLookupContract,
 	makeNestedMenuContract,
 	makeThirteenWorkflowContract,
 	messageRef,
@@ -48,7 +46,7 @@ const EXISTING_ROW_TWO_ID = lookupRowIdSchema.parse(
 
 function existingInspection(tableRevision = "7") {
 	return computeLookupChoiceProjectionAttestation({
-		tableRevision: tableRevision as never,
+		tableRevision: lookupRevisionSchema.parse(tableRevision),
 		tableName: "Risk levels",
 		valueColumnLabel: "Value",
 		labelColumnLabel: "Label",
@@ -66,62 +64,23 @@ function messages(value: unknown): string {
 		: result.error.issues.map((issue) => issue.message).join("\n");
 }
 
+function graphIssues(value: unknown) {
+	const result = appDesignContractSchema.safeParse(value);
+	expect(result.success).toBe(false);
+	if (result.success)
+		throw new Error("Expected graph admission to refuse the candidate.");
+	return result.error.issues.map(({ code, path }) => ({ code, path }));
+}
+
 function constructionMessages(value: ReturnType<typeof makeContract>): string {
-	return designConstructionIssues(value)
+	return designConstructionIssues(appDesignContractSchema.parse(value))
 		.map((issue) => issue.message)
 		.join("\n");
 }
 
 describe("lean Design Contract graph", () => {
-	it("advertises only concrete fact shapes backed by real domain carriers", () => {
-		expect(factDataShapeSchema.options).toEqual([
-			...constructibleFactDataShapes,
-			"unknown",
-		]);
-		expect(factDataShapeSchema.options).not.toContain("boolean");
-
-		const registeredFieldKinds = new Set<string>(fieldKinds);
-		const registeredCaseDataShapes = new Set<string>(casePropertyDataTypes);
-		for (const shape of constructibleFactDataShapes) {
-			const carriers = factDataShapeCarriers[shape];
-			expect(
-				carriers.fieldKinds.length,
-				`${shape} needs at least one constructible field carrier`,
-			).toBeGreaterThan(0);
-			for (const kind of carriers.fieldKinds) {
-				expect(
-					registeredFieldKinds.has(kind),
-					`${shape} names field ${kind}`,
-				).toBe(true);
-			}
-			for (const dataShape of carriers.caseDataShapes) {
-				expect(
-					registeredCaseDataShapes.has(dataShape),
-					`${shape} names case data shape ${dataShape}`,
-				).toBe(true);
-			}
-		}
-	});
-
-	it("teaches conditional effects at the schema slot where they are chosen", () => {
-		expect(workflowRecordEffectSchema.shape.condition.description).toContain(
-			"Never condition a registration form's hosted primary create",
-		);
-		expect(workflowRecordEffectSchema.shape.condition.description).toContain(
-			"input validation when the whole ineligible submission must be blocked",
-		);
-	});
-
-	it("accepts and round-trips a task-complete contract", () => {
-		const contract = makeContract();
-		const parsed = appDesignContractSchema.parse(contract);
-		expect(parsed).toEqual(contract);
-		expect(canonicalJsonDigest(parsed)).toBe(canonicalJsonDigest(contract));
-	});
-
 	it("accepts one-tier parent-first module composition", () => {
 		const contract = makeNestedMenuContract();
-		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
 		expect(constructionMessages(contract)).toBe("");
 	});
 
@@ -269,7 +228,7 @@ describe("lean Design Contract graph", () => {
 		);
 	});
 
-	it("keeps manual localization open to every individual living language", () => {
+	it("admits manual Zulu localization even when automatic translation is unavailable", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
 			sourceLanguage: { language: "eng" },
@@ -283,10 +242,12 @@ describe("lean Design Contract graph", () => {
 			],
 		};
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
-		expect(designConstructionIssues(contract)).toEqual([]);
+		expect(
+			designConstructionIssues(appDesignContractSchema.parse(contract)),
+		).toEqual([]);
 	});
 
-	it("admits automatic translation within the launch set", () => {
+	it("admits automatic English-to-Spanish translation", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
 			sourceLanguage: { language: "eng" },
@@ -300,10 +261,12 @@ describe("lean Design Contract graph", () => {
 			],
 		};
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
-		expect(designConstructionIssues(contract)).toEqual([]);
+		expect(
+			designConstructionIssues(appDesignContractSchema.parse(contract)),
+		).toEqual([]);
 	});
 
-	it("keeps automatic translation closed outside the launch set", () => {
+	it("refuses automatic English-to-Zulu translation at construction", () => {
 		const contract = cloneContract(makeContract());
 		contract.charter.localization = {
 			sourceLanguage: { language: "eng" },
@@ -353,7 +316,13 @@ describe("lean Design Contract graph", () => {
 			rule: "When answered, the phone number must contain at least seven digits.",
 			message: "Enter a valid phone number.",
 		};
-		expect(appDesignContractSchema.parse(contract)).toEqual(contract);
+		expect(
+			appDesignContractSchema.parse(contract).workflows[0]?.inputs[0]
+				?.validation,
+		).toEqual({
+			rule: "When answered, the phone number must contain at least seven digits.",
+			message: "Enter a valid phone number.",
+		});
 
 		const withoutValidation = cloneContract(makeContract());
 		expect(appDesignContractSchema.safeParse(withoutValidation).success).toBe(
@@ -369,7 +338,11 @@ describe("lean Design Contract graph", () => {
 		delete incomplete.moduleCompositions;
 		delete incomplete.formCompositions;
 		delete incomplete.lookupTables;
-		expect(appDesignContractSchema.safeParse(incomplete).success).toBe(false);
+		expect(graphIssues(incomplete)).toEqual([
+			{ code: "invalid_type", path: ["moduleCompositions"] },
+			{ code: "invalid_type", path: ["formCompositions"] },
+			{ code: "invalid_type", path: ["lookupTables"] },
+		]);
 	});
 
 	it("requires one module owner for every accepted list and navigation entry", () => {
@@ -378,6 +351,7 @@ describe("lean Design Contract graph", () => {
 			missing.moduleCompositions[0],
 			"module composition",
 		);
+		moduleComposition.role = "form-host";
 		moduleComposition.listIds = [];
 		moduleComposition.navigationIds = [];
 		expect(constructionMessages(missing)).toContain(
@@ -396,6 +370,8 @@ describe("lean Design Contract graph", () => {
 			...structuredClone(existingModule),
 			id: did(799),
 			name: "Repeated placement",
+			role: "queue-only",
+			selection: undefined,
 		});
 		expect(constructionMessages(repeated)).toContain(
 			"Give repeated placements distinct list identities",
@@ -407,18 +383,128 @@ describe("lean Design Contract graph", () => {
 
 	it("is closed and rejects duplicate semantic identities", () => {
 		const unknown = { ...makeContract(), surprise: true };
-		expect(appDesignContractSchema.safeParse(unknown).success).toBe(false);
+		expect(graphIssues(unknown)).toEqual([
+			{ code: "unrecognized_keys", path: [] },
+		]);
 
 		const duplicate = cloneContract(makeContract());
 		if (!duplicate.records[0]) throw new Error("fixture record missing");
 		duplicate.records[0].id = ids.actorChw;
-		expect(messages(duplicate)).toContain("already used");
+		expect(graphIssues(duplicate)).toContainEqual({
+			code: "custom",
+			path: ["records", 0, "id"],
+		});
 	});
 
-	it("enforces the one-app charter's complete workflow boundary", () => {
+	it("refuses nested lookup declarations that reuse an actor or property identity", () => {
+		const contract = makeLookupContract();
+		const table = fixtureValue(contract.lookupTables[0], "created lookup");
+		if (table.kind !== "create") throw new Error("Expected created table.");
+		fixtureValue(table.columns[0], "value column").id = ids.actorChw;
+		fixtureValue(table.rows[0], "routine row").id = ids.factRisk;
+		expect(designIdentityCollisions(contract)).toEqual([
+			{
+				path: ["lookupTables", 0, "columns", 0, "id"],
+				priorPath: ["actors", 0, "id"],
+			},
+			{
+				path: ["lookupTables", 0, "rows", 0, "id"],
+				priorPath: ["records", 0, "properties", 2, "id"],
+			},
+		]);
+	});
+
+	it("finds declaration collisions during an incomplete lookup change without counting references", () => {
+		const partial = {
+			actors: [{ id: ids.actorChw }],
+			lookupTables: [
+				{
+					id: ids.lookupRisk,
+					kind: "modify-existing",
+					operations: [
+						{ kind: "add-column", column: { id: ids.actorChw } },
+						{
+							kind: "add-row",
+							rowId: ids.lookupRiskRoutine,
+							cells: [
+								{
+									column: { kind: "designed-column", columnId: ids.actorChw },
+									value: "routine",
+								},
+							],
+						},
+						{ kind: "update-row", rowId: ids.lookupRiskRoutine },
+						{ kind: "replace-rows", rows: [{ id: ids.lookupRiskRoutine }] },
+					],
+				},
+			],
+		};
+		expect(designIdentityCollisions(partial)).toEqual([
+			{
+				path: ["lookupTables", 0, "operations", 0, "column", "id"],
+				priorPath: ["actors", 0, "id"],
+			},
+			{
+				path: ["lookupTables", 0, "operations", 3, "rows", 0, "id"],
+				priorPath: ["lookupTables", 0, "operations", 1, "rowId"],
+			},
+		]);
+	});
+
+	it("keeps section and flat-layout item declarations in the global identity namespace", () => {
+		const partial = {
+			formCompositions: [
+				{
+					id: ids.formRegister,
+					layout: {
+						kind: "sectioned",
+						sections: [
+							{ id: ids.sectionRegisterIdentity, items: [{ id: did(8001) }] },
+						],
+					},
+				},
+				{
+					id: ids.formVisit,
+					layout: {
+						kind: "flat",
+						items: [{ id: ids.sectionRegisterIdentity }, { id: did(8001) }],
+					},
+				},
+			],
+		};
+		expect(designIdentityCollisions(partial)).toEqual([
+			{
+				path: ["formCompositions", 1, "layout", "items", 0, "id"],
+				priorPath: ["formCompositions", 0, "layout", "sections", 0, "id"],
+			},
+			{
+				path: ["formCompositions", 1, "layout", "items", 1, "id"],
+				priorPath: [
+					"formCompositions",
+					0,
+					"layout",
+					"sections",
+					0,
+					"items",
+					0,
+					"id",
+				],
+			},
+		]);
+	});
+
+	it("requires each workflow exactly once while allowing a reordered charter", () => {
 		const contract = cloneContract(makeContract());
+		contract.charter.includedWorkflowIds.reverse();
+		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
+		contract.charter.includedWorkflowIds.push(ids.taskRegister);
+		expect(graphIssues(contract)).toEqual([
+			{ code: "custom", path: ["charter", "includedWorkflowIds"] },
+		]);
 		contract.charter.includedWorkflowIds = [ids.taskRegister];
-		expect(messages(contract)).toContain("include every workflow");
+		expect(graphIssues(contract)).toEqual([
+			{ code: "custom", path: ["charter", "includedWorkflowIds"] },
+		]);
 	});
 
 	it("admits no unsupported media feature, empty shell, or unresolved build contract", () => {
@@ -441,6 +527,9 @@ describe("lean Design Contract graph", () => {
 		disabledWorkflow.recordEffects = [];
 		disabledWorkflow.authoredFeatures = [];
 		disabledWorkflow.readback = [];
+		disabled.formCompositions = disabled.formCompositions.filter(
+			(form) => form.workflowId !== disabledWorkflow.id,
+		);
 		expect(constructionMessages(disabled)).toContain("empty workflow shell");
 
 		/* The authored blocking flag is the construction gate. A non-blocking
@@ -468,7 +557,7 @@ describe("lean Design Contract graph", () => {
 		);
 	});
 
-	it("admits human media readiness but rejects structurally empty workflows", () => {
+	it("admits human media readiness", () => {
 		const readiness = cloneContract(makeContract());
 		readiness.externalRequirements.push({
 			id: ids.externalSetup,
@@ -480,15 +569,6 @@ describe("lean Design Contract graph", () => {
 			blocksConstruction: false,
 		});
 		expect(constructionMessages(readiness)).toBe("");
-
-		const empty = cloneContract(makeContract());
-		const workflow = fixtureValue(empty.workflows[0], "first workflow");
-		workflow.inputs = [];
-		workflow.decisions = [];
-		workflow.recordEffects = [];
-		workflow.authoredFeatures = [];
-		workflow.readback = [];
-		expect(constructionMessages(empty)).toContain("empty workflow shell");
 	});
 
 	it("treats unresolved actor construction as a blocking design question", () => {
@@ -620,7 +700,10 @@ describe("lean Design Contract graph", () => {
 		const records = cloneContract(makeContract());
 		if (!records.records[0]) throw new Error("fixture record missing");
 		records.records[0].parentRecordId = ids.recVisit;
-		expect(messages(records)).toContain("must not form a cycle");
+		expect(graphIssues(records)).toEqual([
+			{ code: "custom", path: ["records", 0, "parentRecordId"] },
+			{ code: "custom", path: ["records", 1, "parentRecordId"] },
+		]);
 
 		const navigation = cloneContract(makeContract());
 		navigation.navigation.push({
@@ -636,7 +719,18 @@ describe("lean Design Contract graph", () => {
 		if (!navigation.navigation[0])
 			throw new Error("fixture navigation missing");
 		navigation.navigation[0].parentNavigationId = did(800);
-		expect(messages(navigation)).toContain("must not form a cycle");
+		expect(graphIssues(navigation)).toEqual([
+			{ code: "custom", path: ["navigation", 0, "parentNavigationId"] },
+			{ code: "custom", path: ["navigation", 1, "parentNavigationId"] },
+		]);
+		records.records[0].parentRecordId = did(9001);
+		expect(graphIssues(records)).toEqual([
+			{ code: "custom", path: ["records", 0, "parentRecordId"] },
+		]);
+		navigation.navigation[0].parentNavigationId = did(9002);
+		expect(graphIssues(navigation)).toEqual([
+			{ code: "custom", path: ["navigation", 0, "parentNavigationId"] },
+		]);
 	});
 
 	it("rejects workflow dependency cycles and duplicate local handles", () => {
@@ -764,7 +858,9 @@ describe("lean Design Contract graph", () => {
 			inspection: existingInspection(),
 		};
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
-		expect(designConstructionIssues(contract)).toEqual([]);
+		expect(
+			designConstructionIssues(appDesignContractSchema.parse(contract)),
+		).toEqual([]);
 
 		risk.choiceValues = ["routine", "urgent"];
 		expect(messages(contract)).toContain("either inline values");
@@ -827,7 +923,9 @@ describe("lean Design Contract graph", () => {
 			},
 		});
 		expect(appDesignContractSchema.safeParse(contract).success).toBe(true);
-		expect(designConstructionIssues(contract)).toEqual([]);
+		expect(
+			designConstructionIssues(appDesignContractSchema.parse(contract)),
+		).toEqual([]);
 
 		delete risk.choiceSource;
 		risk.choiceValues = ["routine", "priority"];
@@ -898,7 +996,7 @@ describe("lean Design Contract graph", () => {
 			kind: "modify-existing",
 			id: ids.lookupRisk,
 			tableId: EXISTING_TABLE_ID,
-			expectedTableRevision: "7" as never,
+			expectedTableRevision: lookupRevisionSchema.parse("7"),
 			purpose: "Keep the shared labels aligned with the approved wording.",
 			authorization: {
 				kind: "explicit-user-approval",
@@ -951,7 +1049,7 @@ describe("lean Design Contract graph", () => {
 			kind: "modify-existing",
 			id: ids.lookupRisk,
 			tableId: EXISTING_TABLE_ID,
-			expectedTableRevision: "8" as never,
+			expectedTableRevision: lookupRevisionSchema.parse("8"),
 			purpose: "Apply the approved shared-table correction.",
 			authorization: {
 				kind: "direct-user-request",
@@ -965,6 +1063,19 @@ describe("lean Design Contract graph", () => {
 		expect(messages(contract)).toContain(
 			"cannot remove a saved-value or label",
 		);
+		const changedTable = fixtureValue(
+			contract.lookupTables[0],
+			"changed table",
+		);
+		if (changedTable.kind !== "modify-existing")
+			throw new Error("Expected existing table change.");
+		changedTable.operations = [
+			{
+				kind: "update-column",
+				columnId: EXISTING_LABEL_COLUMN_ID,
+				label: "Display label",
+			},
+		];
 		expect(constructionMessages(contract)).toContain(
 			"same inspected table revision",
 		);
@@ -991,11 +1102,19 @@ describe("lean Design Contract graph", () => {
 			labelColumnId: EXISTING_LABEL_COLUMN_ID,
 			inspection: existingInspection(),
 		};
+		const risk = fixtureValue(
+			contract.records[0]?.properties.find(
+				(property) => property.id === ids.factRisk,
+			),
+			"risk property",
+		);
+		delete risk.choiceValues;
+		risk.choiceSource = source;
 		contract.lookupTables.push({
 			kind: "modify-existing",
 			id: ids.lookupRisk,
 			tableId: EXISTING_TABLE_ID,
-			expectedTableRevision: "7" as never,
+			expectedTableRevision: lookupRevisionSchema.parse("7"),
 			purpose: "Replace one shared lookup row exactly as requested.",
 			authorization: {
 				kind: "direct-user-request",
@@ -1024,7 +1143,7 @@ describe("lean Design Contract graph", () => {
 		});
 		expect(
 			existingLookupChoicePostChangeIssues(
-				contract,
+				appDesignContractSchema.parse(contract),
 				source,
 				[
 					{
@@ -1045,7 +1164,7 @@ describe("lean Design Contract graph", () => {
 		);
 	});
 
-	it("keeps a maximum-size existing-table choice attestation bounded", () => {
+	it("keeps a 5000-row existing-table choice attestation bounded", () => {
 		const contract = cloneContract(makeContract());
 		const risk = fixtureValue(
 			contract.records[0]?.properties.find(
@@ -1055,7 +1174,7 @@ describe("lean Design Contract graph", () => {
 		);
 		delete risk.choiceValues;
 		const inspection = computeLookupChoiceProjectionAttestation({
-			tableRevision: "9" as never,
+			tableRevision: lookupRevisionSchema.parse("9"),
 			tableName: "Every facility",
 			valueColumnLabel: "Facility code",
 			labelColumnLabel: "Facility name",
@@ -1096,15 +1215,27 @@ describe("lean Design Contract graph", () => {
 			value: "Wrong record",
 			unanswered: "preserve",
 		});
-		expect(messages(write)).toContain("target record");
+		expect(graphIssues(write)).toEqual([
+			{
+				code: "custom",
+				path: ["workflows", 0, "recordEffects", 0, "writes", 3, "propertyId"],
+			},
+		]);
 
 		const readback = cloneContract(makeContract());
 		readback.workflows[0]?.readback[0]?.propertyIds.push(ids.factVisitSummary);
-		expect(messages(readback)).toContain("record being shown");
+		expect(graphIssues(readback)).toEqual([
+			{
+				code: "custom",
+				path: ["workflows", 0, "readback", 0, "propertyIds", 2],
+			},
+		]);
 
 		const list = cloneContract(makeContract());
 		list.lists[0]?.scanPropertyIds.push(ids.factVisitSummary);
-		expect(messages(list)).toContain("only properties of its record");
+		expect(graphIssues(list)).toEqual([
+			{ code: "custom", path: ["lists", 0, "scanPropertyIds", 2] },
+		]);
 	});
 
 	it("requires exact module-wide workflow coverage without requiring a WorkList", () => {
@@ -1239,7 +1370,10 @@ describe("lean Design Contract graph", () => {
 	it("rejects unresolved references and unsupported promises", () => {
 		const actor = cloneContract(makeContract());
 		actor.workflows[0]?.actorIds.push(did(9999));
-		expect(messages(actor)).toContain("does not exist");
+		expect(graphIssues(actor)).toEqual([
+			{ code: "custom", path: ["workflows", 0, "actorIds", 1] },
+			{ code: "custom", path: ["formCompositions"] },
+		]);
 
 		const unsupported = cloneContract(makeContract());
 		unsupported.externalRequirements.push({
@@ -1250,7 +1384,12 @@ describe("lean Design Contract graph", () => {
 			relatedWorkflowIds: [ids.taskRegister],
 			blocksConstruction: false,
 		});
-		expect(messages(unsupported)).toContain("must block");
+		expect(graphIssues(unsupported)).toEqual([
+			{
+				code: "custom",
+				path: ["externalRequirements", 0, "blocksConstruction"],
+			},
+		]);
 	});
 
 	it("keeps construction-blocking dependencies tied to a user question", () => {
@@ -1264,7 +1403,12 @@ describe("lean Design Contract graph", () => {
 			blocksConstruction: true,
 		});
 		blocked.workflows[0]?.externalRequirementIds.push(ids.externalSetup);
-		expect(messages(blocked)).toContain("blocking user question");
+		expect(graphIssues(blocked)).toEqual([
+			{
+				code: "custom",
+				path: ["externalRequirements", 0, "blocksConstruction"],
+			},
+		]);
 
 		blocked.openQuestions.push({
 			id: ids.question,
@@ -1272,6 +1416,64 @@ describe("lean Design Contract graph", () => {
 			blocking: true,
 			relatedElementIds: [ids.externalSetup],
 		});
-		expect(appDesignContractSchema.safeParse(blocked).success).toBe(true);
+		const admitted = appDesignContractSchema.parse(blocked);
+		expect(designConstructionIssues(admitted)).toEqual([
+			expect.objectContaining({ path: ["openQuestions", 0] }),
+		]);
+		expect(designConstructionQuestionRequirements(admitted)).toEqual(
+			blocked.openQuestions,
+		);
+		expect(() =>
+			deriveBuildPlan({
+				contract: admitted,
+				revision: { id: "accepted", digest: "digest" },
+			}),
+		).toThrow("Accepted design is not constructible: openQuestions.0:");
+	});
+
+	it.each(["app", "decision", "assumption"] as const)(
+		"keeps a blocking %s question in the user-input gate",
+		(target) => {
+			const contract = cloneContract(makeContract());
+			const relatedElementIds =
+				target === "app"
+					? [contract.id]
+					: target === "decision"
+						? [ids.decision]
+						: [ids.assumption];
+			contract.openQuestions.push({
+				id: ids.question,
+				question: "Which agreed scope should the app implement?",
+				blocking: true,
+				relatedElementIds,
+			});
+			const admitted = appDesignContractSchema.parse(contract);
+			expect(designConstructionIssues(admitted)).toEqual([
+				expect.objectContaining({ path: ["openQuestions", 0] }),
+			]);
+			expect(designConstructionQuestionRequirements(admitted)).toEqual(
+				contract.openQuestions,
+			);
+			admitted.openQuestions[0] = {
+				...fixtureValue(admitted.openQuestions[0], "question"),
+				blocking: false,
+			};
+			expect(
+				designConstructionIssues(appDesignContractSchema.parse(admitted)),
+			).toEqual([]);
+		},
+	);
+
+	it("requires a blocking question to identify the app elements it can change", () => {
+		const contract = cloneContract(makeContract());
+		contract.openQuestions.push({
+			id: ids.question,
+			question: "Which scope should be built?",
+			blocking: true,
+			relatedElementIds: [],
+		});
+		expect(graphIssues(contract)).toEqual([
+			{ code: "custom", path: ["openQuestions", 0, "relatedElementIds"] },
+		]);
 	});
 });

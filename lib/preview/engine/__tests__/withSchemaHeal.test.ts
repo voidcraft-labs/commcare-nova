@@ -1,45 +1,20 @@
-/**
- * `withSchemaHeal` — the point-of-use self-heal for a case-store call
- * defeated by a schema row that no longer mirrors the persisted
- * blueprint. The contract under test:
- *
- *   - a heal triggers on a MISSING row (`SchemaNotSyncedError`) AND on a
- *     STALE row (`CasePropertiesValidationError` — a write carrying a
- *     property the row's older catalog lacks); every other throw passes
- *     through untouched (no Postgres read);
- *   - a heal re-materializes from the app's PERSISTED blueprint (not a
- *     caller-supplied copy) and passes its `mutation_seq` off the SAME
- *     snapshot as `syncedSeq` (so the monotone gate never pairs a later seq
- *     with an earlier schema), retrying the call exactly once;
- *   - a missing app, or a failing materialize, rethrows the ORIGINAL
- *     error so the typed `schema-not-synced` / `validation-failure` arm
- *     stays the honest backstop (Project membership is gated upstream at
- *     the Server Action, so the heal itself does no owner/membership
- *     re-check — the re-materialize is app-scoped schema sync);
- *   - a retry that fails again surfaces its own error — never a loop, and
- *     never a masked genuine validation failure.
- *
- * `schemaHealingCaseStore` scopes that heal to ONE store operation at a
- * time. For a form submission that ONE operation is the whole atomic
- * envelope (`applySubmission`, one Postgres transaction), so the heal
- * test below proves the retry re-runs the ENTIRE envelope once — nothing
- * partial can persist and no child can duplicate.
- */
-
+/** Mocked persistence boundary: retry eligibility, ordering, identity and error
+ * propagation. Database rollback and persisted effects belong to native tests. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import type { CaseStore } from "@/lib/case-store";
 import {
 	CasePropertiesValidationError,
 	SchemaNotSyncedError,
 } from "@/lib/case-store/errors";
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 
 const { drainPendingMock, loadAppMock, materializeMock } = vi.hoisted(() => ({
 	drainPendingMock: vi.fn(),
 	loadAppMock: vi.fn(),
 	materializeMock: vi.fn(),
 }));
-
 vi.mock("@/lib/db/apps", () => ({ loadApp: loadAppMock }));
 vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 	drainPendingCaseSchemaIndexes: drainPendingMock,
@@ -48,347 +23,207 @@ vi.mock("@/lib/db/materializeCaseStoreSchemas", () => ({
 
 import {
 	schemaHealingCaseStore,
-	submissionEnvelopeArgs,
 	withSchemaHeal,
 } from "../caseDataBindingHelpers";
-import type { SubmissionMutation } from "../caseDataBindingTypes";
 
 const ARGS = { appId: "app-1" };
-const BLUEPRINT = { caseTypes: [{ name: "patient", properties: [] }] };
+const BLUEPRINT = assertAdmittedPreviewDoc(
+	buildDoc({
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				name: "Patients",
+				caseType: "patient",
+				caseListOnly: true,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [],
+			},
+		],
+	}),
+);
 const notSynced = () => new SchemaNotSyncedError("app-1", "patient");
-// A STALE-row DRIFT failure: the row exists but its older catalog lacks a
-// property the write carries — `additionalProperty` set is the structural
-// signal the heal keys on. Each call is a fresh instance so identity
-// assertions hold.
 const staleDrift = () =>
 	new CasePropertiesValidationError("app-1", "patient", [
-		{
-			path: "",
-			message: "must NOT have additional property 'phone'",
-			additionalProperty: "phone",
-		},
+		{ path: "", message: "Unknown phone", additionalProperty: "phone" },
 	]);
-// A GENUINE invalid-data failure (a type mismatch) — no `additionalProperty`,
-// so it is NOT drift and must NOT trigger the heal.
 const genuineInvalid = () =>
 	new CasePropertiesValidationError("app-1", "patient", [
 		{ path: "/age", message: "must be integer" },
 	]);
+beforeEach(() => vi.resetAllMocks());
+
+function persistedSnapshot() {
+	loadAppMock.mockResolvedValue({ blueprint: BLUEPRINT, mutation_seq: 8 });
+	materializeMock.mockResolvedValue(undefined);
+}
 
 describe("withSchemaHeal", () => {
-	beforeEach(() => {
-		loadAppMock.mockReset();
-		materializeMock.mockReset();
+	it("awaits pending index convergence before starting the operation", async () => {
+		const pending = Promise.withResolvers<void>();
+		drainPendingMock.mockReturnValue(pending.promise);
+		const run = vi.fn().mockResolvedValue("rows");
+		const result = withSchemaHeal(ARGS, run);
+		try {
+			expect(drainPendingMock).toHaveBeenCalledWith("app-1");
+			expect(run).not.toHaveBeenCalled();
+		} finally {
+			pending.resolve();
+			await expect(result).resolves.toBe("rows");
+		}
+		expect(run).toHaveBeenCalledOnce();
+		expect(loadAppMock).not.toHaveBeenCalled();
 	});
 
-	it("returns the first attempt's result with no heal machinery on the happy path", async () => {
+	it("continues the operation when best-effort index convergence fails", async () => {
+		drainPendingMock.mockRejectedValue(
+			new Error("index convergence unavailable"),
+		);
 		const run = vi.fn().mockResolvedValue("rows");
 		await expect(withSchemaHeal(ARGS, run)).resolves.toBe("rows");
-		expect(run).toHaveBeenCalledTimes(1);
+		expect(run).toHaveBeenCalledOnce();
 		expect(loadAppMock).not.toHaveBeenCalled();
 	});
 
-	it("passes a non-schema error through without healing", async () => {
-		const boom = new Error("postgres down");
-		const run = vi.fn().mockRejectedValue(boom);
-		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(boom);
-		expect(loadAppMock).not.toHaveBeenCalled();
-	});
+	it.each([new Error("connection unavailable"), genuineInvalid()])(
+		"propagates a non-drift error without reading or materializing: %s",
+		async (error) => {
+			const run = vi.fn().mockRejectedValue(error);
+			await expect(withSchemaHeal(ARGS, run)).rejects.toBe(error);
+			expect(run).toHaveBeenCalledOnce();
+			expect(loadAppMock).not.toHaveBeenCalled();
+			expect(materializeMock).not.toHaveBeenCalled();
+		},
+	);
 
-	it("materializes from the persisted blueprint and retries once on SchemaNotSyncedError", async () => {
-		loadAppMock.mockResolvedValue({
-			owner: "user-1",
-			blueprint: BLUEPRINT,
-			mutation_seq: 8,
-		});
-		materializeMock.mockResolvedValue(undefined);
-		const run = vi
-			.fn()
-			.mockRejectedValueOnce(notSynced())
-			.mockResolvedValueOnce("rows");
+	describe.each([notSynced, staleDrift])(
+		"a recoverable schema signal",
+		(failure) => {
+			it("loads one snapshot, awaits its materialization, then retries with its sequence", async () => {
+				persistedSnapshot();
+				const materialized = Promise.withResolvers<void>();
+				materializeMock.mockReturnValue(materialized.promise);
+				const firstAttempt = failure();
+				const run = vi
+					.fn()
+					.mockRejectedValueOnce(firstAttempt)
+					.mockResolvedValueOnce("rows");
+				const result = withSchemaHeal(ARGS, run);
+				try {
+					await vi.waitFor(() =>
+						expect(materializeMock).toHaveBeenCalledOnce(),
+					);
+					expect(run).toHaveBeenCalledOnce();
+					expect(materializeMock).toHaveBeenCalledWith({
+						appId: "app-1",
+						blueprint: BLUEPRINT,
+						syncedSeq: 8,
+					});
+				} finally {
+					materialized.resolve();
+					await expect(result).resolves.toBe("rows");
+				}
+				expect(run).toHaveBeenCalledTimes(2);
+				expect(loadAppMock).toHaveBeenCalledOnce();
+				expect(drainPendingMock).toHaveBeenCalledOnce();
+			});
 
-		await expect(withSchemaHeal(ARGS, run)).resolves.toBe("rows");
-		expect(materializeMock).toHaveBeenCalledWith({
-			appId: "app-1",
-			blueprint: BLUEPRINT,
-			syncedSeq: 8,
-		});
-		expect(run).toHaveBeenCalledTimes(2);
-	});
+			it.each(["missing", "load-failure", "materialize-failure"])(
+				"preserves the original error when recovery ends at %s",
+				async (mode) => {
+					const original = failure();
+					persistedSnapshot();
+					if (mode === "missing") loadAppMock.mockResolvedValue(null);
+					if (mode === "load-failure")
+						loadAppMock.mockRejectedValue(new Error("load unavailable"));
+					if (mode === "materialize-failure")
+						materializeMock.mockRejectedValue(
+							new Error("materialize unavailable"),
+						);
+					const run = vi.fn().mockRejectedValue(original);
+					await expect(withSchemaHeal(ARGS, run)).rejects.toBe(original);
+					expect(run).toHaveBeenCalledOnce();
+					if (mode !== "materialize-failure")
+						expect(materializeMock).not.toHaveBeenCalled();
+				},
+			);
 
-	it("rethrows the ORIGINAL error when the app is missing", async () => {
-		const original = notSynced();
-		loadAppMock.mockResolvedValue(null);
-		const run = vi.fn().mockRejectedValue(original);
-
-		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(original);
-		expect(materializeMock).not.toHaveBeenCalled();
-		expect(run).toHaveBeenCalledTimes(1);
-	});
-
-	it("rethrows the ORIGINAL error when the materialize itself fails", async () => {
-		const original = notSynced();
-		loadAppMock.mockResolvedValue({
-			owner: "user-1",
-			blueprint: BLUEPRINT,
-			mutation_seq: 8,
-		});
-		materializeMock.mockRejectedValue(new Error("postgres still down"));
-		const run = vi.fn().mockRejectedValue(original);
-
-		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(original);
-		expect(run).toHaveBeenCalledTimes(1);
-	});
-
-	it("retries exactly once — a second SchemaNotSyncedError surfaces, never loops", async () => {
-		loadAppMock.mockResolvedValue({
-			owner: "user-1",
-			blueprint: BLUEPRINT,
-			mutation_seq: 8,
-		});
-		materializeMock.mockResolvedValue(undefined);
-		const second = notSynced();
-		const run = vi
-			.fn()
-			.mockRejectedValueOnce(notSynced())
-			.mockRejectedValueOnce(second);
-
-		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(second);
-		expect(run).toHaveBeenCalledTimes(2);
-		expect(materializeMock).toHaveBeenCalledTimes(1);
-	});
+			it("surfaces the retry's own failure after one recovery attempt", async () => {
+				persistedSnapshot();
+				const second = failure();
+				const run = vi
+					.fn()
+					.mockRejectedValueOnce(failure())
+					.mockRejectedValueOnce(second);
+				await expect(withSchemaHeal(ARGS, run)).rejects.toBe(second);
+				expect(run).toHaveBeenCalledTimes(2);
+				expect(materializeMock).toHaveBeenCalledOnce();
+			});
+		},
+	);
 });
 
-describe("withSchemaHeal — stale schema row (CasePropertiesValidationError)", () => {
-	beforeEach(() => {
-		loadAppMock.mockReset();
-		materializeMock.mockReset();
-	});
-
-	it("re-materializes from the persisted blueprint and retries once when a stale row trips additionalProperties", async () => {
-		// The drift case: the row is present but built from a catalog that
-		// predates the `phone` property, so the first write fails. The heal
-		// re-syncs the row from the persisted blueprint and the retry lands.
-		loadAppMock.mockResolvedValue({
-			owner: "user-1",
-			blueprint: BLUEPRINT,
-			mutation_seq: 8,
-		});
-		materializeMock.mockResolvedValue(undefined);
-		const run = vi
-			.fn()
-			.mockRejectedValueOnce(staleDrift())
-			.mockResolvedValueOnce("rows");
-
-		await expect(withSchemaHeal(ARGS, run)).resolves.toBe("rows");
-		expect(materializeMock).toHaveBeenCalledWith({
-			appId: "app-1",
-			blueprint: BLUEPRINT,
-			syncedSeq: 8,
-		});
-		expect(run).toHaveBeenCalledTimes(2);
-	});
-
-	it("does NOT heal a non-drift validation failure (type/format) — surfaces immediately, no Postgres read", async () => {
-		// A genuine invalid-data failure carries no `additionalProperty`, so
-		// it is not drift: the heal must not fire. The error surfaces on the
-		// first attempt with NO loadApp + re-materialize round-trip, and the
-		// write is not retried.
-		const invalid = genuineInvalid();
-		const run = vi.fn().mockRejectedValue(invalid);
-
-		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(invalid);
-		expect(loadAppMock).not.toHaveBeenCalled();
-		expect(materializeMock).not.toHaveBeenCalled();
-		expect(run).toHaveBeenCalledTimes(1);
-	});
-
-	it("does NOT mask drift the re-materialize can't resolve (persisted blueprint also stale): the second error surfaces", async () => {
-		// Drift the heal fires on, but the persisted blueprint is ALSO stale
-		// (same failure left both the persisted blueprint and the row behind), so the
-		// re-materialize regenerates the same schema and the retry fails
-		// again. That second error propagates — one extra materialize +
-		// retry, never a swallowed failure.
-		loadAppMock.mockResolvedValue({
-			owner: "user-1",
-			blueprint: BLUEPRINT,
-			mutation_seq: 8,
-		});
-		materializeMock.mockResolvedValue(undefined);
-		const second = staleDrift();
-		const run = vi
-			.fn()
-			.mockRejectedValueOnce(staleDrift())
-			.mockRejectedValueOnce(second);
-
-		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(second);
-		expect(run).toHaveBeenCalledTimes(2);
-		expect(materializeMock).toHaveBeenCalledTimes(1);
-	});
-
-	it("rethrows the ORIGINAL validation error when the app is missing", async () => {
-		const original = staleDrift();
-		loadAppMock.mockResolvedValue(null);
-		const run = vi.fn().mockRejectedValue(original);
-
-		await expect(withSchemaHeal(ARGS, run)).rejects.toBe(original);
-		expect(materializeMock).not.toHaveBeenCalled();
-		expect(run).toHaveBeenCalledTimes(1);
-	});
-});
-
-describe("schemaHealingCaseStore — the grouped read heals like the flat one", () => {
-	beforeEach(() => {
-		loadAppMock.mockReset();
-		materializeMock.mockReset();
-	});
-
-	// `queryGrouped` reaches the stored schema row through the very same
-	// `buildCaseSelect` / calculated-column compilation `query` does, so it
-	// raises the same missing-schema signal. Left un-healed it would make a
-	// grouped Results list the one read in the preview that surfaces a raw
-	// schema error where every neighbour repairs itself and retries.
-	it("re-materializes and retries a grouped read that hits a missing schema row", async () => {
-		loadAppMock.mockResolvedValue({
-			owner: "user-1",
-			blueprint: { caseTypes: [{ name: "visit", properties: [] }] },
-			mutation_seq: 3,
-		});
-		materializeMock.mockResolvedValue(undefined);
-
+describe("schemaHealingCaseStore adapter", () => {
+	it("retries a grouped read with the same request", async () => {
+		persistedSnapshot();
 		const settled = { groups: [], totalGroups: 0, totalRows: 0 };
 		const queryGrouped = vi
-			.fn()
-			.mockRejectedValueOnce(new SchemaNotSyncedError("app-1", "visit"))
+			.fn<CaseStore["queryGrouped"]>()
+			.mockRejectedValueOnce(notSynced())
 			.mockResolvedValueOnce(settled);
 		const store = schemaHealingCaseStore(
 			{ queryGrouped } as unknown as CaseStore,
 			ARGS,
 		);
-
-		const groupedArgs = {
+		const request = {
 			appId: "app-1",
-			caseType: "visit",
+			caseType: "patient",
 			indexIdentifier: "parent",
 			groupOffset: 0,
 			groupLimit: 50,
-		} as unknown as Parameters<CaseStore["queryGrouped"]>[0];
-
-		await expect(store.queryGrouped(groupedArgs)).resolves.toEqual(settled);
-
-		expect(queryGrouped).toHaveBeenCalledTimes(2);
-		expect(queryGrouped).toHaveBeenNthCalledWith(1, groupedArgs);
-		expect(queryGrouped).toHaveBeenNthCalledWith(2, groupedArgs);
-		expect(materializeMock).toHaveBeenCalledTimes(1);
-	});
-});
-
-describe("schemaHealingCaseStore — the whole submission envelope is one healed operation", () => {
-	beforeEach(() => {
-		loadAppMock.mockReset();
-		materializeMock.mockReset();
+		};
+		await expect(store.queryGrouped(request)).resolves.toEqual(settled);
+		expect(queryGrouped.mock.calls.map(([args]) => args)).toEqual([
+			request,
+			request,
+		]);
 	});
 
-	it("re-runs the WHOLE envelope on a missing-schema heal, landing each row exactly once", async () => {
-		// The heal's own canonical producer: a followup creating a child of
-		// a case type whose drain-end materialize failed, so its schema row
-		// is missing. Because the whole submission is ONE store operation
-		// (`applySubmission`) and ONE Postgres transaction, the first
-		// attempt throws `SchemaNotSyncedError` with nothing partial
-		// persisted; the heal re-materializes the persisted blueprint and
-		// the retry re-runs the ENTIRE envelope once more. No child can
-		// duplicate — a heal retry never resumes a half-applied envelope.
-		loadAppMock.mockResolvedValue({
-			owner: "user-1",
-			blueprint: { caseTypes: [{ name: "newborn", properties: [] }] },
-			mutation_seq: 8,
-		});
-		materializeMock.mockResolvedValue(undefined);
-
+	it("retries the identical complete submission envelope at the store boundary", async () => {
+		persistedSnapshot();
+		const settled = {
+			primaryCaseIds: ["patient-1"],
+			createdChildren: [],
+			operations: [],
+			blueprintDigest: "0".repeat(64),
+		};
 		const applySubmission = vi
-			.fn()
-			.mockRejectedValueOnce(new SchemaNotSyncedError("app-1", "newborn"))
-			.mockResolvedValueOnce({
-				primaryCaseIds: ["mother-1"],
-				createdChildren: [
-					{
-						authoredChildIndex: 0,
-						parentCaseId: "mother-1",
-						caseId: "child-1",
-					},
-				],
-				operations: [],
-			});
+			.fn<CaseStore["applySubmission"]>()
+			.mockRejectedValueOnce(notSynced())
+			.mockResolvedValueOnce(settled);
 		const store = schemaHealingCaseStore(
 			{ applySubmission } as unknown as CaseStore,
 			ARGS,
 		);
-
-		const mutation: SubmissionMutation = {
-			kind: "followup",
-			formUuid: testUuid("10000000-0000-4000-8000-000000000001"),
-			entryKey: "10000000-0000-4000-8000-000000000002",
-			attachmentRefs: [],
-			caseIds: ["mother-1"],
-			patch: { properties: { visited: "yes" } },
-			children: [
-				{
-					caseType: "newborn",
-					caseName: "Baby 1",
-					properties: {},
-				},
-			],
-		};
-		const envelope = submissionEnvelopeArgs(mutation, "app-1", {
-			ordinaryFormType: "followup",
-			ordinaryAction: {
-				kind: "followup",
-				caseIds: mutation.caseIds,
-				caseType: "mother",
-				selection: { kind: "single", maximum: 1 },
-				patch: mutation.patch,
-				children: mutation.children.map((child) => ({
-					...child,
-					parentRelationship: "child",
-				})),
-			},
-			usercaseWriteProperties: new Set<string>(),
-			ordinaryChildRelationships: new Map([["newborn", "child"]]),
-			ordinaryCaseType: "mother",
-			ordinarySelection: { kind: "single", maximum: 1 },
-			submissionReceipt: {
-				entryKey: mutation.entryKey,
-				formUuid: testUuid(mutation.formUuid),
-				expectedAppMutationSeq: 0,
-				blueprintDigest: "0".repeat(64),
-				requestDigest: "schema-heal-submission",
-			},
-		});
-
-		const result = await store.applySubmission(envelope);
-
-		// Exactly two calls: the throw, then the whole-envelope retry — both
-		// with the IDENTICAL envelope, proving nothing partial was resumed.
-		expect(applySubmission).toHaveBeenCalledTimes(2);
-		expect(applySubmission).toHaveBeenNthCalledWith(1, envelope);
-		expect(applySubmission).toHaveBeenNthCalledWith(2, envelope);
-		expect(materializeMock).toHaveBeenCalledTimes(1);
-		expect(materializeMock).toHaveBeenCalledWith({
+		const envelope: Parameters<CaseStore["applySubmission"]>[0] = {
 			appId: "app-1",
-			blueprint: { caseTypes: [{ name: "newborn", properties: [] }] },
-			syncedSeq: 8,
-		});
-		// The settled result carries the primary and its child exactly once.
-		expect(result).toEqual({
-			primaryCaseIds: ["mother-1"],
-			createdChildren: [
-				{
-					authoredChildIndex: 0,
-					parentCaseId: "mother-1",
-					caseId: "child-1",
-				},
-			],
-			operations: [],
-		});
+			ordinary: {
+				kind: "registration",
+				primary: { caseType: "patient", caseName: "Ada", properties: {} },
+				children: [],
+			},
+			submissionReceipt: {
+				entryKey: "10000000-0000-4000-8000-000000000002",
+				formUuid: testUuid("10000000-0000-4000-8000-000000000001"),
+				expectedAppMutationSeq: 8,
+				blueprintDigest: "0".repeat(64),
+				requestDigest: "0".repeat(64),
+			},
+		};
+		await expect(store.applySubmission(envelope)).resolves.toBe(settled);
+		expect(applySubmission).toHaveBeenCalledTimes(2);
+		expect(applySubmission.mock.calls[0]?.[0]).toBe(envelope);
+		expect(applySubmission.mock.calls[1]?.[0]).toBe(envelope);
 	});
 });

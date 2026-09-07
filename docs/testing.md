@@ -42,6 +42,14 @@ tests is preferable to preserving the shape or count of the previous suite.
 - External services: replace the network boundary with a controlled response;
   retain the real code that interprets it. Never spend on model calls by default.
 
+Keep a React test only when React owns the behavior under examination: effect
+cleanup, a context registration, a committed subscription or an error boundary.
+Mount the smallest real adapter and observe that lifetime directly. Clicking a
+fake button, inspecting text or asserting a callback does not prove browser
+behavior. Domain commands obtained from a hook belong in a production function
+that both the hook and its direct tests call. Native browser tests cover the
+remaining input, focus, layout and component wiring.
+
 Deployment store tests use real auth migrations and concurrent Postgres sessions.
 A database lock observer establishes that writes are waiting before releasing
 or committing the competing transaction. Concurrent-call tests using a
@@ -271,7 +279,10 @@ after their sockets, readers and result work have settled. Record those
 async-hooks diagnostics honestly; an exit code of zero does not make the run
 leak-clean. Do not replace the SDK with a mock, exclude its dependencies, or
 isolate the test in a child merely to hide allocations. Verify completion,
-transport failure and cancellation through observable resource ownership.
+transport failure and cancellation through observable resource ownership. The
+[native Node multipart evidence](research/test-suite-audit/native-node/report.md)
+reproduces retained fetch promises and completed Blob reader diagnostics with
+both a controlled dispatcher and a real HTTP socket, outside the SDK and Vitest.
 
 ## Database fixtures
 
@@ -652,3 +663,37 @@ commit atomically. Corrupt the fields bound by existing event digests before
 recovery and verify refusal. A real SDK request to a local Responses server
 proves that recovered file URLs and decoded response messages can be sent
 again; an object-shape assertion alone does not prove provider serialization.
+
+
+The native design-runner suite mounts the real SDK agent, tool registry, source
+package, artifact store and durable model ledger against local Responses HTTP
+and migrated PostgreSQL. It proves paid wait replay without another call, new
+input, provider-ordered question/wait arbitration, one durable terminal correction,
+accepted-plan recovery, and cancellation before and during a partial HTTP response.
+A full runner continuation also rejects a user-authored state heading as authority
+after a real decoded compaction item. Provider output is scripted; model quality
+and live-provider acceptance are outside this proof.
+
+Native orchestrator checks retain the real event chain, accepted artifacts,
+attempts, change sets and executor loop. The model outcome boundary supplies a
+pause, failure or empty executor response; assertions inspect durable outcomes and
+actual emitted chunks. A held PostgreSQL authority row proves orchestration cannot
+return while its heartbeat still writes, even after the model throws. These checks
+retain the SDK's reported PROMISE diagnostics and Bluebird's inert import probe;
+HTTP sockets, streams, timers and database operations are explicitly drained.
+
+The full-suite audit's original-file ledger is
+`docs/research/test-suite-audit/manifest.json`. Its linked review records retain
+method decisions, replaced/deleted suites, exact source hashes and reproducible
+checks; additional tests are listed separately from the baseline denominator.
+A file's reviewed status establishes direct method review, not a substitute for
+final type, build, browser and database integration checks.
+
+For the actual AI SDK, keep protocol conversion and streaming adapters real.
+A private Responses HTTP peer can emit ordered tools, valid structured output,
+partial bodies, compaction and cancellation without a paid request. Prove
+persisted ancestry and recovery with migrated PostgreSQL, and assert real stored
+response items and completion evidence. Avoid fabricated accepted plans or
+fixtures whose asserted properties do not exist on the stored record type.
+Question-card and transcript models own state; browser checks still own the
+actual focus and Motion binding.

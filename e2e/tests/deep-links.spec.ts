@@ -4,16 +4,19 @@ import { DEEP_LINKS_SEED } from "../lib/deepLinksSeed";
 import { attachErrorGuard } from "../lib/errorGuard";
 import { expect, test } from "../lib/fixtures";
 
-const seed = JSON.parse(
-	readFileSync(path.resolve("e2e/.auth/seed.json"), "utf8"),
-) as {
+interface SeedManifest {
 	deepLinks: {
 		appId: string;
 		route: string;
 		selectedCaseId: string;
 		distractorCaseId: string;
 	}[];
-};
+}
+
+let seed: SeedManifest;
+test.beforeAll(() => {
+	seed = JSON.parse(readFileSync(path.resolve("e2e/.auth/seed.json"), "utf8"));
+});
 
 test("deep links are authored, renamed, launched on the selected real case, and removed", async ({
 	page,
@@ -32,8 +35,8 @@ test("deep links are authored, renamed, launched on the selected real case, and 
 				response.request().method() === "PUT" &&
 				(response.request().postData() ?? "").includes(`"kind":"${kind}"`),
 		);
-		await mutate();
-		expect((await saved).ok()).toBe(true);
+		const [response] = await Promise.all([saved, mutate()]);
+		expect(response.ok()).toBe(true);
 	};
 	let detailRoute = "";
 	await test.step("create the exact form destination through App setup", async () => {
@@ -105,30 +108,36 @@ test("deep links are authored, renamed, launched on the selected real case, and 
 			baseURL,
 			storageState: path.resolve("e2e/.auth/state-viewer.json"),
 		});
-		const viewerPage = await viewerContext.newPage();
-		const guard = await attachErrorGuard(viewerPage, baseURL);
 		try {
-			await viewerPage.goto(detailRoute);
-			await expect(
-				viewerPage.getByLabel("Link ID", { exact: true }),
-			).toHaveValue(DEEP_LINKS_SEED.renamedId, { timeout: 20_000 });
-			await expect(
-				viewerPage.getByLabel("Link ID", { exact: true }),
-			).toBeDisabled();
-			await expect(
-				viewerPage.getByRole("button", {
-					name: "Remove deep link",
-					exact: true,
-				}),
-			).toHaveCount(0);
-			await viewerPage
-				.getByRole("button", { name: "All deep links", exact: true })
-				.click();
-			await expect(
-				viewerPage.getByRole("button", { name: "Add deep link", exact: true }),
-			).toHaveCount(0);
-			await viewerPage.close();
-			await guard.assertNoErrors();
+			const viewerPage = await viewerContext.newPage();
+			const guard = await attachErrorGuard(viewerPage, baseURL);
+			try {
+				await viewerPage.goto(detailRoute);
+				await expect(
+					viewerPage.getByLabel("Link ID", { exact: true }),
+				).toHaveValue(DEEP_LINKS_SEED.renamedId, { timeout: 20_000 });
+				await expect(
+					viewerPage.getByLabel("Link ID", { exact: true }),
+				).toBeDisabled();
+				await expect(
+					viewerPage.getByRole("button", {
+						name: "Remove deep link",
+						exact: true,
+					}),
+				).toHaveCount(0);
+				await viewerPage
+					.getByRole("button", { name: "All deep links", exact: true })
+					.click();
+				await expect(
+					viewerPage.getByRole("button", {
+						name: "Add deep link",
+						exact: true,
+					}),
+				).toHaveCount(0);
+			} finally {
+				await viewerPage.close();
+				await guard.assertNoErrors();
+			}
 		} finally {
 			await viewerContext.close();
 		}

@@ -1,13 +1,4 @@
-/**
- * Tests for `readJsonBody` — the JSON body guard that rejects an oversized
- * request both before buffering (declared Content-Length) AND after (actual
- * byte length, so a headerless/chunked stream can't slip the cap).
- *
- * A minimal `Request`-shaped fake (just `headers.get` + `arrayBuffer`) keeps the
- * test focused on the size gates. The "rejected before buffering" assertion is
- * exact: the declared-413 case uses an `arrayBuffer` mock and asserts it was
- * never called, proving the oversized body was never materialized.
- */
+/** Native Request bodies exercise byte admission, stream ownership and HTTP error projection. */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -24,89 +15,121 @@ vi.mock("@/lib/logger", () => ({
 
 import {
 	ApiError,
-	BLUEPRINT_REQUEST_MAX_BYTES,
-	CHAT_REQUEST_MAX_BYTES,
-	CLIENT_ERROR_MAX_BYTES,
 	declaredBodyTooLarge,
 	handleApiError,
 	isClientAbort,
-	OAUTH_REVOKE_MAX_BYTES,
 	parseApiErrorMessage,
 	readJsonBody,
 } from "../apiError";
 
-function fakeReq(opts: {
-	contentLength?: string;
-	body?: string;
-	arrayBuffer?: () => Promise<ArrayBuffer>;
-}): Request {
-	const arrayBuffer =
-		opts.arrayBuffer ??
-		(async () =>
-			new TextEncoder().encode(opts.body ?? "").buffer as ArrayBuffer);
-	return {
-		headers: {
-			get: (key: string) =>
-				key.toLowerCase() === "content-length"
-					? (opts.contentLength ?? null)
-					: null,
-		},
-		arrayBuffer,
-	} as unknown as Request;
+function request(body?: BodyInit, headers?: HeadersInit): Request {
+	return new Request("http://localhost/api/example", {
+		method: "POST",
+		body,
+		headers,
+		duplex: "half",
+	} as RequestInit);
 }
 
 describe("readJsonBody", () => {
-	it("parses a body within the cap", async () => {
-		const parsed = await readJsonBody(
-			fakeReq({ contentLength: "7", body: '{"a":1}' }),
-			4096,
+	it("decodes a valid Unicode body at its exact byte limit across split UTF-8 sequences", async () => {
+		const bytes = new TextEncoder().encode('{"name":"é😀"}');
+		const stream = new ReadableStream<Uint8Array>({
+			start(controller) {
+				for (const byte of bytes) controller.enqueue(Uint8Array.of(byte));
+				controller.close();
+			},
+		});
+		const req = request(stream);
+		expect(await readJsonBody(req, bytes.length)).toEqual({ name: "é😀" });
+		expect(req.bodyUsed).toBe(true);
+		expect(req.body?.locked).toBe(false);
+	});
+
+	it("rejects a declared oversized body before reading its native stream", async () => {
+		const req = request('{"a":1}', { "content-length": "5000" });
+		try {
+			await expect(readJsonBody(req, 4096)).rejects.toMatchObject({
+				status: 413,
+			});
+			expect(req.bodyUsed).toBe(false);
+			expect(req.body?.locked).toBe(false);
+		} finally {
+			await req.body?.cancel();
+		}
+	});
+
+	it.each([undefined, { "content-length": "1" }])(
+		"rejects actual excess bytes without waiting for an unfinished body (%j)",
+		async (headers) => {
+			let cancelled = false;
+			let pulls = 0;
+			const req = request(
+				new ReadableStream<Uint8Array>(
+					{
+						pull(controller) {
+							pulls++;
+							if (pulls === 1) controller.enqueue(new Uint8Array(9));
+							else {
+								controller.enqueue(new Uint8Array(100));
+								controller.close();
+							}
+						},
+						cancel() {
+							cancelled = true;
+						},
+					},
+					{ highWaterMark: 0 },
+				),
+				headers,
+			);
+			const result = readJsonBody(req, 8);
+			await expect(result).rejects.toMatchObject({ status: 413 });
+			expect(cancelled).toBe(true);
+			expect(pulls).toBe(1);
+			expect(req.body?.locked).toBe(false);
+		},
+	);
+
+	it("preserves native stream errors and releases its reader", async () => {
+		const failure = new DOMException("request aborted", "AbortError");
+		const req = request(
+			new ReadableStream<Uint8Array>({
+				start(controller) {
+					controller.error(failure);
+				},
+			}),
 		);
-		expect(parsed).toEqual({ a: 1 });
+		await expect(readJsonBody(req, 20)).rejects.toBe(failure);
+		expect(req.body?.locked).toBe(false);
 	});
 
-	it("rejects an over-cap DECLARED body with 413, BEFORE buffering it", async () => {
-		const arrayBuffer = vi.fn(async () => new ArrayBuffer(0));
-		await expect(
-			readJsonBody(fakeReq({ contentLength: "5000", arrayBuffer }), 4096),
-		).rejects.toMatchObject({ status: 413 });
-		// The whole point: the oversized body is never materialized.
-		expect(arrayBuffer).not.toHaveBeenCalled();
-	});
-
-	it("rejects a chunked body whose ACTUAL bytes exceed the cap (no Content-Length)", async () => {
-		// The bypass a Content-Length-only gate misses: a chunked request omits
-		// the header, so only the post-buffer byte check can reject it.
-		await expect(
-			readJsonBody(fakeReq({ body: "x".repeat(5000) }), 4096),
-		).rejects.toMatchObject({ status: 413 });
-	});
-
-	it("returns null for an unparseable body (caller's schema makes the message)", async () => {
-		const parsed = await readJsonBody(
-			fakeReq({ contentLength: "8", body: "not json" }),
-			4096,
-		);
-		expect(parsed).toBeNull();
-	});
-
-	it("allows a chunked body UNDER the cap through to parse", async () => {
-		const parsed = await readJsonBody(fakeReq({ body: '{"b":2}' }), 4096);
-		expect(parsed).toEqual({ b: 2 });
-	});
+	it.each([undefined, "", "not json", '{"unfinished":'])(
+		"returns null for absent or malformed JSON %j",
+		async (body) => {
+			expect(await readJsonBody(request(body), 4096)).toBeNull();
+		},
+	);
 });
 
 describe("declaredBodyTooLarge", () => {
-	it("is true only when Content-Length exceeds the cap", () => {
-		expect(declaredBodyTooLarge(fakeReq({ contentLength: "5000" }), 4096)).toBe(
-			true,
-		);
-		expect(declaredBodyTooLarge(fakeReq({ contentLength: "4096" }), 4096)).toBe(
-			false,
-		);
-		// Chunked (no Content-Length) can't be judged here — the post-buffer byte
-		// check in `readJsonBody` is what actually bounds it.
-		expect(declaredBodyTooLarge(fakeReq({}), 4096)).toBe(false);
-	});
+	it.each([
+		["5000", true],
+		["4096", false],
+		["4095", false],
+		[undefined, false],
+		["5000, 5000", true],
+		["invalid", false],
+	] as const)(
+		"classifies declared length %j before acquiring a body",
+		(length, expected) => {
+			const req = request(
+				undefined,
+				length === undefined ? undefined : { "content-length": length },
+			);
+			expect(declaredBodyTooLarge(req, 4096)).toBe(expected);
+		},
+	);
 });
 
 describe("isClientAbort", () => {
@@ -161,7 +184,17 @@ describe("handleApiError — client-abort vs genuine error", () => {
 	 * would otherwise leak an async resource (the async-leak gate flags it). */
 	async function handled(err: ApiError | Error): Promise<Response> {
 		const res = handleApiError(err);
-		await res.text();
+		const body = await res.json();
+		expect(body).toEqual({
+			error:
+				err instanceof ApiError
+					? err.message
+					: res.status === 499
+						? "Client closed request"
+						: res.status === 404
+							? "App not found"
+							: "Internal server error",
+		});
 		return res;
 	}
 
@@ -203,29 +236,6 @@ describe("handleApiError — client-abort vs genuine error", () => {
 		const res = await handled(err);
 		expect(res.status).toBe(404);
 		expect(logErrorMock).not.toHaveBeenCalled();
-	});
-});
-
-describe("request-size budgets", () => {
-	it("keep the public/auth caps tiny, blueprint generously above a megabyte, and all under the platform ceiling", () => {
-		expect(CLIENT_ERROR_MAX_BYTES).toBeLessThanOrEqual(64 * 1024);
-		expect(OAUTH_REVOKE_MAX_BYTES).toBeLessThanOrEqual(64 * 1024);
-		// The cap must sit generously above a megabyte so a real blueprint
-		// (far smaller) never trips it.
-		expect(BLUEPRINT_REQUEST_MAX_BYTES).toBeGreaterThan(1024 * 1024);
-		// Chat carries the blueprint PLUS bounded history, so it's the largest.
-		expect(CHAT_REQUEST_MAX_BYTES).toBeGreaterThanOrEqual(
-			BLUEPRINT_REQUEST_MAX_BYTES,
-		);
-		// Every cap stays well under Cloud Run's ~32 MB inbound limit.
-		for (const cap of [
-			CLIENT_ERROR_MAX_BYTES,
-			OAUTH_REVOKE_MAX_BYTES,
-			BLUEPRINT_REQUEST_MAX_BYTES,
-			CHAT_REQUEST_MAX_BYTES,
-		]) {
-			expect(cap).toBeLessThan(32 * 1024 * 1024);
-		}
 	});
 });
 

@@ -1,15 +1,6 @@
-/**
- * Behavioral tests for `removeSearchInput`.
- *
- * Coverage:
- *
- *   1. Effect on the doc — drops the targeted entry; siblings stay.
- *   2. Returns the removed uuid + remaining count.
- *   3. Module-not-found / search-input-uuid-not-found surface
- *      Elm-style errors.
- */
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/** Admitted shared-tool state transitions with controlled host receipts;
+ * the schema, planner, workspace gate, and reducer remain real. */
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
@@ -20,23 +11,6 @@ import {
 } from "@/lib/domain";
 import { removeSearchInputTool } from "../removeSearchInput";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");

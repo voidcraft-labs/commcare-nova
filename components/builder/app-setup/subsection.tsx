@@ -24,6 +24,7 @@ export function Subsection({
 	addLabel,
 	onAdd,
 	canEdit,
+	addDisabled = false,
 	addButtonRef,
 	children,
 }: {
@@ -33,6 +34,7 @@ export function Subsection({
 	addLabel: string;
 	onAdd: () => void;
 	canEdit: boolean;
+	addDisabled?: boolean;
 	addButtonRef?: Ref<HTMLButtonElement>;
 	children: ReactNode;
 }) {
@@ -51,6 +53,7 @@ export function Subsection({
 					type="button"
 					variant="ghost"
 					onClick={onAdd}
+					disabled={addDisabled}
 					className="nova-add-slot mt-3 w-full"
 				>
 					<Icon icon={tablerPlus} width="16" height="16" aria-hidden="true" />

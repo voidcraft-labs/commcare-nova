@@ -1,491 +1,257 @@
-/**
- * Tests for the form builder agent's mutation-builder helpers + the
- * doc-native `deriveCaseConfig` helper.
- *
- * The mutation-builder tests build a minimal `BlueprintDoc` shell,
- * invoke a helper, apply the returned mutations to the doc, and assert
- * on the resulting doc state. The case-derivation tests at the bottom
- * exercise `deriveCaseConfig` end-to-end through the same doc shape
- * that the expander + validator feed it in production.
- */
-
+/** Planner-to-reducer boundary and private case-action projection.
+ * These tests make no agent-loop or external CommCare runtime claim. */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f, xpIn } from "@/lib/__tests__/docHelpers";
-import {
-	addFieldMutations,
-	updateFormMutations,
-} from "@/lib/agent/blueprintHelpers";
-import { assertAndProjectCaseWriteInventory } from "@/lib/commcare/caseWriteAdmission";
-import { deriveCaseConfig } from "@/lib/commcare/deriveCaseConfig";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { addFieldMutations } from "@/lib/agent/blueprintHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { applyMutations } from "@/lib/doc/mutations";
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-import type { Field, Form, FormType } from "@/lib/domain";
-import { deriveCaseWriteInventory, expressionSource } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
+import {
+	type BlueprintDoc,
+	blueprintDocSchema,
+	deriveCaseWriteInventory,
+	fieldSchema,
+	proseText,
+} from "@/lib/domain";
+import { assertAndProjectCaseWriteInventory } from "../caseWriteAdmission";
+import { deriveCaseConfig } from "../deriveCaseConfig";
+import { runValidation } from "../validator/runner";
 
-// ── Fixture builders ──────────────────────────────────────────────────
-
-const MOD = testUuid("11111111-1111-1111-1111-111111111111");
-const FORM = testUuid("22222222-2222-2222-2222-222222222222");
-
-/** Construct a minimal normalized doc with one module + one form. */
-function makeShellDoc(type: FormType = "registration"): BlueprintDoc {
-	const form: Form = {
-		uuid: FORM,
-		id: "test_form",
-		name: "Test Form",
-		type,
-	};
-	return {
-		appId: "test-app",
-		appName: "Test App",
-		connectType: null,
-		caseTypes:
-			type !== "survey"
-				? [
+const FORM = testUuid("planner-form"),
+	GROUP = testUuid("planner-group"),
+	ONE = testUuid("planner-one"),
+	TWO = testUuid("planner-two"),
+	ADDED = testUuid("planner-added");
+function admitted(doc: BlueprintDoc) {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	return doc;
+}
+function plannerDoc() {
+	return admitted(
+		buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
 						{
-							name: "patient",
-							properties: [
-								{ name: "case_name", label: proseText("Full Name") },
+							uuid: FORM,
+							name: "Visit",
+							type: "survey",
+							fields: [
+								f({ kind: "text", uuid: ONE, id: "one" }),
+								f({ kind: "text", uuid: TWO, id: "two" }),
+								f({
+									kind: "group",
+									uuid: GROUP,
+									id: "group",
+									children: [f({ kind: "text", id: "child" })],
+								}),
 							],
-						},
-					]
-				: null,
-		modules: {
-			[MOD]: {
-				uuid: MOD,
-				id: "test_module",
-				name: "Test Module",
-				...(type !== "survey" && { caseType: "patient" }),
-			},
-		},
-		forms: { [FORM]: form },
-		fields: {},
-		moduleOrder: [MOD],
-		formOrder: { [MOD]: [FORM] },
-		fieldOrder: { [FORM]: [] },
-		fieldParent: {},
-	};
-}
-
-/** Apply a mutation batch to a doc via Immer, returning the next doc
- *  snapshot. Matches the store's `applyMany` behavior semantically but
- *  without requiring a Zustand instance for unit tests. */
-function apply(doc: BlueprintDoc, muts: Parameters<typeof applyMutations>[1]) {
-	return produce(doc, (draft) => {
-		applyMutations(draft as unknown as BlueprintDoc, muts);
-	});
-}
-
-/** Build a concrete domain Field for a text kind with a label. */
-function textField(
-	id: string,
-	label: string,
-	extras: Partial<Field> = {},
-): Field {
-	return {
-		uuid: testUuid(crypto.randomUUID()),
-		id,
-		label: proseText(label),
-		kind: "text",
-		...(extras as object),
-	} as Field;
-}
-
-/** Build a group container field. */
-function groupField(id: string, label: string): Field {
-	return {
-		uuid: testUuid(crypto.randomUUID()),
-		id,
-		label: proseText(label),
-		kind: "group",
-	} as Field;
-}
-
-describe("Form Builder Agent Integration — mutation-builder helpers", () => {
-	describe("addFieldMutations", () => {
-		it("adds a simple text field", () => {
-			const doc0 = makeShellDoc();
-			const field = textField("case_name", "Patient Name", {
-				caseWrite: { caseType: "patient", property: "case_name" },
-			} as Partial<Field>);
-			const muts = addFieldMutations(doc0, { parentUuid: FORM, field });
-			const doc1 = apply(doc0, muts);
-
-			const order = doc1.fieldOrder[FORM];
-			expect(order).toHaveLength(1);
-			const added = doc1.fields[order[0]];
-			expect(added.id).toBe("case_name");
-			expect(added.kind).toBe("text");
-			expect("caseWrite" in added ? added.caseWrite : undefined).toEqual({
-				caseType: "patient",
-				property: "case_name",
-			});
-		});
-
-		it("adds fields in sequence", () => {
-			let doc: BlueprintDoc = makeShellDoc();
-			doc = apply(
-				doc,
-				addFieldMutations(doc, {
-					parentUuid: FORM,
-					field: textField("q1", "Q1"),
-				}),
-			);
-			doc = apply(
-				doc,
-				addFieldMutations(doc, {
-					parentUuid: FORM,
-					field: { ...textField("q2", "Q2"), kind: "int" } as Field,
-				}),
-			);
-			doc = apply(
-				doc,
-				addFieldMutations(doc, {
-					parentUuid: FORM,
-					field: { ...textField("q3", "Q3"), kind: "date" } as Field,
-				}),
-			);
-
-			const order = doc.fieldOrder[FORM];
-			expect(order.map((u) => doc.fields[u].id)).toEqual(["q1", "q2", "q3"]);
-		});
-
-		it("adds a single_select field with options", () => {
-			const doc0 = makeShellDoc();
-			const field: Field = {
-				uuid: testUuid(crypto.randomUUID()),
-				id: "gender",
-				label: proseText("Gender"),
-				kind: "single_select",
-				optionsSource: {
-					kind: "inline",
-					options: [
-						{
-							uuid: testUuid("gender-male"),
-							value: "male",
-							label: proseText("Male"),
-						},
-						{
-							uuid: testUuid("gender-female"),
-							value: "female",
-							label: proseText("Female"),
 						},
 					],
 				},
-				caseWrite: { caseType: "patient", property: "gender" },
-			} as Field;
-			const doc1 = apply(
-				doc0,
-				addFieldMutations(doc0, { parentUuid: FORM, field }),
+			],
+		}),
+	);
+}
+describe("field planner position and identity", () => {
+	it.each([
+		{ index: 0, after: null, order: [ADDED, ONE, TWO, GROUP] },
+		{ index: 1, after: ONE, order: [ONE, ADDED, TWO, GROUP] },
+		{ index: undefined, after: undefined, order: [ONE, TWO, GROUP, ADDED] },
+	])(
+		"anchors display index $index against the current sibling identity",
+		({ index, after, order }) => {
+			const doc = plannerDoc(),
+				before = structuredClone(doc);
+			const field = fieldSchema.parse({
+				uuid: ADDED,
+				id: "added",
+				kind: "text",
+				label: proseText("Added"),
+			});
+			const mutations = admitMutationBatch(
+				addFieldMutations(doc, { parentUuid: FORM, field, index }),
 			);
-
-			const uuid = doc1.fieldOrder[FORM][0];
-			const stored = doc1.fields[uuid];
-			expect(
-				stored.kind === "single_select" &&
-					stored.optionsSource.kind === "inline" &&
-					stored.optionsSource.options,
-			).toHaveLength(2);
-			expect(
-				stored.kind === "single_select" &&
-					stored.optionsSource.kind === "inline" &&
-					stored.optionsSource.options[0]?.value,
-			).toBe("male");
-		});
-
-		it("adds a hidden calculated field", () => {
-			let doc: BlueprintDoc = makeShellDoc();
-			doc = apply(
-				doc,
-				addFieldMutations(doc, {
+			expect(mutations).toEqual([
+				{
+					kind: "addField",
 					parentUuid: FORM,
-					field: { ...textField("age", "Age"), kind: "int" } as Field,
-				}),
-			);
-			const hidden: Field = {
-				uuid: testUuid(crypto.randomUUID()),
-				id: "age_group",
-				kind: "hidden",
-				calculate: xpIn(doc, FORM, "if(/data/age < 18, 'child', 'adult')"),
-				caseWrite: { caseType: "patient", property: "age_group" },
-			} as Field;
-			doc = apply(
-				doc,
-				addFieldMutations(doc, { parentUuid: FORM, field: hidden }),
-			);
-
-			const found = doc.fields[hidden.uuid];
-			expect(found).toBeDefined();
-			expect(found?.kind).toBe("hidden");
-			expect(
-				found ? expressionSource(found, "calculate", doc) : undefined,
-			).toBe("if(/data/age < 18, 'child', 'adult')");
-		});
-
-		it("nests fields inside a group container", () => {
-			let doc: BlueprintDoc = makeShellDoc();
-			const group = groupField("demographics", "Demographics");
-			doc = apply(
-				doc,
-				addFieldMutations(doc, { parentUuid: FORM, field: group }),
-			);
-
-			// The group's uuid is the parent for nested inserts. Look it up
-			// from the updated doc — the helper doesn't expose it directly.
-			const groupUuid = doc.fieldOrder[FORM][0];
-
-			doc = apply(
-				doc,
-				addFieldMutations(doc, {
-					parentUuid: groupUuid,
-					field: textField("first_name", "First Name"),
-				}),
-			);
-			doc = apply(
-				doc,
-				addFieldMutations(doc, {
-					parentUuid: groupUuid,
-					field: textField("last_name", "Last Name"),
-				}),
-			);
-
-			expect(doc.fieldOrder[FORM]).toEqual([groupUuid]);
-			const children = doc.fieldOrder[groupUuid] ?? [];
-			expect(children.map((u) => doc.fields[u].id)).toEqual([
-				"first_name",
-				"last_name",
+					field,
+					...(after === undefined ? {} : { after }),
+				},
 			]);
-		});
-
-		it("inserts at a specific index", () => {
-			let doc: BlueprintDoc = makeShellDoc();
-			doc = apply(
-				doc,
-				addFieldMutations(doc, {
-					parentUuid: FORM,
-					field: textField("q1", "Q1"),
-				}),
-			);
-			doc = apply(
-				doc,
-				addFieldMutations(doc, {
-					parentUuid: FORM,
-					field: textField("q3", "Q3"),
-				}),
-			);
-			// Insert q2 between q1 and q3 at index 1.
-			doc = apply(
-				doc,
-				addFieldMutations(doc, {
-					parentUuid: FORM,
-					field: textField("q2", "Q2"),
-					index: 1,
-				}),
-			);
-			const order = doc.fieldOrder[FORM];
-			expect(order.map((u) => doc.fields[u].id)).toEqual(["q1", "q2", "q3"]);
-		});
-
-		it("is a no-op when parent uuid doesn't exist", () => {
-			const doc0 = makeShellDoc();
-			const muts = addFieldMutations(doc0, {
-				parentUuid: testUuid("99999999-9999-9999-9999-999999999999") as Uuid,
-				field: textField("orphan", "Orphan"),
+			const changed = produce(doc, (draft) => {
+				applyMutations(draft, mutations);
 			});
-			expect(muts).toHaveLength(0);
+			admitted(changed);
+			expect(changed.fieldOrder[FORM]).toEqual(order);
+			expect(changed.fieldParent[ADDED]).toBe(FORM);
+			expect(doc).toEqual(before);
+		},
+	);
+	it("allows a container parent and refuses a leaf or absent parent", () => {
+		const doc = plannerDoc();
+		const field = fieldSchema.parse({
+			uuid: ADDED,
+			id: "added",
+			kind: "text",
+			label: proseText("Added"),
 		});
+		for (const parentUuid of [ONE, testUuid("absent")])
+			expect(addFieldMutations(doc, { parentUuid, field })).toEqual([]);
+		const mutations = admitMutationBatch(
+			addFieldMutations(doc, { parentUuid: GROUP, field }),
+		);
+		const changed = produce(doc, (draft) => {
+			applyMutations(draft, mutations);
+		});
+		admitted(changed);
+		expect(changed.fieldParent[ADDED]).toBe(GROUP);
+		expect(changed.fieldOrder[GROUP].at(-1)).toBe(ADDED);
 	});
-
-	describe("updateFormMutations — close_condition", () => {
-		it("sets a close_condition on a close form", () => {
-			const doc0 = makeShellDoc("close");
-			const muts = updateFormMutations(doc0, FORM, {
-				closeCondition: { field: testUuid("discharge"), answer: "yes" },
-			});
-			const doc1 = apply(doc0, muts);
-			expect(doc1.forms[FORM].closeCondition).toEqual({
-				field: testUuid("discharge"),
-				answer: "yes",
-			});
+	it("detaches the planned field from caller-owned nested prose", () => {
+		const doc = plannerDoc();
+		const field = fieldSchema.parse({
+			uuid: ADDED,
+			id: "added",
+			kind: "text",
+			label: proseText("Before"),
 		});
-
-		it("clears close_condition when passed null", () => {
-			let doc: BlueprintDoc = makeShellDoc("close");
-			// First, set a condition.
-			doc = apply(
-				doc,
-				updateFormMutations(doc, FORM, {
-					closeCondition: { field: testUuid("x"), answer: "y" },
-				}),
-			);
-			expect(doc.forms[FORM].closeCondition).toBeDefined();
-			// Then clear it via null.
-			doc = apply(
-				doc,
-				updateFormMutations(doc, FORM, { closeCondition: null }),
-			);
-			expect(doc.forms[FORM].closeCondition).toBeUndefined();
-		});
+		const planned = addFieldMutations(doc, { parentUuid: FORM, field });
+		const before = structuredClone(planned);
+		if (field.kind !== "text") throw new Error("Expected text field");
+		field.label = proseText("After");
+		expect(planned).toEqual(before);
 	});
 });
-
-// ── deriveCaseConfig tests (doc-native helper) ───────────────────────
-//
-// `deriveCaseConfig` walks `doc.fieldOrder[formUuid]` and reads domain
-// field keys (kind, id, caseWrite). The tests feed it the same
-// normalized doc shape that the expander + validator use in production.
-
-describe("child case derivation via explicit case destinations", () => {
-	const caseTypes = [
-		{
-			name: "patient",
-			properties: [{ name: "case_name", label: proseText("Full Name") }],
-		},
-		{
-			name: "referral",
-			parent_type: "patient",
-			properties: [{ name: "case_name", label: proseText("Referral Name") }],
-		},
-	];
-
-	it("derives a child case from caseWrite destinations", () => {
-		const doc = buildDoc({
-			appName: "Test App",
-			modules: [
-				{
-					name: "Test Module",
-					caseType: "patient",
-					forms: [
+describe("private case-write projection", () => {
+	it.each([false, true])(
+		"separates primary and child writers by destination, nested=$0",
+		(nested) => {
+			const primary = f({
+				kind: "text",
+				uuid: ONE,
+				id: "patient_name",
+				caseWrite: { caseType: "patient", property: "case_name" },
+			});
+			const child = f({
+				kind: "text",
+				uuid: TWO,
+				id: "referral_name",
+				caseWrite: { caseType: "referral", property: "case_name" },
+			});
+			const reason = f({
+				kind: "text",
+				uuid: ADDED,
+				id: "reason",
+				caseWrite: { caseType: "referral", property: "reason" },
+			});
+			const doc = admitted(
+				buildDoc({
+					caseTypes: [
+						{ name: "patient", properties: [] },
 						{
-							name: "Test Form",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "patient_name",
-									label: proseText("Patient Name"),
-									caseWrite: {
-										caseType: "patient",
-										property: "case_name",
-									},
-								}),
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Referral Name"),
-									caseWrite: {
-										caseType: "referral",
-										property: "case_name",
-									},
-								}),
-								f({
-									kind: "text",
-									id: "referral_reason",
-									label: proseText("Referral Reason"),
-									caseWrite: {
-										caseType: "referral",
-										property: "referral_reason",
-									},
-								}),
-							],
+							name: "referral",
+							parent_type: "patient",
+							properties: [{ name: "reason", label: proseText("Reason") }],
 						},
 					],
-				},
-			],
-			caseTypes,
-		});
-
-		const moduleUuid = doc.moduleOrder[0];
-		const formUuid = doc.formOrder[moduleUuid][0];
-		const config = deriveCaseConfig(
-			doc,
-			assertAndProjectCaseWriteInventory(
-				deriveCaseWriteInventory(
-					doc,
-					formUuid,
-					{ caseType: "patient" },
-					"registration",
-				),
-			),
-		);
-
-		expect(config.childCases).toHaveLength(1);
-		expect(config.childCases?.[0].caseType).toBe("referral");
-		expect(config.childCases?.[0].caseNames[0]?.property).toBe("case_name");
-	});
-
-	it("separates primary and child case properties", () => {
-		const doc = buildDoc({
-			appName: "Test App",
-			modules: [
-				{
-					name: "Test Module",
-					caseType: "patient",
-					forms: [
+					modules: [
 						{
-							name: "Test Form",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Patient Name"),
-									caseWrite: {
-										caseType: "patient",
-										property: "case_name",
-									},
-								}),
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Referral Name"),
-									caseWrite: {
-										caseType: "referral",
-										property: "case_name",
-									},
-								}),
-								f({
-									kind: "text",
-									id: "referral_reason",
-									label: proseText("Reason"),
-									caseWrite: {
-										caseType: "referral",
-										property: "referral_reason",
-									},
-								}),
+							name: "Patients",
+							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									uuid: FORM,
+									name: "Register",
+									type: "registration",
+									fields: [
+										primary,
+										...(nested
+											? [
+													f({
+														kind: "group",
+														id: "details",
+														children: [child, reason],
+													}),
+												]
+											: [child, reason]),
+									],
+								},
 							],
 						},
+						{
+							name: "Referrals",
+							caseType: "referral",
+							caseListOnly: true,
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [],
+						},
 					],
+				}),
+			);
+			const before = structuredClone(doc);
+			const inventory = deriveCaseWriteInventory(
+				doc,
+				FORM,
+				{ caseType: "patient" },
+				"registration",
+			);
+			const config = deriveCaseConfig(
+				doc,
+				assertAndProjectCaseWriteInventory(inventory),
+			);
+			expect(
+				config.caseNames?.map((w) => ({
+					uuid: w.fieldUuid,
+					property: w.property,
+					path: w.path.toXPath(),
+				})),
+			).toEqual([
+				{ uuid: ONE, property: "case_name", path: "/data/patient_name" },
+			]);
+			expect(config.caseProperties).toBeUndefined();
+			expect(config.childCases).toHaveLength(1);
+			const projected = config.childCases?.[0];
+			expect(projected?.caseType).toBe("referral");
+			expect(projected?.relationship).toBe("child");
+			expect(
+				projected?.caseNames.map((w) => ({
+					uuid: w.fieldUuid,
+					property: w.property,
+					path: w.path.toXPath(),
+				})),
+			).toEqual([
+				{
+					uuid: TWO,
+					property: "case_name",
+					path: nested ? "/data/details/referral_name" : "/data/referral_name",
 				},
-			],
-			caseTypes,
-		});
-
-		const moduleUuid = doc.moduleOrder[0];
-		const formUuid = doc.formOrder[moduleUuid][0];
-		const config = deriveCaseConfig(
-			doc,
-			assertAndProjectCaseWriteInventory(
-				deriveCaseWriteInventory(
-					doc,
-					formUuid,
-					{ caseType: "patient" },
-					"registration",
-				),
-			),
-		);
-
-		expect(config.caseNames?.[0]?.property).toBe("case_name");
-		expect(config.childCases).toHaveLength(1);
-		expect(config.childCases?.[0].caseType).toBe("referral");
-		expect(
-			config.childCases?.[0].caseProperties.map((binding) => ({
-				property: binding.property,
-				path: binding.path.toXPath(),
-			})),
-		).toEqual([{ property: "referral_reason", path: "/data/referral_reason" }]);
-	});
+			]);
+			expect(
+				projected?.caseProperties.map((w) => ({
+					uuid: w.fieldUuid,
+					property: w.property,
+					path: w.path.toXPath(),
+				})),
+			).toEqual([
+				{
+					uuid: ADDED,
+					property: "reason",
+					path: nested ? "/data/details/reason" : "/data/reason",
+				},
+			]);
+			expect(doc).toEqual(before);
+		},
+	);
 });

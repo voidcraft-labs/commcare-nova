@@ -6,7 +6,6 @@ import {
 	duplicateLanguageRefusal,
 	EMPTY_LANGUAGE_CHOICE,
 	hiddenMatchesLine,
-	LANGUAGE_ROW_LIMIT,
 	pickerRowForCode,
 	regionalConventionOptions,
 	resolvedLanguageSelection,
@@ -21,7 +20,7 @@ import * as registrySearch from "@/lib/domain/languageRegistry/search";
 const data = registrySearch;
 
 describe("searchLanguageRows", () => {
-	it("returns the full alphabetical catalog for an empty query", () => {
+	it("shows the unbounded catalog without a query notice", () => {
 		const view = searchLanguageRows(data, "");
 		expect(view.rows.length).toBeGreaterThan(6000);
 		expect(view.hiddenMatchCount).toBe(0);
@@ -30,7 +29,7 @@ describe("searchLanguageRows", () => {
 
 	it("ranks an exact name match first with endonym and English labels", () => {
 		const view = searchLanguageRows(data, "french");
-		expect(view.rows[0]).toEqual({
+		expect(view.rows[0]).toStrictEqual({
 			code: "fra",
 			primaryLabel: "Français",
 			secondaryLabel: "French",
@@ -47,7 +46,7 @@ describe("searchLanguageRows", () => {
 
 	it("caps a broad query at the row limit with a hidden count", () => {
 		const view = searchLanguageRows(data, "a");
-		expect(view.rows).toHaveLength(LANGUAGE_ROW_LIMIT);
+		expect(view.rows).toHaveLength(50);
 		expect(view.hiddenMatchCount).toBeGreaterThan(0);
 		expect(hiddenMatchesLine(view.hiddenMatchCount)).toBe(
 			`${view.hiddenMatchCount} more languages match. Keep typing to narrow the list`,
@@ -66,7 +65,7 @@ describe("searchLanguageRows", () => {
 		expect(view.notice?.message).toBe(
 			"Chinese is a group of languages, not one language. Choose the one workers speak:",
 		);
-		expect(view.notice?.rows[0]).toEqual({
+		expect(view.notice?.rows[0]).toStrictEqual({
 			code: "cmn",
 			primaryLabel: "中文",
 			secondaryLabel: "Mandarin Chinese",
@@ -78,7 +77,7 @@ describe("searchLanguageRows", () => {
 		expect(view.notice?.message).toBe(
 			"That's the two-letter shorthand for English. Choose the language itself:",
 		);
-		expect(view.notice?.rows).toEqual([
+		expect(view.notice?.rows).toStrictEqual([
 			{ code: "eng", primaryLabel: "English" },
 		]);
 		expect(view.rows.some((row) => row.code === "eng")).toBe(false);
@@ -89,7 +88,7 @@ describe("searchLanguageRows", () => {
 		expect(view.notice?.message).toBe(
 			"That names a historical language, and app languages are living languages workers speak today",
 		);
-		expect(view.notice?.rows).toEqual([]);
+		expect(view.notice?.rows).toStrictEqual([]);
 	});
 
 	it("treats an unknown token as an ordinary query with no notice", () => {
@@ -101,13 +100,13 @@ describe("searchLanguageRows", () => {
 describe("the language, writing system, region cascade", () => {
 	it("resets script and region when the language changes", () => {
 		const before = { language: "cmn", script: "Hans", region: "CN" };
-		expect(chooseLanguage(before, "spa")).toEqual({ language: "spa" });
+		expect(chooseLanguage(before, "spa")).toStrictEqual({ language: "spa" });
 		expect(chooseLanguage(before, "cmn")).toBe(before);
 	});
 
 	it("resets region when the script changes and ignores a script with no language", () => {
 		const before = { language: "cmn", script: "Hans", region: "CN" };
-		expect(chooseScript(before, "Hant")).toEqual({
+		expect(chooseScript(before, "Hant")).toStrictEqual({
 			language: "cmn",
 			script: "Hant",
 		});
@@ -118,12 +117,14 @@ describe("the language, writing system, region cascade", () => {
 
 	it("maps the general-conventions choice to an absent region", () => {
 		const withRegion = chooseRegion({ language: "spa" }, "MX");
-		expect(withRegion).toEqual({ language: "spa", region: "MX" });
-		expect(chooseRegion(withRegion, undefined)).toEqual({ language: "spa" });
+		expect(withRegion).toStrictEqual({ language: "spa", region: "MX" });
+		expect(chooseRegion(withRegion, undefined)).toStrictEqual({
+			language: "spa",
+		});
 	});
 
 	it("resolves a non-branching language immediately", () => {
-		expect(resolvedLanguageSelection({ language: "spa" })).toEqual({
+		expect(resolvedLanguageSelection({ language: "spa" })).toStrictEqual({
 			identity: { language: "spa" },
 			tag: "spa",
 		});
@@ -133,7 +134,7 @@ describe("the language, writing system, region cascade", () => {
 		expect(resolvedLanguageSelection({ language: "cmn" })).toBeUndefined();
 		expect(
 			resolvedLanguageSelection({ language: "cmn", script: "Hans" }),
-		).toEqual({
+		).toStrictEqual({
 			identity: { language: "cmn", script: "Hans" },
 			tag: "cmn-Hans",
 		});
@@ -142,33 +143,54 @@ describe("the language, writing system, region cascade", () => {
 	it("ignores a stale script or region instead of resolving an unlawful identity", () => {
 		expect(
 			resolvedLanguageSelection({ language: "spa", script: "Hans" }),
-		).toEqual({ identity: { language: "spa" }, tag: "spa" });
+		).toStrictEqual({ identity: { language: "spa" }, tag: "spa" });
 		expect(
 			resolvedLanguageSelection({
 				language: "cmn",
 				script: "Hans",
 				region: "TW",
 			}),
-		).toEqual({
+		).toStrictEqual({
 			identity: { language: "cmn", script: "Hans" },
 			tag: "cmn-Hans",
 		});
 	});
 
+	it("refuses a stale writing system after switching to another branching language", () => {
+		expect(
+			resolvedLanguageSelection({
+				language: "cmn",
+				script: "Arab",
+				region: "CN",
+			}),
+		).toBeUndefined();
+		expect(resolvedLanguageSelection(EMPTY_LANGUAGE_CHOICE)).toBeUndefined();
+	});
+
 	it("resolves a chosen region", () => {
 		expect(
 			resolvedLanguageSelection({ language: "spa", region: "MX" }),
-		).toEqual({ identity: { language: "spa", region: "MX" }, tag: "spa-MX" });
+		).toStrictEqual({
+			identity: { language: "spa", region: "MX" },
+			tag: "spa-MX",
+		});
 	});
 });
 
 describe("writingSystemOptions", () => {
 	it("offers each writing system with its composed label", () => {
 		const options = writingSystemOptions("kas", []);
-		expect(options).toEqual([
+		expect(options).toStrictEqual([
 			{ script: "Arab", label: "Kashmiri (Arabic script)" },
 			{ script: "Deva", label: "Kashmiri (Devanagari script)" },
 		]);
+	});
+
+	it("keeps a writing system available while one regional identity is still absent", () => {
+		const options = writingSystemOptions("cmn", ["cmn-Hans", "cmn-Hans-CN"]);
+		expect(
+			options.find((option) => option.script === "Hans"),
+		).not.toHaveProperty("disabledReason");
 	});
 
 	it("disables a writing system whose every identity already exists", () => {
@@ -187,18 +209,18 @@ describe("writingSystemOptions", () => {
 describe("regionalConventionOptions", () => {
 	it("puts the general choice first, then the named regions", () => {
 		const options = regionalConventionOptions(data, "cmn", "Hans");
-		expect(options[0]).toEqual({
+		expect(options[0]).toStrictEqual({
 			label: "General Mandarin Chinese",
 			description: "Not tailored to one country's conventions",
 		});
-		expect(options.slice(1)).toEqual([
+		expect(options.slice(1)).toStrictEqual([
 			{ region: "CN", label: "China" },
 			{ region: "SG", label: "Singapore" },
 		]);
 	});
 
 	it("offers nothing where the language has no regional conventions", () => {
-		expect(regionalConventionOptions(data, "zul", undefined)).toEqual([]);
+		expect(regionalConventionOptions(data, "zul", undefined)).toStrictEqual([]);
 	});
 });
 
@@ -215,27 +237,27 @@ describe("duplicate refusal and preview", () => {
 	});
 
 	it("previews the resolved language with its direction in words", () => {
-		expect(selectionPreview(data, { language: "spa" })).toEqual({
+		expect(selectionPreview(data, { language: "spa" })).toStrictEqual({
 			label: "Español",
 			direction: "ltr",
 			directionWord: "left to right",
 		});
-		expect(selectionPreview(data, { language: "arb" })).toEqual({
+		expect(selectionPreview(data, { language: "arb" })).toStrictEqual({
 			label: "العربية",
 			direction: "rtl",
 			directionWord: "right to left",
 		});
-		expect(selectionPreview(data, { language: "cmn", script: "Hans" })).toEqual(
-			{
-				label: "简体中文",
-				direction: "ltr",
-				directionWord: "left to right",
-			},
-		);
+		expect(
+			selectionPreview(data, { language: "cmn", script: "Hans" }),
+		).toStrictEqual({
+			label: "简体中文",
+			direction: "ltr",
+			directionWord: "left to right",
+		});
 	});
 
 	it("resolves a known code to its picker row", () => {
-		expect(pickerRowForCode(data, "hne")).toEqual({
+		expect(pickerRowForCode(data, "hne")).toStrictEqual({
 			code: "hne",
 			primaryLabel: "Chhattisgarhi",
 		});

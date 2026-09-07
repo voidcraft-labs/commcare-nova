@@ -18,6 +18,7 @@
  * that a rewrite happened.
  */
 
+import { unstable_doesMiddlewareMatch } from "next/experimental/testing/server";
 import { NextRequest, type NextResponse } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { config, proxy } from "../proxy";
@@ -63,7 +64,8 @@ function reqWithSession(host: string, path: string): NextRequest {
  * CSP / nonce assembly.
  */
 function expectPassthrough(res: NextResponse): void {
-	expect(res.status).not.toBe(404);
+	expect(res.status).toBe(200);
+	expect(res.headers.get("x-middleware-next")).toBe("1");
 	expect(res.headers.get("x-middleware-rewrite")).toBeNull();
 }
 
@@ -80,17 +82,12 @@ function expectBypassPassthrough(res: NextResponse): void {
 	expect(res.headers.get("x-nonce")).toBeNull();
 }
 
-/**
- * Assert that a response is a rewrite to `target`. The check uses
- * `toContain` because Next stores the rewrite as a fully-qualified URL,
- * and we don't want to encode the test request's origin into the
- * expectation.
- */
+/** Assert the complete rewrite destination consumed by Next. */
 function expectRewrite(res: NextResponse, target: string): void {
-	expect(res.status).not.toBe(404);
-	const rewrite = res.headers.get("x-middleware-rewrite");
-	expect(rewrite).not.toBeNull();
-	expect(rewrite).toContain(target);
+	expect(res.status).toBe(200);
+	expect(res.headers.get("x-middleware-rewrite")).toBe(
+		new URL(target, "http://example.test").href,
+	);
 }
 
 /**
@@ -150,7 +147,7 @@ describe("proxy: mcp.commcare.app routing", () => {
 
 	it("preserves the query string when rewriting /mcp", () => {
 		const res = proxy(req("mcp.commcare.app", "/mcp?session=abc&foo=bar"));
-		expectRewrite(res, "/api/mcp");
+		expectRewrite(res, "/api/mcp?session=abc&foo=bar");
 		const rewrite = res.headers.get("x-middleware-rewrite") ?? "";
 		expect(rewrite).toContain("session=abc");
 		expect(rewrite).toContain("foo=bar");
@@ -161,7 +158,7 @@ describe("proxy: mcp.commcare.app routing", () => {
 		 * verify the trailing-slash variant does not regress query
 		 * preservation independently of the bare-path variant. */
 		const res = proxy(req("mcp.commcare.app", "/mcp/?session=abc"));
-		expectRewrite(res, "/api/mcp");
+		expectRewrite(res, "/api/mcp?session=abc");
 		expect(res.headers.get("x-middleware-rewrite") ?? "").toContain(
 			"session=abc",
 		);
@@ -334,7 +331,10 @@ describe("proxy: commcare.app (main) routing", () => {
 			"x-middleware-request-content-security-policy",
 		);
 		expect(forwardedCsp).toMatch(/script-src[^;]*'nonce-[^']+'/);
-		expect(res.headers.get("x-middleware-request-x-nonce")).not.toBeNull();
+		const nonce = res.headers.get("x-middleware-request-x-nonce");
+		expect(nonce).toBeTruthy();
+		expect(forwardedCsp).toContain(`'nonce-${nonce}'`);
+		expect(forwardedCsp).toBe(res.headers.get("content-security-policy"));
 	});
 
 	it("passes through /api/chat (short-circuit, no CSP)", () => {
@@ -628,29 +628,30 @@ describe("proxy: dev-mode internal-page bypasses do NOT fire in production", () 
 describe("proxy: matcher excludes static asset paths", () => {
 	/* The middleware never runs on excluded paths — Next applies `config.matcher`
 	 * BEFORE invoking `proxy()`, so an excluded path is served as a plain static
-	 * asset (no hostname allowlist, no CSP, no auth redirect). Reconstruct the
-	 * negative-lookahead matcher and assert what it runs on. `nova-icons` and
+	 * asset (no hostname allowlist, no CSP, no auth redirect). Use Next's matcher compiler and assert what it runs on. `nova-icons` and
 	 * the isolated XPath worker are
 	 * regression guard: without the exclusion the optimistic auth redirect 307s
 	 * every `<img src="/nova-icons/…">` and the main-host allowlist 404s it in
 	 * prod (localhost's unknown-host branch skips the allowlist, masking it). */
-	const matcher = new RegExp(`^${config.matcher[0]}$`);
+	const matches = (url: string) =>
+		unstable_doesMiddlewareMatch({ config, nextConfig: {}, url });
 
 	it("does NOT run on public or framework static assets", () => {
-		expect(matcher.test("/nova-icons/household.png")).toBe(false);
-		expect(matcher.test("/xpath-worker/xpath-worker.js")).toBe(false);
-		expect(matcher.test("/_next/static/chunk.js")).toBe(false);
-		expect(matcher.test("/_next/image")).toBe(false);
-		expect(matcher.test("/favicon.ico")).toBe(false);
+		expect(matches("/nova-icons/household.png")).toBe(false);
+		expect(matches("/xpath-worker/xpath-worker.js")).toBe(false);
+		expect(matches("/_next/static/chunk.js")).toBe(false);
+		expect(matches("/_next/image")).toBe(false);
+		expect(matches("/favicon.ico")).toBe(false);
+		expect(matches("/third-party/java-pattern-source.tar.gz")).toBe(false);
 	});
 
 	it("DOES run on pages and API routes", () => {
-		expect(matcher.test("/")).toBe(true);
-		expect(matcher.test("/build/app123")).toBe(true);
-		expect(matcher.test("/api/chat")).toBe(true);
+		expect(matches("/")).toBe(true);
+		expect(matches("/build/app123")).toBe(true);
+		expect(matches("/api/chat")).toBe(true);
 		// A path that merely starts with the same letters as the icons dir is
 		// NOT the excluded segment, so the proxy still runs on it.
-		expect(matcher.test("/nova-icons-admin")).toBe(true);
-		expect(matcher.test("/xpath-worker-admin")).toBe(true);
+		expect(matches("/nova-icons-admin")).toBe(true);
+		expect(matches("/xpath-worker-admin")).toBe(true);
 	});
 });

@@ -1,126 +1,56 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-/**
- * Tests for `sortPriorityUniqueness`. The rule rejects two sorted
- * columns sharing the same `sort.priority` — the wire layer
- * tie-breaks to source-index, but the authored intent ("two primary
- * sorts") is structurally undefined.
- */
-
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import { plainColumn } from "@/lib/domain";
-import { runValidation } from "../../../runner";
+import {
+	admittedCaseListDoc,
+	findings,
+	withColumns,
+} from "./caseListRuleFixture";
 
-const CODE = "CASE_LIST_DUPLICATE_SORT_PRIORITY" as const;
-
-const standardForm = {
-	name: "Reg",
-	type: "registration" as const,
-	fields: [
-		f({
-			kind: "text" as const,
-			id: "case_name",
-			label: "Name",
-			caseWrite: { caseType: "patient", property: "case_name" },
-		}),
-	],
-};
-
-const standardCaseTypes = [
-	{
-		name: "patient",
-		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
-			{ name: "age", label: "Age", data_type: "int" as const },
-		],
-	},
-];
-
-describe("sortPriorityUniqueness", () => {
-	it("fires when two sorted columns share a priority", () => {
-		const colA = plainColumn(testUuid("col-a"), "case_name", "Name");
-		const colB = plainColumn(testUuid("col-b"), "age", "Age");
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							{ ...colA, sort: { direction: "asc", priority: 0 } },
-							{ ...colB, sort: { direction: "asc", priority: 0 } },
-						],
-						searchInputs: [],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
+describe("sort priority admission in Results order", () => {
+	it("reports each duplicate against the first visible-order identity, including hidden sorted columns", () => {
+		const base = admittedCaseListDoc();
+		const columns = ["A", "B", "C"].map((name) =>
+			plainColumn(testUuid(name), "case_name", name, {
+				sort: { direction: "asc", priority: 0 },
+				visibleInList: false,
+				visibleInDetail: false,
+			}),
 		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("priority 0");
-		// Both row labels surface so the editor highlights both rows.
-		expect(hits[0].message).toContain('"Name"');
-		expect(hits[0].message).toContain('"Age"');
+		const [a, b, c] = columns;
+		const result = findings(
+			withColumns(base, columns, [c.uuid, a.uuid, b.uuid]),
+		);
+		expect(result.map((error) => error.code)).toEqual([
+			"CASE_LIST_DUPLICATE_SORT_PRIORITY",
+			"CASE_LIST_DUPLICATE_SORT_PRIORITY",
+		]);
+		expect(result.map((error) => error.details)).toEqual([
+			{
+				priority: "0",
+				firstIndex: "0",
+				duplicateIndex: "1",
+				firstUuid: c.uuid,
+				duplicateUuid: a.uuid,
+			},
+			{
+				priority: "0",
+				firstIndex: "0",
+				duplicateIndex: "2",
+				firstUuid: c.uuid,
+				duplicateUuid: b.uuid,
+			},
+		]);
 	});
-
-	it("is silent when priorities are unique across sorted columns", () => {
-		const colA = plainColumn(testUuid("col-a"), "case_name", "Name");
-		const colB = plainColumn(testUuid("col-b"), "age", "Age");
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							{ ...colA, sort: { direction: "asc", priority: 0 } },
-							{ ...colB, sort: { direction: "asc", priority: 1 } },
-						],
-						searchInputs: [],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
-	});
-
-	it("is silent when at most one column carries a sort directive", () => {
-		const col = plainColumn(testUuid("col-a"), "case_name", "Name");
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							{ ...col, sort: { direction: "asc", priority: 0 } },
-							plainColumn(testUuid("col-b"), "age", "Age"),
-						],
-						listColumnOrder: [col.uuid, testUuid("col-b")],
-						detailColumnOrder: [col.uuid, testUuid("col-b")],
-						searchInputs: [],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
+	it("admits no sort, one sort, and distinct priorities independent of source order", () => {
+		const base = admittedCaseListDoc();
+		for (const priorities of [[], [0], [9, 2, 7]]) {
+			const columns = priorities.map((priority, index) =>
+				plainColumn(testUuid(String(index)), "case_name", `Column ${index}`, {
+					sort: { direction: "asc", priority },
+				}),
+			);
+			expect(findings(withColumns(base, columns))).toEqual([]);
+		}
 	});
 });

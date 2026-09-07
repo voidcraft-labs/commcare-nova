@@ -1,0 +1,1114 @@
+{
+	"owner": "preview",
+	"files": [
+		{
+			"file": "components/preview/form/virtual/__tests__/dragData.test.ts",
+			"status": "retained",
+			"review": "Read factories, tag discrimination, edge-to-parent projection, subtree traversal and all tests. Pure payload/traversal boundary is appropriate; cyclic malformed-order cases prove traversal termination, exact parent decisions prove page versus question landing. Actual session and commit behavior is now covered by dragIntent.test.ts; this suite does not claim native drag wiring.",
+			"reviewedSha256": "eea4441ae59bdc3c084425d7e36992781050bb75328e65a8f295b8e766e58242"
+		},
+		{
+			"file": "components/preview/form/virtual/__tests__/dropNoOp.test.ts",
+			"status": "revised",
+			"review": "Removed tests and production predicate that became dead after drag-session extraction. Retained direct leaf/group/page rendered-span tests against explicit flat row models; final committed no-op decisions now execute in dragIntent.test.ts against admitted docs and live sibling ordering.",
+			"reviewedSha256": "ef13dde5a778814d8247d8908d8c758e1546fea55468878f8c243f184bf677eb"
+		},
+		{
+			"file": "components/preview/form/virtual/__tests__/rowModel.test.ts",
+			"status": "revised",
+			"review": "Read the complete walker and suite. Replaced double-cast malformed Field fixtures with actual ProseTemplate and repeat-mode values, parsed every supplied field through fieldSchema. Kept direct projection evidence for ordering, nesting depth, collapse, balanced brackets, empty pages and stable identities. Marked deliberately malformed mixed-root projection as defensive only, removing impossible replay-race claim.",
+			"reviewedSha256": "1df40f87af9eb154cfd7813f5d98d7a130b93f1c583cd98297a54fd6c1abef72"
+		},
+		{
+			"file": "components/preview/form/virtual/__tests__/sectionScroll.test.ts",
+			"status": "retained",
+			"review": "Read full scroll arithmetic owner and tests. Direct measured/estimated row extent inputs appropriately prove page lookup, saved-scroll restoration, changed-page reanchoring and deleted page fallback. Browser paging/focus is owned by the existing admitted form-sections journey; these tests make arithmetic claims only.",
+			"reviewedSha256": "ab9f66b1f27518642516555053154e9040d054b860b39c028d3ce992d0a9c23e"
+		},
+		{
+			"file": "components/preview/form/sections/__tests__/sectionPaging.test.ts",
+			"status": "retained",
+			"review": "Read full pure paging owner and suite. Tests distinguish visible selection, hidden-page forward/backward fallback, absent page memory and forward-only validation interval. FormEngine section tests and native section journey separately own deriving visibility and actual focus.",
+			"reviewedSha256": "53afc2971c3cdef5550c41b8f1ec588edac87eafb9d081839b64560b10f46869"
+		},
+		{
+			"file": "components/preview/form/virtual/__tests__/useDragIntent.test.tsx",
+			"status": "removed",
+			"review": "Mount-only false/null checks neither executed drop planning nor substantiated the claimed cycle/mutation coverage. Replaced entire suite with actual production createFormDragSession/resolveFormDrop tests: schema-admitted docs, gated peer mutations, final gated move order, no-op/cycle/page placement, cancellation, stale target removal/reparenting and same-ordinal target replacement. Native adapter verification pending separate journey.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/preview/form/virtual/__tests__/useFormRows.test.tsx",
+			"status": "revised",
+			"review": "Retained a narrow subscription integration boundary using the real Blueprint store; it does not claim DOM behavior. Rebuilt malformed caseless registration fixture as a schema-admitted survey with correct derived parents, added stable projection identity across unrelated rename, and retained actual mutation/collapse reactivity. Integration follow-up: Removed static insertion-row projection restatement already owned by rowModel. Kept only actual doc-store subscription, unrelated-mutation reference stability and collapse-prop dependency updates. Mutations apply to admitted documents through the real store; no browser interaction claims.",
+			"reviewedSha256": "de100c40cb20a156e62114d8cce1a1810ab3c585dcca7fceca1c9296397f73b2",
+			"preSupplementReviewedSha256": "86ae338daa4820264ae80c2cdd352ad3f918f06f4a923d8b20b171baf4426cf1",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "components/preview/screens/__tests__/ModuleScreen.test.ts",
+			"status": "removed",
+			"review": "Pure resume-location rule previously imported the complete screen/UI graph. Moved production rule to moduleScreenNavigation.ts and consolidated its exact leaf/foreign-module/menu tests into that existing pure suite, avoiding needless component imports without weakening behavior.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/preview/screens/__tests__/moduleScreenNavigation.test.ts",
+			"status": "revised",
+			"review": "Read full production module landing and launch decisions plus resume rule. Consolidated parent-selection exact-leaf recovery tests from ModuleScreen.test.ts into the pure navigation owner. Tests cover edit/preview, bare list history semantics, parent modules, selected cases, endpoint menu preservation and case-required launches; native history wiring remains separate.",
+			"reviewedSha256": "9273632789ef6a8dc3b37542490ab27c258d2cd9a6cc19392761efefb4596326"
+		},
+		{
+			"file": "components/preview/screens/__tests__/caseListPhase.test.ts",
+			"status": "retained",
+			"review": "Read complete caseListStep and resultsConstraintContext owner. Direct state matrix and attribution inputs prove browse/search/results selection and prevent an empty worker query being mislabeled no app data. These are projection decisions, with native Search journey covering actual screen progression.",
+			"reviewedSha256": "f28976af7d4c572c3c71895356318a6f7d3b9adde84b2ac38fc1ea9ad2e9f4b3"
+		},
+		{
+			"file": "components/preview/screens/__tests__/noMatchesForm.test.ts",
+			"status": "retained",
+			"review": "Read all admission and refusal copy branches. The pure boundary directly gates exact module/attempt/completed-zero-result state and distinguishes direct/foreign/stale/running/failed/matched routes. App-level no-matches registration exists in native Search journey; this suite does not simulate a search service.",
+			"reviewedSha256": "792ceb1983dde64487bd03899b0509a28f2a1f5fdd5bed71e0133feff2b7f23e"
+		},
+		{
+			"file": "components/preview/shared/__tests__/RestoreScopeNote.test.ts",
+			"status": "retained",
+			"review": "Read component and pure copy owner. Tests appropriately exercise second/third-person grammar, assignment repair direction, singular count and population disclosure, without pretending text projection establishes database restore scope.",
+			"reviewedSha256": "7d0060baf8e7f5fde7a7038887724319b123391ef2eddc302aff295d298dd96b"
+		},
+		{
+			"file": "components/preview/shared/__tests__/multiSelectChoiceKeys.test.ts",
+			"status": "retained",
+			"review": "Read greedy key projection and real domain split/join use. Pure tests protect duplicate-value lookup row cardinality, stable row key choice, blank/missing tokens and loading state. Actual lookup and prompt execution is covered separately.",
+			"reviewedSha256": "b2733f0e606193b4336b9a500bfd1986506d8d1d3e30a0b5f4359cb539e7e77a"
+		},
+		{
+			"file": "components/preview/form/fields/geopoint/__tests__/geopointValue.test.ts",
+			"status": "revised",
+			"review": "Read parser/formatter and domain storage-schema generator. Replaced copied wire regex with actual AJV-compiled production geopoint storage schema; exact formatting and map precision assertions remain independent. Tests also cover lenient input/default altitude, finite range boundaries and empty/malformed coordinates; native geolocation is a separate boundary.",
+			"reviewedSha256": "88495d7260698aac778b851ac69239fad4ac4c2d593a1acab66b2e2d36f432b2"
+		},
+		{
+			"file": "lib/preview/__tests__/orderedCaseSelection.test.ts",
+			"status": "retained",
+			"review": "Read full ordered-set implementation and all tests. Direct state transformations prove reselection order, bounded visible append, authoritative-row intersection in worker order and zero/over-limit messages. No mocked query or browser state is used.",
+			"reviewedSha256": "98043c9832a96d3a90004d344900d92d8bf1eccbfd374639cc8304450932078d"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/captureSubmissionValidation.test.ts",
+			"status": "revised",
+			"review": "Read complete runtime schema and retired-protocol gate. Added exact attachment-cap acceptance, independently malformed UUID/extra-property/name/path cases (old combined fixture could hide strictness failure), explicit retired attachmentNames rejection, and capture-only projection from full envelope. Database receipt/provenance behavior remains in actual submission suites.",
+			"reviewedSha256": "771eeb69a521d2dd81e8de54ce6ad94d52e39cd1e759fb32ab150bd437c27bf7"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/xpathInstanceReferences.test.ts",
+			"status": "retained",
+			"review": "Read full parser-based structural reference detection. Direct lexical fixtures distinguish actual instance()/hashtag AST nodes from quoted examples, similarly named functions, dynamic arguments and #form references. Test boundary is the load signal only, not evaluator or native wire compatibility.",
+			"reviewedSha256": "33942db8da0bd3f5fe2443e1459cf322d0287297ccc2a05d8b8c373bee17f40c"
+		},
+		{
+			"file": "components/preview/form/__tests__/newFieldDefaults.test.ts",
+			"status": "revised",
+			"review": "Read full new-field factory and all tests. Field-schema parses now prove every generated choice/source shape; the final survey is schema-admitted and repeated additions prove option identity uniqueness. Pure factory boundary retained; UI insertion is separate.",
+			"reviewedSha256": "c52ddebddea438e54ef85d88aaab5d3e2fe3455c0c8c8d1fbfeed2aa6d0a89dd"
+		},
+		{
+			"file": "components/preview/form/__tests__/sectionGestureItems.test.ts",
+			"status": "revised",
+			"review": "Read partition planner, complete tests and gate callers. Replaced success-only commit checks with exact final root/page/group partitions after real mutationCommitVerdict, exposing whether gestures preserved question order and ownership.",
+			"reviewedSha256": "1342a68879a807fe951100e21a6bc16c55be1d4ab7448e114acfcc7f73708209"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/workerClient.test.ts",
+			"status": "revised",
+			"review": "Read all worker host lifecycle implementation and tests. Controlled Worker-port protocol is appropriate for exact watchdog/cancel/scope/revision races; now every runtime is disposed before restoring fake timers. Added invalid/pre-aborted zero-construction behavior, sibling-cancellation listener cleanup, and native port error/messageerror/post failures. Real compiled worker browser proof is separate and in progress.",
+			"reviewedSha256": "8c53b47a4fd73f5d13700f52d3525e454531d926bd4db576d9ef00669e183505"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/workerRuntime.test.ts",
+			"status": "revised",
+			"review": "Read entire production worker evaluator and in-process port plus suite. All spawned runtimes now owned through teardown; retained real evaluator world-cache, typed snapshot, cancellation and yielding tests. Native browser worker packaging/termination verified separately.",
+			"reviewedSha256": "bd06411c2a6560b3b42f8ccfc596eddc91fddcff136f90ceddce32726560edfa"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/javaPatternBoundary.test.ts",
+			"status": "removed",
+			"review": "Read full wrapper and tests; mocked delegate argument assertions duplicated actual javaPatternRuntime regex/find/literal-replacement evidence without proving any Java behavior. Removed entire redundant test file; production wrapper remains used.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/javaPatternNamedCharacters.test.ts",
+			"status": "retained",
+			"review": "Read name scanner and generated lookup implementation plus tests. Exact JDK17 name/algorithmic-name vectors and quoted/escaped/incomplete lexical cases directly protect scanner behavior. Browser dynamic import and actual matching covered by native worker journey.",
+			"reviewedSha256": "9637e6c3da435bf1be30ee9d6d0bd409048bcd39ab8a434f0e47c529ec1412c1"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/javaPatternRuntime.test.ts",
+			"status": "retained",
+			"review": "Read production adapter and compiled bridge source. Real compiled OpenJDK Pattern executes a finite frozen Core regex/replacement corpus, Java-only features, Unicode13 distinctions and redaction; no JavaScript RegExp substitute. This is regression evidence, not exhaustive language parity.",
+			"reviewedSha256": "ca51e5271f83665fbf83a3d94d4418b49792502d3b354ee1736a822cf39e92f7"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/generatedJavaRosaFunctions.test.ts",
+			"status": "revised",
+			"review": "Read full closed generated-pattern implementation. Differential comparison of its synchronous JavaScript subset to actual compiled OpenJDK runtime is an independent implementation boundary. Renamed exhaustive-looking claim to finite corpus; arbitrary authored patterns explicitly refuse synchronous fallback.",
+			"reviewedSha256": "fa405fce6cb62de606dfcfc551685eaed13bcf200b24f093ca876a00bf58f558"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/javaRosaAlternateCalendar.test.ts",
+			"status": "retained",
+			"review": "Read full conversion owner, locale tables and tests. Frozen dates test Ethiopian/Nepali boundaries, supplied/default locale and malformed input; precise expected strings, not a self-roundtrip. Native Core carrier corpus supplies independent upstream comparisons.",
+			"reviewedSha256": "7921f768b786b6622d6d090ea565e579a7d30eb26bcd6304bca07d7700ee00ab"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/javaRosaGeo.test.ts",
+			"status": "retained",
+			"review": "Read full geographic owner including Java Double grammar, spherical distance and polygon projection. Finite independent numeric/text vectors and degenerate/invalid shapes appropriately prove this port boundary; native Core comparisons remain the external consumer evidence.",
+			"reviewedSha256": "adc76291cadc416b8e739fe08666e7152071054c7856c4306311f70b2ddeba16"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/javaRosaCrypto.test.ts",
+			"status": "revised",
+			"review": "Read WebCrypto framing and custom Core-base64 parser in full. Replaced only UTF8 self-roundtrip with bidirectional independent node:crypto AES256-GCM interoperability and added changed IV/ciphertext/tag/key authentication rejection. Retained exact zero-key known-answer frame and Core whitespace/parser refusal vectors.",
+			"reviewedSha256": "af42adf10269c314ab7156563e1c6c1e13d8f8204d6ee246190f54b42531153a"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/javaRosaSleep.test.ts",
+			"status": "revised",
+			"review": "Read timer owner and complete suite. Removed floating observed Promise; result and observer are joined in finally after owned abort. Tests prove original object identity at exact deadline, listener/timer release, already-aborted zero scheduling and independent invalid duration categories.",
+			"reviewedSha256": "993d4842352c659b05165d39142054db76104c803664b007a0624597527b08cf"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/openJdk17DoubleString.test.ts",
+			"status": "revised",
+			"review": "Read full BigInt FloatingDecimal port. Added 296 exact IEEE754 bit-pattern vectors generated by native OpenJDK17 Double.toString, covering exponent/subnormal boundaries and seeded random values; Java generator is committed beside frozen corpus. Expectations no longer rely only on a handful of handwritten spellings. Finite corpus explicitly scoped.",
+			"reviewedSha256": "6f0648a29de1f7d6f903ca8d0ab193b9fa394a6b086a194da9ec616a44b22efd"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/dateAddLowering.integration.test.ts",
+			"status": "revised",
+			"review": "Read on-device lowering boundary and real evaluator/coercers. Retained emitter-to-Preview semantic checks with independent expected dates, removed source-substring assertion and false claim that this local test executed CCHQ. Native carrier tests own wire runtime compatibility.",
+			"reviewedSha256": "d777fc68a65afe2a4759217a2b1710b3cd8e640d1686593275b0b2280079d293"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/dateFormatting.test.ts",
+			"status": "retained",
+			"review": "Read formatter and complete XPathDate parser plus suite. Exact frozen token, preset, locale-offset, invalid-date and early-year vectors cover pure semantics. Process timezone is restored in teardown and per-test finally; device comparisons remain native suite responsibility.",
+			"reviewedSha256": "22a296425f8265c45427ec917793a96154c8de46c4bf20199b2057edba2636b0"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/nodeSetJavaRosaFunctions.test.ts",
+			"status": "retained",
+			"review": "Read full nodeset function table and runtime value owner. Hand-constructed typed nodes are appropriate at this pure boundary; exact values/errors distinguish invalid paths, empty/multiple nodes, sequence overloads, order, strict object equality and weighted lengths. Structural instance traversal tested separately.",
+			"reviewedSha256": "f6ca70e13cb277f37f603193381ddb8ef25b7267b7a12f4701e52fcf705897da"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/scalarJavaRosaFunctions.test.ts",
+			"status": "retained",
+			"review": "Read entire scalar table and permissive JSONObject parser dependency. Direct finite fixed vectors exercise math, Java string quirks, sorting ties, checksum/id compression and permissive JSON grammar; entropy assertions only claim output range/shape, not randomness strength. Real evaluator/worker suites cover dispatch and async use.",
+			"reviewedSha256": "72d3f7e2ff283a69974888138d33c8587e32a8ec3beeec18bfd79f11750a1a21"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/operatorNodesetSemantics.test.ts",
+			"status": "revised",
+			"review": "Read shared binary operations/coercers and full suite. Removed Field casts and schema-parse actual authored fields before constructing real DataInstance. Exact sync/async results protect Core singleton unpack, typed dates, valid-empty versus invalid paths and multi-node refusal rather than XPath1 pairwise assumptions.",
+			"reviewedSha256": "f9aa9861bc4183b18b542b64b17ffed3dacc784d42cbf5884b9706818bc2300b"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/structuralEvaluator.test.ts",
+			"status": "revised",
+			"review": "Read complete evaluator and runtime nodeset owner. Schema-parse fields instead of type-casting fixture validity; actual DataInstance trees exercise repeat rebasing, schema traversal after zero live instances, relevance versus position, current context and ordered axes. These are evaluator claims, not full app-admission claims.",
+			"reviewedSha256": "6717f1640bcc79bf50db2be836299bef6d27e4103e904d68d75a0719ec10bf46"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/asyncEvaluator.test.ts",
+			"status": "revised",
+			"review": "Read full async traversal and suite. Real DataInstance fields now schema-parsed; exact-once entropy test uses deterministic native-boundary bytes to avoid probabilistic rejection-sampling call counts. Retained actual async dispatch, lazy/eager traversal, ordered predicates, typed nodeset preservation, real AES and regex plus cancellation.",
+			"reviewedSha256": "16c271fcf1368ce49b0d278b50df8dcd248ea4cca2c9cba88e0557a4b8e5ca5b"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/evaluator.test.ts",
+			"status": "revised",
+			"review": "Read all 901-line evaluator, functions, date and coercion owners. Fixed clock/timezone for finite expected date results rather than racing today against today; replaced arithmetic self-comparisons with literal epoch/date outcomes. Added regressions proving selected()/number() incorrectly used JS trim; both failed before fix and pass using existing Java trim. Scalar context is explicitly distinct from structural suites.",
+			"reviewedSha256": "6619759465a279939216ac88c488006063360cb0f5832469d9a5de5f240480b5"
+		},
+		{
+			"file": "lib/preview/xpath/__tests__/rewrite.test.ts",
+			"status": "retained",
+			"review": "Read complete Lezer CST rewrite and suite. Exact text assertions are the actual product at this source-edit boundary: matching full segments/prefixes, nested containers, quoting, non-form namespaces and cousin refusal. No regex parser or generic roundtrip oracle used.",
+			"reviewedSha256": "0b48e28247d2842536f0df95cb882c5057662a87c7bd1239a66c671917d5369c"
+		},
+		{
+			"file": "components/preview/__tests__/ScreenNavButtons.test.tsx",
+			"status": "removed",
+			"review": "Read entire component and CSS-only snapshot suite. Removed jsdom class-presence test and replaced with actual browser keyboard focus/disabled back navigation alongside the real native TextEditable component in preview-interactions-audit.spec.ts; native run passes.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/preview/form/__tests__/TextEditable.test.tsx",
+			"status": "removed",
+			"review": "Read full TextEditable and InlineTextEditor owners; removed synthetic mocked editor click/commit suite. Native browser now executes actual TipTap, keyboard activation, rejected commit and correction, Tab progression and Escape. That journey reproduced and fixed a real focus defect: the adjacent target was searched after the saved editor unmounted.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/preview/shared/__tests__/useColumnDisplayContext.test.ts",
+			"status": "revised",
+			"review": "Read hook and full projection suite. Extracted pure localized property projection from React/runtime import graph into localizedCaseProperties.ts and point direct tests at the real projection owner. Finite locale metadata/string projections remain independent; no render claim.",
+			"reviewedSha256": "97fd6887d2a8747ec0a5d8befb0e3aedd11babb3f032aa89855bfc0a53662b73"
+		},
+		{
+			"file": "lib/preview/__tests__/caseTile.test.ts",
+			"status": "revised",
+			"review": "Read all layout/rendering/grouping owners and full suite. Removed test-only uniformUnits renderer arm and exported constants with no production callers. Tests now explicitly prove pure CSS/style and entity grouping decisions, not actual rendered geometry or Core parity.",
+			"reviewedSha256": "c2ee4dfe0ec19527c2690828468a27eb5b68bee45a5d1d9d43225f5bc4c0f289"
+		},
+		{
+			"file": "lib/preview/__tests__/entryPointLaunchAction.test.ts",
+			"status": "revised",
+			"review": "Read entire Server Action and tests. Schema/gate-admitted fixture replaces unchecked doc; mocked dependency tests explicitly claim sequencing and argument projection only. Controlled pending device read proves reauthorization occurs after its resolution; added malformed-request and unexpected-error containment cases. Actual access/storage enforcement is separate.",
+			"reviewedSha256": "455d84678e9a389315065d2f15458cfa91c7dbeadc5a903c710a74747235f795",
+			"preIntegrationReviewedSha256": "f48c16b19940ddbcf8be392a9e9bf1a88c978d166603dc9ae12d36fc75ad3b6f",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "lib/preview/__tests__/entryPointLaunch.test.ts",
+			"status": "revised",
+			"review": "Read complete entry-point launch projection and suite. Every reachable source/mutated fixture now passes real blueprint schema and mutation gate; replaced impossible always-false display condition, cleaned orphan fields and unsupported CaseRow shape. Kept direct exact menu/form/history results for preview launch admission.",
+			"reviewedSha256": "f9cad546542aa3815c34665020ec8c445be3a59788272d566f90a36745626bf2"
+		},
+		{
+			"file": "lib/preview/__tests__/menuProjection.test.ts",
+			"status": "revised",
+			"review": "Read full tree/selection projection and suite. Rebuilt cast partial docs with actual buildDoc schema/gate admission, valid module ids, explicit hierarchy and distinct column identities. Added correct parent-map/order for injected fields and validated each compatible/incompatible authored selection fixture. Pure navigation projection remains appropriate.",
+			"reviewedSha256": "7c13e891d8d4ce0a2fef7d904ea9d38df483afb8d01b090ffd67d00146d819c0",
+			"preIntegrationReviewedSha256": "7ffc156ada02ff7e02cfedc033cd30eabb61a9dd582c5e721818c5863025566a",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/lookupDataBinding.test.ts",
+			"status": "revised",
+			"review": "Read full Server Action/JSON-wire adapter and tests. Expanded orchestration tests across unauthenticated/malformed/denied requests, exact UTF8 budget and over-budget refusal, exact map wire projection and private error redaction. Reproduced raw internal Error.message leak with red test; production now returns stable retry copy while preserving server telemetry. Mocked scope does not claim real authorization.",
+			"reviewedSha256": "5448179d0f901bab58749bc44b3aaf9b2af0d1bbb5ca2acff10880395f5fd36b"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/lookupEvaluation.test.ts",
+			"status": "revised",
+			"review": "Read full runtime lookup context/folding implementation. Replaced invalid row UUIDs and unchecked revisions with real schema parsers. Exact folded predicate replaces a JSON substring assertion; typed row conditions, selected identity/cardinality, partial stale coverage and runtime lookup context execute the actual evaluator. Native Core compatibility remains separate. Additional arithmetic review: Arithmetic follow-up to Preview prior full review: row-column/form-field division distinguishes declared int from decimal even when the actual bound answer is the same string; folded numeric lookup retains its declared type and evaluates integer division. Existing finite-corpus behavior and native-proof limits preserved.",
+			"reviewedSha256": "dd3713c4406c7eba20fe7f7b38be89be6b1c243c8595cc3ef7e7a239914550c5",
+			"preSupplementReviewedSha256": "a62d89edec59c8c1516922b4a6e5a7c591901e1b3ece192a1865a1eaccfb1016",
+			"supplementalEvidenceReport": "domain-arithmetic.json"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/caseOperationProgramLookupTableIds.test.ts",
+			"status": "revised",
+			"review": "Read occurrence registry projection and operation carriers. Extracted pure collector into lookupTableReferences.ts instead of importing huge server helper. Schema-parse synthetic operation carriers and explicitly scope tests to occurrence collection; no claim these isolated same-type test references are admitted app workflows.",
+			"reviewedSha256": "8c97527b504c29cf518f64a8ee7af6e42e0cf30fb9efb888dbf183dfcbd31a17"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/collectConfigLookupTableIds.test.ts",
+			"status": "revised",
+			"review": "Read config collector and each test. Move direct imports to pure lookupTableReferences.ts owner; canonical caseListConfigSchema parses real emptyCaseListConfig plus expression columns instead of double-cast malformed labels/order slots. Exact table-id sets distinguish output, input, predicate and dynamic default/constraint carriers.",
+			"reviewedSha256": "d61aff766eaba48eb1012a2f6bdd16187edee205f7346504fb180f09c01a5c53"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/types.test.ts",
+			"status": "revised",
+			"review": "Read full screen/state identity module. Removed dead exported equality/parent helpers used only by tests; remaining direct screenKey tests check finite kind/form/case collision distinctions. No fake React or string source scans.",
+			"reviewedSha256": "e2a1a7d2b6fd8bbe7796a34f0fe56808cdc595fc0964df9c4c8c636373d51ccb"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/searchPhase.test.ts",
+			"status": "revised",
+			"review": "Read complete state projection and suite. Replace double-cast row with full CaseRow fixture. Exact idle/running/failed/zero/matched distinctions correctly own pure screen state, while server and native search suites own actual execution.",
+			"reviewedSha256": "8763617b942f86ee9fb93a3888ebbdb66e3d97266f3eeb84a07139b742cbe4dd"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/caseDataBindingTelemetry.test.ts",
+			"status": "revised",
+			"review": "Read full error classifier and logger boundary. Added the omitted ParkedValueNotFoundError real instance; tests explicitly classify severity/log forwarding rather than asserting real telemetry transport. Known resource absence stays warning; unexpected errors retain error classification.",
+			"reviewedSha256": "ba328ba166485eec67fefcd9b0f61d613f7f909d8fde2cf0dba2185e2bbf46d1"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/submissionEnvelope.test.ts",
+			"status": "retained",
+			"review": "Read complete submissionEnvelopeArgs projection and tests. Synthetic already-built authority is appropriate for this pure translator; exact ordinary action, relationships and receipt precedence assertions prevent client structure overriding server-derived facts. Does not claim transaction atomicity, which belongs to real Postgres acceptance suite.",
+			"reviewedSha256": "ea2f389bfcbea110606229e426b20692b14d5db50f1028cca2719b9a40d33180"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/useCaseDatabaseSnapshot.lifecycle.test.tsx",
+			"status": "retained",
+			"review": "Read full hook and controlled promise suite. Narrow hook lifecycle boundary appropriately proves abandoned-generation results do not publish, current loads complete, and unmounted continuations are ignored. Mocked database action is explicit; it does not claim network cancellation or storage consistency. Integration follow-up: Reassessed all 105 lines. Retained a narrow positive/negative React commit adapter pair: the same loading snapshot mutates the controller after a committed layout phase but not when a descendant throws and React abandons that render. Controlled resource/controller boundaries intentionally isolate commit timing; SQL/snapshot contents and browser visibility are not claimed.",
+			"reviewedSha256": "be481760520f7429a62d3bf5a99e2fbd7fd299cd2db6ec2ec0861d8c8e512775",
+			"preSupplementReviewedSha256": "be481760520f7429a62d3bf5a99e2fbd7fd299cd2db6ec2ec0861d8c8e512775",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/useCaseDatabaseSnapshot.test.ts",
+			"status": "revised",
+			"review": "Read requirements walker and suite. Rebuilt every reachable doc with correct case-list name columns, required fields and unconditional link fallback, then assert schema plus real gate admission. Conditions now prove case-hashtag/form-link dependencies without impossible app shape.",
+			"reviewedSha256": "a6cce76831c0d251fc924fd0b88898f1ea77dcf635d356b6fd05def2035e63b2"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/instancePaths.test.ts",
+			"status": "retained",
+			"review": "Read entire pure path/traversal module and suite. Direct canonical instance path templates and checked descendant/repeat selection inputs prove this projection boundary; malformed cross-form paths are explicit negative boundary inputs. Expected strings are product output, not self-roundtrips.",
+			"reviewedSha256": "4df12e568b150a2b919ed0ac23d2b56b7b122492a28181be3f94fed3e2d13767"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/attachmentCollection.test.ts",
+			"status": "revised",
+			"review": "Read full actual FormEngine attachment projection and tests. Replaced malformed handcrafted form with deterministic buildDoc fields and actual schema/gate admission, parsing authored references through the genuine text-to-AST bridge. Real engine states exercise repeat expansion, relevance, required filename and exact collection ordering.",
+			"reviewedSha256": "de01ac16ab227bd729380c80d0937edd429e338dca014aae4ed85a97de1f4e29"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/formEngineLookupChoices.test.ts",
+			"status": "revised",
+			"review": "Read full FormEngine dynamic-choice implementation and suite. Schema-parse field fixtures, use valid row IDs/revisions, and add exact partial retention when one selected value disappears but two remain. Actual dependency cascade and evaluator run; no native device parity claim.",
+			"reviewedSha256": "56536caafa50d7abd49be74276f2f8fcb46b8c2998ae449ea9bb82cc7ca55f88"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/formEngineOperationAnswers.test.ts",
+			"status": "revised",
+			"review": "Read full operation-answer collection owner and tests. Schema-parse form/fields and complete repeat defaults, with explicit lower-level operation session context scope. Real engine tests return exact root/repeat typed answers, relevance and missing values; removed false all-arms coverage claim.",
+			"reviewedSha256": "fdf711b8a768e8eaceaad9ca7211b4d76594292c65ce1b3be788eb9a3b0e85f8"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/formEngineSections.test.ts",
+			"status": "revised",
+			"review": "Read full section/relevance/validation traversal and suite. Schema-parse fields and remove impossible hidden-field label. Explicitly distinguish defensive empty/hidden-only pages from reachable rendering claims. Actual engine produces exact page visibility, required-validation and first-invalid paths.",
+			"reviewedSha256": "b1717d455a0a78b2b5afcc5bb953e2fc2fde928eda359cffc61f18a1a531785a"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/formEngine.test.ts",
+			"status": "revised",
+			"review": "Read all 4684 test lines and complete 4166-line FormEngine owner. Parse every field fixture with valid labels/repeat modes; distinguish lower-level engine inputs from admitted workflows. Own/cancel/join every XPath runtime before restoring timers, fix Date for independent expected temporal values, replace repeat-count self-equalities with exact 1-to-3-to-2-to-1 lifecycle and surviving value checks. Admitted sync/worker regression separately exposed default text false being dropped; fixed both default owners.",
+			"reviewedSha256": "07de143bae4e052b4a855e5d3468d8daa5969975228f069212bce6677a583e7f"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/captureSubmissionIntent.test.ts",
+			"status": "revised",
+			"review": "Read complete receipt identity/program/capture derivation and suite. Remove dead loadApp mock; admit every full fixture through schema and real gate. Exact zero-iteration scope bindings replace program-is-defined assertions. Typed receipt adjudication remains a pure supplied-receipt test; real persistence/replay belongs to Postgres acceptance.",
+			"reviewedSha256": "3eed5c8370d3fdf45c84693d34671fc6fe64316018e7e0474f6c08e80e50ff21"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/displayConditionEvaluation.test.ts",
+			"status": "revised",
+			"review": "Read complete navigation emitter/evaluator and tests. Replace invalid lookup row UUID/revision casts with real parsers and explicitly scope this to Preview evaluation, not independent Core proof. Exact shown/hidden/pending and missing-value results retained, including stale lookup coverage.",
+			"reviewedSha256": "5d066e841380f622e53b878a8e47acaad710df0d77d45986f87bd69e5881a8ac"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/engineController.test.ts",
+			"status": "revised",
+			"review": "Read all 2125 test lines and complete 3350-line controller owner. All reachable fixtures now use actual text-to-identity parsing plus schema and commit gate; all live edits gated too, exposing and correcting missing child case modules, absent case-list columns and impossible empty-form removal. Explicit unchecked path remains only for fault containment. Remove 10ms sleeps from synchronous Zustand transitions, own/dispose/join controllers, and retain exact final answers, repeat migration and entry identity evidence.",
+			"reviewedSha256": "5a6a46fb08bab635ddc73f5ed433ef127964c347898f2f451c0b14274a23f4e1"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/engineControllerAsync.test.ts",
+			"status": "revised",
+			"review": "Read all 1112 lines plus worker/queue owner. Own every controller through failure cleanup and join its work before timers reset. Fixtures and live edits use real app gate, corrected empty sibling form/list config. Replace fake calculated values in worker-world and case-write-neutral tests with protocol observation around the real dispatcher/evaluator. Controlled evaluator faults remain only where failure/protocol projection is the claim; actual worker packaging separately native verified.",
+			"reviewedSha256": "d631e5d529bc4bf5c1bd8145707fdf5cad326f68ca07ce49c37be395f8989540"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/engineControllerSections.test.ts",
+			"status": "revised",
+			"review": "Read live split planner/controller and entire suite. Admit full doc and every actual split/required-toggle mutation through real gate, remove doc double-cast, and dispose all controllers. State-based section visibility and exact invalid target paths are appropriate here; native paging/focus is separately owned.",
+			"reviewedSha256": "221d75f17357cd430df5932a8ffb647962ec68258463161925d75d38d479b2cb"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/caseDataBindingClient.test.ts",
+			"status": "revised",
+			"review": "Read full client projection and result-mapping module. Replace synthetic store method/invalid parent index tests with a real admitted nested doc loaded into actual store and cloned serializable projection; remove dead fixtures. Add structured submission-refusal preservation and three private-error regressions, all fail old code then pass stable generic retry copy. Other synthetic rows appropriately test pure scalar/depth projections without database claims.",
+			"reviewedSha256": "47fb126a3d5fe01782f3d54623c1becbdbd32d2d7e33eef2c63bc19ab5e37284",
+			"preIntegrationReviewedSha256": "8a251cdbeebf7f82ac340f3eeb40dbd900c29679ea873e2a18ba79958617d2f6",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/casePropertyRenamePreflight.test.ts",
+			"status": "revised",
+			"review": "Read full preflight action and suite. Default prepare/evaluate mocks now wrap the actual reducer and commit gate over an admitted full document instead of fabricating successful plans. Added reserved-destination real-gate refusal before storage reads; one deliberately supplied findings case explicitly proves result projection only. Transaction mocks prove shared handle and ordering, not database isolation.",
+			"reviewedSha256": "800fa9f20bfa23aec2dbb47c9d06c875e0e9978cdb942865027f8dbe068d29e8",
+			"preIntegrationReviewedSha256": "83f900e59d1b456d6e1043caf193fbf344d50febb569399652cd93d713144f5c",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/caseDataBindingActions.test.ts",
+			"status": "revised",
+			"review": "Read all 3495 lines and complete action/helper owners. Mocked-boundary scope now explicitly authorization choreography, not enforcement. Removed 100-line expected-envelope oracle that reconstructed client authority then called production projector; independently asserts exact derived ordinary writes/receipt. Two persona-write tests had succeeded on rejected registration-against-survey requests; now admitted registration fixtures plus actual success and applySubmission assertions. Admitted all committed fixtures, real surviving form after deletion, custom catalogs with sequences, valid lookup definition context, and real fieldParent from nested field. Removed repeated dead stub methods and fixed misleading prototype UUID case name. Eleven new regressions reproduce private error text escaping action catches; stable retry messages now preserve generic error privacy while typed domain responses/telemetry remain. Latest run75 passed; tiny subsequent full-store fixture type correction delegates same defaults.",
+			"reviewedSha256": "f53523ff189e53d7a5bfc9b9c868185daed614ccf7113fb751e26a8dda7966a7"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/caseDataBinding.postgres.test.ts",
+			"status": "revised",
+			"review": "Read all real Postgres tests and entire action/helper owner. Removed unused mocked auth/lookup/materializer harness. Replaced copied production authority projector with explicit lower-level store envelope fixture, preserving independent producer acceptance tests. Rebuilt admitted list docs and made sort fixture oppose Details order. Moved mocked counted-page race to unit-only caseReadChoreography. Native66pass.",
+			"reviewedSha256": "505ca6fd9547c04630bd1ef82f98ba95a6191c470138def91023e31716848c11"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/submissionProgramAcceptance.postgres.test.ts",
+			"status": "revised",
+			"review": "Read entire producer-to-native-Postgres program suite. Shared admitted fixtures now include actual list configuration and required create names. Moved3pure producer refusals to submissionProgramAuthority unit suite. Receipt IDs are checked against actual persisted patient and child rows; removed envelope self-oracle and false rollback-order claim. Native8pass. Additional arithmetic review: Arithmetic follow-up to Preview prior full review: four sign combinations submit the identical fully admitted arithmeticFixture via actual FormEngine answers, committed-doc program construction, real transactional Postgres store and row query. Verifies stored integer quotient/remainder, decimal result and beyond-int4 literal division; native Core independently consumes the same document export.",
+			"reviewedSha256": "514b759f052b9765dda9c31e30c9e99bf9e5c0fd1f3361241024d7f042fdf4b0",
+			"preSupplementReviewedSha256": "ec52de49081cf030fd8807ebd6367798c379ee284a13a95e9707887628933ae4",
+			"supplementalEvidenceReport": "domain-arithmetic.json"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/withSchemaHeal.test.ts",
+			"status": "revised",
+			"review": "Read full owner; replaced suite with real retry orchestration and controlled pending-drain/materializer barriers, released and joined in finally. Independently checks missing versus drift, original error preservation, absent snapshot, repair failures and retry error identity. Removed mock persistence/rollback claims.16pass.",
+			"reviewedSha256": "c5a3c3aa2840ecc67b6da2c167f76e6b77b881a06e24166378648aeb203c2f0c"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/identity.test.ts",
+			"status": "revised",
+			"review": "Read full identity, domain users and usercase owners. User collection fixtures now schema-admitted with sequences. Added actual UUID-stable property rename, stored usercase changes and record-order stability; narrowed broad wording to authored names.50tests pass across this and two search suites.",
+			"reviewedSha256": "75bd20e665cc305247621b63148fb17fedfd0f9c7da17c32f274224977680666"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/searchExpressionEvaluation.test.ts",
+			"status": "revised",
+			"review": "Read full search evaluator and tests. Fixed wall-clock date regex oracle to frozen Date and exact expected today. Real emitted expression evaluator is the appropriate local boundary; independent Core compatibility remains separate. Additional arithmetic review: Arithmetic follow-up to Preview prior full review: tests integer expression division and explicit double() coercion of actual text search prompts through production runtime binding/emission/evaluation. Search widgets do not admit integer/decimal prompt types; no impossible fixture retained. Existing seven cases preserved.",
+			"reviewedSha256": "6e33bf7b36f09255d2133f213cced1b4d020e79b63009639b5bd351712e4200f",
+			"preSupplementReviewedSha256": "25f4ca8438e6646236cf1514a6897d6709df911281492fe434626e3ed3cf3cf5",
+			"supplementalEvidenceReport": "domain-arithmetic.json"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/searchInputConstraints.test.ts",
+			"status": "revised",
+			"review": "Read entire constraint owner and suite. Replaced fake device callbacks returning expected booleans with actual async XPath evaluator, Java Pattern and session resolver. Plain-constraint no-device control retained as explicit routing claim.50pass across this and2related suites.",
+			"reviewedSha256": "a0aeaa296d2eeb1b27d48078b72d63f097f219b2122dc3fd20c86160be7de314"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/searchInputValidation.test.ts",
+			"status": "revised",
+			"review": "Read full rejection composition owner and all tests. Replaced source-string XPath rewriting with existing structural session/search instances, so validation evaluates emitted conditions without regex parsing. Inert XPath/metacharacter values and numeric/blank/computed guards pass; no inert-value bug claimed (old escaping already handled them). Fake device true/false callbacks replaced real async evaluator.2files33pass.",
+			"reviewedSha256": "b06bd9f0255b0626bd65aa88d102d9ab14c65bc39e111512bd5664e967b550fc"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/xpathInstances.test.ts",
+			"status": "revised",
+			"review": "Read entire structural instance owner. Retained actual evaluator integration for absent nodes, case date/numeric schema authority, indices, search identity and lookup aliases. Lookup fixtures now parse canonical UUIDv7/revision schemas instead of casting invalid v4 IDs as never. Removed empty-casedb authorization overclaim.2files96pass with bindings.",
+			"reviewedSha256": "61a188475b30a2c6dfef7d2859d7c322206a73c794b5e26d17ceb86b97ea301a"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/runtimeBindings.test.ts",
+			"status": "revised",
+			"review": "Read full2502line suite and owner. Scoped tests to AST binding/compiler shape, not native acceptance. Added schema checks at every input/output boundary. Removed copied applicable-mode table and redundant roundtrip/negative tests; corrected claimed count.where test that exercised exists and claimed two-date-operands test that left second input undeclared. Dummy Kysely destroyed in teardown.2files96pass.",
+			"reviewedSha256": "50dca40d7fd15ee89364b41fa590159aaccb4f5dcfd8ce3ced1cc59b9fbe150c"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/provider.test.tsx",
+			"status": "revised",
+			"review": "Read provider, identity hook and activation hook owners. Admitted actual survey fixture; replaces nonempty-store checks with exact field state, replaces warm-identity setter spy with actual identity-backed default observed during child mount. Real StrictMode replay and same/changed Project lifecycle retained.9pass. Integration follow-up: Removed four provider smoke/instance/passthrough tests. Retained only React-specific initialization before child effects, warm identity binding, Strict Mode runtime replay, unavailable-persona controller binding and confirmed Project/app/authority lifetime. These operate actual controller/session stores and do not pretend to prove browser navigation.",
+			"reviewedSha256": "fd7829e213c2cdfabcbadc990ab830c3732117ef477c5e588b4adbeb7bfdc748",
+			"preSupplementReviewedSha256": "615068026b6d9d598440d25dce24fa7161b148c070fe99c0ac9baa7ea00114f4",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "lib/preview/hooks/__tests__/useCasePropertyRenamePreflight.test.tsx",
+			"status": "revised",
+			"review": "Read full owner. Replaced mocked session hooks and ad-hoc state with actual BuilderSessionStore. Controlled requests released/joined in finally; covers real scope/revocation/app/unmount/newest response and stable transport-error copy. Unmount regression failed old owner; cleanup now retires request generation.8pass. Integration follow-up: Removed viewer argument passthrough and fixed-copy restatements. Kept only six direct request lifetime adapters: Project refresh, revocation, app change, unmount, newest response wins and refusing a send during refresh. Actual session store changes and owned deferred transport operations distinguish stale continuations; no browser gestures.",
+			"reviewedSha256": "b0b09474f0d3187d558ca8c9facbdac8159bc8b786a7f8536d85dd86600778a5",
+			"preSupplementReviewedSha256": "0462fa1811a9dbec04d949754498d17476e6714444d22c0200aaa8a8076b0eb1",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "lib/preview/hooks/__tests__/useSearchInputRunState.test.tsx",
+			"status": "revised",
+			"review": "Read full reconciliation owner and full suite. Appropriate React state boundary retained. Replaced truthy/date-parse-only now assertion with controlled Date across two Search submissions and intervening draft edit, asserting exact device string day and stable prior submission map. Does not claim now string retains time (Core coercion does not).14pass. Integration follow-up: Moved search draft/submission/reconciliation rules into the production searchRunState owner and replaced 382-line hook business suite with two React adapter checks: stable submitted identity plus immediate scope masking; latest prospective hidden-value resolver after a session-only update while standing submitted values remain frozen. The latter catches and fixes the preexisting stale current.resolveHidden callback; the hook now exposes desired.resolveHidden. Six direct Node state cases cover default/edit/clear/scope reconciliation, explicit blank submits, forged hidden values versus restored searches, widget incompatibility/final-prompt removal, hidden rename/removal and fresh per-submit time.",
+			"reviewedSha256": "630dd56307fea7ccb5750f126baca6028d47cdc7c814c66bbfa8f953a14df447",
+			"preSupplementReviewedSha256": "646a98bfb93d120582b8c078163d1662554d25649af29bf319d7f5e6f752e912",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "lib/preview/hooks/__tests__/useEntryPointLaunch.test.tsx",
+			"status": "revised",
+			"review": "Read launch/lifecycle owner. Replaced empty doc and direct state writes with admitted real link doc and gated edits. Added controlled save barrier proving no early action, explicit action-start signal instead microtask delay, and source revision/unmount stale result guards. Every pending request released/joined in finally.11pass. Integration follow-up: Reassessed the complete launch hook and 272-line suite. Its direct callbacks exercise actual admitted doc/session state and save-barrier/transport promises: route expiry, exact target installation, document generation and scope refusal, request settlement. This is a narrow asynchronous React adapter contract, with no DOM event fabrication. Native deep-link and Shell journeys separately own routing/UI evidence.",
+			"reviewedSha256": "b9791d3d6f8dfa885890f755962416b05023cd9037bca9f914de520a49cf08ed",
+			"preIntegrationReviewedSha256": "5e819821379d724aaa6e53d1e944a2c3357420510816dca5b7c6435c3c757f8a",
+			"integrationAdjustment": "integration-adjustments.json",
+			"preSupplementReviewedSha256": "b9791d3d6f8dfa885890f755962416b05023cd9037bca9f914de520a49cf08ed",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "lib/preview/hooks/__tests__/useCaseDataBinding.test.tsx",
+			"status": "revised",
+			"review": "Read entire resource/action-hook owner, reloadable resource and invalidation store. Retained actual React/session/resource orchestration with controlled action boundary. Removed callback-identity specification, narrowed provider-free idle claims, replaced empty rows with actual distinguishable row payloads. Own all pending peers at teardown; remove swallowed console diagnostics and partial context as-never. Added concurrent same-scope count dedupe/settle eviction, stale-row awaitable reload, and source-scope replacement completion isolation.29pass. Integration follow-up: Removed eight thin curry, typed-error passthrough and no-provider smoke tests. Retained 21 direct React resource-lifetime cases against actual session/invalidation/reload owners: synchronous old-scope masking, delayed-response retirement, page/rule dependency identity, same-query dedupe, persona/revision/parent population changes and mutation invalidation. Controlled Server Action promises are the explicit transport boundary; no fake DOM interactions or SQL claims.",
+			"reviewedSha256": "3f4e3335c40c1502101ed4b21083818d1f77befc45e5d5d66c6a7e8107338e03",
+			"preIntegrationReviewedSha256": "29fba0503e06220041322eead4f823b39639103229218ad7480893da6d0470e4",
+			"integrationAdjustment": "integration-adjustments.json",
+			"preSupplementReviewedSha256": "9f65432df87ccd17adce3d60a326c96bf3793b37df57bc05799f3001fa7d474c",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "lib/preview/engine/__tests__/formLinkEvaluation.test.ts",
+			"status": "revised",
+			"review": "Read complete 865-line suite and 739-line owner. Admit actual full link documents and declare parsed user properties; fixed impossible caseless survey manual links missing required parent datums, orphan form order variants now actual removeForm gate. Correct invalid lookup IDs/revision parses, dispose all worker runtimes. Changed vacuous fallback-only worker condition to actual north selection. Native session auto-matching counterpart being added by CommCare lane; these are explicitly Preview projections.",
+			"reviewedSha256": "dd22ca089d8b7fec17e80a1b469e03c0ff3146e68a3e2bc244cc057f6de8f33f",
+			"preIntegrationReviewedSha256": "8483e7613385ddcd4001bd6071bc6b468a112ba3fccd761a28686a9103ad285b",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/preview/form/fields/attachment/__tests__/attachmentEngineMigration.test.ts",
+			"status": "revised",
+			"review": "Read all 472 old lines and complete controller/coordinator owner. Replaced whole suite: schema/gate-admitted doc, gated real edits, actual native fetch with controlled remote transport, exact request bytes and successful returned paths, retained file/ink ownership, full migration/controller/fetch/response teardown. Old incomplete Response doubles made retarget fail while assertions merely counted PATCH. New 3 tests pass. Diagnostic after explicit joined fetch, consumed response body and closed dispatcher is Undici cloneRequest/cloneBody/InternalReadableByteStream Promise, confirmed via temporary async hook stack (removed); no exclusions.",
+			"reviewedSha256": "0227824812621ca429c9284d38925c05f231245a7d36935721a199237e20dffe",
+			"preIntegrationReviewedSha256": "cd166e2218eb2925724a544294b795f2315d062285ffd12d90ecff2f849f9b8d",
+			"integrationAdjustment": "integration-adjustments.json"
+		},
+		{
+			"file": "components/preview/form/fields/attachment/__tests__/attachmentClient.test.ts",
+			"status": "revised",
+			"review": "Read complete 2382-line production coordinator and all 3048 test lines. Replaced fabricated Partial<Response> normalizer that invented server paths with explicit single-consumption Response replies, independently supplied exact path acknowledgements, actual 409 refusal, and awaited request ownership. Moved staged HTTP protocol claims to attachmentHttp.test.ts using real socket peers/native fetch. Added task/deferred ownership and cancellation/join before restoration; narrow direct state tests no longer claim remounts. Coordinator33 tests pass.",
+			"reviewedSha256": "1d00f348ba357bf73e82f441ef18bb38e92c71f5feadeb40d13cdb77ad3a5dae"
+		},
+		{
+			"file": "components/preview/form/fields/attachment/__tests__/AttachmentField.test.tsx",
+			"status": "revised",
+			"review": "Read full 1023-line owner and2159 test lines. Replaced mocked access hooks with actual BuilderSessionContext/store, schema-parsed capture fields, exact response paths, and explicit committed async teardown. Removed CSS opacity assertion and moved long-filename layout to native browser. Stage/cleanup mocks now explicitly isolate control commit/authority behavior; actual transport separately tested. Control32 tests pass; native browser verifies byte upload, wrapped long filename, no overflow, and cleared input. Integration follow-up: Replaced 2205 lines of synthetic file changes, click/retry/clear assertions, copied transport results and accessibility checks with one direct React adapter lifecycle. Seed the real attachment coordinator with an already confirmed capture; actual control unmount/remount preserves ownership, and a supplied empty answer schedules the real HTTP DELETE without inventing an answer edit. No fake DOM gestures, canvas geometry or wrapper-stage mocks remain. Native attachment and FormScreen peers prove real file selection, upload bytes, confirmed answer publication and native controls; attachmentClient/attachmentHttp and controller migration owners retain queue, authority, retry and retarget rules.",
+			"reviewedSha256": "70a6ba65c9d11c5735d4faa9c8375a3c34b7759dd495c7bcfdb2259cd5db06c2",
+			"preSupplementReviewedSha256": "74dc4d730b971fb50e48e747ff5a79b4e2b0150b2e1a44781f621c1c3c63315a",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "components/preview/form/fields/attachment/__tests__/SignaturePad.test.tsx",
+			"status": "revised",
+			"review": "Read complete906-line owner and1380 test lines. Retained canvas/encoding boundary only for queue/generation/authority behavior, removed CSS disabledUndo oracle, owns and releases every encoding callback/deferred task before timers restore. Actual browser pointerstroke, encodedPNG dimensions, resize ink retention, Clear and Undo verified in preview-attachments-audit.spec.ts; unit25 tests pass. Integration follow-up: Replaced 1426 lines of invented pointer geometry, drawing, clear/undo gestures and mocked pixels with three React encoder-lifetime adapter cases. Seed real retained ink programmatically; control only the native toBlob callback boundary, proving old-entry rejection, abandoned-encoding/remount resumption and null-encoding submission refusal. Real queue/barrier cleanup remains owned and timers are cancelled on teardown. Existing native attachment journey owns actual pointer drawing, PNG bytes/pixels, resizing, clear and undo.",
+			"reviewedSha256": "74f4e669ea6804c058290ef67fe358f5d9adcbad3adb44cabb087a6618da865b",
+			"preSupplementReviewedSha256": "5e4fd7dcf3c26d3b36e8e60fd10bb5d42cc00b0a795039e0a949e228001d8c20",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "components/preview/form/__tests__/InteractiveFormRenderer.a11y.test.tsx",
+			"status": "removed",
+			"review": "Read complete renderer, FieldRenderer and RepeatField owners. Removed fabricated runtime/repeat and session hooks, inject actual EngineController over admitted doc while all state subscriptions remain real. Actual session+write authority and live Add create second repeat. Textbox edits and first-row removal prove retained second DOM/control value and surviving label association; all number/date/select/geopoint repeated labels remain distinct. Schema-correct ProseTemplate/optionsUUIDs.2 tests pass with disposed/joined engine. Integration follow-up: Read full 338-line current file. Removed repeated-input and accessible-label fake-DOM workflow tests that mocked the engine hook, Maps and visibility. Native Chromium now mounts the actual provider/controller/recursive renderer, queries computed accessible names, verifies distinct referenced label nodes, native structural relationships and exact retained input DOM identity/value after removing an earlier instance. Same-label capture questions prove section and repeat context.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "f51d7849bc6b1162d1595350d4bcf800e1a4d665c4b179ca3e667362777ccd56",
+			"supplementalEvidenceReport": "application-preview-reassessment.json"
+		},
+		{
+			"file": "components/preview/form/fields/geopoint/__tests__/projectScopeContinuations.test.tsx",
+			"status": "removed",
+			"review": "Read full suite and AddressSearch/GeopointPicker owners. Removed toy Autocomplete and unsafe ReconcilerContext cast; real BaseUI portal, full typed reset boundary, actual session. Only GooglePlaces/geolocation external APIs controlled. Owned external promises and act cleanup.6 tests pass including red-before-fix stale search response after clear. Production invalidates request generation immediately before debounce/shortquery return. Real portal proves direction with visible option. Integration follow-up: Read all 413 lines and all six methods plus full AddressSearch, GeopointPicker, browser geolocation adapter, Google loader, actual reset registry, session access owner, portal direction and toast boundary. Deleted mock-DOM interaction choreography and production-adapter mocks. Replaced with actual Chromium events and real engine answer effects at the actual component continuation owners. The former test-controlled key remount did not prove FormScreen Project-move remount and is no longer claimed. Native coverage in e2e/tests/preview-geopoint-audit.spec.ts.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "c32247a5e91c7d0c02d9be82237c8c47f85c18d08632ccdeea48284b0291be50",
+			"supplementalEvidenceReport": "domain-geopoint.json"
+		},
+		{
+			"file": "components/preview/__tests__/PreviewShell.test.tsx",
+			"status": "removed",
+			"review": "Read full616-line suite and complete shell owner. Kept explicit screen sentinels for Activity dispatch boundary, while real integration separately proves URL navigation. All primary fixtures now admitted with visible case columns, actual form fields, and a username-dependent visibility condition; removed impossible always-false module condition and empty-doc rerender. Same tree survives mode toggle. Removed primitive CSSheight oracle from persona recovery.27 tests pass. Integration follow-up: Read full 617-line current file. Removed mock-controlled routing/session/identity and stub-screen attribute visibility dispatch matrix. Domain admission is now directly exercised through actual locationToPreviewScreen over an admitted hierarchy. Native Shell tests cover committed two-page persona removal/recovery and cancellation of real parent selection with browser Back. Existing native condition, selected-case/deep-link, case-workspace and parent-first workflows remain the actual component wiring evidence. There is no retained React-only obligation in the removed fake-DOM methods.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "3fefd792fd7671344afbf37737304c046b3e43703a28ce2fac7d24e5fe58e2c7",
+			"supplementalEvidenceReport": "application-preview-reassessment.json"
+		},
+		{
+			"file": "components/preview/__tests__/PreviewShell.integration.test.tsx",
+			"status": "removed",
+			"review": "Replaced mocked routing/session and navigate-spy-only smoke with real browser History source, actual session provider, admitted case app, actual workspace providers and Results-to-Details-to-Results button journey. Assert resulting URL and visible canvas each direction; cleanup owns effects.1 test pass. Global real-Motion migration exposed one layout teardown frame; cleanup now awaits actual Base UI/Motion frames. Targeted integration plus drag session rerun10 passed without leaks. Integration follow-up: Read full 156-line current file. Removed fake-DOM URL/canvas navigation with stubbed running screens. Actual Results/Search/Details authoring, scroll restoration, Preview flips and return paths are exercised by the existing full-browser case workspace journey in authed.spec.ts (1303-2095).",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "9b9ad6f6308db1d8aa129a03b937af051d3ae861de24a1a4b52de3a42a958cac",
+			"supplementalEvidenceReport": "application-preview-reassessment.json"
+		},
+		{
+			"file": "components/preview/__tests__/formScreenAfterSubmit.test.ts",
+			"status": "revised",
+			"review": "Read complete542-line suite and afterSubmitRouting/moduleLanding owners. Appropriate direct decision boundary remains; reachable base and same-type nested fixture now admitted with case columns and fields. Removed needless invalid empty registration. Narrowed synthetic target selection forwarding to its actual projection claim. Added post-submit wrong-case readback regression proving current metadata preserved and input session unchanged.18 tests pass. Integration follow-up: Supplement to the previously fully reviewed pure routing owner: moved FormScreen created-child receipt projection here unchanged. Direct 2-child x 2-parent expectations preserve authored index/parent mapping; added incomplete and duplicate receipt refusals before routing. Existing routing and menu context tests remain unchanged. This is a later pass over an already counted baseline file, not a new baseline completion.",
+			"reviewedSha256": "268b1c60d25543c07a17f19102e9563e11769df6309f1c44ebde5b692dacbb49",
+			"preSupplementReviewedSha256": "701c5d5fa9aa2c7d074918f5369ba043eb1b9582e8078ccb4390e9a43a8a212c",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "components/preview/shared/__tests__/SearchInputForm.test.tsx",
+			"status": "removed",
+			"review": "Read all1192 test lines and1539-line owner plus actual date picker/calendar. Removed toy Calendar and CSS token assertions; real Base UI date selection, paired values and clear isolation, text field independence, exact299/300ms debounce boundary. Camera permission and teardown own every operation and obtained stream; mounted owner cleanup precedes clock teardown and asserts zero remaining timers.32 tests passed; native date-range controls companion queued. Integration follow-up: Removed 1116 lines of synthetic typing/calendar/dialog events, widget dispatch and copied validation results. The existing native search peer now binds the real useSearchInputRunState owner and proves narrow/wide calendar geometry, incomplete-range validation, preserving the other date bound and complete submitted values. A second native journey controls only camera/detector APIs while using actual MediaStream tracks and native dialog/input interactions: late camera permission after cancellation, ordinary cancel and successful detection all end every track, and detected code reaches the actual submitted search. Domain date-range/search validation and new searchRunState tests own business rules.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "1e73cd0812af913fddcb02b7da7f4a9ae1b4bb57cd95493f086461e86ac88654",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "components/preview/screens/__tests__/CaseListScreen.test.tsx",
+			"status": "removed",
+			"review": "Read all3841 test lines and3392-line owner. Real session store reads/writes replace fake hook state; full app schema and real mutation gate admit normal fixtures including live collaborator edits. Defensive missing module/type/columns and unsupported runtime fixtures explicitly marked. Typed case rows replace any/never casts. Removed CSS threshold snapshots; native real CaseListScreen companion measures responsive cards, long names and independent phone/disclosure actions. Controlled action gates and every returned action promise joined after cleanup; reset mock queues per test. Reproduced/fixed late selection navigation after unmount and unhandled validation transport rejection; retry preserves actual session selection.89 tests pass. Integration follow-up: Removed 3979-line synthetic DOM workflow suite. Pure orderedCaseSelection, menuProjection, display-condition/search evaluation and runtime search owners prove state decisions; useCaseDataBinding retains actual resource/scope/reload binding. Native preview-cases peer proves independent cell actions, responsive card/detail geometry, paginated selection order, real review dialog, rejection of a held old-Project validation response and ordered continuation despite reversed transport row order. Existing authenticated case-change/search-first/grouped-tile/after-submit journeys prove application composition. No fake click, focus, geometry or substring workflow is counted as browser evidence.",
+			"reviewedSha256": null,
+			"preIntegrationReviewedSha256": "5f2dcdbfc367ac2730140dd8f4411c26b06d3108be966258b804d47f625eea0c",
+			"integrationAdjustment": "integration-adjustments.json",
+			"preSupplementReviewedSha256": "fe1d3dcd3a56074473f38b6fd2c9475f09f2e183ece2b352514b8413c2302af9",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		},
+		{
+			"file": "components/preview/screens/__tests__/FormScreen.test.tsx",
+			"status": "removed",
+			"review": "Read full 3890-line suite and2645-line FormScreen owner. Rebuilt reachable fixtures through schema and admission gate, including legitimate separate case-first no-matches module; reserved explicit runtimeFault cases for unsupported lower-boundary containment. Removed session hook mocks; real session provider/store transitions now own target/menu/access/app lifetime behavior. Actual guarded doc edits and typed case rows replace bypass fixtures. All action promises, deferred gates and attachment tasks are joined on teardown even after failed assertions; exact intentional transport failures are tracked. Strengthened actual registration caseName/property payload and repeat removal evidence. Removed CSS-only footer and class/structure target oracles; native cases/search/attachments own geometry and real capture interactions. Retained attachment refresh now uses actual fields in the active form, explicitly injecting only retained coordinator state. 64 tests passed. No new FormScreen production defect reproduced. Integration follow-up: Removed 4088-line synthetic DOM workflow suite and copied action/error arms. Moved its genuine created-child receipt projection unchanged into existing afterSubmitRouting production owner and tested it directly. Existing FormEngine, controller async/snapshot, attachment coordinator, action/Postgres submission and form-link/routing owners remain authoritative. Added actual FormScreen/provider/controller native journey for required-field focus, real file upload barrier, disabled form while queued, paired submission digest/ref payload, error/Clear entry rotation, same-Project answer preservation and automatic changed-Project answer/entry teardown. Application native repeats and authenticated after-submit/case-change journeys cover structure and workflow composition. Fixture never reenacts a Project remount.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "8b36bd2fe6a765b3f5d12270087e784d40fc87b67c99f58ff91f5c0a828f8582",
+			"supplementalEvidenceReport": "preview-rtl-post-original.json"
+		}
+	],
+	"changedPaths": [
+		"components/preview/form/virtual/dragIntent.ts",
+		"components/preview/form/virtual/useDragIntent.ts",
+		"components/preview/form/virtual/__tests__/dragIntent.test.ts",
+		"components/preview/form/virtual/__tests__/useDragIntent.test.tsx",
+		"components/preview/form/virtual/__tests__/rowModel.test.ts",
+		"components/preview/form/virtual/__tests__/dropNoOp.test.ts",
+		"components/preview/form/virtual/__tests__/useFormRows.test.tsx",
+		"components/preview/screens/__tests__/ModuleScreen.test.ts",
+		"components/preview/screens/__tests__/moduleScreenNavigation.test.ts",
+		"components/preview/form/fields/geopoint/__tests__/geopointValue.test.ts",
+		"lib/preview/engine/__tests__/captureSubmissionValidation.test.ts",
+		"components/preview/form/virtual/dropNoOp.ts",
+		"components/preview/screens/ModuleScreen.tsx",
+		"components/preview/screens/moduleScreenNavigation.ts",
+		"components/preview/form/__tests__/newFieldDefaults.test.ts",
+		"components/preview/form/__tests__/sectionGestureItems.test.ts",
+		"lib/preview/xpath/coerce.ts",
+		"lib/preview/xpath/functions.ts",
+		"lib/preview/xpath/__tests__/fixtures/DoubleTextOracle.java",
+		"lib/preview/xpath/__tests__/fixtures/double-text-openjdk17.json",
+		"e2e/tests/preview-xpath-worker-audit.spec.ts",
+		"e2e/lib/preview-xpath-worker-client.ts",
+		"lib/preview/xpath/__tests__/workerClient.test.ts",
+		"lib/preview/xpath/__tests__/workerRuntime.test.ts",
+		"lib/preview/xpath/__tests__/javaPatternBoundary.test.ts",
+		"lib/preview/xpath/__tests__/generatedJavaRosaFunctions.test.ts",
+		"lib/preview/xpath/__tests__/javaRosaCrypto.test.ts",
+		"lib/preview/xpath/__tests__/javaRosaSleep.test.ts",
+		"lib/preview/xpath/__tests__/openJdk17DoubleString.test.ts",
+		"lib/preview/xpath/__tests__/dateAddLowering.integration.test.ts",
+		"lib/preview/xpath/__tests__/operatorNodesetSemantics.test.ts",
+		"lib/preview/xpath/__tests__/structuralEvaluator.test.ts",
+		"lib/preview/xpath/__tests__/asyncEvaluator.test.ts",
+		"lib/preview/xpath/__tests__/evaluator.test.ts",
+		"components/preview/__tests__/ScreenNavButtons.test.tsx",
+		"components/preview/form/__tests__/TextEditable.test.tsx",
+		"components/preview/shared/__tests__/useColumnDisplayContext.test.ts",
+		"lib/preview/__tests__/caseTile.test.ts",
+		"lib/preview/__tests__/entryPointLaunchAction.test.ts",
+		"lib/preview/__tests__/entryPointLaunch.test.ts",
+		"lib/preview/__tests__/menuProjection.test.ts",
+		"lib/preview/engine/__tests__/lookupDataBinding.test.ts",
+		"lib/preview/engine/__tests__/lookupEvaluation.test.ts",
+		"lib/preview/engine/__tests__/caseOperationProgramLookupTableIds.test.ts",
+		"lib/preview/engine/__tests__/collectConfigLookupTableIds.test.ts",
+		"lib/preview/engine/__tests__/types.test.ts",
+		"lib/preview/engine/__tests__/searchPhase.test.ts",
+		"lib/preview/engine/__tests__/caseDataBindingTelemetry.test.ts",
+		"lib/preview/engine/__tests__/useCaseDatabaseSnapshot.test.ts",
+		"lib/preview/engine/__tests__/attachmentCollection.test.ts",
+		"lib/preview/engine/__tests__/formEngineLookupChoices.test.ts",
+		"lib/preview/engine/__tests__/formEngineOperationAnswers.test.ts",
+		"lib/preview/engine/__tests__/formEngineSections.test.ts",
+		"components/preview/form/InlineTextEditor.tsx",
+		"components/preview/shared/localizedCaseProperties.ts",
+		"components/preview/shared/useColumnDisplayContext.ts",
+		"lib/preview/caseTileLayout.ts",
+		"lib/preview/engine/types.ts",
+		"lib/preview/engine/lookupDataBinding.ts",
+		"lib/preview/engine/lookupTableReferences.ts",
+		"lib/preview/engine/caseDataBindingHelpers.ts",
+		"lib/preview/__tests__/fixtures/admittedDoc.ts",
+		"e2e/lib/preview-interactions-client.tsx",
+		"e2e/tests/preview-interactions-audit.spec.ts",
+		"lib/preview/engine/__tests__/formEngine.test.ts",
+		"lib/preview/engine/__tests__/captureSubmissionIntent.test.ts",
+		"lib/preview/engine/__tests__/displayConditionEvaluation.test.ts",
+		"lib/preview/engine/__tests__/engineController.test.ts",
+		"lib/preview/engine/__tests__/engineControllerAsync.test.ts",
+		"lib/preview/engine/__tests__/engineControllerSections.test.ts",
+		"lib/preview/engine/__tests__/caseDataBindingClient.test.ts",
+		"lib/preview/engine/__tests__/casePropertyRenamePreflight.test.ts",
+		"lib/preview/engine/__tests__/fixtures/controllerDoc.ts",
+		"lib/preview/engine/__tests__/engineControllerResourceResume.test.ts",
+		"lib/preview/engine/__tests__/formDefaultLiteral.test.ts",
+		"lib/preview/engine/engineController.ts",
+		"lib/preview/engine/formEngine.ts",
+		"lib/preview/engine/caseDataBindingClient.ts",
+		"lib/preview/CLAUDE.md",
+		"lib/preview/engine/__tests__/formLinkEvaluation.test.ts",
+		"components/preview/form/fields/attachment/__tests__/attachmentEngineMigration.test.ts",
+		"components/preview/screens/CaseListScreen.tsx",
+		"components/preview/screens/__tests__/CaseListScreen.test.tsx",
+		"components/preview/shared/__tests__/SearchInputForm.test.tsx",
+		"e2e/lib/preview-search-client.tsx",
+		"e2e/tests/preview-search-audit.spec.ts",
+		"e2e/lib/componentPeer.ts",
+		"e2e/lib/preview-cases-client.tsx",
+		"e2e/lib/preview-cases-boundary.ts",
+		"e2e/tests/preview-cases-audit.spec.ts",
+		"components/preview/screens/__tests__/FormScreen.test.tsx",
+		"components/preview/__tests__/PreviewShell.integration.test.tsx",
+		"components/preview/__tests__/PreviewShell.test.tsx",
+		"components/preview/__tests__/formScreenAfterSubmit.test.ts",
+		"components/preview/form/__tests__/InteractiveFormRenderer.a11y.test.tsx",
+		"components/preview/form/fields/attachment/__tests__/AttachmentField.test.tsx",
+		"components/preview/form/fields/attachment/__tests__/SignaturePad.test.tsx",
+		"components/preview/form/fields/attachment/__tests__/attachmentClient.test.ts",
+		"components/preview/form/fields/geopoint/AddressSearch.tsx",
+		"components/preview/form/fields/geopoint/__tests__/projectScopeContinuations.test.tsx",
+		"lib/preview/engine/__tests__/caseDataBinding.postgres.test.ts",
+		"lib/preview/engine/__tests__/caseDataBindingActions.test.ts",
+		"lib/preview/engine/__tests__/identity.test.ts",
+		"lib/preview/engine/__tests__/provider.test.tsx",
+		"lib/preview/engine/__tests__/runtimeBindings.test.ts",
+		"lib/preview/engine/__tests__/searchExpressionEvaluation.test.ts",
+		"lib/preview/engine/__tests__/searchInputConstraints.test.ts",
+		"lib/preview/engine/__tests__/searchInputValidation.test.ts",
+		"lib/preview/engine/__tests__/submissionProgramAcceptance.postgres.test.ts",
+		"lib/preview/engine/__tests__/withSchemaHeal.test.ts",
+		"lib/preview/engine/__tests__/xpathInstances.test.ts",
+		"lib/preview/engine/caseDataBinding.ts",
+		"lib/preview/engine/searchInputValidation.ts",
+		"lib/preview/engine/xpathInstances.ts",
+		"lib/preview/hooks/__tests__/useCaseDataBinding.test.tsx",
+		"lib/preview/hooks/__tests__/useCasePropertyRenamePreflight.test.tsx",
+		"lib/preview/hooks/__tests__/useEntryPointLaunch.test.tsx",
+		"lib/preview/hooks/__tests__/useSearchInputRunState.test.tsx",
+		"lib/preview/hooks/useCasePropertyRenamePreflight.ts",
+		"lib/preview/xpath/rewrite.ts",
+		"components/preview/form/fields/attachment/__tests__/attachmentHttp.test.ts",
+		"lib/preview/engine/__tests__/caseReadChoreography.test.ts",
+		"lib/preview/engine/__tests__/fixtures/submissionProgram.ts",
+		"lib/preview/engine/__tests__/submissionProgramAuthority.test.ts",
+		"components/preview/form/virtual/VirtualFormList.tsx",
+		"components/preview/form/virtual/DropPlaceholderRow.tsx",
+		"vitest.setup.ts"
+	],
+	"checks": [
+		{
+			"command": "run-check.py --kind unit --owner preview -- mise exec -- npx vitest run (6 explicit virtual/paging files) --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/preview/virtual.log",
+			"result": "6 files, 76 tests passed"
+		},
+		{
+			"command": "run-check.py --kind unit --owner preview -- mise exec -- npx vitest run (14 explicit projection/state files) --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/preview/projections.log",
+			"result": "14 files, 142 tests passed; later newFieldDefaults and sectionGestureItems strengthening pending recheck"
+		},
+		{
+			"command": "run-check.py unit scoped workers/defaults/section gesture batch",
+			"log": "/tmp/nova-test-audit-parallel/preview/workers.log",
+			"result": "4 files, 79 tests passed"
+		},
+		{
+			"command": "run-check.py heavy native OpenJDK17 DoubleTextOracle.java",
+			"log": "/tmp/nova-test-audit-parallel/preview/double-oracle.log",
+			"result": "296 frozen exact-bit vectors generated independently"
+		},
+		{
+			"command": "run-check.py unit scoped 17 runtime files",
+			"log": "/tmp/nova-test-audit-parallel/preview/runtime.log",
+			"result": "17 files, 214 tests passed"
+		},
+		{
+			"command": "run-check.py unit evaluator old source regression",
+			"log": "/tmp/nova-test-audit-parallel/preview/java-trim-red.log",
+			"result": "2 expected failures: selected NBSP accepted and number NBSP coerced"
+		},
+		{
+			"command": "run-check.py unit evaluator/scalar/nodeset/date lowering after Java trim fix",
+			"log": "/tmp/nova-test-audit-parallel/preview/java-trim-green.log",
+			"result": "4 files, 106 tests passed"
+		},
+		{
+			"command": "Scoped native Chromium component journeys",
+			"log": "/tmp/nova-test-audit-parallel/application/native-components-sixth.log",
+			"result": "Actual drag/order/cursor and TipTap reject/correct/Tab navigation pass; actual compiled worker/lazy import/watchdog/cancel passed in native-components-third.log"
+		},
+		{
+			"command": "Scoped navigation projections",
+			"log": "/tmp/nova-test-audit-parallel/preview/navigation-extra.log",
+			"result": "Action, caseTile and localized projection passed; initial entry-point gate failure corrected and passed in lookup-green.log"
+		},
+		{
+			"command": "Scoped lookup/navigation unit batch",
+			"log": "/tmp/nova-test-audit-parallel/preview/lookup-green.log",
+			"result": "11 files passed, including privacy regression fix; initial menu/snapshot admission failures fixed and passed in engine-main.log"
+		},
+		{
+			"command": "Scoped FormEngine helpers",
+			"log": "/tmp/nova-test-audit-parallel/preview/engine-small.log",
+			"result": "Operation-answer and lookup-choice tests passed; initial attachment/page fixture errors fixed and passed in engine-main.log"
+		},
+		{
+			"command": "Scoped main engine and admitted projections",
+			"log": "/tmp/nova-test-audit-parallel/preview/engine-main.log",
+			"result": "AttachmentCollection, formEngineSections, useCaseDatabaseSnapshot and menuProjection passed; formEngine schema errors still in progress"
+		},
+		{
+			"command": "Scoped real controller/state batch",
+			"log": "/tmp/nova-test-audit-parallel/preview/controller-green.log",
+			"result": "3 files,79 tests pass incl admitted search-answer cold/refresh suspension regression both sync and worker"
+		},
+		{
+			"command": "No-matches search answer old-source regression",
+			"log": "/tmp/nova-test-audit-parallel/preview/search-resume-second.log",
+			"result": "2 expected failures: admitted search default emptied after required data arrived"
+		},
+		{
+			"command": "Literal default old-source regression",
+			"log": "/tmp/nova-test-audit-parallel/preview/default-false-red.log",
+			"result": "2 expected failures: authored text false discarded in sync and worker"
+		},
+		{
+			"command": "Private error old-source regressions",
+			"log": "/tmp/nova-test-audit-parallel/preview/case-error-red.log",
+			"result": "3 expected failures: generic filter/sample/submission mappers leaked synthetic connection credentials"
+		},
+		{
+			"command": "Main engine,mapper and typecheck-fix regression batch",
+			"log": "/tmp/nova-test-audit-parallel/preview/engine-errors-green.log",
+			"result": "8 files,229 tests passed"
+		},
+		{
+			"command": "Real gate preflight action suite",
+			"log": "/tmp/nova-test-audit-parallel/preview/preflight.log",
+			"result": "1 file,9 tests passed"
+		},
+		{
+			"command": "Scoped Biome check --write",
+			"log": "/tmp/nova-test-audit-parallel/preview/scoped-biome.log",
+			"result": "65 owned files checked,41 formatted; one unused import subsequently removed"
+		},
+		{
+			"command": "vitest run caseDataBindingActions --project unit --maxWorkers=1 --detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/preview/actions-fourth.log",
+			"result": "75 passed. Earlier actions-first.log reproduced11 private-message leaks plus admitted-fixture failures."
+		},
+		{
+			"command": "Scoped owned test batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/database-first.log",
+			"result": "1 native Postgres file66pass"
+		},
+		{
+			"command": "Scoped owned test batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/program-second.log",
+			"result": "1 native Postgres file8pass"
+		},
+		{
+			"command": "Scoped owned test batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/heal-first.log",
+			"result": "2files19pass"
+		},
+		{
+			"command": "Scoped owned test batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/search-small.log",
+			"result": "3files50pass"
+		},
+		{
+			"command": "Scoped owned test batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/authority-first.log",
+			"result": "action75pass and extracted paging-race1pass"
+		},
+		{
+			"command": "Scoped explicit-file unit batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/search-structural-first.log",
+			"result": "2files33pass"
+		},
+		{
+			"command": "Scoped explicit-file unit batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/bindings-first.log",
+			"result": "2files96pass"
+		},
+		{
+			"command": "Scoped explicit-file unit batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/provider-first.log",
+			"result": "1file9pass"
+		},
+		{
+			"command": "Scoped explicit-file unit batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/rename-unmount-red.log",
+			"result": "Expected1failure exposing stale success after unmount"
+		},
+		{
+			"command": "Scoped explicit-file unit batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/case-hooks-first.log",
+			"result": "2files40pass"
+		},
+		{
+			"command": "Scoped explicit-file unit batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/case-hooks-second.log",
+			"result": "1file29pass"
+		},
+		{
+			"command": "Scoped explicit-file unit batch via admission wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/entry-hook-first.log",
+			"result": "1file11pass"
+		},
+		{
+			"command": "Admitted form links incl actual worker north selection",
+			"log": "/tmp/nova-test-audit-parallel/preview/migration-first.log",
+			"result": "form links31 passed; initial redesigned migration3 failed due exact matcher unable to consume native AsyncGenerator request, fixed with actual remote byte reader"
+		},
+		{
+			"command": "Actual migration HTTP contract and teardown",
+			"log": "/tmp/nova-test-audit-parallel/preview/migration-third.log",
+			"result": "3 passed; reported native Undici request-body tee Promise separately diagnosed with full stack in migration-diagnostic.log"
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/attachment-coordinator-second.log",
+			"result": "passed",
+			"note": "Scoped tests passed."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/attachment-controls-second.log",
+			"result": "passed",
+			"note": "Scoped tests passed."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/attachment-http-third.log",
+			"result": "passed",
+			"note": "Owned boundary verification; attachment HTTP native fetch allocates inert internal body-tee/Blob reader diagnostics after all responses consumed and socket peers/controllers joined."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/renderer-first.log",
+			"result": "passed",
+			"note": "Scoped tests passed."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/geopoint-fourth.log",
+			"result": "passed",
+			"note": "Scoped tests passed."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/shell-third.log",
+			"result": "passed",
+			"note": "3 suites46 tests. FormEngine148 including3 real daylight-transition case-property coercion regressions passed shell-second.log; other shell fixtures in that earlier run were fixed before shell-third."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/search-controls-third.log",
+			"result": "32 tests passed with real calendar and owned timers/camera"
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/cases-unmount-before.log",
+			"result": "Expected regression failure: old selection published after unmount"
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/cases-rejection-before.log",
+			"result": "Expected regression failure and unhandled transport rejection"
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/cases-final.log",
+			"result": "89 tests passed after both production fixes"
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/cases-biome-second.log",
+			"result": "Scoped6-file Biome passed"
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/form-final.log",
+			"result": "64 tests passed; final cleanup ownership verified form-cleanup-peer.log."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/form-final-biome.log",
+			"result": "4 files Biome passed,2 formatted"
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/application/browser-twentysecond.log",
+			"result": "Application reports native SearchInputForm date-range and responsive checks passed; case-list native remains pending exact Server Action aliases."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/preview/form-cleanup-peer.log",
+			"result": "64 tests passed with all retained attachment cleanup requests owned and verified; zero ECONNREFUSED logs."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/application/browser-preview-cases-sixth.log",
+			"result": "Native Chromium case-list journey passed:320px heading/cell action geometry, independent phone/disclosure, keyboardDetails/Continue/formmenu/Back and3-7field reflow thresholds."
+		},
+		{
+			"command": "mise exec -- npx biome check --write components/preview/screens/__tests__/FormScreen.test.tsx",
+			"log": "/tmp/nova-test-audit-parallel/preview/form-freeze-biome.log",
+			"result": "1 file formatted; final 64-test behavior run remains form-cleanup-peer.log"
+		},
+		{
+			"command": "Native Escape/outside/actual placeholder drop BEFORE adapter integration fix",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-preview-drag-before.log",
+			"result": "Escape and outside failed by committing previous landing; actual placeholder passed"
+		},
+		{
+			"command": "Native Escape/outside/actual placeholder drop AFTER adapter integration fix",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workflows-fourth.log",
+			"result": "All3 passed"
+		},
+		{
+			"command": "5 original Preview files after global real Motion migration",
+			"log": "/tmp/nova-test-audit-parallel/preview/original-real-motion.log",
+			"result": "162 tests passed; one layout cleanup frame exposed and fixed next check"
+		},
+		{
+			"command": "PreviewShell integration plus dragIntent after frame ownership fix",
+			"log": "/tmp/nova-test-audit-parallel/preview/original-motion-cleanup.log",
+			"result": "10 tests passed, zero leaks"
+		},
+		{
+			"command": "Removed dead DragStateProvider wrapper and write-only hook output after Builder confirmed zero consumers",
+			"log": "/tmp/nova-test-audit-parallel/preview/post-initial-biome.log",
+			"result": "Scoped Biome clean for both Preview sources; native drag behavior still covered by prior real-monitor tests"
+		}
+	],
+	"bugs": [
+		{
+			"summary": "Drag state deduplicated by placeholder ordinal before replacing pending identity, so a peer reorder and hover of a new target at the same ordinal could commit the old target. New state regression exercises actual gated peer edits and final move.",
+			"status": "fixed and native verified"
+		},
+		{
+			"summary": "Drag monitor cleanup did not restore body cursor when canvas unmounted during drag. Browser adapter now restores prior cursor on drop and cleanup.",
+			"status": "fixed and native verified"
+		},
+		{
+			"summary": "selected() and number() incorrectly applied JS trim rather than Java String.trim, accepting NBSP-wrapped text/numbers and retaining low ASCII controls Core removes. Both evaluator regressions failed old source, passed shared javaTrim fix; native upstream owners inspected, commcare agent adding direct Core corpus.",
+			"status": "fixed and native Core verified in commcare/xpath-native-core-third.log"
+		},
+		{
+			"summary": "InlineTextEditor Tab saved/unmounted current editor before searching its sibling, so focus stayed behind. Native Chromium reproduced; resolving target before save and clicking after accepted outcome fixes forward navigation.",
+			"status": "fixed and native verified"
+		},
+		{
+			"summary": "Drag onDrop relied on frame-throttled hover events; sampling final drop location before committing makes native pointer drop deterministic. Native Chromium verifies final order and cursor cleanup.",
+			"status": "fixed and native verified"
+		},
+		{
+			"summary": "readLookupPreviewData returned unexpected internal Error.message to the browser. Red regression exposed private connection detail; stable retry message now preserves telemetry and hides private text.",
+			"status": "fixed and unit verified"
+		},
+		{
+			"summary": "Required case-data resume omitted requested searchAnswers in both controller activation branches, emptying no-matches registration defaults. New fully admitted sync/worker regressions failed old source and now preserve the search snapshot through initial arrival and later refresh suspension.",
+			"status": "fixed and verified"
+		},
+		{
+			"summary": "Both FormEngine default evaluators treated evaluated text false as no default, so an authored text literal silently disappeared. Fully admitted sync/worker test fails before fix; now only empty string means absent.",
+			"status": "fixed and verified"
+		},
+		{
+			"summary": "Generic case filter/sample/submission error mappers exposed unexpected internal messages. Three synthetic credential regressions fail old source; stable retry messages now preserve typed domain errors and server telemetry.",
+			"status": "fixed and verified"
+		},
+		"Eleven remaining caseDataBinding Server Action generic catches returned raw internal Error.message. Reproduced all11 with synthetic credential/host exception; now stable retry copy, preserving typed error arms and telemetry.",
+		{
+			"summary": "Rename preflight request remained current after hook unmount and returned an obsolete success to its awaiting caller. Real session-store regression fails old source; effect cleanup now retires request generation.",
+			"status": "fixed and verified"
+		},
+		{
+			"summary": "AddressSearch accepted a held old Places response after query clear or during next debounce, restoring obsolete suggestions. Actual Base UI regression failed old source; immediate generation invalidation fixes it.",
+			"status": "fixed and verified"
+		},
+		{
+			"summary": "CaseListScreen kept selection validation current after unmount, allowing a delayed check to publish an obsolete target and navigate. Controlled pre-fix regression failed; unmount now retires its token.",
+			"status": "fixed and verified"
+		},
+		{
+			"summary": "CaseListScreen selection checks leaked transport rejections out of the click handler without retry guidance. Controlled rejection failed old source; current attempt now renders stable retry copy and retains choices, and retry succeeds.",
+			"status": "fixed and verified"
+		},
+		{
+			"summary": "Native Escape and outside-canvas drag completion emitted onDrop with empty targets and committed the prior hovered landing. Adapter now cancels absent/unrecognized final targets and retains prior landing only for real registered drop-placeholder.",
+			"status": "fixed and native verified"
+		}
+	],
+	"docsNeeded": [
+		"lib/preview XPath whitespace contract: selected(), is-selected() and numeric string coercion now consistently use Java ASCII-control trim, preserving NBSP. Add short shared findings entry; no new user workflow.",
+		"Native InlineTextEditor Tab navigation now resolves adjacent editor before save removes the current DOM; no new author workflow, behavior bug fixed.",
+		"Lookup preview load failures now use stable retry copy and keep unexpected private details server-side.",
+		"lib/preview/CLAUDE.md updated for default literal false, Java trim, retained search snapshots and safe unexpected-error mapping. Public docs do not need new steps; these restore existing behavior.",
+		"Updated lib/preview/CLAUDE.md selection validation lifetime and retained choices on transport failure. Existing recovery behavior restored, no new workflow.",
+		"Native drag cancellation: Escape/outside-canvas drops cancel; only registered placeholder may reuse last landing. Original placeholder extracted unchanged for native proof."
+	],
+	"blockedBy": []
+}

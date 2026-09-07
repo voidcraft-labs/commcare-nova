@@ -14,13 +14,34 @@ import {
 	sessionContext,
 	term,
 } from "@/lib/domain/predicate";
+import { evaluateAsync } from "../../xpath/asyncEvaluator";
+import { toBoolean } from "../../xpath/coerce";
 import type { PreviewSearchSessionValues } from "../identity";
+import { sessionInstancePathValue } from "../searchExpressionEvaluation";
 import {
 	searchInputConstraintErrors,
 	searchInputConstraintErrorsOnDevice,
 	searchInputRequiredMarks,
 	searchInputRequiredMarksOnDevice,
 } from "../searchInputConstraints";
+
+async function evaluatePatternSource(source: string): Promise<boolean> {
+	return toBoolean(
+		await evaluateAsync(source, {
+			contextPath: "",
+			position: 1,
+			getValue: (path) => sessionInstancePathValue(path, SESSION),
+			resolveHashtag: () => "",
+			resolveInstance: (instanceId, path) =>
+				instanceId === "commcaresession"
+					? {
+							kind: "supported",
+							value: sessionInstancePathValue(path, SESSION),
+						}
+					: { kind: "unsupported" },
+		}),
+	);
+}
 
 const NAME = testUuid("00000000-0000-0000-0000-0000000000b1");
 const PHONE = testUuid("00000000-0000-0000-0000-0000000000b2");
@@ -117,7 +138,7 @@ describe("searchInputConstraintErrors", () => {
 });
 
 describe("searchInputConstraintErrorsOnDevice", () => {
-	it("judges a pattern-bearing check through the on-device evaluator with the answers bound in", async () => {
+	it("judges a pattern-bearing check through the real async Java Pattern evaluator with the answers bound in", async () => {
 		const sources: string[] = [];
 		const errors = await searchInputConstraintErrorsOnDevice(
 			INPUTS,
@@ -130,7 +151,7 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 			{
 				evaluateOnDevice: async (source) => {
 					sources.push(source);
-					return false;
+					return evaluatePatternSource(source);
 				},
 			},
 		);
@@ -140,7 +161,7 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 		]);
 	});
 
-	it("clears the check when the device evaluator answers true", async () => {
+	it("clears the check when the real Java Pattern accepts the value", async () => {
 		const errors = await searchInputConstraintErrorsOnDevice(
 			INPUTS,
 			new Map([
@@ -149,7 +170,7 @@ describe("searchInputConstraintErrorsOnDevice", () => {
 			]),
 			SESSION,
 			undefined,
-			{ evaluateOnDevice: async () => true },
+			{ evaluateOnDevice: evaluatePatternSource },
 		);
 		expect(errors.size).toBe(0);
 	});
@@ -189,7 +210,7 @@ describe("searchInputRequiredMarks", () => {
 		).toBe(false);
 	});
 
-	it("leaves a pattern-bearing condition unjudged on the scalar thread and judges it on the device", async () => {
+	it("leaves a pattern-bearing condition unjudged on the scalar thread and judges it through the real async evaluator", async () => {
 		const byPattern = simpleSearchInputDef(
 			PHONE,
 			"phone",
@@ -216,7 +237,7 @@ describe("searchInputRequiredMarks", () => {
 			{
 				evaluateOnDevice: async (source) => {
 					sources.push(source);
-					return true;
+					return evaluatePatternSource(source);
 				},
 			},
 		);

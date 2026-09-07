@@ -1,13 +1,20 @@
+/** Real shape commands, gate, reducer and paged projection. Place services
+ * return controlled authorized snapshots/receipts; revision arguments and
+ * confirmation forwarding here do not prove SQL locks or token enforcement. */
+
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
 	makeCanonicalGenesisDoc,
 	makeToolWorkspaceHarness,
 	type ToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { CommitReauthError } from "@/lib/db/commitGuard";
-import type { BlueprintDoc } from "@/lib/domain";
+import { type BlueprintDoc, type Uuid, uuidSchema } from "@/lib/domain";
 import * as organizationService from "@/lib/organization/service";
 import {
 	addLocationPropertiesInputSchema,
@@ -28,11 +35,51 @@ import {
 const APP_ID = "organization-tool-app";
 
 function makeHarness(initialDoc: BlueprintDoc): ToolWorkspaceHarness {
-	return makeToolWorkspaceHarness(initialDoc, {
+	return makeToolWorkspaceHarness(expectAdmittedDoc(initialDoc), {
 		appId: APP_ID,
 		userId: "member",
 		runId: "run",
 	});
+}
+
+function withStoredLevel(
+	doc: BlueprintDoc,
+	uuid: Uuid,
+	propertyUuid?: Uuid,
+): BlueprintDoc {
+	const next = structuredClone(doc);
+	next.organizationLevels = {
+		[uuid]: {
+			uuid,
+			code: "facility",
+			name: "Facility",
+			caseFlow: { workers: "none", ownsCases: false },
+			addressBook: { reach: "own-branch" },
+		},
+	};
+	next.organizationLevelOrder = [uuid];
+	if (propertyUuid !== undefined) {
+		next.locationProperties = {
+			[propertyUuid]: { uuid: propertyUuid, slug: "detail", label: "Detail" },
+		};
+		next.locationPropertyOrder = [propertyUuid];
+	}
+	return expectAdmittedDoc(next);
+}
+const organizationPageSchema = z.object({
+	levels: z.array(z.object({ uuid: uuidSchema })),
+	placeInformation: z.array(z.object({ uuid: uuidSchema })),
+	locations: z.array(z.looseObject({ id: uuidSchema })),
+	page: z.object({
+		returned: z.number(),
+		complete: z.boolean(),
+		nextCursor: z.string().nullable(),
+	}),
+});
+function continuation(data: unknown): string {
+	const page = organizationPageSchema.parse(data).page;
+	if (page.nextCursor === null) throw new Error("fixture needs another page");
+	return page.nextCursor;
 }
 
 describe("organization authoring tools", () => {
@@ -126,18 +173,25 @@ describe("organization authoring tools", () => {
 		).toMatchObject({ slug: "facility_code" });
 	});
 
-	it("does not expose the create-once level code on updates", () => {
-		const json = z.toJSONSchema(updateOrganizationLevelInputSchema, {
-			target: "draft-7",
-			io: "input",
-		}) as { properties?: Record<string, unknown> };
-		expect(json.properties).not.toHaveProperty("code");
-		expect(
-			updateOrganizationLevelInputSchema.safeParse({
-				uuid: "11111111-1111-4111-8111-111111111111",
-				code: "renamed",
-			}).success,
-		).toBe(false);
+	it("the input schema and generated wire schema refuse level-code updates", () => {
+		const ajv = new Ajv({ strict: false });
+		addFormats(ajv);
+		const validate = ajv.compile(
+			z.toJSONSchema(updateOrganizationLevelInputSchema, {
+				target: "draft-7",
+				io: "input",
+			}),
+		);
+		const valid = { uuid: testUuid("level-update"), name: "Renamed facility" };
+		expect(updateOrganizationLevelInputSchema.safeParse(valid).success).toBe(
+			true,
+		);
+		expect(validate(valid), JSON.stringify(validate.errors)).toBe(true);
+		const invalid = { ...valid, code: "renamed" };
+		expect(updateOrganizationLevelInputSchema.safeParse(invalid).success).toBe(
+			false,
+		);
+		expect(validate(invalid)).toBe(false);
 	});
 
 	it("accepts null as absence on add and preserves unique-choice validation", () => {
@@ -205,31 +259,20 @@ describe("organization authoring tools", () => {
 		});
 	});
 
-	it("requires an exact revision on every place-row tool write", () => {
+	it("requires the current revision on all four place-write schemas", () => {
 		const locationUuid = testUuid("location");
 		const levelUuid = testUuid("level");
-		expect(
-			createLocationToolInputSchema.safeParse({ levelUuid, name: "Clinic" })
-				.success,
-		).toBe(false);
-		expect(
-			updateLocationToolInputSchema.safeParse({
-				locationUuid,
-				expectedRevision: "4",
-			}).success,
-		).toBe(false);
-		expect(
-			moveLocationToolInputSchema.safeParse({
-				locationUuid,
-				parentUuid: null,
-			}).success,
-		).toBe(false);
-		expect(
-			setLocationArchivedToolInputSchema.safeParse({
-				locationUuid,
-				archived: false,
-			}).success,
-		).toBe(false);
+		for (const [schema, input] of [
+			[createLocationToolInputSchema, { levelUuid, name: "Clinic" }],
+			[updateLocationToolInputSchema, { locationUuid, name: "Renamed clinic" }],
+			[moveLocationToolInputSchema, { locationUuid, parentUuid: null }],
+			[setLocationArchivedToolInputSchema, { locationUuid, archived: false }],
+		] as const) {
+			expect(schema.safeParse(input).success).toBe(false);
+			expect(
+				schema.safeParse({ ...input, expectedRevision: "4" }).success,
+			).toBe(true);
+		}
 	});
 
 	it("treats null create optionals as absence", () => {
@@ -245,7 +288,11 @@ describe("organization authoring tools", () => {
 	});
 
 	it("returns a bounded searchable page without custom values by default", async () => {
-		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const doc = withStoredLevel(
+			makeCanonicalGenesisDoc("Organization", APP_ID),
+			testUuid("level"),
+			testUuid("property"),
+		);
 		const h = makeHarness(doc);
 		const snapshot = {
 			revision: "7",
@@ -271,10 +318,10 @@ describe("organization authoring tools", () => {
 			limit: 25,
 			includeValues: false,
 		});
-		const firstPage = first.data as { page: { nextCursor: string } };
+		const nextCursor = continuation(first.data);
 		const result = await h.runTool(getOrganizationTool, {
 			query: "clinic",
-			cursor: firstPage.page.nextCursor,
+			cursor: nextCursor,
 			limit: 25,
 			includeValues: false,
 		});
@@ -288,7 +335,7 @@ describe("organization authoring tools", () => {
 				nextCursor: expect.any(String),
 			},
 		});
-		const data = result.data as { locations: Record<string, unknown>[] };
+		const data = organizationPageSchema.parse(result.data);
 		expect(data.locations).toHaveLength(25);
 		expect(data.locations[0]).not.toHaveProperty("values");
 	});
@@ -343,42 +390,40 @@ describe("organization authoring tools", () => {
 		const h = makeHarness(doc);
 
 		let cursor: string | undefined;
-		let levelCount = 0;
-		let propertyCount = 0;
-		let locationCount = 0;
+		const levelIds: Uuid[] = [];
+		const propertyIds: Uuid[] = [];
+		const locationIds: Uuid[] = [];
+		const cursors = new Set<string>();
+		let completed = false;
 		for (let pageNumber = 0; pageNumber < 10; pageNumber++) {
 			const page = await h.runTool(getOrganizationTool, {
 				limit: 25,
 				...(cursor === undefined ? {} : { cursor }),
 			});
-			const data = page.data as {
-				levels: unknown[];
-				placeInformation: unknown[];
-				locations: unknown[];
-				page: {
-					returned: number;
-					complete: boolean;
-					nextCursor: string | null;
-				};
-			};
+			const data = organizationPageSchema.parse(page.data);
 			expect(data.page.returned).toBeLessThanOrEqual(25);
 			expect(
 				data.levels.length +
 					data.placeInformation.length +
 					data.locations.length,
 			).toBe(data.page.returned);
-			levelCount += data.levels.length;
-			propertyCount += data.placeInformation.length;
-			locationCount += data.locations.length;
-			if (data.page.complete) break;
+			levelIds.push(...data.levels.map((item) => item.uuid));
+			propertyIds.push(...data.placeInformation.map((item) => item.uuid));
+			locationIds.push(...data.locations.map((item) => item.id));
+			if (data.page.complete) {
+				expect(data.page.nextCursor).toBeNull();
+				completed = true;
+				break;
+			}
 			if (data.page.nextCursor === null) throw new Error("cursor missing");
+			expect(cursors.has(data.page.nextCursor)).toBe(false);
+			cursors.add(data.page.nextCursor);
 			cursor = data.page.nextCursor;
 		}
-		expect({ levelCount, propertyCount, locationCount }).toEqual({
-			levelCount: 40,
-			propertyCount: 40,
-			locationCount: 40,
-		});
+		expect(completed).toBe(true);
+		expect(levelIds).toEqual(levels.map((item) => item.uuid));
+		expect(propertyIds).toEqual(properties.map((item) => item.uuid));
+		expect(locationIds).toEqual(locations.map((item) => item.id));
 	});
 
 	it("propagates terminal chat authorization loss from place writers", async () => {
@@ -401,7 +446,7 @@ describe("organization authoring tools", () => {
 		).rejects.toBeInstanceOf(CommitReauthError);
 	});
 
-	it("preflights an archive without writing and binds confirmation to its payload", async () => {
+	it("projects archive preflight and forwards its exact confirmed impact to the writer", async () => {
 		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
 		const h = makeHarness(doc);
 		const locationUuid = testUuid("archive-location");
@@ -477,11 +522,14 @@ describe("organization authoring tools", () => {
 			expectedRevision: "10",
 		});
 		expect(result).toMatchObject({ kind: "read", data: { revision: "11" } });
-		expect((result as { data: unknown }).data).not.toHaveProperty("result");
+		expect(result.data).not.toHaveProperty("result");
 	});
 
 	it("rejects a continuation cursor after the organization revision changes", async () => {
-		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const doc = withStoredLevel(
+			makeCanonicalGenesisDoc("Organization", APP_ID),
+			testUuid("paged-level"),
+		);
 		const h = makeHarness(doc);
 		const location = {
 			id: testUuid("paged-location"),
@@ -494,26 +542,33 @@ describe("organization authoring tools", () => {
 			longitude: null,
 			values: {},
 			archivedAt: null,
-			orderKey: "1",
+			orderKey: "a0",
 		} as const;
 		vi.spyOn(organizationService, "readOrganization")
 			.mockResolvedValueOnce({
 				revision: "7",
 				locations: [
 					location,
-					{ ...location, id: testUuid("paged-location-2") },
+					{
+						...location,
+						id: testUuid("paged-location-2"),
+						siteCode: "clinic_2",
+						orderKey: "a1",
+					},
 				],
 			})
 			.mockResolvedValueOnce({ revision: "8", locations: [location] });
 		const first = await h.runTool(getOrganizationTool, { limit: 1 });
-		const cursor = (first.data as { page: { nextCursor: string } }).page
-			.nextCursor;
+		const cursor = continuation(first.data);
 		const second = await h.runTool(getOrganizationTool, { cursor, limit: 1 });
 		expect(second.data).toMatchObject({ restart: true, revision: "8" });
 	});
 
 	it("rejects a continuation cursor after only the organization shape changes", async () => {
-		const doc = makeCanonicalGenesisDoc("Organization", APP_ID);
+		const doc = withStoredLevel(
+			makeCanonicalGenesisDoc("Organization", APP_ID),
+			testUuid("blueprint-paged-level"),
+		);
 		const h = makeHarness(doc);
 		const location = {
 			id: testUuid("blueprint-paged-location"),
@@ -526,18 +581,22 @@ describe("organization authoring tools", () => {
 			longitude: null,
 			values: {},
 			archivedAt: null,
-			orderKey: "1",
+			orderKey: "a0",
 		} as const;
 		vi.spyOn(organizationService, "readOrganization").mockResolvedValue({
 			revision: "7",
 			locations: [
 				location,
-				{ ...location, id: testUuid("blueprint-paged-location-2") },
+				{
+					...location,
+					id: testUuid("blueprint-paged-location-2"),
+					siteCode: "clinic_2",
+					orderKey: "a1",
+				},
 			],
 		});
 		const first = await h.runTool(getOrganizationTool, { limit: 1 });
-		const cursor = (first.data as { page: { nextCursor: string } }).page
-			.nextCursor;
+		const cursor = continuation(first.data);
 		/* The shape half now comes from the workspace document, so a real
 		 * level add — not a bumped sequence — is what moves it between pages. */
 		await h.runTool(addOrganizationLevelsTool, {

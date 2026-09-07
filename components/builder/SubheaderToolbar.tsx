@@ -363,18 +363,25 @@ export const CollapsibleBreadcrumb = memo(function CollapsibleBreadcrumb({
 			{/* Inert width probe: the full trail, laid out but invisible and
 			 *  un-clickable, so `measure` always reads the natural (uncollapsed)
 			 *  width regardless of what the live trail above is showing. aria-hidden
-			 *  keeps it out of the a11y tree (the live group above is labelled). */}
+			 *  keeps it out of the a11y tree (the live group above is labelled).
+			 * The clipping parent keeps its natural width from overflowing the page. */}
 			<div
-				ref={mirrorRef}
 				aria-hidden="true"
-				className="absolute left-0 top-0 flex items-center gap-1 text-lg whitespace-nowrap invisible pointer-events-none"
+				className="absolute inset-0 overflow-hidden invisible pointer-events-none"
 			>
-				{parts.map((part, i) => (
-					<Fragment key={part.key}>
-						{i > 0 && Chevron}
-						<span className="font-medium whitespace-nowrap">{part.label}</span>
-					</Fragment>
-				))}
+				<div
+					ref={mirrorRef}
+					className="absolute left-0 top-0 flex items-center gap-1 text-lg whitespace-nowrap"
+				>
+					{parts.map((part, i) => (
+						<Fragment key={part.key}>
+							{i > 0 && Chevron}
+							<span className="font-medium whitespace-nowrap">
+								{part.label}
+							</span>
+						</Fragment>
+					))}
+				</div>
 			</div>
 		</div>
 	);

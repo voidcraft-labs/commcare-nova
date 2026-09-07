@@ -266,56 +266,106 @@ describe("memberOwnerIds", () => {
 });
 
 describe("personaFootprint", () => {
-	it("enumerates exactly what assignmentFootprintIncludes admits", () => {
-		// The enumerator and the commit gate's membership test must not drift:
-		// one decides what a fixture carries, the other decides what an owner
-		// rule may name, and a destination outside the fixture is a silent
-		// orphan on the device.
-		const books: LevelAddressBook[] = [
-			{ reach: "own-branch" },
-			{ reach: "own-branch", downToLevelUuid: asUuid(FACILITY) },
-			{
+	const footprintCases: Array<{
+		name: string;
+		book: LevelAddressBook;
+		assigned: string[];
+		expected: string[];
+	}> = [
+		{
+			name: "own branch retains ancestors and excludes siblings",
+			book: { reach: "own-branch" },
+			assigned: [FACILITY_A1],
+			expected: [REGION_PLACE, DISTRICT_A, FACILITY_A1],
+		},
+		{
+			name: "own branch cap excludes deeper places",
+			book: { reach: "own-branch", downToLevelUuid: asUuid(DISTRICT) },
+			assigned: [DISTRICT_A],
+			expected: [REGION_PLACE, DISTRICT_A],
+		},
+		{
+			name: "top slice adds sibling districts",
+			book: {
 				reach: "own-branch",
-				alsoIncludeTopDownToLevelUuid: asUuid(REGION),
+				alsoIncludeTopDownToLevelUuid: asUuid(DISTRICT),
 			},
-			{ reach: "own-branch-limited", levelUuids: [asUuid(FACILITY)] },
-			{ reach: "shared-branch", fromLevelUuid: asUuid(DISTRICT) },
-			{
+			assigned: [FACILITY_A1],
+			expected: [REGION_PLACE, DISTRICT_A, DISTRICT_B, FACILITY_A1],
+		},
+		{
+			name: "limited branch retains ancestors but only selected descendant levels",
+			book: { reach: "own-branch-limited", levelUuids: [asUuid(FACILITY)] },
+			assigned: [DISTRICT_A],
+			expected: [REGION_PLACE, FACILITY_A1, FACILITY_A2],
+		},
+		{
+			name: "shared branch reaches sibling clinics and case bucket",
+			book: { reach: "shared-branch", fromLevelUuid: asUuid(DISTRICT) },
+			assigned: [FACILITY_A1],
+			expected: [REGION_PLACE, DISTRICT_A, FACILITY_A1, FACILITY_A2, STORE_A],
+		},
+		{
+			name: "shared region with depth cap excludes all clinics",
+			book: {
 				reach: "shared-branch",
 				fromLevelUuid: asUuid(REGION),
 				downToLevelUuid: asUuid(DISTRICT),
 			},
-			{ reach: "whole-organization" },
-			{ reach: "whole-organization", downToLevelUuid: asUuid(DISTRICT) },
-		];
-
-		for (const addressBook of books) {
-			for (const assignedPlaces of [
-				[FACILITY_A1],
-				[DISTRICT_A],
-				[FACILITY_A1, FACILITY_B1],
-			]) {
-				const doc = orgDoc({
-					assignedPlaces,
-					addressBook: { [FACILITY]: addressBook, [DISTRICT]: addressBook },
-				});
-				const byId = new Map(ROWS.map((row) => [row.id, row]));
-				const assigned = assignedPlaces.map((id) => {
-					const row = byId.get(id);
-					if (row === undefined) throw new Error("fixture place missing");
-					return row;
-				});
-				const expected = ROWS.filter((row) =>
-					assigned.some((from) =>
-						assignmentFootprintIncludes(row, from, byId, doc),
-					),
-				).map((row) => row.id);
-
-				expect(
-					personaFootprint(doc, persona(doc), ROWS).map((row) => row.id),
-				).toEqual(expected);
-			}
-		}
+			assigned: [FACILITY_A1],
+			expected: [REGION_PLACE, DISTRICT_A, DISTRICT_B],
+		},
+		{
+			name: "whole organization reaches every branch",
+			book: { reach: "whole-organization" },
+			assigned: [FACILITY_A1],
+			expected: [
+				REGION_PLACE,
+				DISTRICT_A,
+				DISTRICT_B,
+				FACILITY_A1,
+				FACILITY_A2,
+				FACILITY_B1,
+				STORE_A,
+			],
+		},
+		{
+			name: "whole organization respects absolute depth",
+			book: { reach: "whole-organization", downToLevelUuid: asUuid(DISTRICT) },
+			assigned: [FACILITY_A1],
+			expected: [REGION_PLACE, DISTRICT_A, DISTRICT_B],
+		},
+		{
+			name: "additional assignments union two branches without duplicated ancestors",
+			book: { reach: "own-branch" },
+			assigned: [FACILITY_A1, FACILITY_B1],
+			expected: [
+				REGION_PLACE,
+				DISTRICT_A,
+				DISTRICT_B,
+				FACILITY_A1,
+				FACILITY_B1,
+			],
+		},
+	];
+	it.each(footprintCases)("$name", ({ book, assigned, expected }) => {
+		const doc = orgDoc({
+			assignedPlaces: assigned,
+			addressBook: { [FACILITY]: book, [DISTRICT]: book },
+		});
+		expect(
+			personaFootprint(doc, persona(doc), ROWS).map((row) => row.id),
+		).toEqual(expected);
+		const byId = new Map(ROWS.map((row) => [row.id, row]));
+		// Both public projections face the same independently specified destinations.
+		const admitted = ROWS.filter((row) =>
+			assigned.some((id) => {
+				const from = byId.get(id);
+				if (!from) throw new Error("Missing fixture assignment");
+				return assignmentFootprintIncludes(row, from, byId, doc);
+			}),
+		).map((row) => row.id);
+		expect(admitted).toEqual(expected);
 	});
 
 	it("is empty for an unassigned persona", () => {

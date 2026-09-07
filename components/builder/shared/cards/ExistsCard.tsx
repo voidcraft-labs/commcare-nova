@@ -36,7 +36,7 @@ import {
 } from "@/lib/domain/predicate";
 import {
 	CONDITION_SEED_UNAVAILABLE_REASON,
-	firstConditionSeed,
+	relatedConditionSeed,
 } from "../conditionSeed";
 import {
 	useEditorErrorsAt,
@@ -46,6 +46,10 @@ import {
 import type { PredicateEditContext } from "../editorSchemas";
 import { appendKindSlot, type EditorPath } from "../path";
 import { RelationPathBuilder } from "../primitives/RelationPathBuilder";
+import {
+	relatedPathEditAdmission,
+	replaceRelatedPath,
+} from "../relatedPathEdit";
 import { resolveRelationDestination } from "../relationDestination";
 import { relatedCasePathDefault } from "../relationSeed";
 import { ChildPredicateEditor } from "./ChildPredicateEditor";
@@ -78,14 +82,10 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 		onChange(builder(value.via, value.where));
 	};
 
+	const admitVia = (next: RelationPath) =>
+		relatedPathEditAdmission(value, next, ctx);
 	const setVia = (next: RelationPath) => {
-		const builder = value.kind === "missing" ? missing : exists;
-		// Changing the connection must never destroy an authored condition.
-		// If its property refs do not resolve in the new destination, the
-		// checker keeps the exact tree visible with an inline repair finding.
-		onChange(
-			value.where === undefined ? builder(next) : builder(next, value.where),
-		);
+		if (admitVia(next).admitted) onChange(replaceRelatedPath(value, next));
 	};
 
 	const setWhere = (next: Predicate | undefined) => {
@@ -107,36 +107,8 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 		[value.via, ctx.currentCaseType, ctx.caseTypes],
 	);
 	const whereSeed = useMemo(
-		() =>
-			destinationCaseType === undefined
-				? undefined
-				: firstConditionSeed({
-						caseTypes: ctx.caseTypes,
-						currentCaseType: destinationCaseType,
-						knownInputs: ctx.knownInputs,
-						// Only the CASE TYPE and the scope change inside a
-						// relation walk. The other axes still describe what this
-						// surface offers, and a narrowed context resolves a form
-						// answer to nothing, which widens the dependent slot's
-						// accept-set, skips the reseed, and commits the
-						// type-incorrect pair the gate then refuses.
-						userProperties: ctx.userProperties,
-						formFields: ctx.formFields,
-						operationScope: ctx.operationScope,
-						evaluationTarget: ctx.evaluationTarget,
-						// A relation walk's `where` always runs against the
-						// destination case row, whatever the outer slot's scope.
-						caseDataScope: "per-case",
-					}),
-		[
-			destinationCaseType,
-			ctx.caseTypes,
-			ctx.knownInputs,
-			ctx.userProperties,
-			ctx.formFields,
-			ctx.operationScope,
-			ctx.evaluationTarget,
-		],
+		() => relatedConditionSeed(ctx, destinationCaseType),
+		[ctx, destinationCaseType],
 	);
 	const addWhere = () => {
 		if (whereSeed === undefined) return;
@@ -152,6 +124,7 @@ export function ExistsCard({ value, onChange, path }: ExistsCardProps) {
 				<RelationPathBuilder
 					value={value.via}
 					onChange={setVia}
+					admitChange={admitVia}
 					invalid={operatorErrors.length > 0}
 					allowSelf={false}
 				/>

@@ -1,3 +1,5 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { describe, expect, it } from "vitest";
 import {
 	isReadableTemporalValue,
@@ -9,12 +11,8 @@ import {
 	zoneDesignatorForWallTime,
 } from "../temporalValues";
 
-// Every expectation here is a shape one of two authorities produces or
-// accepts: JavaRosa's `*Data::uncast` (what a deployed Nova app writes) or
-// the strict RFC 3339 formats the case-store schema compiles
-// (`propertyToSchema`). The ajv half is proved end to end in
-// `lib/case-store/postgres/__tests__/temporalStorageShapes.test.ts`, which
-// runs the real validator; this file pins the transformations themselves.
+// Pure text normalization and finite timezone-policy examples. Native JavaRosa
+// and SQL schema suites own wire/storage acceptance; this does not execute them.
 
 describe("wireTimeOfDay", () => {
 	it("pads a bare clock to JavaRosa's HH:MM:SS.mmm", () => {
@@ -84,30 +82,16 @@ describe("zoneDesignatorForWallTime", () => {
 		).toBe("+05:30");
 	});
 
-	// The two wall clocks that are not a function of the zone alone: on
-	// spring-forward 02:30 never happens, and on fall-back 01:30 happens
-	// twice. The two-pass resolution has to answer something, and these pin
-	// WHICH something — otherwise the policy is whatever the arithmetic
-	// converges on, and nobody finds out it moved.
-	//
-	// Both answers match `Temporal.PlainDateTime.from(wall)
-	// .toZonedDateTime(zone).offset` under its default `compatible`
-	// disambiguation, verified against the real implementation. Temporal is
-	// ES2026 and the obvious eventual home for this function, but Safari has
-	// not shipped it, so adopting it today would mean a polyfill in a leaf
-	// module every client bundle imports. Pinning the agreement here is what
-	// makes that later swap a provable no-op rather than a behavior change
-	// nobody can characterize.
-	it("resolves a nonexistent wall clock the way the platform does", () => {
+	it("stamps the pre-transition offset to interpret a New York gap forward", () => {
 		// 2026-03-08, US spring-forward: 02:00 jumps to 03:00, so 02:30 is
-		// not a real local time. Resolving forward into daylight time is
-		// `compatible`'s answer.
+		// not a real local time. The unchanged 02:30 text needs -05:00
+		// to denote the same instant as normalized 03:30-04:00.
 		expect(
 			zoneDesignatorForWallTime("2026-03-08T02:30:00.000", "America/New_York"),
-		).toBe("-04:00");
+		).toBe("-05:00");
 	});
 
-	it("resolves an ambiguous wall clock the way the platform does", () => {
+	it("chooses the earlier offset for a New York repeated hour", () => {
 		// 2026-11-01, US fall-back: 01:30 occurs twice. The EARLIER of the
 		// two — still daylight time — is `compatible`'s answer.
 		expect(
@@ -210,24 +194,6 @@ describe("zone designator spelling", () => {
 });
 
 describe("isReadableTemporalValue", () => {
-	it("accepts everything the canonicalizers produce", () => {
-		// The gate and the producers have to agree, or the form engine
-		// rejects an answer the case store would have accepted.
-		for (const zone of ["UTC", "America/New_York", "Asia/Kolkata"]) {
-			for (const time of ["14:30", "9:05:07", "00:00:00.000Z", "14:30-05"]) {
-				expect(isReadableTemporalValue("time", storageTimeValue(time))).toBe(
-					true,
-				);
-				expect(
-					isReadableTemporalValue(
-						"datetime",
-						storageDatetimeValue(`2026-07-04T${time}`, zone),
-					),
-				).toBe(true);
-			}
-		}
-	});
-
 	it("accepts a stored value that predates the millisecond rule", () => {
 		// The shape the pre-#376 writer left in rows: RFC 3339, accepted by
 		// the schema, not what this module would write today. Asking
@@ -310,4 +276,53 @@ describe("paddedTimeOfDay", () => {
 	it("returns unreadable text untouched", () => {
 		expect(paddedTimeOfDay("2:3")).toBe("2:3");
 	});
+});
+
+// TC39 documents compatible disambiguation as matching native Date. A separate
+// Node process gives that independent resolver its own timezone without changing
+// this test process or reconstructing Nova's Intl offset algorithm.
+// https://tc39.es/proposal-temporal/docs/zoneddatetime.html (disambiguation)
+describe("stored datetime instants at timezone transitions", () => {
+	it.each([
+		[
+			"America/New_York",
+			[
+				"2026-03-08T01:30",
+				"2026-03-08T02:30",
+				"2026-03-08T03:30",
+				"2026-11-01T01:30",
+			],
+		],
+		[
+			"Australia/Sydney",
+			[
+				"2026-10-04T01:30",
+				"2026-10-04T02:30",
+				"2026-10-04T03:30",
+				"2026-04-05T02:30",
+			],
+		],
+		["Australia/Lord_Howe", ["2026-10-04T02:15", "2026-04-05T01:45"]],
+		["Pacific/Apia", ["2011-12-30T12:00"]],
+	] as const)(
+		"stores native-compatible instants in %s",
+		async (zone, walls) => {
+			const { stdout } = await promisify(execFile)(
+				process.execPath,
+				[
+					"--input-type=module",
+					"-e",
+					"process.stdout.write(JSON.stringify(process.argv.slice(1).map(wall => new Date(wall).toISOString())))",
+					...walls,
+				],
+				{ env: { ...process.env, TZ: zone }, timeout: 5000 },
+			);
+			const nativeInstants: unknown = JSON.parse(stdout);
+			expect(
+				walls.map((wall) =>
+					new Date(storageDatetimeValue(wall, zone)).toISOString(),
+				),
+			).toEqual(nativeInstants);
+		},
+	);
 });

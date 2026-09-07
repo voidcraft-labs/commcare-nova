@@ -53,6 +53,7 @@ import {
 	timeLiteral,
 } from "@/lib/domain/predicate";
 import { usePredicateEditContext } from "../editorContext";
+import { finiteLiteralDraft, planLiteralDraft } from "../literalDraft";
 import { rebuildLiteralPreservingDataType } from "../literalRebuild";
 
 interface LiteralValueInputProps {
@@ -337,18 +338,10 @@ function TextInput({
 	//     emits a bare `literal(draft)`: there's no qualifier to
 	//     preserve.
 	const commit = useCallback(() => {
-		if (nonEmpty && draft === "") {
-			setShowRequiredError(true);
-			return;
-		}
-		setShowRequiredError(false);
-		if (draft === initial) return;
-		onChange(
-			value === undefined
-				? literal(draft)
-				: rebuildLiteralPreservingDataType(value, draft),
-		);
-	}, [draft, initial, nonEmpty, onChange, value]);
+		const plan = planLiteralDraft({ value, draft, kind: "text", nonEmpty });
+		setShowRequiredError(plan.kind === "rejected");
+		if (plan.kind === "commit") onChange(plan.value);
+	}, [draft, nonEmpty, onChange, value]);
 	const effectiveInvalid = invalid || showRequiredError;
 
 	return (
@@ -415,35 +408,14 @@ function NumericInput({
 	// finite number; integers additionally require a whole number before
 	// the qualifier-preserving rebuild runs.
 	const commit = useCallback(() => {
-		const next = (nextValue: string | number | boolean | null) =>
-			value === undefined
-				? literal(nextValue)
-				: rebuildLiteralPreservingDataType(value, nextValue);
-		if (integerOnly) {
-			const parsed = finiteInteger(draft);
-			if (parsed === undefined) {
-				setShowNumberError(true);
-				return;
-			}
-			setShowNumberError(false);
-			if (draft === initial) return;
-			onChange(next(parsed));
-			return;
-		}
-		if (draft.trim() === "") {
-			setShowNumberError(false);
-			if (draft !== initial) onChange(next(null));
-			return;
-		}
-		const parsed = finiteNumber(draft);
-		if (parsed === undefined) {
-			setShowNumberError(true);
-			return;
-		}
-		setShowNumberError(false);
-		if (draft === initial) return;
-		onChange(next(parsed));
-	}, [draft, initial, integerOnly, onChange, value]);
+		const plan = planLiteralDraft({
+			value,
+			draft,
+			kind: integerOnly ? "int" : "decimal",
+		});
+		setShowNumberError(plan.kind === "rejected");
+		if (plan.kind === "commit") onChange(plan.value);
+	}, [draft, integerOnly, onChange, value]);
 	const effectiveInvalid = invalid || showNumberError;
 
 	return (
@@ -460,8 +432,8 @@ function NumericInput({
 					if (
 						showNumberError &&
 						(integerOnly
-							? finiteInteger(next) !== undefined
-							: next.trim() === "" || finiteNumber(next) !== undefined)
+							? finiteLiteralDraft(next, true) !== undefined
+							: next.trim() === "" || finiteLiteralDraft(next) !== undefined)
 					) {
 						setShowNumberError(false);
 					}
@@ -484,20 +456,6 @@ function NumericInput({
 			) : null}
 		</div>
 	);
-}
-
-function finiteInteger(draft: string): number | undefined {
-	if (draft.trim() === "") return undefined;
-	const parsed = Number(draft);
-	return Number.isFinite(parsed) && Number.isInteger(parsed)
-		? parsed
-		: undefined;
-}
-
-function finiteNumber(draft: string): number | undefined {
-	if (draft.trim() === "") return undefined;
-	const parsed = Number(draft);
-	return Number.isFinite(parsed) ? parsed : undefined;
 }
 
 interface DateInputProps {

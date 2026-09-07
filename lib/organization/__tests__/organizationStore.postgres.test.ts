@@ -8,6 +8,7 @@
 // asserted about SQL a test merely composed.
 
 import { sql } from "kysely";
+import { Client } from "pg";
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { makeCanonicalGenesisDoc } from "@/lib/agent/__tests__/fixtures";
@@ -48,10 +49,7 @@ import {
 } from "../commitIntegrity";
 import { OrganizationError } from "../errors";
 import { MAX_LOCATION_ORDER_KEY_LENGTH } from "../orderKeys";
-import {
-	personaAssignmentIssue,
-	personaAssignmentRemovalIssues,
-} from "../ownerTargetVerdicts";
+import { personaAssignmentRemovalIssues } from "../ownerTargetVerdicts";
 import {
 	ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH,
 	archiveImpactSchema,
@@ -67,7 +65,10 @@ import {
 } from "../service";
 import type { OrganizationScope } from "../types";
 
-const h = setupAppStateTestDb("organization_store_");
+const h = setupAppStateTestDb("organization_store_", {
+	authSchema: "migrated",
+	poolMax: 2,
+});
 
 const PROJECT_A = "organization-project-a";
 const PROJECT_B = "organization-project-b";
@@ -407,7 +408,7 @@ function candidateWithFixedOwner(
 	locationId: string,
 	personaLocationId?: string,
 ): BlueprintDoc {
-	const doc = orgDoc();
+	const doc = workflowOrgDoc();
 	if (personaLocationId !== undefined) {
 		doc.personas = {
 			...doc.personas,
@@ -417,13 +418,20 @@ function candidateWithFixedOwner(
 			},
 		};
 	}
-	const formUuid = asUuid("66666666-6666-4666-8666-666666666661");
-	doc.forms = {
-		[formUuid]: {
-			uuid: formUuid,
-			caseOperations: [{ owner: term(fixedLocation(asUuid(locationId))) }],
-		},
-	} as unknown as BlueprintDoc["forms"];
+	const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+	doc.forms[formUuid] = {
+		...doc.forms[formUuid],
+		caseOperations: [
+			{
+				uuid: asUuid("66666666-6666-4666-8666-666666666661"),
+				id: "fixed_owner",
+				action: "update",
+				caseType: "patient",
+				target: { kind: "session" },
+				owner: term(fixedLocation(asUuid(locationId))),
+			},
+		],
+	};
 	return doc;
 }
 
@@ -476,7 +484,7 @@ async function seedRebalanceWithUnchangedMovingKey(): Promise<{
 }
 
 describe("locations store — creation and structure", () => {
-	it("states that archived rows still count when the app reaches capacity", async () => {
+	it("refuses a create when the locked maintained count is at capacity", async () => {
 		await seedOrgApp();
 		await h
 			.db()
@@ -889,6 +897,76 @@ describe("locations store — creation and structure", () => {
 });
 
 describe("locations store — the optimistic clock", () => {
+	for (const expectedRevision of [undefined, "0"] as const) {
+		it(`serializes concurrent first creates with revision ${expectedRevision ?? "omitted"}`, async () => {
+			await seedOrgApp();
+			const gate = new Client({ connectionString: h.uri() });
+			let writes:
+				| Promise<
+						PromiseSettledResult<Awaited<ReturnType<typeof createLocation>>>[]
+				  >
+				| undefined;
+			try {
+				await gate.connect();
+				await gate.query("BEGIN");
+				await gate.query("SELECT id FROM apps WHERE id = $1 FOR UPDATE", [
+					APP_ID,
+				]);
+				writes = Promise.allSettled(
+					[0, 1].map(() =>
+						createLocation(
+							scope(),
+							{
+								levelUuid: REGION,
+								parentId: null,
+								name: "North",
+								externalId: null,
+								latitude: null,
+								longitude: null,
+								values: {},
+							},
+							expectedRevision,
+						),
+					),
+				);
+				await expect
+					.poll(async () => {
+						await gate.query("SELECT pg_stat_clear_snapshot()");
+						const result = await gate.query<{ count: string }>(`
+						SELECT count(DISTINCT activity.pid)::text AS count
+						FROM pg_stat_activity AS activity
+						WHERE activity.datname = current_database()
+						AND cardinality(pg_blocking_pids(activity.pid)) > 0
+					`);
+						return Number(result.rows[0].count);
+					})
+					.toBe(2);
+				await gate.query("COMMIT");
+				const outcomes = await writes;
+				const successful = outcomes.filter(
+					(result) => result.status === "fulfilled",
+				);
+				expect(successful).toHaveLength(expectedRevision === undefined ? 2 : 1);
+				if (expectedRevision !== undefined) {
+					expect(
+						outcomes.find((result) => result.status === "rejected"),
+					).toMatchObject({
+						status: "rejected",
+						reason: { code: "conflict", currentRevision: "1" },
+					});
+				}
+				const stored = await readOrganization(scope());
+				expect(stored.revision).toBe(String(successful.length));
+				expect(stored.locations.map((location) => location.siteCode)).toEqual(
+					expectedRevision === undefined ? ["north", "north2"] : ["north"],
+				);
+			} finally {
+				await gate.end();
+				await writes;
+			}
+		});
+	}
+
 	it("rejects a stale expected revision and reports the current one", async () => {
 		await seedOrgApp();
 		await seedChain();
@@ -1099,6 +1177,9 @@ describe("locations store — the tenant boundary", () => {
 		await h.seedProjectMember(ACTOR_B, PROJECT_B, "owner");
 		const foreign = scope(PROJECT_B, ACTOR_B);
 
+		await expect(readOrganization(foreign)).rejects.toMatchObject({
+			code: "not_found",
+		});
 		// Read: the snapshot is app-keyed, so a foreign scope's read is gated by
 		// the writer lock helper on every path that takes one.
 		await expect(
@@ -1273,7 +1354,7 @@ describe("locations store — reference edges", () => {
 });
 
 describe("locations store — persona and fixed-owner validation", () => {
-	it("batches persona-removal verdicts with the same result as full validation", async () => {
+	it("distinguishes removing the sole reachable branch from an irrelevant assignment", async () => {
 		await seedOrgApp();
 		const { district, facility } = await seedChain();
 		const otherRegion = (
@@ -1307,16 +1388,9 @@ describe("locations store — persona and fixed-owner validation", () => {
 			assigned,
 		);
 
-		for (const removed of assigned) {
-			expect(issues.get(removed)).toBe(
-				personaAssignmentIssue(
-					doc,
-					rows,
-					PERSONA_ASHA,
-					assigned.filter((id) => id !== removed),
-				),
-			);
-		}
+		expect(issues.get(district)).toMatch(/outside Asha's address book/);
+		expect(issues.has(otherRegion)).toBe(false);
+		expect(issues.get(otherRegion)).toBeUndefined();
 	});
 
 	it("rolls back a move that would put a fixed owner outside every persona address book", async () => {
@@ -2025,6 +2099,39 @@ describe("locations store — the archive cascade", () => {
 		expect(edges).toEqual([]);
 	});
 
+	it("counts only open subtree-owned cases and preserves every case owner through archive", async () => {
+		await seedOrgApp();
+		const { region, district, facility } = await seedChain();
+		await h.pool().query(
+			`
+			INSERT INTO cases (case_id, app_id, project_id, case_type, case_name, owner_id, status, closed_on, properties)
+			VALUES
+			('district-open', $1, $2, 'visit', 'District open', $3, 'open', NULL, '{}'),
+			('facility-open', $1, $2, 'visit', 'Facility open', $4, 'open', NULL, '{}'),
+			('facility-closed', $1, $2, 'visit', 'Facility closed', $4, 'closed', now(), '{}'),
+			('region-open', $1, $2, 'visit', 'Outside subtree', $5, 'open', NULL, '{}')
+		`,
+			[APP_ID, PROJECT_A, district, facility, region],
+		);
+		const before = (
+			await h.pool().query("SELECT * FROM cases ORDER BY case_id")
+		).rows;
+		const impact = await describeArchiveImpact(scope(), district);
+		expect(impact.ownedCases).toBe(2);
+		await setLocationArchived(scope(), district, true, impact.revision, impact);
+		expect(
+			(await h.pool().query("SELECT * FROM cases ORDER BY case_id")).rows,
+		).toEqual(before);
+		expect(
+			await h
+				.db()
+				.selectFrom("app_organization_state")
+				.select("location_count")
+				.where("app_id", "=", APP_ID)
+				.executeTakeFirstOrThrow(),
+		).toEqual({ location_count: 3 });
+	});
+
 	it("bounds long archive preview names and accepts the exact confirmation resend", async () => {
 		await seedOrgApp();
 		const longName = "A".repeat(ARCHIVE_IMPACT_PREVIEW_TEXT_MAX_LENGTH + 40);
@@ -2636,8 +2743,26 @@ describe("locations store — the doc round-trips its collections", () => {
 		expect(rows.map((row) => row.kind)).not.toContain("persona");
 	});
 
-	it("round-trips levels and location properties through entity rows", async () => {
+	it("round-trips levels, personas and location properties through entity rows", async () => {
 		await seedOrgApp();
+		await commitGuardedBatch({
+			appId: APP_ID,
+			batchId: "roundtrip-property",
+			actorUserId: ACTOR_A,
+			kind: "autosave",
+			expectedProjectId: PROJECT_A,
+			mutations: admitMutationBatch([
+				{
+					kind: "addLocationProperty",
+					property: {
+						uuid: PROP_BEDS,
+						slug: "beds",
+						label: "Beds",
+						choices: ["10", "20"],
+					},
+				},
+			]),
+		});
 		const rows = await h
 			.db()
 			.selectFrom("blueprint_entities")
@@ -2650,17 +2775,30 @@ describe("locations store — the doc round-trips its collections", () => {
 		expect(kinds.filter((k) => k === "organization_level")).toHaveLength(3);
 		expect(kinds.filter((k) => k === "persona")).toHaveLength(2);
 
-		// And the assembled doc equals what was seeded, which is what proves the
-		// classifier branches on the new kinds rather than reading them as fields.
-		const app = await h
-			.db()
-			.selectFrom("apps")
-			.select("id")
-			.where("id", "=", APP_ID)
-			.executeTakeFirstOrThrow();
-		expect(app.id).toBe(APP_ID);
-		const persisted = toPersistableDoc(orgDoc());
-		expect(Object.keys(persisted.organizationLevels ?? {})).toHaveLength(3);
+		const loaded = await loadApp(APP_ID);
+		expect(loaded).not.toBeNull();
+		const expected = toPersistableDoc(orgDoc());
+		expect(loaded?.blueprint.organizationLevels).toEqual(
+			expected.organizationLevels,
+		);
+		expect(loaded?.blueprint.organizationLevelOrder).toEqual([
+			REGION,
+			DISTRICT,
+			FACILITY,
+		]);
+		expect(loaded?.blueprint.personas).toEqual(expected.personas);
+		expect(loaded?.blueprint.personaOrder).toEqual([
+			PERSONA_ASHA,
+			PERSONA_BIMAL,
+		]);
+		expect(loaded?.blueprint.locationProperties).toEqual({
+			[PROP_BEDS]: {
+				uuid: PROP_BEDS,
+				slug: "beds",
+				label: "Beds",
+				choices: ["10", "20"],
+			},
+		});
 	});
 });
 

@@ -51,6 +51,7 @@ import {
 	casePropertyDataTypes,
 	deriveAuthoredCaseId,
 	prepareCaseScalarTextValue,
+	USERCASE_CASE_TYPE,
 	type Uuid,
 } from "@/lib/domain";
 import {
@@ -407,6 +408,7 @@ async function evaluateBatch(
 				anchorAlias: "c",
 				...(session === undefined ? {} : { currentCaseType: session.caseType }),
 				caseTypeSchemas: program.caseTypeSchemas,
+				formFieldTypes: program.formFieldTypes,
 				...(program.organizationLevels === undefined
 					? {}
 					: { organizationLevels: program.organizationLevels }),
@@ -750,7 +752,31 @@ export async function executeSubmissionEnvelope(
 	trx: Transaction<Database>,
 	host: SubmissionEnvelopeHost,
 	args: ApplySubmissionArgs,
-): Promise<SubmissionEnvelopeResult> {
+): Promise<SubmissionEnvelopeResult & { readonly usercaseCaseId?: string }> {
+	// Resolve the worker record before any effects, exactly as the device's
+	// hq_user_id join does. A historical case id is never reconstructed from
+	// the acting worker, and every read remains inside the bound app/Project.
+	let usercaseCaseId: string | undefined;
+	if (args.usercase !== undefined) {
+		const rows = await trx
+			.selectFrom("cases")
+			.select(["case_id", "status", "owner_id"])
+			.where("app_id", "=", args.appId)
+			.where("project_id", "=", host.projectId)
+			.where("case_type", "=", USERCASE_CASE_TYPE)
+			.where(sql<string>`properties->>'hq_user_id'`, "=", host.actingUserId)
+			.limit(2)
+			.execute();
+		if (rows.length > 1)
+			throw new Error("More than one worker record exists for this app.");
+		if (
+			rows[0] === undefined ||
+			rows[0].status !== "open" ||
+			rows[0].owner_id !== host.actingUserId
+		)
+			throw new CaseNotFoundError(host.actingUserId);
+		usercaseCaseId = rows[0].case_id;
+	}
 	const selectedCaseIds = validatedSelectedCaseIds(args);
 	const sessionAnchors = await loadSelectedCaseAnchors(
 		trx,
@@ -785,25 +811,21 @@ export async function executeSubmissionEnvelope(
 	}
 
 	const ordinary = await applyOrdinaryAction(trx, host, args.appId, args);
-	// The worker's own record, last and inside the same transaction. Its own
-	// id is the acting worker's, the same deterministic identity
-	// materialization writes (`lib/db/syncUsercaseRow.ts::usercaseIdFor`), so
-	// nothing here chooses which record a submission may touch.
-	//
-	// `updateCase` and not an upsert: the row's existence is materialization's
-	// job, and it has three triggers covering every worker. A submission that
-	// found none would mean the record a device reads through `#user/` does not
-	// exist, which is exactly what the emitted `count(...) = 1` assertion stops
-	// at the door — so failing loudly here keeps Preview honest about that
-	// rather than papering over it with a row a device would not have had.
-	if (args.usercase !== undefined) {
+	// Update the previously resolved record last, within the same transaction.
+	// Existence belongs to materialization; submission never invents a worker.
+
+	if (args.usercase !== undefined && usercaseCaseId !== undefined) {
 		await host.updateCase(trx, {
 			appId: args.appId,
-			caseId: host.actingUserId,
+			caseId: usercaseCaseId,
 			patch: { properties: args.usercase.properties },
 		});
 	}
-	return { ...ordinary, operations: operationRecords };
+	return {
+		...ordinary,
+		operations: operationRecords,
+		...(usercaseCaseId === undefined ? {} : { usercaseCaseId }),
+	};
 }
 
 /** Phases 1–4: expand, allocate, evaluate, resolve, and prove the

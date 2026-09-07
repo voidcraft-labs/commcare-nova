@@ -5,9 +5,10 @@
 // the same model) and never anywhere they could 400 the turn — including
 // after a deploy switches the SA model while a question round sits open.
 
-import type { UIMessage } from "ai";
+import { convertToModelMessages, type UIMessage } from "ai";
 import { describe, expect, it } from "vitest";
 import { sanitizeHistoricalReasoningParts } from "../sanitizeReasoningParts";
+import { sanitizeHistoricalToolParts } from "../sanitizeToolParts";
 
 const MODEL = "gpt-5.6-sol";
 const OLD_MODEL = "gpt-5.6-terra";
@@ -246,4 +247,92 @@ describe("sanitizeHistoricalReasoningParts", () => {
 		const twice = sanitizeHistoricalReasoningParts(once, MODEL);
 		expect(twice).toEqual(once);
 	});
+});
+
+describe("reasoning repair after native retired-tool conversion", () => {
+	it.each([MODEL, OLD_MODEL])(
+		"keeps wire pairs only for compatible %s history",
+		async (producingModel) => {
+			const original = [
+				user("u1", "Continue the plan"),
+				assistant(
+					"a1",
+					[
+						reasoning("retired-tool"),
+						text("The plan is ready."),
+						executedTool(),
+					],
+					{ model: producingModel },
+				),
+			];
+			// The actual SDK converts the completed retired call to dynamic-tool.
+			const converted = await sanitizeHistoricalToolParts(original, {});
+			expect(converted[1].parts.at(-1)?.type).toBe("dynamic-tool");
+			const repaired = sanitizeHistoricalReasoningParts(converted, MODEL);
+			const modelMessages = await convertToModelMessages(repaired);
+			if (producingModel === MODEL) {
+				expect(repaired[1].parts.map((part) => part.type)).toEqual([
+					"reasoning",
+					"text",
+					"dynamic-tool",
+				]);
+				expect(modelMessages).toEqual([
+					{
+						role: "user",
+						content: [{ type: "text", text: "Continue the plan" }],
+					},
+					{
+						role: "assistant",
+						content: [
+							{
+								type: "reasoning",
+								text: "retired-tool",
+								providerOptions: {
+									openai: {
+										itemId: "rs_retired-tool",
+										reasoningEncryptedContent: "gAAAA...",
+									},
+								},
+							},
+							{ type: "text", text: "The plan is ready." },
+							{
+								type: "tool-call",
+								toolCallId: "call-2",
+								toolName: "searchBlueprint",
+								input: { query: "referral" },
+							},
+						],
+					},
+					{
+						role: "tool",
+						content: [
+							{
+								type: "tool-result",
+								toolCallId: "call-2",
+								toolName: "searchBlueprint",
+								output: { type: "json", value: { matches: [] } },
+							},
+						],
+					},
+				]);
+			} else {
+				expect(repaired[1].parts).toEqual([text("The plan is ready.")]);
+				expect(modelMessages).toEqual([
+					{
+						role: "user",
+						content: [{ type: "text", text: "Continue the plan" }],
+					},
+					{
+						role: "assistant",
+						content: [{ type: "text", text: "The plan is ready." }],
+					},
+				]);
+			}
+			expect(original[1].parts.map((part) => part.type)).toEqual([
+				"reasoning",
+				"text",
+				"tool-searchBlueprint",
+			]);
+		},
+	);
 });

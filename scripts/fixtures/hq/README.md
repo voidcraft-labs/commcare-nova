@@ -1,6 +1,12 @@
-# Native HQ case-emission evidence
+# Native HQ emission evidence
 
-The producer exports six strictly valid Nova documents through the real
+The producers in this directory emit current Nova artifacts for independent
+HQ and Core consumers. Each section distinguishes admitted applications from
+private parser/consistency probes and names the supplied external boundaries.
+
+## Case emission
+
+The case producer exports six strictly valid Nova documents through the real
 expander and CCZ compiler: registration, followup, user-controlled repeat,
 query-bound repeat, multiple selected parents, and repeated entries under multiple
 selected parents. Each creates two extension cases with an ordinary child between
@@ -243,3 +249,101 @@ The corpus requires exactly four apps. Native HQ imports their XForm sources,
 adds case/meta lowering, removes editor attributes and writes the forms consumed
 by `RelationInstanceRuntimeTest`. The source and output hashes are recorded;
 native Core owns the resulting case-value assertions.
+
+## Location owner restore data
+
+Produce the three admitted apps with
+`mise exec -- npx tsx scripts/fixtures/hq/emit-location-evidence.ts /tmp/nova-location-evidence`.
+Run `location-emission-proof.py` with `--hq-root`, `--python-path` when needed,
+and `--exports /tmp/nova-location-evidence` as above. Actual HQ
+`FlatLocationSerializer.get_xml_nodes` emits four indexed restore fixtures from
+supplied ORM rows: two complete branches, an empty footprint, a missing
+destination and a skipped intermediate place. Its real index schema and lineage
+attributes are retained. Native HQ import and case/meta compilation regenerate
+all three forms. No serializer or XPath evaluator is copied into Nova tests.
+
+ORM retrieval and worker session data are explicit boundaries. These examples do
+not execute HQ footprint SQL, fetch a remote restore or install a device app.
+The resulting restore bytes and forms feed `LocationOwnerRuntimeTest` below.
+
+
+## Additional producer families
+
+From the Nova checkout, each producer below runs as
+`mise exec -- npx tsx scripts/fixtures/hq/<producer>.ts <output-directory>`.
+Use a fresh directory per family. Every listed Python consumer runs with the
+installed HQ interpreter and `--hq-root /path/to/commcare-hq --exports
+<output-directory>`; add `--python-path` only for an existing dependency overlay.
+They deny network connections and never save an application. The complete set of
+configuration/cache/toggle substitutions is explicit in each Python file.
+
+| Family | Producer | Native HQ consumer / extra arguments |
+| --- | --- | --- |
+| Connect | `emit-connect-evidence` | `connect-emission-proof.py --connect-root /path/to/commcare-connect`; native Connect namespace extraction runs on source, HQ-generated and local forms. |
+| Oracle controls | `emit-oracle-evidence` | Core parser corpora only; these deliberately corrupted private inputs do not claim HQ admission. |
+| Form links | `emit-form-link-evidence` | `search-emission-proof.py --corpus links`; native suite contributors and ordered workflow frames. |
+| Media | `emit-media-evidence` | `media-emission-proof.py`; native media resources, profile references, forms and locale composition, with supplied media metadata. |
+| Lookup data | `emit-lookup-evidence` | `lookup-workbook-proof.py`; actual HQ workbook reader and fixture importer, native fixture serialization and app regeneration. |
+| Groups/repeats | `emit-container-evidence` | `container-emission-proof.py`; actual case/meta lowering and suite contributors. |
+| Localization | `emit-localization-evidence` | `localization-emission-proof.py`; actual custom app strings, locale serialization, forms and suite contributors. |
+| Worker property identities | `emit-worker-evidence` | `localization-emission-proof.py --corpus worker`; actual worker paths across regenerated forms/suites. |
+| Search endpoints | `emit-endpoint-evidence` | `endpoint-emission-proof.py`; exact native endpoint/projection behavior, without sending a search. |
+| No-match registration | `emit-no-matches-evidence` | `no-matches-emission-proof.py`; actual case-list registration action and workflow generation. |
+| Nested menus | `emit-nested-menu-evidence` | `nested-menu-emission-proof.py`; compares complete detail/entry/menu structures and records two expected target refusals. |
+| XPath lowering | `emit-xpath-evidence` | Core evaluator, dispatch and arity consumers only; no HQ claim. |
+| Predicate operators | `emit-predicate-evidence` | Core evaluator only; private schema-parsed AST corpus, not whole applications. |
+
+The Connect proof substitutes unused persistence/API imports around its real
+`app_xml` extractor; it does not query Connect. Lookup proofs supply in-memory
+persistence objects around HQ's real import/serialization logic; they do not test
+HQ database transactions. Localization runs the native custom/overlay composer
+with an empty stock catalog, so it proves authored strings and transport rather
+than the contents of HQ's distributed stock translation files. Media metadata
+is supplied and no GCS/HQ bytes are fetched. Core's accompanying classes and
+runtime limits are listed in [../javarosa/README.md](../javarosa/README.md).
+
+Nested-menu generation deliberately calls the low-level projection for two
+HQ-inexpressible documents after recording their real export-target refusal.
+These preserve executable counterexamples; they are not accepted HQ exports.
+A multiple parent selection for a relation loses its source on native HQ
+regeneration, and same-case reuse loses a smaller child's maximum. Eight adjacent
+shapes compare equal through native HQ generation, while all ten local shapes
+execute through Core. The normal export boundary refuses only the two failing
+HQ target shapes.
+
+## Capturing the admitted expander corpus
+
+The optional test producer writes only documents that pass schema parsing and
+full authoring validation:
+
+```bash
+NOVA_EXPANDER_EVIDENCE_DIR=/tmp/nova-expander-evidence \
+  mise exec -- npx vitest run lib/commcare/__tests__/expander.test.ts \
+  --project unit --maxWorkers=1
+/path/to/commcare-hq/.venv/bin/python scripts/fixtures/hq/expander-emission-proof.py \
+  --hq-root /path/to/commcare-hq --exports /tmp/nova-expander-evidence
+```
+
+The manifest joins each emitted app to its test names. Native HQ imports every
+source and executes actual case/meta, detail, entry, menu, remote-request,
+workflow, instance and authored-locale contributors. Core then parses every
+local and regenerated suite/form and independently evaluates the double-digit
+choice-label case. This is a finite acceptance corpus, not exhaustive compiler
+correctness, full initialization of every form, a persisted HQ build or Android
+rendering. Input/source/artifact hashes identify the actual run; generated IDs
+mean hashes are not stable fixture expectations.
+
+## Private HQ consistency-checker controls
+
+Capture the probes using
+`NOVA_HQ_ORACLE_EVIDENCE_DIR=/tmp/nova-hq-oracle-evidence mise exec -- npx vitest run lib/commcare/__tests__/hqJsonOracle.test.ts --project unit --maxWorkers=1`.
+Then run `hq-json-oracle-proof.py --hq-root /path/to/commcare-hq --exports
+/tmp/nova-hq-oracle-evidence` with the HQ interpreter; add `--python-path` for
+the dependency overlay when needed. Native `Application.wrap` and lazy action
+properties distinguish actual enum refusals from later build/runtime conventions.
+Installation-owned default build configuration is supplied explicitly. Partial
+private wire probes are not whole admitted apps. Basic Module wraps Form directly,
+so an unknown form tag is a generator convention rather than an import refusal;
+module dispatch and choice enums still use native wrapping. Top-level application
+dispatch runs separately through `get_correct_app_class`: HQ recognizes
+`RemoteApp`, while Nova requires its generator to emit `Application`.

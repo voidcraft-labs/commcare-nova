@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { simpleSearchInputDef } from "@/lib/domain";
 import {
+	arith,
 	concat,
 	dateAdd,
+	double,
 	eq,
 	input,
 	literal,
@@ -23,6 +25,12 @@ import {
 	sessionInstancePathValue,
 } from "../searchExpressionEvaluation";
 
+beforeEach(() => {
+	vi.useFakeTimers({ toFake: ["Date"] });
+	vi.setSystemTime(new Date("2026-05-06T12:00:00Z"));
+});
+afterEach(() => vi.useRealTimers());
+
 const SESSION = previewSessionValues(
 	previewAsMe({
 		id: "worker-42",
@@ -32,12 +40,42 @@ const SESSION = previewSessionValues(
 );
 
 describe("preview case-search expression evaluation", () => {
+	it("evaluates integer arithmetic while explicit numeric coercion of a text prompt stays decimal", () => {
+		for (const value of [10, -10]) {
+			expect(
+				evaluatePreviewSearchExpression(
+					arith("div", term(literal(value)), term(literal(3))),
+					SESSION,
+				),
+			).toBe(String(value > 0 ? 3 : -3));
+			const inputDef = simpleSearchInputDef(
+				testUuid("numeric-prompt"),
+				"amount",
+				"Amount",
+				"text",
+				"amount",
+			);
+			const expression = arith(
+				"div",
+				double(term(input(inputDef.uuid))),
+				term(literal(3)),
+			);
+			expect(
+				evaluatePreviewSearchExpression(
+					expression,
+					SESSION,
+					new Map([["amount", String(value)]]),
+					[inputDef],
+				),
+			).toBe(String(value / 3));
+		}
+	});
 	it("evaluates literals, date functions, and session-backed terms", () => {
 		expect(
 			evaluatePreviewSearchExpression(term(literal("north")), SESSION),
 		).toBe("north");
-		expect(evaluatePreviewSearchExpression(today(), SESSION)).toMatch(
-			/^\d{4}-\d{2}-\d{2}$/,
+		expect(evaluatePreviewSearchExpression(today(), SESSION)).toBe(
+			"2026-05-06",
 		);
 		expect(
 			evaluatePreviewSearchExpression(term(sessionContext("userid")), SESSION),

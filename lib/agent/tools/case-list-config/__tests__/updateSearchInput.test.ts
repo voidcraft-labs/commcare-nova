@@ -1,17 +1,6 @@
-/**
- * Behavioral tests for `updateSearchInput`.
- *
- * Coverage:
- *
- *   1. Effect on the doc — replaces the existing search input in
- *      place; preserves the uuid.
- *   2. Switching kinds (`simple` ↔ `advanced`) is permitted.
- *   3. Surrounding entries stay byte-identical.
- *   4. Module-not-found / search-input-uuid-not-found surface
- *      Elm-style errors.
- */
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/** Schema-admitted shared tool calls through the real workspace and reducer.
+ * Controlled host receipts prove local state transitions, not SQL commits. */
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
@@ -22,23 +11,6 @@ import {
 import { matchAll } from "@/lib/domain/predicate";
 import { updateSearchInputTool } from "../updateSearchInput";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
@@ -101,25 +73,22 @@ describe("updateSearchInput", () => {
 		const updated = inputs[0];
 		expect(updated?.uuid).toBe(TARGET_UUID);
 		expect(updated?.kind).toBe("advanced");
-	});
-
-	it("permits switching kinds (simple → advanced)", async () => {
-		const h = makeCaseListFixture(fixtureWithInputs());
 		await h.runTool(updateSearchInputTool, {
 			moduleUuid: MOD_A,
 			searchInputUuid: TARGET_UUID,
 			searchInput: {
-				kind: "advanced",
-				name: "active_only",
-				label: "Active only",
+				kind: "simple",
+				name: "name_search",
+				label: "Name",
 				type: "text",
-				predicate: matchAll(),
+				property: "case_name",
 			},
 		});
-
-		const updated =
-			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs[0];
-		expect(updated?.kind).toBe("advanced");
+		expect(
+			h.currentDoc().modules[MOD_A]?.caseListConfig?.searchInputs[0],
+		).toEqual(
+			fixtureWithInputs().modules[MOD_A]?.caseListConfig?.searchInputs[0],
+		);
 	});
 
 	it("leaves sibling search inputs untouched", async () => {

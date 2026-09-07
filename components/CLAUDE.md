@@ -192,6 +192,13 @@ near-bottom range; only moving beyond it reveals the scroll-to-latest button,
 and browser scroll anchoring stays disabled because `ChatScrollController` is
 the sole owner of transcript following.
 
+Question-card answer handlers belong to the currently committed card identity.
+A final answer retires that handler synchronously, so repeated activation or a
+callback from an unmounted card cannot publish twice. Thread recovery keeps a
+longer local text or reasoning part only when the server part is its strict
+prefix and the remaining part metadata agrees; equal part counts alone do not
+prove equal transcript progress.
+
 ## Component tests
 
 Read `docs/testing.md` before adding or substantially changing tests. Test observable

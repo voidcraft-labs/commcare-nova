@@ -1,0 +1,229 @@
+{
+	"owner": "preview",
+	"files": [
+		{
+			"file": "components/ai-elements/reasoning.test.ts",
+			"status": "revised",
+			"review": "Read full reasoning component and policy. Extracted ambient decisions/duration formatting into production reasoningPolicy.ts so pure policy tests no longer import rendering/markdown/SDK graphs. Added actual Reasoning+Base UI+real Motion lifecycle suite with owned fake time: stream elapsed duration, delayed close, permanent reader override and unmount cancellation. Native keyboard peer uses normal animated Motion. Pure finite decision cases and runtime timers are separate evidence.",
+			"reviewedSha256": "a81f58f887de064e4b1d0b41ecf286e253929b2125aae35740972307119aaba1"
+		},
+		{
+			"file": "components/chat/AskQuestionsCard.projectScope.test.tsx",
+			"status": "revised",
+			"review": "Read complete question card and ChatContainer/Sidebar answer routing. Retained actual card, replaced reliance on global Motion passthrough with real Motion configured to skip interpolation for DOM tests. New regressions exposed duplicate final publication and stale shared typed-answer registration on unmount. Production claims question index synchronously, guards old option handlers, registers typed route in layout effect with identity-safe cleanup, and shows completed local answers until authoritative output lands. Mixed option/typed hydration pause retains partial answers; native Enter publishes one exact output. Integration follow-up: Replaced six mixed phrase pins/fake option clicks/Motion skipAnimation cases with two narrow React binding tests using the ALREADY public production pendingAnswerRef. Real layout effect disables/reinstalls routing while preserving prior typed answer, synchronous stateRef prevents duplicate final publication, and earlier card teardown cannot clear later card registration. No simulated click or Motion claim remains; native peer owns actual option keyboard selection.",
+			"reviewedSha256": "8b5eb730af2fd4d47dffc15a6da3c1688d71a3f8787e9cb47a43aa44ef697b56",
+			"preSupplementReviewedSha256": "77f37e0f51dca146bb4e3e7fcc16ad68a79516f2efa696244f8322dc0f7ccd76",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/chat/AttachmentChip.test.tsx",
+			"status": "removed",
+			"review": "Read complete chip/extraction callers. Removed local Tooltip replacement and class-name/spinner implementation oracles. Real Base UI tooltip/button tree now proves independent preview/remove callbacks, actionable disabled semantics for reading, and failure-only retry. Owned cleanup joins popup transitions. Native composer proof stages the real library asset and carries/removes its exact attachment identity. Integration follow-up: Removed trivial preview/remove/retry callback tests and labels. Actual media/composer/extraction browser journeys exercise the production attachment chip against controlled HTTP peers and real asset identity. No new wrapper/model introduced.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "4f249b95390f25574509085d30fe1f7da662fde18b1205f1e7b8132018cc6936",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/chat/ChatActivityStatus.test.tsx",
+			"status": "revised",
+			"review": "Read complete activity derivation/status component and Sidebar caller. Kept real state-to-copy decisions and live-region assertions, removed min-height CSS string as a geometry oracle. Tests claim activity state/copy only; production/native chat owns rendered layout. No fake service behavior or unreachable blueprint fixture introduced. Integration follow-up: Removed three rendered-text/role duplicate tests and happy-dom. Retained actual deriveChatActivity priority/state-to-copy behavior including completion vs closing stream, recovery, submission vs resumed stream and document reading.",
+			"reviewedSha256": "2b8dcc135909e7cbb503dabf8f766a8c6d82558be7d167126cb69f0f271448ba",
+			"preSupplementReviewedSha256": "37512e5005d56c8967e258ec989c144a82d4c7a7aed33909ba66503128791b22",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/chat/ChatInput.test.tsx",
+			"status": "removed",
+			"review": "Replaced entire mocked prompt/textarea suite with real ChatInput, PromptInputProvider, real BlueprintDocProvider holding validator/schema-admitted survey, actual BuilderSessionProvider and actual media/tooltip components. Controlled only usage HTTP peer; joined each request and popup cleanup. Tests cover trimmed single send, preserved disabled/oversized draft, actual focused credit tooltip, and access refresh arriving before async submit continuation. Native Chromium chooses stored library image, hides/restores production persistent composer, then Enter sends exact text+asset and clears both. Integration follow-up: Removed five simulated text/change/click/tooltip tests and their broad provider fixture. Extended existing native real ChatInput/PromptInput journey to prove oversized Enter preserves draft and no send; a one-shot submit event capture advances the ACTUAL BuilderSessionStore access owner before the actual async submit continuation; draft remains and restored authority can later send. Native existing hide/restore + selected asset exact send remain.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "13c88654e7f84ee698d1b3cfacb9b6f23f7b05a7235dfcd5bdb5fb477f03b9b4",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/chat/ChatShortHeight.test.tsx",
+			"status": "revised",
+			"review": "Read full Sidebar and composer ownership. Removed invented DraftAndAttachmentState component and CSS-class assertions that only proved a generic mounted div. Extracted production chatComposer.tsx holding actual persistent wrapper/fallback and activity policy, reducing unrelated inspector/SDK import graph. Kept pure short-viewport policy and real fallback callback tests. Replaced claimed draft/file retention with native real ChatInput+media picker+PromptInput through actual PersistentChatComposer. Host hide/restore is explicitly controlled; this does not claim full-app viewport behavior. Integration follow-up: Removed rendered label plus callback assertion and happy-dom. Kept the existing production fallback visibility and accepted-build composer gate decisions. Existing native real composer journey owns draft and selected-asset retention through hidden wrapper.",
+			"reviewedSha256": "76e592d37221bc142bd4d253fae646c7fceac9c73de9064982c6bdca9d10cb81",
+			"preSupplementReviewedSha256": "91d43e2e3ceefeafdbfa14531f34246462a82bc0f81a489f1a32259793f545f3",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/chat/DesignProgressPanel.test.tsx",
+			"status": "revised",
+			"review": "Read full progress component/store wire projection. Removed invented viewer case (component has no auth input) and CSS spacing oracle. Tests assert real polite stage, inactive retirement, deterministic incomplete copy, real outline disclosure, and materialization replacing outline with remaining workflow progress. Retained independently expected workflow compaction statuses/counts for finite cases; actual DOM case proves policy is wired into visible Built/Building rows. Integration follow-up: Removed polite-region/text/absent-retry pins and fake disclosure click. Kept five direct production planWorkflowRows projections with independent finite compaction/status/count outcomes. Removed happy-dom. Moved outline disclosure and materialization transition to native keyboard/browser proof.",
+			"reviewedSha256": "f372b3c0caac293a95c676f4b70ec1087070f5144f7c946c30cc5becfb6a200b",
+			"preSupplementReviewedSha256": "d21eb5d16ec75ba587b30641df3e77f2cb5c086bf022c22fa7917a036f93bdd2",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/chat/ToolRunSummary.test.tsx",
+			"status": "removed",
+			"review": "Replaced sole SVG class/non-spinner test with actual Base UI disclosure interactions and production toolSummary projection. Typed ToolUIPart fixtures cover single pending-to-complete action and breadcrumb, collapsed multi-call batch, nested historical completion issues, and stable thrown-error recovery without private traces. Cleanup owns Base UI transitions. No CSS animation claim remains. Integration follow-up: Removed three duplicate fake DOM text/error/disclosure tests. Existing lib/chat/toolSummary tests own action/state/error privacy projection. Extended native real nested Base UI disclosures with keyboard opening/closing and visible findings; historical completion fixture deliberately represents supported persisted transcript, not a current-generation tool call.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "5fa05419409d4f8e9b808c9dd5580da313e3e65106d95708699687eb6356db8c",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/chat/scaffoldProgress.test.ts",
+			"status": "revised",
+			"review": "Read scaffold progress caller and production phase derivation. Removed tautological foundation equality, now independently asserts absence before scaffold and explicit handoff/current workflow text for admitted progress shapes. This remains a pure formatting/state-boundary contract, not proof that an app was generated.",
+			"reviewedSha256": "101cfa62c2b5b1b1249137483ddac6aa063e7add8acd6230d844cec005c47666"
+		},
+		{
+			"file": "components/ui/AppChrome.test.tsx",
+			"status": "removed",
+			"review": "Replaced fake AccountMenu/file-dialog and hidden header components with real AppChrome, AccountMenu, MediaPickerDialog, HeaderNav, ProjectSwitcher and real Motion presence. External identity and Next navigation ports are controlled; usage/library HTTP peers remain below real fetching adapters and requests are joined. Open actual Files, change active Project prop, assert portaled manager retires, then reopen/reload actual library in new scope. No fake child-state remount proof survives. Integration follow-up: Removed mocked auth/router + fake Files click rerender tests. Actual production media-library Project switch/editor-viewer and account Files journeys cover persisted session/Project resolution and real menus. Test cannot prove the SSR band or Motion handoff and no such claim retained.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "64ece21cae0bbf1a79efffcbc1e1bc907c547d79dbd5cdcad8cb06dddb129e31",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/ui/HeaderNav.test.ts",
+			"status": "retained",
+			"review": "Read HeaderNav/NAV_ITEMS and actual AppChrome owner. Retained narrow production pathname ownership predicate tests for builder ancestry, exact app-list route and Admin subtree. Expected sections are independent examples; this tests declared navigation policy, not browser navigation or layout. Actual header component is also mounted in redesigned AppChrome integration.",
+			"reviewedSha256": "203c6c378467a8e497d10bd4449d1912f3f40625d8eeede129fa024356af8672"
+		},
+		{
+			"file": "components/ui/PublishButton.test.tsx",
+			"status": "removed",
+			"review": "Read full 30-line PublishButton and actual Button composition. Existing focused component method correctly verifies accessible Publish name and one supplied activation callback through the real primitive. No layout/CSS/source scan or substitute state machine. It does not claim publication side effects, which belong to publish flow and server suites. Integration follow-up: Removed a one-click callback assertion. Existing production publishing journey exercises the real button and publish flow; no replacement unit abstraction.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "33178ff142299f0b7900ac22740ecec6fee233adae3ea7c9f0e6e054d4a0e313",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/ui/__tests__/AppCard.test.tsx",
+			"status": "removed",
+			"review": "Read entire app card action/confirmation state machine and owning summary contract. Kept actual error-app recovery link, added real card confirmation/cancel/deleting/refusal flow using controlled async action boundary. Correct complete app status, no malformed ready fixture. Deferred action is settled/joined even on render/assertion failure; actual Motion skip-interpolation host preserves lifecycle and tooltips. Navigation retires during delete and returns with retry action after refusal; no database deletion claim. Integration follow-up: Removed fake delete callback and link/copy tests. Actual card focus/navigation/delete behavior is exercised by production authed app-card lifecycle and Project movement journeys using persisted rows. No test-only state abstraction introduced.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "eef424e996cfcb8a7276d51c81dd8f1cd6fe0966748cd9158d0b483e5768b245",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/ui/__tests__/ErrorBoundary.test.tsx",
+			"status": "revised",
+			"review": "Read entire boundary and error reporter boundary. Real React render exception proves exact original Error plus source metadata reaches reporter once, unchanged owning screen remains failed, and changed reset key remounts healthy child. Reporter alone is controlled external telemetry; no error-boundary implementation is replaced. Integration follow-up: Full source and test review: retained actual React class error capture/componentDidCatch/resetKey lifecycle. The only stub is the external client error reporter. Real child throw is reported once; healthy replacement under same key remains captured; changed owning key mounts replacement. This is a narrow React lifecycle adapter, not geometry or user-interaction proof.",
+			"reviewedSha256": "138607b26f35e41927bbc51a0f8f14247d7c11603de55011ac0f6e2299a9a18d",
+			"preSupplementReviewedSha256": "138607b26f35e41927bbc51a0f8f14247d7c11603de55011ac0f6e2299a9a18d",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/ui/__tests__/FieldPicker.test.ts",
+			"status": "removed",
+			"review": "Replaced with FieldPicker.test.tsx. Retained legitimate field/order projection tests (explicitly not whole-app fixtures) and added actual Base UI component interactions. New red tests reproduced unnamed combobox and stale selected field text after same-UUID peer rename. Production now links label/input and refreshes current display on identity-preserving rename. Browser-native keyboard selection proves exact UUID commitment and current renamed label; DOM input uses native inputType instead of autofill-like change events.",
+			"reviewedSha256": null
+		},
+		{
+			"file": "components/ui/__tests__/ToastContainer.projectScope.test.tsx",
+			"status": "removed",
+			"review": "Read complete toast component/store retirement owner. Removed local Motion passthrough and global replacement; tests run real Motion with public skipAnimations configuration and await its actual AnimatePresence completion under act. Synchronous scope retirement still captures hidden/display-important state inside boundary before React finishes removal, then confirms retained node is inaccessible. No promise/frame suppression. Additional full-motion native retirement peer is tracked separately while queued. Integration follow-up: Removed exact duplicate of native real Motion synchronous Project retirement proof. Existing chat-controls browser journey proves immediate hidden/inert source notice and zero executable actions; unit store tests own retirement state.",
+			"reviewedSha256": null,
+			"preSupplementReviewedSha256": "a5061b51f1b481ec4aad0bda0b04aff63d874af09e2e202dda462984d3ac7f7b",
+			"supplementalEvidenceReport": "builder-shallow-ui.json"
+		},
+		{
+			"file": "components/chat/ChatContainer.projectScope.test.ts",
+			"status": "revised",
+			"review": "Read full 2642-line original ChatContainer and lifecycle/transport owners; extracted production chatLifecycle.ts to test policies/receipt parser without importing whole client/SDK tree. Replaced broad NovaUIMessage casts with typed satisfies fixtures and schema-parsed media IDs. Red regression demonstrated equal-part-count streamed text truncation after stored barrier adoption. Fix retains strict text/reasoning prefix extensions only when remaining part metadata agrees; corrected authoritative text/membership stays authoritative. Actual provider/native chat validates unrelated extraction wiring. These policy tests do not claim end-to-end POST persistence; reserved route suites remain separate.",
+			"reviewedSha256": "3a431af875290094d2f8481c282444a9d8785c5496f278f825df92a9628a258a"
+		}
+	],
+	"changedPaths": [
+		"components/ai-elements/reasoning.test.ts",
+		"components/chat/AskQuestionsCard.projectScope.test.tsx",
+		"components/chat/AttachmentChip.test.tsx",
+		"components/chat/ChatActivityStatus.test.tsx",
+		"components/chat/ChatInput.test.tsx",
+		"components/chat/ChatShortHeight.test.tsx",
+		"components/chat/DesignProgressPanel.test.tsx",
+		"components/chat/ToolRunSummary.test.tsx",
+		"components/chat/scaffoldProgress.test.ts",
+		"components/ui/AppChrome.test.tsx",
+		"components/ui/HeaderNav.test.ts",
+		"components/ui/PublishButton.test.tsx",
+		"components/ui/__tests__/AppCard.test.tsx",
+		"components/ui/__tests__/ErrorBoundary.test.tsx",
+		"components/ui/__tests__/FieldPicker.test.ts",
+		"components/ui/__tests__/ToastContainer.projectScope.test.tsx",
+		"components/chat/ChatContainer.projectScope.test.ts",
+		"components/ai-elements/reasoning.tsx",
+		"components/ai-elements/reasoningPolicy.ts",
+		"components/ai-elements/reasoning.lifecycle.test.tsx",
+		"components/chat/AskQuestionsCard.tsx",
+		"components/chat/ChatContainer.tsx",
+		"components/chat/chatLifecycle.ts",
+		"components/chat/ChatSidebar.tsx",
+		"components/chat/chatComposer.tsx",
+		"components/ui/FieldPicker.tsx",
+		"components/ui/__tests__/FieldPicker.test.tsx",
+		"e2e/lib/chat-controls-client.tsx",
+		"e2e/tests/chat-controls-audit.spec.ts",
+		"e2e/lib/toast-controls-client.tsx",
+		"app/(app)/build/__tests__/actions.test.ts"
+	],
+	"checks": [
+		{
+			"command": "8 initial transferred chat/UI files through admitted unit wrapper",
+			"log": "/tmp/nova-test-audit-parallel/preview/chat-first-batch.log",
+			"result": "85 passed"
+		},
+		{
+			"command": "All 18 current transferred test files, real Motion, maxWorkers1 detect-async-leaks",
+			"log": "/tmp/nova-test-audit-parallel/preview/chat-all-real-motion.log",
+			"result": "110 passed; zero reported leaks and escaped updates"
+		},
+		{
+			"command": "ChatInput + ChatContainer project scope after public session-provider fixture correction",
+			"log": "/tmp/nova-test-audit-parallel/preview/chat-provider-final.log",
+			"result": "37 passed"
+		},
+		{
+			"command": "Scoped Biome check --write 33 paths then 4 targeted fixes",
+			"log": "/tmp/nova-test-audit-parallel/preview/chat-final-biome-fixes.log",
+			"result": "Final 4 clean; 26 earlier files formatted; complete final clean scan pending new native peer formatting"
+		},
+		{
+			"command": "Native Chat keyboard answers/field rename and selection/reasoning full Motion",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workflows-fifth.log",
+			"result": "Keyboard case passed; earlier composer failed incorrect test selector"
+		},
+		{
+			"command": "Native Chat actual library asset/draft retention through hidden composer and Enter send",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workflows-sixth.log",
+			"result": "Passed 889ms after exact Attach media -> Library -> Choose flow selectors"
+		},
+		{
+			"command": "Native full-Motion Project toast scope retirement and action inaccessibility",
+			"log": "/tmp/nova-test-audit-parallel/application/browser-workflows-seventh.log",
+			"result": "Passed 263ms"
+		},
+		{
+			"command": "Production assistant text native pointer selection with actual Motion drawer actionability",
+			"log": "/tmp/nova-test-audit-parallel/application/production-selection-final.log",
+			"result": "Passed 3.5s; stable coordinates fix test timing, no product selection defect"
+		}
+	],
+	"bugs": [
+		{
+			"summary": "Question final answer could publish twice and retained typed route survived card unmount. Fixed synchronous question retirement plus committed identity-safe callback ownership.",
+			"status": "fixed and verified"
+		},
+		{
+			"summary": "Stored transcript barrier with equal part count truncated already-delivered assistant text. Fixed strict stream-prefix retention including reasoning; authoritative rewrites remain authoritative.",
+			"status": "fixed and verified"
+		},
+		{
+			"summary": "FieldPicker visible label did not name the combobox; same-UUID peer rename left stale uncontrolled field text. Fixed accessible label association and display reset; unit red/green and native keyboard verified.",
+			"status": "fixed and verified"
+		}
+	],
+	"docsNeeded": [
+		"Shared findings: blanket Motion replacement removed; real Motion public instant-animation mode for DOM suites, full Motion in browser peers, explicit frame/presence ownership. Installed Motion supports skipAnimations; source inventory in preview/motion-consumers.json.",
+		"Chat bug fixes restore existing answer/transcript behavior; no changed author workflow. FieldPicker uses its existing visible label/current identity projection; no new user steps.",
+		"Nearest chat contract should state typed-answer route belongs to committed unanswered card and equal-part-count stream extensions must not be truncated during authoritative transcript healing."
+	],
+	"blockedBy": [],
+	"remainingSeparateWork": [
+		"Global Motion migration: Builder owns remaining consumers and two explicit mock-oracle redesigns; Application app-list-body pending. Original Preview cleanup passed scoped rerun."
+	]
+}

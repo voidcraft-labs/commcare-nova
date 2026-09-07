@@ -42,7 +42,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerLayoutSidebarLeftExpand from "@iconify-icons/tabler/layout-sidebar-left-expand";
 import tablerMessageChatbot from "@iconify-icons/tabler/message-chatbot";
-import { AnimatePresence, motion, useReducedMotion } from "motion/react";
+import { AnimatePresence, motion } from "motion/react";
 import dynamic from "next/dynamic";
 import {
 	memo,
@@ -62,6 +62,7 @@ import {
 import { GenerationProgress } from "@/components/builder/GenerationProgress";
 import { useInspectorPresence } from "@/components/builder/inspector/useInspectorPresence";
 import { StructureSidebar } from "@/components/builder/StructureSidebar";
+import { useReducedMotionPreference } from "@/components/builder/useReducedMotionPreference";
 import { ChatRail } from "@/components/chat/ChatRail";
 import { PreviewShell } from "@/components/preview/PreviewShell";
 import { Button } from "@/components/shadcn/button";
@@ -220,7 +221,7 @@ export function BuilderContentArea({
 	 * rail and dropping its scroll. */
 	const structureEffectiveOpen = structureStashed ?? structureOpen;
 	const previewing = usePreviewing();
-	const reduceMotion = useReducedMotion();
+	const reduceMotion = useReducedMotionPreference();
 	const sidebarTransition = reduceMotion
 		? ({ duration: 0 } as const)
 		: SIDEBAR_TRANSITION;

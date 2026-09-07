@@ -5,7 +5,8 @@
 // literal, so wire slots that evaluate before any Search runs never
 // reference the unloaded `search-input:results` instance. See
 // `walk.ts::substituteUnansweredSearchInputsInPredicate` for the
-// runtime-crash rationale.
+// runtime-crash rationale. These tests establish structural substitution;
+// native Core compatibility belongs to the wire consumer tests.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -45,13 +46,10 @@ describe("substituteUnansweredSearchInputsInPredicate", () => {
 			),
 			always,
 		);
+		const before = structuredClone(filter);
 		const substituted = substituteUnansweredSearchInputsInPredicate(filter);
 		expect(substituted).toEqual(and(matchAll(), always));
-		// The authored tree is never mutated — emission owns the copy.
-		expect(filter.kind).toBe("and");
-		if (filter.kind === "and") {
-			expect(filter.clauses[0].kind).toBe("when-input-present");
-		}
+		expect(filter).toEqual(before);
 	});
 
 	it("collapses a nested envelope through its enclosing envelope", () => {

@@ -1,19 +1,12 @@
-// components/builder/form-links/__tests__/formLinkValidByConstruction.test.ts
-//
-// The after-submit surface's headline invariant, stated once: everything
-// the workspace OFFERS, the commit gate ACCEPTS. The candidates are the
-// surface's own — the target picker's rows filtered by its own verdict,
-// the add control's two intents, the seeds it lands, the rail's retarget
-// and conversion, the reorder map the keyboard and the drag both read —
-// and the oracle is `mutationCommitVerdict`, the same gate every dispatch
-// runs through. A candidate the surface would not offer is skipped by the
-// surface's own predicate, so this can only fail on a genuine
-// offer-then-refuse.
+/** Finite after-submit menu/seed corpus using actual target rows, shared
+ * planners, commit gate and reducer. Proves these local app transitions,
+ * not native device execution or an exhaustive language invariant. */
 
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { planKeyboardReorder } from "@/components/builder/shared/keyboardReorderPlan";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
 import {
@@ -29,6 +22,7 @@ import {
 	formLinkRequiredDatums,
 	formLinkTargetVerdict,
 } from "@/lib/doc/formLinkReview";
+import { formLinkTargetChoices } from "@/lib/doc/formLinkTargetChoices";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
 import type {
@@ -37,7 +31,6 @@ import type {
 	FormLinkTarget,
 	Uuid,
 } from "@/lib/domain";
-import { readsForm } from "../LinkConditionEditor";
 import {
 	moveRefusal,
 	otherwiseUnavailableReason,
@@ -49,6 +42,7 @@ import {
 	seedConditionalLink,
 	seedOtherwiseLink,
 } from "../seeds";
+import { readsForm } from "../sessionExpression";
 import {
 	CARE,
 	fixture,
@@ -63,6 +57,7 @@ import {
 
 /** Replay an ok plan through the gate and the reducers; return the doc. */
 function commit(doc: BlueprintDoc, plan: FormLinkCommitPlan): BlueprintDoc {
+	assertAdmittedDoc(doc);
 	if (!plan.ok) throw new Error(`refused: ${JSON.stringify(plan.reason)}`);
 	const verdict = mutationCommitVerdict(
 		doc,
@@ -74,20 +69,21 @@ function commit(doc: BlueprintDoc, plan: FormLinkCommitPlan): BlueprintDoc {
 			`gate refused: ${verdict.findings.map((e) => e.code).join(", ")}`,
 		);
 	}
-	return produce(doc, (draft) => {
+	const next = produce(doc, (draft) => {
 		applyMutations(draft, [...plan.mutations]);
 	});
+	assertAdmittedDoc(next);
+	return next;
 }
 
-/** Every destination the picker lists: each module, each of its forms. */
-function pickerTargets(doc: BlueprintDoc): FormLinkTarget[] {
-	return doc.moduleOrder.flatMap((moduleUuid) => [
-		{ type: "module" as const, moduleUuid },
-		...(doc.formOrder[moduleUuid] ?? []).map((formUuid) => ({
-			type: "form" as const,
-			moduleUuid,
-			formUuid,
-		})),
+/** Read the actual target picker's ordered rows rather than inventing them. */
+function pickerTargets(
+	doc: BlueprintDoc,
+	source: Uuid = SOURCE,
+): FormLinkTarget[] {
+	return formLinkTargetChoices(doc, source, undefined).flatMap((group) => [
+		group.target,
+		...group.forms.map((form) => form.target),
 	]);
 }
 
@@ -123,7 +119,7 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 		it(`from ${source === SOURCE ? "the registration form" : "the follow-up form"}: conditional and otherwise seeds both pass`, () => {
 			const parse = parserFor(doc, source);
 			let offered = 0;
-			for (const target of pickerTargets(doc)) {
+			for (const target of pickerTargets(doc, source)) {
 				const verdict = formLinkTargetVerdict(doc, source, undefined, target);
 				// The picker's own predicate: a refused row is disabled with its
 				// reason, and never chosen.
@@ -254,7 +250,7 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 					uuid: "lnk-back",
 					target: {
 						type: "form",
-						moduleUuid: looped_intake(),
+						moduleUuid: INTAKE,
 						formUuid: SOURCE,
 					},
 				},
@@ -301,16 +297,12 @@ describe("every destination the picker offers lands a link the gate accepts", ()
 	});
 });
 
-function looped_intake(): Uuid {
-	return testUuid("mod-intake");
-}
-
 describe("a conditional seed never fires until edited, and never reads the form", () => {
 	it("seeds false() and a link that reads the form is refused before the gate", () => {
 		const doc = fixture();
 		const parse = parserFor(doc, SOURCE);
 		const link = seedConditionalLink(seedFor(doc, SOURCE, toNote), parse);
-		expect(link.condition).toEqual(parse(SEED_CONDITION_TEXT));
+		expect(link.condition).toStrictEqual(parse("false()"));
 		expect(readsForm(parse("#form/case_name = 'x'"))).toBe(true);
 		expect(readsForm(parse("/data/case_name = 'x'"))).toBe(true);
 		expect(readsForm(parse("#patient/mood = 'good'"))).toBe(false);
@@ -321,9 +313,10 @@ describe("a conditional seed never fires until edited, and never reads the form"
 describe("the add control offers the otherwise intent exactly when the planner admits it", () => {
 	it("is on offer without an otherwise link and refused with one", () => {
 		const parse = parserFor(fixture(), SOURCE);
-		const bare = fixture([
-			{ uuid: "lnk-1", condition: "1 = 1", target: toNote },
-		]);
+		const bare = fixture(
+			[{ uuid: "lnk-1", condition: "1 = 1", target: toNote }],
+			{ postSubmit: "app_home" },
+		);
 		expect(
 			otherwiseUnavailableReason(formLinkAddChoices(bare, SOURCE)),
 		).toBeUndefined();
@@ -359,9 +352,10 @@ describe("the add control offers the otherwise intent exactly when the planner a
 
 describe("the rail's retarget reseeds carried values for the new destination", () => {
 	it("passes the gate in every direction", () => {
-		const doc = fixture([
-			{ uuid: "lnk-1", condition: "1 = 1", target: toVisit },
-		]);
+		const doc = fixture(
+			[{ uuid: "lnk-1", condition: "1 = 1", target: toVisit }],
+			{ postSubmit: "app_home" },
+		);
 		const parse = parserFor(doc, SOURCE);
 		const link = doc.forms[SOURCE]?.formLinks?.[0] as FormLink;
 		// automatic → manual-required: seeded values appear.
@@ -395,10 +389,13 @@ describe("the rail's retarget reseeds carried values for the new destination", (
 
 describe("the rail's conversions pass the gate where they are offered", () => {
 	it("the last conditional link becomes the otherwise link", () => {
-		const doc = fixture([
-			{ uuid: "lnk-1", condition: "1 = 1", target: toNote },
-			{ uuid: "lnk-2", condition: "2 = 2", target: toVisit },
-		]);
+		const doc = fixture(
+			[
+				{ uuid: "lnk-1", condition: "1 = 1", target: toNote },
+				{ uuid: "lnk-2", condition: "2 = 2", target: toVisit },
+			],
+			{ postSubmit: "app_home" },
+		);
 		const last = doc.forms[SOURCE]?.formLinks?.[1] as FormLink;
 		const { condition: _c, ...rest } = last;
 		commit(doc, planFormLinkUpdate(doc, SOURCE, rest, last));
@@ -422,8 +419,8 @@ describe("the rail's conversions pass the gate where they are offered", () => {
 	});
 });
 
-describe("keyboard and drag read one move map", () => {
-	it("the keyboard refuses exactly the positions the map refuses, with the map's reason", () => {
+describe("keyboard decisions consume actual link move verdicts", () => {
+	it("every planned keyboard move has explicit admission and refusals carry words", () => {
 		const doc = fixture([
 			{ uuid: "lnk-1", condition: "1 = 1", target: toNote },
 			{ uuid: "lnk-2", condition: "2 = 2", target: toVisit },
@@ -448,7 +445,7 @@ describe("keyboard and drag read one move map", () => {
 					refusalOf: moveRefusal,
 				});
 				if (outcome?.kind !== "move") continue;
-				expect(verdicts.get(outcome.toIndex)?.ok).not.toBe(false);
+				expect(verdicts.get(outcome.toIndex)?.ok).toBe(true);
 			}
 			// Every refused position has a sentence; every available one has none.
 			for (const [position, verdict] of verdicts) {

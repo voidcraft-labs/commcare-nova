@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
 	isValidSelectOptionValue,
 	repairSelectOptionValue,
-	SELECT_OPTION_VALUE_DESCRIPTION,
 	SELECT_OPTION_VALUE_PATTERN,
-	SELECT_OPTION_VALUE_REJECTION,
 	sanitizeSelectOptionValue,
 	selectOptionValueProblem,
 	selectOptionValueSchema,
@@ -12,29 +10,26 @@ import {
 } from "../selectOptionValue";
 
 describe("selectOptionValueSchema", () => {
-	it("teaches the shape in its description and refuses with the rejection", () => {
-		expect(selectOptionValueSchema.description).toBe(
-			SELECT_OPTION_VALUE_DESCRIPTION,
-		);
-		expect(selectOptionValueSchema.safeParse("prefer_not_to_say").success).toBe(
-			true,
-		);
-		const refused = selectOptionValueSchema.safeParse("Prefer not to say");
-		expect(refused.success).toBe(false);
-		if (!refused.success) {
-			expect(refused.error.issues[0]?.message).toBe(
-				SELECT_OPTION_VALUE_REJECTION,
-			);
-		}
-	});
-
-	it("agrees with the problem classifier on every edge", () => {
-		for (const value of ["", " ", "a b", "a'b", 'a"b', "a`b", "ok", "sí"]) {
-			expect(selectOptionValueSchema.safeParse(value).success).toBe(
-				selectOptionValueProblem(value) === undefined,
-			);
-		}
-	});
+	it.each([
+		["", false],
+		[" ", false],
+		["a b", false],
+		["a'b", false],
+		['a"b', false],
+		["a`b", false],
+		["ok", true],
+		["sí", true],
+		["a-b.c", true],
+		["a\u00a0b", false],
+		["a\u2028b", false],
+	] as const)(
+		"classifies %j against the same independently stated grammar",
+		(value, accepted) => {
+			expect(selectOptionValueSchema.safeParse(value).success).toBe(accepted);
+			expect(isValidSelectOptionValue(value)).toBe(accepted);
+			expect(SELECT_OPTION_VALUE_PATTERN.test(value)).toBe(accepted);
+		},
+	);
 });
 
 describe("selectOptionValueProblem", () => {
@@ -54,7 +49,7 @@ describe("selectOptionValueProblem", () => {
 		}
 	});
 
-	it("names the first thing wrong: empty, then whitespace, then a quote", () => {
+	it("names an empty value or the first forbidden character", () => {
 		expect(selectOptionValueProblem("")).toBe("empty");
 		expect(selectOptionValueProblem("Prefer not to say")).toBe("whitespace");
 		expect(selectOptionValueProblem("tab\there")).toBe("whitespace");
@@ -63,14 +58,6 @@ describe("selectOptionValueProblem", () => {
 		expect(selectOptionValueProblem('say "hi"')).toBe("whitespace");
 		expect(selectOptionValueProblem("`tick`")).toBe("quote");
 		expect(selectOptionValueProblem(" ")).toBe("whitespace");
-	});
-
-	it("agrees with the anchored pattern the schemas carry", () => {
-		for (const value of ["", " ", "a b", "a'b", 'a"b', "a`b", "ok", "ok_2"]) {
-			expect(SELECT_OPTION_VALUE_PATTERN.test(value)).toBe(
-				selectOptionValueProblem(value) === undefined,
-			);
-		}
 	});
 });
 
@@ -107,7 +94,7 @@ describe("sanitizeSelectOptionValue", () => {
 		expect(sanitizeSelectOptionValue("   ")).toBe("_");
 	});
 
-	it("always lands inside the grammar or on empty", () => {
+	it("sanitizes whitespace and quote examples into admitted values or empty", () => {
 		for (const raw of ["a b", "x' y", " lead", "trail ", "mid\tdle", "ok"]) {
 			const out = sanitizeSelectOptionValue(raw);
 			expect(out === "" || isValidSelectOptionValue(out)).toBe(true);
@@ -193,22 +180,5 @@ describe("repairSelectOptionValue", () => {
 		expect(
 			repairSelectOptionValue("a b", "A b", "option_1", new Set(["a_b"])),
 		).toBe("a_b_2");
-	});
-});
-
-describe("the model-facing sentences", () => {
-	it("teach the slug shape and name the two things a value cannot hold", () => {
-		for (const sentence of [
-			SELECT_OPTION_VALUE_DESCRIPTION,
-			SELECT_OPTION_VALUE_REJECTION,
-		]) {
-			expect(sentence).toContain("underscores");
-			expect(sentence).toContain("prefer_not_to_say");
-			expect(sentence).toMatch(/spaces/);
-			expect(sentence).toMatch(/quotes/);
-			expect(sentence).toContain("label");
-			// Nova voice: no em dashes.
-			expect(sentence).not.toContain("—");
-		}
 	});
 });

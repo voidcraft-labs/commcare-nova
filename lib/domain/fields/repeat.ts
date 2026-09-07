@@ -19,19 +19,17 @@
 //
 // 2. **`count_bound`** — `repeat_count` is an XPath expression
 //    (typically referencing another field on the form, e.g.
-//    `#form/desired_count`). The runtime evaluates `jr:count` ONCE at
-//    form load and creates that many instances. Per JavaRosa spec, the
-//    count does NOT recalculate when its dependencies change — this is
-//    a CommCare quirk we mirror, not a Nova design choice.
-//    `jr:noAddRemove="true()"` suppresses Add/Remove.
+//    `#form/desired_count`). Nova fixes the count when the repeat's
+//    enclosing instance initializes. The emitter snapshots the expression
+//    before passing it to `jr:count`; JavaRosa itself can recalculate an
+//    unsnapshotted count. `jr:noAddRemove="true()"` suppresses Add/Remove.
 //
 // 3. **`query_bound`** — iterates over case-database query results.
 //    `data_source.ids_query` is an XPath that resolves to a list of
 //    case ids; the wire emitter generates `<setvalue>` setup elements
-//    on the `xforms-ready` event to seed each instance's id, plus
-//    auto-derives `jr:count` as `<repeat-path>/@count`. Same one-time
-//    evaluation as count_bound. The pattern Vellum calls "model
-//    iteration".
+//    when the enclosing instance initializes to seed each instance's id,
+//    plus auto-derives `jr:count` as `<repeat-path>/@count`. Each new
+//    enclosing repeat instance initializes its own query snapshot.
 //
 // ## Empty-label repeats are valid (all modes)
 //
@@ -86,10 +84,10 @@ export const userControlledRepeatSchema = repeatBase.extend({
 
 /**
  * Count-bound repeat — `repeat_count` is an XPath that the runtime
- * evaluates once to determine instance count. Common pattern: bind to
- * a numeric field elsewhere on the form (`#form/desired_count`).
- * JavaRosa does not recalculate after form load; the count is fixed
- * once instances are materialized.
+ * snapshots when its enclosing instance initializes. Common pattern:
+ * bind to a numeric field elsewhere on the form (`#form/desired_count`).
+ * The fixed count is Nova's contract, implemented in its preview and
+ * emitted snapshot; it is not a general JavaRosa restriction.
  */
 export const countBoundRepeatSchema = repeatBase.extend({
 	repeat_mode: z.literal("count_bound"),
@@ -98,7 +96,7 @@ export const countBoundRepeatSchema = repeatBase.extend({
 
 /**
  * Query-bound repeat (Vellum's "model iteration"). The runtime resolves
- * `data_source.ids_query` once at form load to a list of case ids,
+ * `data_source.ids_query` when its enclosing instance initializes to case ids,
  * materializes one instance per id, and seeds each instance's nested
  * `@id` via setvalue elements emitted by the XForm builder. Used for
  * patterns like "for each open service case, render a row".
@@ -142,6 +140,6 @@ export const repeatFieldMetadata: FieldKindMetadata<"repeat"> = {
 	isStructural: true,
 	isContainer: true,
 	saDocs:
-		'Repeats its child fields N times. Pick a `repeat_mode`: "user_controlled" for forms where the end user adds entries (e.g. household members). Set repeat_mode and nothing else; "count_bound" for a fixed count from another XPath (set repeat_count); "query_bound" to iterate over case-database query results (set data_source.ids_query). count_bound and query_bound do NOT recalculate after form load. JavaRosa spec, not a Nova choice.',
+		'Repeats its child fields N times. Pick a `repeat_mode`: "user_controlled" for forms where the end user adds entries (e.g. household members). Set repeat_mode and nothing else; "count_bound" for a fixed count from another XPath (set repeat_count); "query_bound" to iterate over case-database query results (set data_source.ids_query). count_bound and query_bound snapshot their count or query when the enclosing instance initializes. Changing dependencies later does not rebuild those instances. A new enclosing repeat instance initializes its own snapshot.',
 	convertTargets: ["group"],
 };

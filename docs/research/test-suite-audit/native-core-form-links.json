@@ -1,0 +1,23 @@
+{
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"tests": {
+		"name": "nova.compatibility.FormLinkRuntimeTest",
+		"tests": "2",
+		"skipped": "0",
+		"failures": "0",
+		"errors": "0",
+		"timestamp": "2026-09-07T01:20:59",
+		"hostname": "DIM-A127",
+		"time": "0.206"
+	},
+	"nativeScenarios": 42,
+	"counterexamples": "Both native wire paths: absent source session datum raises; present empty source yields empty case_id and no prompt. Actual SessionInstanceBuilder and completion lifecycle.",
+	"sha256": {
+		"/tmp/nova-core-capture-audit/src/main/java/org/commcare/session/CommCareSession.java": "e016c0753da0936623de6c09b8aeff5a8f49fce8641b6c59910b1c80f03f16a7",
+		"/tmp/nova-core-capture-audit/src/main/java/org/commcare/session/SessionInstanceBuilder.java": "154ba74db4b03f0c43e26ff7cadcd6a8a783b3f24e396cad5ad75b39acb2f097",
+		"/tmp/nova-core-capture-audit/src/main/java/org/commcare/suite/model/StackFrameStep.java": "e4114963cdd5870de7bec624a743de5ee7c04a63fcafc4600342b086b68efd55",
+		"scripts/fixtures/javarosa/FormLinkRuntimeTest.java": "e8528519b44507789ea89c25b85bcc3fc5a4b76df7c8f10710f0709ea1b7e65a",
+		"/tmp/nova-core-capture-audit/build/reports/tests/TEST-nova.compatibility.FormLinkRuntimeTest.xml": "9b7f4846166d6ecd5de67f56972f26efdd74d94d70c2e8549f965ee562605b6a"
+	},
+	"limits": "No device UI or submission processing. Local and regenerated HQ seven admitted apps; real Core post-entry completion/frames and user-case storage. Deliberately incomplete source sessions only for paired counterexamples."
+}

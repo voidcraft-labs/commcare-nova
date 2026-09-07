@@ -9,10 +9,9 @@
  * committed receipt (genesis: the materialization receipt).
  *
  * The design agent speaks for itself in the transcript (its chunks stream
- * through the loop runner); the orchestrator still narrates the SLICE
- * phase with synthetic UIMessage chunks (deterministic statements derived
- * from real artifacts; §15.5), plus the §15.4 progress frames, each a
- * projection of a durable row.
+ * through the loop runner). The orchestrator emits artifact-derived outline
+ * and progress frames, each grounded in durable state; private executor text
+ * does not become assistant narration.
  *
  * Every model-facing seam (source-package deps, the design loop, the
  * executor step) is injectable so the whole orchestration is testable
@@ -323,10 +322,12 @@ export async function runBuildOrchestration(
 	const deps = productionDeps(args);
 	let appId: string | null = args.materializedAppId;
 
-	/* Wall-clock liveness heartbeat: the session's lease pre-materialization,
-	 * the app's build liveness after. Unref'd; always cleared. */
+	/* Coalesce liveness work while a write is in flight. The run owns both
+	 * the interval and the current database operation, including failure. */
+	let heartbeatTask: Promise<void> | undefined;
 	const heartbeat = () => {
-		void (
+		if (heartbeatTask !== undefined) return;
+		heartbeatTask = (
 			appId === null
 				? refreshDesignSessionLiveness(
 						args.designSessionId,
@@ -334,7 +335,17 @@ export async function runBuildOrchestration(
 						args.holderNonce,
 					)
 				: refreshBuildLiveness(appId, args.runId, args.holderNonce)
-		).catch(() => {});
+		)
+			.catch((error: unknown) => {
+				log.warn("design_build_liveness_failed", {
+					designSessionId: args.designSessionId,
+					runId: args.runId,
+					errorType: error instanceof Error ? error.name : "unknown",
+				});
+			})
+			.finally(() => {
+				heartbeatTask = undefined;
+			});
 	};
 	const heartbeatTimer = setInterval(heartbeat, HEARTBEAT_INTERVAL_MS);
 	heartbeatTimer.unref?.();
@@ -1087,6 +1098,7 @@ export async function runBuildOrchestration(
 		}
 	} finally {
 		clearInterval(heartbeatTimer);
+		await heartbeatTask;
 		args.writer.write({ type: "finish" });
 	}
 }

@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { test } from "@playwright/test";
+import { waitForManualPageClose } from "../lib/manualSession";
 
 /**
  * Open-ended, forged-session visual-QA harness for the patient case workspace.
@@ -45,5 +46,5 @@ test("manual case-workspace session — close the window (or Ctrl-C) to end", as
 			"\n[case:manual] Close the browser window (or Ctrl-C here) to end.\n",
 	);
 
-	await page.waitForEvent("close", { timeout: 0 }).catch(() => undefined);
+	await waitForManualPageClose(page);
 });

@@ -1,0 +1,28 @@
+{
+	"owner": "commcare",
+	"kind": "supplemental-review",
+	"files": [
+		{
+			"file": "app/api/compile/__tests__/route.test.ts",
+			"status": "revised",
+			"review": "Added actual persisted-admitted document -> HTTP -> export-boundary propagation for both HQ nested selection failures, with corresponding readable CCZ success. All27 route tests passed; no production route edits.",
+			"reviewedSha256": "955e0eded2cc3e0a0bd9a8e973815de5b938ebdd5623aa65d7063194b34980fb"
+		},
+		{
+			"file": "lib/mcp/__tests__/uploadAppToHq.postgres.test.ts",
+			"status": "revised",
+			"review": "Added two actual persisted SDK -> publish preflight -> export-boundary refusals. Both return invalid_input plus exact guidance, preserve no deployment record, and make zero remote requests. Both focused cases pass. Full39 baseline run before correcting only the expected deployment state had two SDK promise/blobreader async-sweep handles attributed to the unchanged update test; reported separately.",
+			"reviewedSha256": "4ee9b3bd1e6f8a1e6bc428c4791ac4422d8b6d8af46579566626312f6b56829c"
+		}
+	],
+	"checks": [
+		{
+			"log": "/tmp/nova-test-audit-parallel/commcare/nested-compile-route-first.log",
+			"result": "Added actual persisted-admitted document -> HTTP -> export-boundary propagation for both HQ nested selection failures, with corresponding readable CCZ success. All27 route tests passed; no production route edits."
+		},
+		{
+			"log": "/tmp/nova-test-audit-parallel/commcare/nested-publish-postgres-second.log",
+			"result": "Added two actual persisted SDK -> publish preflight -> export-boundary refusals. Both return invalid_input plus exact guidance, preserve no deployment record, and make zero remote requests. Both focused cases pass. Full39 baseline run before correcting only the expected deployment state had two SDK promise/blobreader async-sweep handles attributed to the unchanged update test; reported separately."
+		}
+	]
+}

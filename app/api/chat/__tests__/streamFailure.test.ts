@@ -9,8 +9,8 @@
 // successful build to `error` and refund a legitimate charge, so the route keys
 // on the terminal `"error"` chunk type via `isFatalStreamErrorChunk`. This pins
 // the PREDICATE's classification (a pure unit, no stream/mount); the route's
-// wiring that calls it on `chunk.type` is verified by a Playwright/state-model
-// path, not here.
+// wiring and durable finalization belong to the native route persistence tests,
+// not this classification test.
 
 import { describe, expect, it } from "vitest";
 import { isFatalStreamErrorChunk } from "../streamFailure";

@@ -5,8 +5,10 @@ import { PREVIEW_EXECUTABLE_FUNCTIONS } from "@/lib/preview/xpath/functions";
 import { FUNCTION_REGISTRY } from "../../validator/functionRegistry";
 import { JAVAROSA_PATH_INITIALIZERS } from "../functionCapabilities";
 
-describe("valid-by-construction XPath Preview parity", () => {
-	it("executes every ordinary function Nova admits for authored XPath", () => {
+// Registration is a separate invariant from execution. Native value and Preview
+// function tests own behavioral compatibility; these sets detect missing wiring.
+describe("XPath admission and Preview registration agreement", () => {
+	it("registers every ordinary function admitted for authored XPath", () => {
 		const admittedFunctions = [...FUNCTION_REGISTRY.keys()].filter(
 			(name) => !JAVAROSA_PATH_INITIALIZERS.has(name),
 		);
@@ -18,7 +20,7 @@ describe("valid-by-construction XPath Preview parity", () => {
 		).toEqual(admittedFunctions.sort());
 	});
 
-	it("executes every JavaRosa path initializer Nova admits", () => {
+	it("registers each admitted path initializer", () => {
 		expect([...PREVIEW_EXECUTABLE_PATH_INITIALIZERS].sort()).toEqual(
 			[...JAVAROSA_PATH_INITIALIZERS].sort(),
 		);

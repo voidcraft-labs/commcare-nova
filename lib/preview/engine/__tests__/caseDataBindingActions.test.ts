@@ -1,5 +1,6 @@
 // Server-action contracts with mocked auth and CaseStore boundaries.
-// No database fixture: these tests prove authorization, argument projection, and failure handling.
+// No database fixture: these tests check authorization calls, argument projection, and failure handling.
+// Project isolation and transaction semantics belong to the Postgres acceptance suite.
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
@@ -12,7 +13,6 @@ import {
 	type JsonObject,
 	SchemaNotSyncedError,
 } from "@/lib/case-store";
-import { buildSimpleBlueprint } from "@/lib/case-store/__tests__/fixtures/simpleBlueprint";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import {
 	advancedSearchInputDef,
@@ -54,13 +54,14 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
-import { buildDoc, f } from "../../../__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "../../../__tests__/docHelpers";
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { validateCaptureSubmissionProjection } from "../captureSubmissionValidation";
 import {
 	buildSubmissionOperationProgram,
 	buildSubmissionReceiptIdentity,
-	submissionEnvelopeArgs as projectSubmissionEnvelopeArgs,
 	readCaseDatabaseSnapshot,
 	SAMPLE_CASE_DEFAULT_COUNT,
 } from "../caseDataBindingHelpers";
@@ -270,106 +271,77 @@ const FINAL_SUBMISSION_PROTOCOL = {
 	attachmentRefs: [],
 } as const;
 
-let submissionEnvelopeReceiptSequence = 0;
-
-function submissionEnvelopeArgs(
-	mutation: Parameters<typeof projectSubmissionEnvelopeArgs>[0],
-	appId: Parameters<typeof projectSubmissionEnvelopeArgs>[1],
-	built?: Parameters<typeof projectSubmissionEnvelopeArgs>[2],
-): ReturnType<typeof projectSubmissionEnvelopeArgs> {
-	submissionEnvelopeReceiptSequence += 1;
-	const children =
-		mutation.kind === "registration" ||
-		mutation.kind === "followup" ||
-		mutation.kind === "close"
-			? mutation.children
-			: [];
-	const ordinaryChildRelationships =
-		built?.ordinaryChildRelationships ??
-		new Map(children.map((child) => [child.caseType, "child"] as const));
-	const childSeeds = children.map((child) => ({
-		...child,
-		parentRelationship:
-			ordinaryChildRelationships.get(child.caseType) ?? ("child" as const),
-	}));
-	const ordinaryCaseType =
-		built?.ordinaryCaseType ??
-		(mutation.kind === "followup" || mutation.kind === "close"
-			? "patient"
-			: undefined);
-	const ordinarySelection =
-		built?.ordinarySelection ??
-		(mutation.kind === "followup" || mutation.kind === "close"
-			? { kind: "single" as const, maximum: 1 as const }
-			: undefined);
-	const ordinaryAction =
-		built?.ordinaryAction ??
-		(mutation.kind === "registration"
-			? {
-					kind: "registration" as const,
-					primary: mutation.primary,
-					children: childSeeds,
-				}
-			: mutation.kind === "followup" || mutation.kind === "close"
-				? {
-						kind:
-							mutation.kind === "close" && (built?.ordinaryCloseCase ?? true)
-								? ("close" as const)
-								: ("followup" as const),
-						caseIds: mutation.caseIds,
-						caseType: ordinaryCaseType ?? "patient",
-						selection:
-							ordinarySelection ?? ({ kind: "single", maximum: 1 } as const),
-						patch: mutation.patch,
-						children: childSeeds,
-					}
-				: { kind: "none" as const });
-	return projectSubmissionEnvelopeArgs(mutation, appId, {
-		...built,
-		ordinaryAction,
-		ordinaryFormType: built?.ordinaryFormType ?? mutation.kind,
-		ordinaryCloseCase:
-			built?.ordinaryCloseCase ??
-			(mutation.kind === "close" ? true : undefined),
-		// Whatever the mutation names, unless a test says otherwise: these
-		// tests are about the envelope's other halves, and the committed-form
-		// filter has its own coverage.
-		usercaseWriteProperties:
-			built?.usercaseWriteProperties ??
-			new Set(Object.keys(mutation.usercase ?? {})),
-		ordinaryChildRelationships,
-		ordinaryCaseType,
-		ordinarySelection,
-		submissionReceipt:
-			built?.submissionReceipt ??
-			({
-				entryKey: mutation.entryKey,
-				formUuid: testUuid(mutation.formUuid),
-				expectedAppMutationSeq: 0,
-				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
-				requestDigest: `case-data-binding-request-${submissionEnvelopeReceiptSequence}`,
-			} as const),
-	});
+function finalSubmissionDoc() {
+	return assertAdmittedPreviewDoc(
+		buildDoc({
+			appName: "Final submission protocol",
+			modules: [
+				{
+					uuid: "10000000-0000-4000-8000-000000000003",
+					name: "Module",
+					forms: [
+						{
+							uuid: FINAL_FORM_UUID,
+							name: "Form",
+							type: "survey",
+							fields: [
+								f({
+									uuid: "10000000-0000-4000-8000-000000000004",
+									kind: "text",
+									id: "notes",
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
 }
 
-function finalSubmissionDoc() {
-	return buildDoc({
-		appName: "Final submission protocol",
-		modules: [
-			{
-				uuid: "10000000-0000-4000-8000-000000000003",
-				name: "Module",
-				forms: [
-					{
-						uuid: FINAL_FORM_UUID,
-						name: "Form",
-						type: "survey",
-						fields: [],
-					},
-				],
-			},
-		],
-	});
+function differentFormDoc() {
+	const doc = finalSubmissionDoc();
+	const newId = testUuid("different-form");
+	doc.forms[newId] = { ...doc.forms[FINAL_FORM_UUID], uuid: newId };
+	delete doc.forms[FINAL_FORM_UUID];
+	const moduleId = doc.moduleOrder[0];
+	doc.formOrder[moduleId] = [newId];
+	doc.fieldOrder[newId] = doc.fieldOrder[FINAL_FORM_UUID];
+	delete doc.fieldOrder[FINAL_FORM_UUID];
+	for (const fieldId of doc.fieldOrder[newId]) doc.fieldParent[fieldId] = newId;
+	return assertAdmittedPreviewDoc(doc);
+}
+
+function registrationDoc() {
+	return assertAdmittedPreviewDoc(
+		buildDoc({
+			appName: "Registration",
+			caseTypes: [{ name: "patient", properties: [] }],
+			modules: [
+				{
+					name: "Patients",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: FINAL_FORM_UUID,
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
 }
 
 const FINAL_BLUEPRINT_DIGEST = canonicalJsonDigest(
@@ -436,7 +408,21 @@ const FORMATTED_PROPS_CASE_TYPE: CaseType = {
 };
 
 function buildBlueprint(caseTypes: CaseType[]) {
-	return buildSimpleBlueprint(caseTypes, APP_ID);
+	return assertAdmittedPreviewDoc(
+		buildDoc({
+			appId: APP_ID,
+			caseTypes,
+			modules: caseTypes.map((type) => ({
+				name: type.name,
+				caseType: type.name,
+				caseListOnly: true,
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [],
+			})),
+		}),
+	);
 }
 
 function buildSyntheticRow(properties: JsonObject): CaseRow {
@@ -575,9 +561,6 @@ describe("submitFormAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn().mockResolvedValue({
 				primaryCaseIds: [],
 				createdChildren: [],
@@ -585,18 +568,6 @@ describe("submitFormAction", () => {
 				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
 				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 			}),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
@@ -669,24 +640,9 @@ describe("submitFormAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi
 				.fn()
 				.mockRejectedValueOnce(new CaseNotFoundError(ALICE_CASE_ID)),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 		const committedBlueprint = buildDoc({
@@ -696,6 +652,9 @@ describe("submitFormAction", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: FINAL_FORM_UUID,
@@ -717,7 +676,7 @@ describe("submitFormAction", () => {
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: committedBlueprint,
+				blueprint: assertAdmittedPreviewDoc(committedBlueprint),
 				mutation_seq: 1,
 				project_id: PROJECT_A,
 			},
@@ -754,9 +713,6 @@ describe("submitFormAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn().mockImplementationOnce(async (args) => ({
 				primaryCaseIds: [ALICE_CASE_ID],
 				createdChildren: [
@@ -770,18 +726,6 @@ describe("submitFormAction", () => {
 				blueprintDigest: args.submissionReceipt.blueprintDigest,
 				caseDatabasePatch: EMPTY_CASE_DATABASE_PATCH,
 			})),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
@@ -807,8 +751,20 @@ describe("submitFormAction", () => {
 			caseTypes: [PATIENT_CASE_TYPE, VISIT_CASE_TYPE],
 			modules: [
 				{
+					name: "Visits",
+					caseType: "visit",
+					caseListOnly: true,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [],
+				},
+				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: FINAL_FORM_UUID,
@@ -848,7 +804,7 @@ describe("submitFormAction", () => {
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: committedBlueprint,
+				blueprint: assertAdmittedPreviewDoc(committedBlueprint),
 				mutation_seq: 1,
 				project_id: PROJECT_A,
 			},
@@ -861,9 +817,25 @@ describe("submitFormAction", () => {
 			canonicalJsonDigest(toPersistableDoc(committedBlueprint)),
 		);
 
-		// The store saw exactly the pure projection of the mutation.
+		// Independently spell the server-derived envelope; do not call its projector as the oracle.
 		expect(stubStore.applySubmission).toHaveBeenCalledWith({
-			...submissionEnvelopeArgs(mutation, APP_ID),
+			appId: APP_ID,
+			ordinary: {
+				kind: "registration",
+				primary: {
+					caseType: "patient",
+					caseName: "Alice",
+					properties: { age: 30 },
+				},
+				children: [
+					{
+						caseType: "visit",
+						caseName: "First visit",
+						properties: { notes: "checkup" },
+						parentRelationship: "child",
+					},
+				],
+			},
 			submissionReceipt: {
 				entryKey: FINAL_ENTRY_KEY,
 				formUuid: FINAL_FORM_UUID,
@@ -903,12 +875,15 @@ describe("submitFormAction", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: FINAL_FORM_UUID,
 							name: "Follow up patient",
 							type: "followup",
-							fields: [],
+							fields: [f({ kind: "text", id: "notes" })],
 						},
 					],
 				},
@@ -921,7 +896,7 @@ describe("submitFormAction", () => {
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: committedBlueprint,
+				blueprint: assertAdmittedPreviewDoc(committedBlueprint),
 				mutation_seq: 1,
 				project_id: PROJECT_A,
 			},
@@ -1040,20 +1015,9 @@ describe("submitFormAction", () => {
 		expect(prepareCaptureSubmissionBytesMock).not.toHaveBeenCalled();
 	});
 
-	/**
-	 * The persona has to reach the WRITE, not only the reads.
-	 *
-	 * A persona's uuid IS its CommCare owner id, so it is what
-	 * `owner_id` carries on every case a submission creates
-	 * (`PostgresCaseStore` stamps that from the store's bound worker).
-	 * Dropping the argument at this one call site would leave every read
-	 * persona-scoped and every written row owned by the signed-in member
-	 * — a divergence nothing that only reads could notice. The store
-	 * construction is the seam that fact travels through, so that is what
-	 * this asserts, along with the half that must NOT move: authorization
-	 * stays keyed on the member.
-	 */
-	it("stamps the persona as the owner of what a submission writes, while the member still authorizes", async () => {
+	// Store ownership is asserted at the action boundary; persisted owner stamping
+	// is exercised separately against Postgres.
+	it("passes the persona owner to a successful registration while requesting authorization for the member", async () => {
 		const PERSONA = testUuid("aa000000-0000-4000-8000-00000000000a");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
@@ -1061,15 +1025,17 @@ describe("submitFormAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
-		const doc = finalSubmissionDoc();
+		const doc = registrationDoc();
 		doc.personas = {
 			[PERSONA]: { uuid: PERSONA, name: "Asha" },
 		};
+		doc.personaOrder = [PERSONA];
+		assertAdmittedPreviewDoc(doc);
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: doc,
+				blueprint: assertAdmittedPreviewDoc(doc),
 				mutation_seq: 1,
 				project_id: PROJECT_A,
 			},
@@ -1078,27 +1044,12 @@ describe("submitFormAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn().mockResolvedValue({
 				primaryCaseIds: [ALICE_CASE_ID],
 				createdChildren: [],
 				operations: [],
 				blueprintDigest: canonicalJsonDigest(toPersistableDoc(doc)),
 			}),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValue(stubStore);
 
@@ -1114,7 +1065,7 @@ describe("submitFormAction", () => {
 		};
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		await submitFormAction(
+		const result = await submitFormAction(
 			mutation,
 			APP_ID,
 			canonicalJsonDigest(toPersistableDoc(doc)),
@@ -1122,6 +1073,11 @@ describe("submitFormAction", () => {
 			PERSONA,
 		);
 
+		expect(result).toMatchObject({
+			kind: "registration",
+			caseId: ALICE_CASE_ID,
+		});
+		expect(stubStore.applySubmission).toHaveBeenCalledOnce();
 		// The store's WORKER is the persona — the third argument is the
 		// `owner_id` every inserted row carries.
 		expect(vi.mocked(withProjectContext)).toHaveBeenCalledWith(
@@ -1146,35 +1102,31 @@ describe("submitFormAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 
+		const doc = registrationDoc();
+		const digest = canonicalJsonDigest(toPersistableDoc(doc));
+		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValue({
+			kind: "current",
+			projectId: PROJECT_A,
+			app: {
+				blueprint: assertAdmittedPreviewDoc(doc),
+				mutation_seq: 1,
+				project_id: PROJECT_A,
+			},
+		});
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn().mockResolvedValue({
 				primaryCaseIds: [ALICE_CASE_ID],
 				createdChildren: [],
 				operations: [],
-				blueprintDigest: FINAL_BLUEPRINT_DIGEST,
+				blueprintDigest: digest,
 			}),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValue(stubStore);
 
 		const { submitFormAction } = await import("../caseDataBinding");
-		await submitFormAction(
+		const result = await submitFormAction(
 			{
 				kind: "registration",
 				...FINAL_SUBMISSION_PROTOCOL,
@@ -1186,9 +1138,14 @@ describe("submitFormAction", () => {
 				children: [],
 			},
 			APP_ID,
-			FINAL_BLUEPRINT_DIGEST,
+			digest,
 		);
 
+		expect(result).toMatchObject({
+			kind: "registration",
+			caseId: ALICE_CASE_ID,
+		});
+		expect(stubStore.applySubmission).toHaveBeenCalledOnce();
 		expect(vi.mocked(withProjectContext)).toHaveBeenCalledWith(
 			PROJECT_A,
 			OWNER_A,
@@ -1273,6 +1230,9 @@ describe("submitFormAction", () => {
 					uuid: "70000000-0000-4000-8000-00000000b010",
 					name: "Mod",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: "70000000-0000-4000-8000-00000000b011",
@@ -1317,7 +1277,7 @@ describe("submitFormAction", () => {
 				),
 			}),
 			writes: [{ property: "visit_note", value: term(formField(noteUuid)) }],
-		} as CaseOperation;
+		} satisfies CaseOperation;
 		return {
 			doc: {
 				...doc,
@@ -1334,27 +1294,7 @@ describe("submitFormAction", () => {
 	function stubCaseStore(
 		applySubmission: CaseStore["applySubmission"] = vi.fn(),
 	): CaseStore {
-		return {
-			query: appCaseQuery(),
-			readDeviceCaseDatabase: vi.fn(async () => ({ rows: [], indices: [] })),
-			readCaseDatabasePatch: vi.fn(async () => ({ rows: [], indices: [] })),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
-			applySubmission,
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
-		} satisfies CaseStore;
+		return actionStore({ applySubmission });
 	}
 
 	it("collapses authorization-snapshot denial to the IDOR-safe not-found arm", async () => {
@@ -1394,7 +1334,7 @@ describe("submitFormAction", () => {
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: buildDoc({ appName: "Submitted form deleted" }),
+				blueprint: differentFormDoc(),
 				mutation_seq: 2,
 				project_id: PROJECT_A,
 			},
@@ -1405,9 +1345,7 @@ describe("submitFormAction", () => {
 			submitFormAction(
 				{ kind: "survey", ...FINAL_SUBMISSION_PROTOCOL },
 				APP_ID,
-				canonicalJsonDigest(
-					toPersistableDoc(buildDoc({ appName: "Submitted form deleted" })),
-				),
+				canonicalJsonDigest(toPersistableDoc(differentFormDoc())),
 			),
 		).resolves.toMatchObject({
 			kind: "error",
@@ -1429,7 +1367,7 @@ describe("submitFormAction", () => {
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: doc,
+				blueprint: assertAdmittedPreviewDoc(doc),
 				mutation_seq: 2,
 				project_id: PROJECT_A,
 			},
@@ -1471,7 +1409,7 @@ describe("submitFormAction", () => {
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: doc,
+				blueprint: assertAdmittedPreviewDoc(doc),
 				mutation_seq: 2,
 				project_id: PROJECT_A,
 			},
@@ -1536,7 +1474,27 @@ describe("submitFormAction", () => {
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: doc,
+				blueprint: assertAdmittedPreviewDoc(doc, {
+					kind: "available",
+					projectId: PROJECT_A,
+					projectRevision: parseLookupRevision("1"),
+					definitions: [
+						{
+							id: OPERATION_LOOKUP_TABLE,
+							name: "Status",
+							tag: "status",
+							definitionRevision: parseLookupRevision("1"),
+							columns: [
+								{
+									id: OPERATION_LOOKUP_COLUMN,
+									wireName: "status",
+									label: "Status",
+									dataType: "text",
+								},
+							],
+						},
+					],
+				}),
 				mutation_seq: 2,
 				project_id: PROJECT_A,
 			},
@@ -1631,7 +1589,27 @@ describe("submitFormAction", () => {
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: doc,
+				blueprint: assertAdmittedPreviewDoc(doc, {
+					kind: "available",
+					projectId: PROJECT_A,
+					projectRevision: parseLookupRevision("1"),
+					definitions: [
+						{
+							id: OPERATION_LOOKUP_TABLE,
+							name: "Status",
+							tag: "status",
+							definitionRevision: parseLookupRevision("1"),
+							columns: [
+								{
+									id: OPERATION_LOOKUP_COLUMN,
+									wireName: "status",
+									label: "Status",
+									dataType: "text",
+								},
+							],
+						},
+					],
+				}),
 				mutation_seq: 8,
 				project_id: PROJECT_A,
 			},
@@ -1745,7 +1723,7 @@ describe("submitFormAction", () => {
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: doc,
+				blueprint: assertAdmittedPreviewDoc(doc),
 				mutation_seq: 17,
 				project_id: PROJECT_A,
 			},
@@ -1995,14 +1973,12 @@ describe("submitFormAction", () => {
 		vi.mocked(withProjectContext).mockResolvedValueOnce(
 			stubCaseStore(applySubmission),
 		);
-		const committedBlueprint = buildDoc({
-			appName: "Form deleted before acceptance",
-		});
+		const committedBlueprint = finalSubmissionDoc();
 		loadAuthorizedFormSubmissionSnapshotMock.mockResolvedValueOnce({
 			kind: "current",
 			projectId: PROJECT_A,
 			app: {
-				blueprint: committedBlueprint,
+				blueprint: assertAdmittedPreviewDoc(committedBlueprint),
 				mutation_seq: 18,
 				project_id: PROJECT_A,
 			},
@@ -2090,8 +2066,14 @@ describe("submitFormAction", () => {
 			session: { context: {}, user: {}, userPropertySlugs: {} },
 			usercase: {},
 		};
-		const firstApp = { blueprint: doc, mutation_seq: 17 };
-		const retryApp = { blueprint: doc, mutation_seq: 18 };
+		const firstApp = {
+			blueprint: assertAdmittedPreviewDoc(doc),
+			mutation_seq: 17,
+		};
+		const retryApp = {
+			blueprint: assertAdmittedPreviewDoc(doc),
+			mutation_seq: 18,
+		};
 		const projection = validateCaptureSubmissionProjection(mutation);
 
 		const first = await buildSubmissionOperationProgram({
@@ -2145,10 +2127,13 @@ describe("loadCasesAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = buildDoc({ appName: "Persona results", modules: [] });
+		const doc = finalSubmissionDoc();
 		doc.personas = {
 			[personaUuid]: { uuid: personaUuid, name: "Asha" },
 		};
+		doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
+		doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
+		assertAdmittedPreviewDoc(doc);
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
 		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -2187,7 +2172,7 @@ describe("loadCasesAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = buildDoc({ appName: "Worker catalog", modules: [] });
+		const doc = finalSubmissionDoc();
 		doc.userProperties = {
 			[propertyUuid]: {
 				uuid: propertyUuid,
@@ -2195,6 +2180,9 @@ describe("loadCasesAction", () => {
 				label: "Supervision area",
 			},
 		};
+		doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
+		doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
+		assertAdmittedPreviewDoc(doc);
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
 		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -2238,7 +2226,7 @@ describe("loadCasesAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAppMock.mockResolvedValueOnce({
-			blueprint: buildDoc({ appName: "No personas", modules: [] }),
+			blueprint: finalSubmissionDoc(),
 		});
 
 		const { loadCasesAction } = await import("../caseDataBinding");
@@ -2266,7 +2254,7 @@ describe("loadCasesAction", () => {
 				user: { id: OWNER_A },
 			} as unknown as Awaited<ReturnType<typeof getSession>>);
 			loadAppMock.mockResolvedValueOnce({
-				blueprint: buildDoc({ appName: "No personas", modules: [] }),
+				blueprint: finalSubmissionDoc(),
 			});
 
 			const { loadCasesAction } = await import("../caseDataBinding");
@@ -2281,17 +2269,20 @@ describe("loadCasesAction", () => {
 		},
 	);
 
-	it("resolves a prototype-named selector when it is an own persona key", async () => {
+	it("resolves an own persona UUID", async () => {
 		const personaUuid = testUuid("constructor");
 		const { getSession } = await import("@/lib/auth-utils");
 		const { withProjectContext } = await import("@/lib/case-store");
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = buildDoc({ appName: "Own persona", modules: [] });
+		const doc = finalSubmissionDoc();
 		doc.personas = Object.fromEntries([
 			[personaUuid, { uuid: personaUuid, name: "Constructor persona" }],
 		]);
+		doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
+		doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
+		assertAdmittedPreviewDoc(doc);
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
 		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -2347,22 +2338,7 @@ describe("loadCasesAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(legacyRows),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
@@ -2401,22 +2377,8 @@ describe("loadCasesAction", () => {
 			query: appCaseQuery([
 				{ ...buildSyntheticRow({ name: "Alice" }), calculated: {} },
 			]),
-			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(150),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
@@ -2491,22 +2453,7 @@ describe("loadCasesAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery([]),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
@@ -2540,22 +2487,7 @@ describe("loadCasesAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery([]),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
@@ -2588,22 +2520,7 @@ describe("loadCasesAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery([]),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
@@ -2664,22 +2581,7 @@ describe("loadCasesAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
@@ -2749,22 +2651,8 @@ describe("loadCaseCountAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(37),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 
@@ -2840,10 +2728,13 @@ describe("countCasesOwnedByAction", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = buildDoc({ appName: "Persona count", modules: [] });
+		const doc = finalSubmissionDoc();
 		doc.personas = {
 			[personaUuid]: { uuid: personaUuid, name: "Asha" },
 		};
+		doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
+		doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
+		assertAdmittedPreviewDoc(doc);
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
 		const store = actionStore({ count: vi.fn().mockResolvedValueOnce(12) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -2874,7 +2765,7 @@ describe("countCasesOwnedByAction", () => {
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
 		loadAppMock.mockResolvedValueOnce({
-			blueprint: buildDoc({ appName: "No persona", modules: [] }),
+			blueprint: finalSubmissionDoc(),
 		});
 
 		const { countCasesOwnedByAction } = await import("../caseDataBinding");
@@ -2917,21 +2808,7 @@ describe("resetSampleCasesAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
 			resetSampleData: vi.fn().mockResolvedValueOnce({
 				deleted: SAMPLE_CASE_DEFAULT_COUNT,
 				inserted: SAMPLE_CASE_DEFAULT_COUNT,
@@ -2955,10 +2832,13 @@ describe("resetSampleCasesAction", () => {
 		vi.mocked(getSession).mockResolvedValue({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = buildDoc({ appName: "Persona samples", modules: [] });
+		const doc = finalSubmissionDoc();
 		doc.personas = {
 			[personaUuid]: { uuid: personaUuid, name: "Asha" },
 		};
+		doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
+		doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
+		assertAdmittedPreviewDoc(doc);
 		loadAppMock.mockResolvedValue({ blueprint: doc });
 		const populateStore = actionStore({
 			generateSampleData: vi.fn().mockResolvedValueOnce({ inserted: 5 }),
@@ -3009,21 +2889,7 @@ describe("resetSampleCasesAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
 			resetSampleData: vi
 				.fn()
 				.mockRejectedValueOnce(
@@ -3064,21 +2930,7 @@ describe("resetSampleCasesAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery(),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
 			// Persistent rejection — the healed retry must throw again for
 			// the typed arm to surface.
 			resetSampleData: vi
@@ -3116,22 +2968,7 @@ describe("loadCaseDataAction session projection", () => {
 					calculated: {},
 				},
 			]),
-			queryGrouped: vi.fn(),
-			count: vi.fn(),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 		const calculatedUuid = testUuid("00000000-0000-0000-0000-000000000d03");
@@ -3169,10 +3006,13 @@ describe("loadCaseDataAction session projection", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = buildDoc({ appName: "Persona details", modules: [] });
+		const doc = finalSubmissionDoc();
 		doc.personas = {
 			[personaUuid]: { uuid: personaUuid, name: "Asha" },
 		};
+		doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
+		doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
+		assertAdmittedPreviewDoc(doc);
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
 		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -3211,7 +3051,7 @@ describe("loadCaseDataAction session projection", () => {
 		vi.mocked(getSession).mockResolvedValueOnce({
 			user: { id: OWNER_A, name: "Member" },
 		} as unknown as Awaited<ReturnType<typeof getSession>>);
-		const doc = buildDoc({ appName: "Persona worker catalog", modules: [] });
+		const doc = finalSubmissionDoc();
 		doc.userProperties = {
 			[propertyUuid]: {
 				uuid: propertyUuid,
@@ -3226,6 +3066,9 @@ describe("loadCaseDataAction session projection", () => {
 				values: { [propertyUuid]: "north" },
 			},
 		};
+		doc.personaOrder = Object.keys(doc.personas ?? {}) as Uuid[];
+		doc.userPropertyOrder = Object.keys(doc.userProperties ?? {}) as Uuid[];
+		assertAdmittedPreviewDoc(doc);
 		loadAppMock.mockResolvedValueOnce({ blueprint: doc });
 		const store = actionStore({ query: appCaseQuery([]) });
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -3357,22 +3200,8 @@ describe("loadFilterPreviewAction", () => {
 		const stubStore = {
 			...actionStore(),
 			query: appCaseQuery([]),
-			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(0),
-			insert: vi.fn(),
 			applySubmission: vi.fn(),
-			update: vi.fn(),
-			close: vi.fn(),
-			traverse: vi.fn(),
-			applySchemaChange: vi.fn(),
-			unparkValues: vi.fn(),
-			conversionImpact: vi.fn(),
-			listParkedValues: vi.fn(),
-			restoreParkedValues: vi.fn(),
-			setParkedValuesDismissed: vi.fn(),
-			replaceParkedValue: vi.fn(),
-			generateSampleData: vi.fn(),
-			resetSampleData: vi.fn(),
 		} satisfies CaseStore;
 		vi.mocked(withProjectContext).mockResolvedValueOnce(stubStore);
 		const canonicalPatientCaseType: CaseType = {
@@ -3387,14 +3216,33 @@ describe("loadFilterPreviewAction", () => {
 		const result = await loadFilterPreviewAction({
 			appId: APP_ID,
 			caseType: "patient",
-			blueprint: {
-				...buildBlueprint([canonicalPatientCaseType]),
-				fieldParent: {
-					[testUuid("70000000-0000-0000-0000-000000000001")]: testUuid(
-						"70000000-0000-0000-0000-000000000002",
-					),
-				},
-			},
+			blueprint: assertAdmittedPreviewDoc(
+				buildDoc({
+					caseTypes: [canonicalPatientCaseType],
+					modules: [
+						{
+							name: "Patients",
+							caseType: "patient",
+							caseListConfig: caseListConfig([
+								{ field: "case_name", header: "Name" },
+							]),
+							forms: [
+								{
+									name: "Survey",
+									type: "survey",
+									fields: [
+										f({
+											kind: "group",
+											id: "details",
+											children: [f({ kind: "text", id: "notes" })],
+										}),
+									],
+								},
+							],
+						},
+					],
+				}),
+			),
 			caseListConfig: makeCaseListConfig({
 				columns: [plainColumn(NAME_COLUMN_UUID, "case_name", "Case name")],
 			}),
@@ -3439,7 +3287,6 @@ describe("loadFilterPreviewAction", () => {
 		candidate.userPropertyOrder = [propertyUuid];
 		const store = actionStore({
 			query: appCaseQuery([]),
-			queryGrouped: vi.fn(),
 			count: vi.fn().mockResolvedValueOnce(0),
 		});
 		vi.mocked(withProjectContext).mockResolvedValueOnce(store);
@@ -3491,5 +3338,76 @@ describe("loadFilterPreviewAction", () => {
 		});
 		expect(result.kind).toBe("invalid-blueprint");
 		expect(vi.mocked(withProjectContext)).not.toHaveBeenCalled();
+	});
+});
+
+// Every public generic catch must retain details in telemetry only. Inject at
+// the authentication boundary so each real action executes its own catch arm.
+describe("unexpected action errors", () => {
+	it.each([
+		"loadCases",
+		"loadCaseCount",
+		"loadMissingConnectionCount",
+		"countCasesOwnedBy",
+		"conversionImpact",
+		"loadCaseData",
+		"loadCaseDatabaseSnapshot",
+		"loadParkedValues",
+		"restoreParkedValues",
+		"setParkedValuesDismissed",
+		"replaceParkedValue",
+	])("%s contains private failure details", async (name) => {
+		const { getSession } = await import("@/lib/auth-utils");
+		vi.mocked(getSession).mockRejectedValue(
+			new Error("password=private-test-secret host=internal-db"),
+		);
+		const actions = await import("../caseDataBinding");
+		const common = { appId: APP_ID, caseType: "patient" };
+		const calls: Record<string, () => Promise<unknown>> = {
+			loadCases: () => actions.loadCasesAction(common),
+			loadCaseCount: () => actions.loadCaseCountAction(common),
+			loadMissingConnectionCount: () =>
+				actions.loadMissingConnectionCountAction({
+					...common,
+					identifier: "parent",
+				}),
+			countCasesOwnedBy: () =>
+				actions.countCasesOwnedByAction({
+					appId: APP_ID,
+					personaUuid: testUuid("worker"),
+				}),
+			conversionImpact: () =>
+				actions.conversionImpactAction({
+					...common,
+					property: "age",
+					toType: "int",
+				}),
+			loadCaseData: () =>
+				actions.loadCaseDataAction(APP_ID, "patient", ALICE_CASE_ID, 0),
+			loadCaseDatabaseSnapshot: () =>
+				actions.loadCaseDatabaseSnapshotAction(APP_ID),
+			loadParkedValues: () => actions.loadParkedValuesAction(common),
+			restoreParkedValues: () =>
+				actions.restoreParkedValuesAction({ appId: APP_ID, ids: [] }),
+			setParkedValuesDismissed: () =>
+				actions.setParkedValuesDismissedAction({
+					appId: APP_ID,
+					ids: [],
+					dismissed: true,
+				}),
+			replaceParkedValue: () =>
+				actions.replaceParkedValueAction({
+					appId: APP_ID,
+					id: "kept-1",
+					value: "corrected",
+				}),
+		};
+		const result = await calls[name]?.();
+		expect(result).toMatchObject({
+			kind: "error",
+			message: expect.any(String),
+		});
+		expect(JSON.stringify(result)).not.toContain("private-test-secret");
+		expect(JSON.stringify(result)).not.toContain("internal-db");
 	});
 });

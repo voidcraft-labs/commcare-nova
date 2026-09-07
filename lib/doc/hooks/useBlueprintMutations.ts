@@ -58,7 +58,10 @@ import { planFormLinkDependentsOnRemove } from "@/lib/doc/formLinkDependents";
 import type { FormSectionPlan } from "@/lib/doc/formSectionMutations";
 import { findRenameSiblingConflict } from "@/lib/doc/identifierVerdicts";
 import { planKindConversion } from "@/lib/doc/kindConversionCascade";
-import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
+import {
+	type LookupCommitState,
+	useLookupCommitState,
+} from "@/lib/doc/lookupCommitContext";
 import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
 import {
 	type ModuleAuthoringPatch,
@@ -75,6 +78,7 @@ import {
 import { projectBuilderLanguageMutations } from "@/lib/doc/projectBuilderLanguageMutations";
 import {
 	BlueprintDocContext,
+	type BlueprintDocStore,
 	BlueprintEditableContext,
 } from "@/lib/doc/provider";
 import {
@@ -720,1161 +724,1171 @@ export function useBlueprintMutations(): GatedBlueprintMutations {
 	const authoringLanguage = useContext(BlueprintAuthoringLanguageContext);
 	const lookupCommitState = useLookupCommitState();
 
-	// Memoize against the store instance so the returned action object is
-	// reference-stable across re-renders. A consumer storing this in a
-	// useEffect dependency array sees it as unchanging for the lifetime of
-	// the provider.
-	return useMemo<GatedBlueprintMutations>(() => {
-		// Lazy snapshot accessor — reads the freshest state at dispatch time,
-		// never at hook construction. This is critical: without it, a mutation
-		// made immediately after another would validate against stale state.
-		const get = () => store.getState();
+	// The API stays stable while its store and authoring context stay unchanged.
+	// Access, language, and lookup-context changes construct an API for that
+	// context; each command still reads the current document when dispatched.
+	return useMemo(
+		() =>
+			createBlueprintMutations(store, {
+				canEdit,
+				authoringLanguage,
+				lookupCommitState,
+			}),
+		[store, canEdit, authoringLanguage, lookupCommitState],
+	);
+}
 
-		/* Two flavors of the same dispatch, differing only in who PRESENTS
-		 * a rejection. The default (`announce: true`) shows the findings as
-		 * the error toast — the fail-safe for call sites with no contextual
-		 * anchor (toggles, deletes, drag moves), where an unannounced
-		 * rejection would just vanish. The `inline` flavor returns the
-		 * findings without announcing, for call sites that render the
-		 * outcome beside the control (the `useCommitField` notices, the
-		 * editor tooltips, the Connect dialog footer) — one rejection, one
-		 * presentation, never both. */
-		const makeApi = (announce: boolean): BlueprintMutations => {
-			/* The gated dispatch every method routes through. Runs the shared
-			 * commit verdict against the freshest doc; on rejection, shows the
-			 * findings and returns `undefined` so the caller maps to its no-op
-			 * return shape — the batch never reaches the store. On a pass, the
-			 * VALIDATED CANDIDATE commits directly (`commitDoc`) with the
-			 * candidate run's own reducer results — one reducer run per
-			 * dispatch, and the committed doc is exactly the doc the gate
-			 * validated. The batch is then RECORDED: it is the author's
-			 * un-persisted intent until the reconciler PUTs it. */
-			const guardedApply = (
-				mutations: Mutation[],
-				commitCandidate = true,
-			):
-				| { ok: true; results: MutationResult[] }
-				| {
-						ok: false;
-						messages: string[];
-						findings?: readonly StructuredCommitFinding[];
-				  } => {
-				/* The shared pre-verdict admission: view-only access (no user edit
-				 * reaches the store — the airtight backstop for any affordance
-				 * that wasn't hidden) and a lookup catalog that is still loading
-				 * or failed to load (the verdict would run under a context that
-				 * is not the live one). The Connect-mode switch and undo/redo run
-				 * the same admission, so all three refuse in one voice. */
-				const admission = builderWriteAdmission({
-					canEdit,
-					lookupCommitState,
-				});
-				if (!admission.ok) {
-					if (announce) notifyRejectedCommit(admission.messages);
-					return { ok: false, messages: admission.messages };
-				}
+/** The Builder command owner. React supplies its current access/language/catalog
+ * context; every command still reads the live store at dispatch time. Keeping
+ * construction independent of React also lets command tests use this exact
+ * production path without mounting a component to obtain an imperative API. */
+export function createBlueprintMutations(
+	store: BlueprintDocStore,
+	{
+		canEdit,
+		authoringLanguage,
+		lookupCommitState,
+	}: {
+		readonly canEdit: boolean;
+		readonly authoringLanguage: string | null;
+		readonly lookupCommitState: LookupCommitState;
+	},
+): GatedBlueprintMutations {
+	// Lazy snapshot accessor — reads the freshest state at dispatch time,
+	// never at hook construction. This is critical: without it, a mutation
+	// made immediately after another would validate against stale state.
+	const get = () => store.getState();
+
+	/* Two flavors of the same dispatch, differing only in who PRESENTS
+	 * a rejection. The default (`announce: true`) shows the findings as
+	 * the error toast — the fail-safe for call sites with no contextual
+	 * anchor (toggles, deletes, drag moves), where an unannounced
+	 * rejection would just vanish. The `inline` flavor returns the
+	 * findings without announcing, for call sites that render the
+	 * outcome beside the control (the `useCommitField` notices, the
+	 * editor tooltips, the Connect dialog footer) — one rejection, one
+	 * presentation, never both. */
+	const makeApi = (announce: boolean): BlueprintMutations => {
+		/* The gated dispatch every method routes through. Runs the shared
+		 * commit verdict against the freshest doc; on rejection, shows the
+		 * findings and returns `undefined` so the caller maps to its no-op
+		 * return shape — the batch never reaches the store. On a pass, the
+		 * VALIDATED CANDIDATE commits directly (`commitDoc`) with the
+		 * candidate run's own reducer results — one reducer run per
+		 * dispatch, and the committed doc is exactly the doc the gate
+		 * validated. The batch is then RECORDED: it is the author's
+		 * un-persisted intent until the reconciler PUTs it. */
+		const guardedApply = (
+			mutations: Mutation[],
+			commitCandidate = true,
+		):
+			| { ok: true; results: MutationResult[] }
+			| {
+					ok: false;
+					messages: string[];
+					findings?: readonly StructuredCommitFinding[];
+			  } => {
+			/* The shared pre-verdict admission: view-only access (no user edit
+			 * reaches the store — the airtight backstop for any affordance
+			 * that wasn't hidden) and a lookup catalog that is still loading
+			 * or failed to load (the verdict would run under a context that
+			 * is not the live one). The Connect-mode switch and undo/redo run
+			 * the same admission, so all three refuse in one voice. */
+			const admission = builderWriteAdmission({
+				canEdit,
+				lookupCommitState,
+			});
+			if (!admission.ok) {
+				if (announce) notifyRejectedCommit(admission.messages);
+				return { ok: false, messages: admission.messages };
+			}
+			const doc = get();
+			const snapshotAuthoringLanguage =
+				authoringLanguage === null
+					? null
+					: resolveAppLanguage(doc.localization, authoringLanguage);
+			const projected = projectBuilderLanguageMutations(
+				doc,
+				snapshotAuthoringLanguage,
+				mutations,
+			);
+			if (!projected.ok) {
+				const lines = [projected.message];
+				if (announce) notifyRejectedCommit(lines);
+				return { ok: false, messages: lines };
+			}
+			const verdict = mutationCommitVerdictWithPrevalidation(
+				doc,
+				projected.mutations,
+				lookupCommitState.lookupContext,
+			);
+			if (!verdict.ok) {
+				// Render to the concise BUILDER copy once — both the toast
+				// and the returned `CommitOutcome.messages` speak it. The
+				// SA path keeps the verbose `ValidationError.message`.
+				const lines = userFacingErrors(verdict.findings);
+				if (announce) notifyRejectedCommit(lines);
+				return { ok: false, messages: lines, findings: verdict.findings };
+			}
+			// The candidate commits, and the batch that produced it is kept
+			// verbatim. Persistence replays exactly these commands rather than
+			// re-deriving them by diffing the committed document against a base.
+			if (commitCandidate) {
+				store.getState().commitDoc(verdict.nextDoc, verdict.mutations);
+			}
+			return { ok: true, results: verdict.results };
+		};
+
+		/** Project a `guardedApply` result onto the plain commit outcome. */
+		const toOutcome = (
+			applied: ReturnType<typeof guardedApply>,
+		): CommitOutcome => (applied.ok ? COMMITTED : applied);
+		const rejectConnectOwnership = (): {
+			ok: false;
+			messages: string[];
+		} => {
+			const messages = [
+				"Connect participation must be changed through the app-wide Connect configuration.",
+			];
+			if (announce) notifyRejectedCommit(messages);
+			return { ok: false, messages };
+		};
+		const rejectAutomationConflict = (): CommitOutcome & { ok: false } => {
+			const messages = [
+				"This automation changed while you were editing it. Close and reopen it to review the latest version.",
+			];
+			if (announce) notifyRejectedCommit(messages);
+			return { ok: false, messages };
+		};
+
+		return {
+			addField(parentUuid, field, opts) {
 				const doc = get();
-				const snapshotAuthoringLanguage =
-					authoringLanguage === null
-						? null
-						: resolveAppLanguage(doc.localization, authoringLanguage);
-				const projected = projectBuilderLanguageMutations(
-					doc,
-					snapshotAuthoringLanguage,
-					mutations,
+				// Verify parent exists — must be either a form or a group/repeat
+				// field that can contain children.
+				if (
+					doc.forms[parentUuid] === undefined &&
+					doc.fields[parentUuid] === undefined
+				) {
+					warnUnresolved("addField", { parentUuid });
+					return NOOP_REJECTION;
+				}
+
+				// Resolve the requested slot (atIndex / beforeUuid / afterUuid,
+				// default append) to the uuid the new field follows.
+				const fieldAfter = fieldSlotAfter(doc, parentUuid, {
+					index: opts?.atIndex,
+					beforeUuid: opts?.beforeUuid,
+					afterUuid: opts?.afterUuid,
+				});
+
+				// Mint a uuid if the caller didn't supply one. FieldTypePicker
+				// and the SA tool handlers pass shapes without uuids and rely on
+				// the store to generate identity.
+				const maybeUuid = field.uuid;
+				const uuid = asUuid(
+					typeof maybeUuid === "string" && maybeUuid.length > 0
+						? maybeUuid
+						: crypto.randomUUID(),
 				);
-				if (!projected.ok) {
-					const lines = [projected.message];
+				// Field is a discriminated union; the narrowed generic input is a
+				// specific variant's Omit — we stamp the uuid and cast via
+				// `unknown` because the distributive Omit shape doesn't round-trip
+				// back to the full union narrowly (TS limitation around Omit +
+				// discriminated unions). Placement rides the mutation, not the
+				// entity: where a field goes is the gesture's business, not the
+				// field's.
+				const entity = {
+					...field,
+					uuid,
+				} as unknown as Field;
+
+				// Declaration chokepoint: a field writing to a type absent from
+				// the catalog prepends `declareCaseType` (the reducer no longer
+				// auto-creates the type — that kept it from clobbering a
+				// concurrent declaration). A no-op when the type is already
+				// declared or the field writes to no case.
+				const declare = declareCaseTypeForField(doc, entity);
+
+				const applied = guardedApply([
+					...declare,
+					{
+						kind: "addField",
+						parentUuid,
+						field: entity,
+						after: fieldAfter,
+					},
+				]);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid };
+			},
+
+			updateField(uuid, targetKind, patch) {
+				const doc = get();
+				if (!doc.fields[uuid]) {
+					warnUnresolved("updateField", { uuid, targetKind });
+					return NOOP_REJECTION;
+				}
+				// `targetKind` + `patch` are typed against the same variant via
+				// the generic, so the spread into the mutation literal lands on
+				// the discriminated `updateField` arm without further narrowing.
+				// The intermediate cast is required because TypeScript can't
+				// match the generic `K` back to the union of literal-keyed arms
+				// in `Mutation` — at the value level the shape is structurally
+				// identical, but TS treats the union arms as distinct types
+				// rather than a parameterized one.
+				// Declaration chokepoint: a patch retargeting the complete
+				// `caseWrite` pair to a type absent from the catalog prepends
+				// `declareCaseType`.
+				const nextCaseWrite = (
+					patch as {
+						caseWrite?: {
+							caseType: string;
+							property: string;
+						} | null;
+					}
+				).caseWrite;
+				const nextType = nextCaseWrite?.caseType;
+				const declare =
+					typeof nextType === "string" && nextType.length > 0
+						? declareCaseTypeMutations(doc, nextType)
+						: [];
+				return toOutcome(
+					guardedApply([
+						...declare,
+						{
+							kind: "updateField",
+							uuid,
+							targetKind,
+							patch: jsonStableClearPatch(
+								patch as Readonly<Record<string, unknown>>,
+							) as FieldPatchFor<typeof targetKind>,
+						} as Mutation,
+					]),
+				);
+			},
+
+			removeField(uuid) {
+				const doc = get();
+				if (!doc.fields[uuid]) {
+					warnUnresolved("removeField", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(guardedApply([{ kind: "removeField", uuid }]));
+			},
+
+			renameField(uuid, newId) {
+				const doc = get();
+				const field = doc.fields[uuid];
+				if (!field) {
+					warnUnresolved("renameField", { uuid });
+					return {};
+				}
+
+				// Conflict check: reject the rename before dispatching so the
+				// UI can surface a "name already taken" message without
+				// unwinding a half-applied mutation. Field id is form-local, so
+				// the shared verdict checks only this field's sibling scope.
+				if (findRenameSiblingConflict(doc, uuid, newId) !== undefined) {
+					return { conflict: true };
+				}
+
+				// Field ID is an ordinary mutable field slot. Persist exactly
+				// the canonical per-kind update command. UUID identity keeps
+				// references stable, and the independent `caseWrite` binding is
+				// untouched.
+				const applied = guardedApply([
+					{
+						kind: "updateField",
+						uuid,
+						targetKind: field.kind,
+						patch: { id: newId },
+					} as Mutation,
+				]);
+				if (!applied.ok) {
+					return { rejected: applied.messages };
+				}
+				return {};
+			},
+
+			moveField(uuid, opts) {
+				const doc = get();
+				const field = doc.fields[uuid];
+				if (!field) {
+					warnUnresolved("moveField", { uuid });
+					return NOOP_REJECTION;
+				}
+
+				// Default destination: the field's current parent (same-parent
+				// reorder). Fall back to the field's own uuid as a guard — this
+				// is unreachable in practice because every field has a parent
+				// entry in `fieldOrder`. Read the parent directly from the
+				// store-maintained `fieldParent` reverse index (O(1)).
+				const toParentUuid = opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
+
+				// Resolve the requested slot to a landing in the destination
+				// parent's sequence, excluding the moved field from the neighbour
+				// set — a same-parent reorder places it among the OTHER siblings.
+				const after = fieldSlotAfter(
+					doc,
+					toParentUuid,
+					{
+						index: opts.toIndex,
+						beforeUuid: opts.beforeUuid,
+						afterUuid: opts.afterUuid,
+					},
+					uuid,
+				);
+
+				return toOutcome(
+					guardedApply([{ kind: "moveField", uuid, toParentUuid, after }]),
+				);
+			},
+
+			applyFormSectionPlan(plan) {
+				if (!plan.ok) {
+					if (announce) notifyRejectedCommit([plan.reason]);
+					return { ok: false, messages: [plan.reason] };
+				}
+				if (plan.mutations.length === 0) {
+					return { ok: true, sectionUuids: plan.sectionUuids };
+				}
+				const applied = guardedApply(plan.mutations);
+				return applied.ok
+					? { ok: true, sectionUuids: plan.sectionUuids }
+					: applied;
+			},
+
+			duplicateField(uuid) {
+				const doc = get();
+				const plan = duplicateFieldMutations(doc, uuid);
+				if (plan === undefined) {
+					warnUnresolved("duplicateField", { uuid });
+					return undefined;
+				}
+				if (!guardedApply(plan.mutations).ok) return undefined;
+
+				// The clone's path is read AFTER the commit: the batch may have
+				// deduped its id against a sibling, and the path is what the
+				// caller navigates to.
+				const after = get();
+				const clone = after.fields[plan.cloneUuid];
+				if (clone === undefined) return undefined;
+				const parentUuid = after.fieldParent[plan.cloneUuid] ?? undefined;
+				if (parentUuid === undefined) return undefined;
+				const parentPath = after.forms[parentUuid]
+					? "" // parent is the form root
+					: (computePathForUuid(after, parentUuid) ?? "");
+				const newPath = (
+					parentPath ? `${parentPath}/${clone.id}` : clone.id
+				) as FieldPath;
+
+				return { newPath, newUuid: plan.cloneUuid as string };
+			},
+
+			convertField(uuid, toKind) {
+				const doc = get();
+				const field = doc.fields[uuid];
+				if (!field) {
+					// Include `toKind` so the dev-mode warn disambiguates the caller's
+					// intent — a stale UI closure and a drifted SA dispatch present
+					// identically without it. Matches the debug payload shape the
+					// other multi-arg mutations (updateCaseProperty, etc.) use.
+					warnUnresolved("convertField", { uuid, toKind });
+					return NOOP_REJECTION;
+				}
+				const batch: Mutation[] = [];
+				// Converting to hidden must land with a value source or the
+				// gate rejects on HIDDEN_NO_VALUE — and this gesture has no
+				// authoring step. Seed the same inert `''` default a
+				// picker-inserted hidden is born with (the user authors the
+				// real calculate in the inspector right after); the seed
+				// lands on the SOURCE field pre-convert (its kind declares
+				// `default_value`) and carries through the kind swap. A
+				// field that already has a default keeps it.
+				if (
+					toKind === "hidden" &&
+					!("default_value" in field && field.default_value) &&
+					!("calculate" in field && field.calculate)
+				) {
+					batch.push({
+						kind: "updateField",
+						uuid,
+						targetKind: field.kind,
+						patch: { default_value: HIDDEN_INERT_DEFAULT_VALUE },
+					} as Mutation);
+				}
+				// The property-centric plan (shared with the SA's editField):
+				// a case-bound string-scalar conversion carries the
+				// property's other writers across in the same batch and
+				// re-declares a stale declared data_type — one field at a
+				// time can never cross the agreement gate. Select targets
+				// whose source has no options get the same starter pair a
+				// picker-inserted select is born with, minted fresh per
+				// converted field; the user renames them in the inspector.
+				const plan = planKindConversion({
+					doc,
+					field,
+					toKind,
+					optionsSource: {
+						kind: "inline",
+						options: DEFAULT_SELECT_OPTIONS.map((option) => ({
+							...option,
+							uuid: asUuid(crypto.randomUUID()),
+						})),
+					},
+				});
+				if (!plan.ok) {
+					const message =
+						plan.blocker.carrier === "case-operation"
+							? `This field's case property is also written by case operation “${plan.blocker.id}”. Update or remove that operation before changing the property's data type.`
+							: `This field's case property is also captured by a ${fieldRegistry[plan.blocker.kind].label} field in another form, which can't become a ${fieldRegistry[toKind].label}. Convert that field to Text first, then convert this one.`;
+					return {
+						ok: false,
+						messages: [message],
+					};
+				}
+				batch.push(...plan.mutations);
+				return toOutcome(guardedApply(batch));
+			},
+
+			addForm(moduleUuid, form) {
+				const doc = get();
+				if (!doc.modules[moduleUuid]) {
+					warnUnresolved("addForm", { moduleUuid });
+					return NOOP_REJECTION;
+				}
+				/* Runtime backstop for untyped callers: the public input omits
+				 * `connect`, but a cast or stale bundle must not smuggle a new
+				 * participant through the generic form writer. */
+				if (Object.hasOwn(form, "connect")) {
+					return rejectConnectOwnership();
+				}
+				const maybeUuid = form.uuid;
+				const formUuid = asUuid(
+					typeof maybeUuid === "string" && maybeUuid.length > 0
+						? maybeUuid
+						: crypto.randomUUID(),
+				);
+				const applied = guardedApply([
+					{
+						kind: "addForm",
+						moduleUuid,
+						form: { ...form, uuid: formUuid } as Form,
+					},
+				]);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid: formUuid };
+			},
+
+			updateForm(uuid, patch) {
+				const doc = get();
+				const form = doc.forms[uuid];
+				if (!form) {
+					warnUnresolved("updateForm", { uuid });
+					return NOOP_REJECTION;
+				}
+				/* The type omits `connect`; keep the same ownership invariant
+				 * at runtime for JavaScript, casts, and version-skewed clients. */
+				if (Object.hasOwn(patch, "connect")) {
+					return rejectConnectOwnership();
+				}
+				const { name, ...metadata } = patch;
+				const mutations: Mutation[] = [];
+				if (name !== undefined && name !== form.name) {
+					mutations.push({
+						kind: "renameForm",
+						uuid,
+						newId: name,
+					});
+				}
+				if (Object.keys(metadata).length > 0) {
+					mutations.push({
+						kind: "updateForm",
+						uuid,
+						patch: jsonStableClearPatch(metadata) as FormMutationPatch,
+					});
+				}
+				if (mutations.length === 0) return COMMITTED;
+				return toOutcome(guardedApply(mutations));
+			},
+
+			refineFormConnect(uuid, connect) {
+				const doc = get();
+				const form = doc.forms[uuid];
+				if (!form) {
+					warnUnresolved("refineFormConnect", { uuid });
+					return NOOP_REJECTION;
+				}
+				/* Refinement is intentionally narrower than membership:
+				 * a nonparticipant cannot be added here, and null/undefined
+				 * cannot remove one. The exact target planner is the only
+				 * owner of either transition. */
+				if (form.connect === undefined || connect == null) {
+					return rejectConnectOwnership();
+				}
+				return toOutcome(
+					guardedApply([
+						{
+							kind: "updateForm",
+							uuid,
+							patch: { connect },
+						},
+					]),
+				);
+			},
+
+			setFormMedia(uuid, media) {
+				const doc = get();
+				if (!doc.forms[uuid]) {
+					warnUnresolved("setFormMedia", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([
+						{
+							kind: "setFormMedia",
+							uuid,
+							icon: media.icon,
+							audioLabel: media.audioLabel,
+						},
+					]),
+				);
+			},
+
+			removeForm(uuid) {
+				const doc = get();
+				if (!doc.forms[uuid]) {
+					warnUnresolved("removeForm", { uuid });
+					return NOOP_REJECTION;
+				}
+				/* After-submit links from OTHER forms that point at this one
+				 * would dangle. The shared planner refuses naming every link
+				 * (`lib/doc/formLinkDependents.ts`); the SA's `removeForm` tool
+				 * consults the same planner, so both surfaces refuse alike. */
+				const dependents = planFormLinkDependentsOnRemove(doc, {
+					kind: "form",
+					formUuid: uuid,
+				});
+				if (dependents.kind === "blocked") {
+					if (announce) notifyRejectedCommit([dependents.userMessage]);
+					return { ok: false, messages: [dependents.userMessage] };
+				}
+				const mutations: Mutation[] = [{ kind: "removeForm", uuid }];
+				/* Removing the LAST form of a case-managing module would leave it
+				 * formless+typed (`NO_FORMS_OR_CASE_LIST`). Convert it to a
+				 * case-list viewer in the same batch — the inverse of
+				 * `formScaffoldMutations` flipping `caseListOnly` off when the
+				 * first form is added (a form-bearing case module already carries
+				 * the columns a viewer needs, `MISSING_CASE_LIST_COLUMNS`). */
+				const parentId = Object.keys(doc.formOrder).find((m) =>
+					doc.formOrder[m]?.includes(uuid),
+				);
+				const parent = parentId ? doc.modules[parentId] : undefined;
+				if (
+					parent?.caseType &&
+					!parent.caseListOnly &&
+					doc.formOrder[parentId as string]?.length === 1
+				) {
+					mutations.push({
+						kind: "updateModule",
+						uuid: asUuid(parentId as string),
+						patch: { caseListOnly: true },
+					});
+				}
+				return toOutcome(guardedApply(mutations));
+			},
+
+			updateModule(uuid, patch) {
+				const doc = get();
+				if (!doc.modules[uuid]) {
+					warnUnresolved("updateModule", { uuid });
+					return NOOP_REJECTION;
+				}
+				/* A case-type change (or clear — the key present, value
+				 * undefined) can orphan the OLD type's record; the shared
+				 * planner retires it in the same batch or rejects naming what
+				 * still references it. Same cascade the SA's `updateModule`
+				 * tool runs — every surface inherits it identically. */
+				const retirement: CaseTypeRetirement =
+					"caseType" in patch
+						? planCaseTypeRetirementOnRetype(doc, uuid, patch.caseType)
+						: { kind: "none" };
+				if (retirement.kind === "blocked") {
+					if (announce) notifyRejectedCommit([retirement.userMessage]);
+					return { ok: false, messages: [retirement.userMessage] };
+				}
+				/* One granular catalog batch covers both retirement of an orphaned
+				 * old type and declaration of a brand-new one. A brand-new type
+				 * must be cataloged or the seeded `Name` column cannot resolve
+				 * (`CASE_LIST_COLUMN_UNKNOWN_FIELD`). */
+				const moduleMutations = modulePatchMutations(doc.modules[uuid], patch);
+				return toOutcome(
+					guardedApply([
+						...caseTypeCatalogMutations(doc, retirement, patch.caseType),
+						...moduleMutations,
+					]),
+				);
+			},
+
+			moveColumnOnSurface(moduleUuid, uuid, surface, toIndex) {
+				const doc = get();
+				const config = doc.modules[moduleUuid]?.caseListConfig;
+				if (!config?.columns.some((column) => column.uuid === uuid)) {
+					warnUnresolved("moveColumnOnSurface", {
+						moduleUuid,
+						uuid,
+						surface,
+					});
+					return NOOP_REJECTION;
+				}
+				// The requested index counts the surface's VISIBLE rows, which is
+				// what the author sees; the sequence holds hidden ones too, so the
+				// landing is expressed against the full sequence.
+				const sequence =
+					surface === "list"
+						? config.listColumnOrder
+						: config.detailColumnOrder;
+				const visible = sequence.filter((columnUuid) => {
+					const column = config.columns.find((c) => c.uuid === columnUuid);
+					if (column === undefined) return false;
+					return surface === "list"
+						? column.visibleInList !== false
+						: column.visibleInDetail !== false;
+				});
+				const others = visible.filter((columnUuid) => columnUuid !== uuid);
+				const clamped = Math.max(0, Math.min(toIndex, others.length));
+				const after = clamped === 0 ? null : (others[clamped - 1] ?? null);
+				// Already there: no mutation, so no undo or autosave entry.
+				const currentAfter = (() => {
+					const at = sequence.indexOf(uuid);
+					return at <= 0 ? null : sequence[at - 1];
+				})();
+				if (after === currentAfter) return COMMITTED;
+				return toOutcome(
+					guardedApply([
+						{ kind: "moveColumn", moduleUuid, uuid, surface, after },
+					]),
+				);
+			},
+
+			moveSearchInputToIndex(moduleUuid, uuid, toIndex) {
+				const doc = get();
+				const inputs = doc.modules[moduleUuid]?.caseListConfig?.searchInputs;
+				if (!inputs?.some((input) => input.uuid === uuid)) {
+					warnUnresolved("moveSearchInputToIndex", { moduleUuid, uuid });
+					return NOOP_REJECTION;
+				}
+				const others = inputs
+					.map((input) => input.uuid)
+					.filter((inputUuid) => inputUuid !== uuid);
+				const clamped = Math.max(0, Math.min(toIndex, others.length));
+				const after = clamped === 0 ? null : (others[clamped - 1] ?? null);
+				const at = inputs.findIndex((input) => input.uuid === uuid);
+				const currentAfter = at <= 0 ? null : inputs[at - 1].uuid;
+				if (after === currentAfter) return COMMITTED;
+				return toOutcome(
+					guardedApply([{ kind: "moveSearchInput", moduleUuid, uuid, after }]),
+				);
+			},
+
+			setModuleMedia(uuid, media) {
+				const doc = get();
+				if (!doc.modules[uuid]) {
+					warnUnresolved("setModuleMedia", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([
+						{
+							kind: "setModuleMedia",
+							uuid,
+							icon: media.icon,
+							audioLabel: media.audioLabel,
+						},
+					]),
+				);
+			},
+
+			moveModule(uuid, placement) {
+				if (!get().modules[uuid]) {
+					warnUnresolved("moveModule", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([{ kind: "moveModule", uuid, ...placement }]),
+				);
+			},
+
+			removeModule(uuid) {
+				const doc = get();
+				if (!doc.modules[uuid]) {
+					warnUnresolved("removeModule", { uuid });
+					return NOOP_REJECTION;
+				}
+				const childDependents = planModuleChildDependentsOnRemove(doc, uuid);
+				if (childDependents.kind === "blocked") {
+					if (announce) notifyRejectedCommit([childDependents.userMessage]);
+					return {
+						ok: false,
+						messages: [childDependents.userMessage],
+					};
+				}
+				/* When this module is the last owner of its case-type record,
+				 * the same batch retires the record — or the removal rejects
+				 * naming what still references the type. Same cascade the SA's
+				 * `removeModule` tool runs (`lib/doc/caseTypeRetirement.ts`). */
+				const retirement = planCaseTypeRetirementOnRemove(doc, uuid);
+				if (retirement.kind === "blocked") {
+					if (announce) notifyRejectedCommit([retirement.userMessage]);
+					return { ok: false, messages: [retirement.userMessage] };
+				}
+				/* After-submit links from forms OUTSIDE this module that point
+				 * into it would dangle; the shared planner refuses naming each
+				 * (`lib/doc/formLinkDependents.ts`). Links on the module's own
+				 * forms leave with them. */
+				const dependents = planFormLinkDependentsOnRemove(doc, {
+					kind: "module",
+					moduleUuid: uuid,
+				});
+				if (dependents.kind === "blocked") {
+					if (announce) notifyRejectedCommit([dependents.userMessage]);
+					return { ok: false, messages: [dependents.userMessage] };
+				}
+				return toOutcome(
+					guardedApply([
+						{ kind: "removeModule", uuid },
+						...(retirement.kind === "retire" ? retirement.mutations : []),
+					]),
+				);
+			},
+
+			addOrganizationLevel(level) {
+				const uuid = asUuid(crypto.randomUUID());
+				const applied = guardedApply(
+					addOrganizationLevelMutations(get(), uuid, level),
+				);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid };
+			},
+
+			updateOrganizationLevel(uuid, patch) {
+				if (ownRecordValue(get().organizationLevels, uuid) === undefined) {
+					warnUnresolved("updateOrganizationLevel", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([{ kind: "updateOrganizationLevel", uuid, patch }]),
+				);
+			},
+
+			removeOrganizationLevel(uuid, occupiedLevelUuids) {
+				const doc = get();
+				if (ownRecordValue(doc.organizationLevels, uuid) === undefined) {
+					warnUnresolved("removeOrganizationLevel", { uuid });
+					return NOOP_REJECTION;
+				}
+				const plan = removeOrganizationLevelPlan(doc, uuid, occupiedLevelUuids);
+				if (!plan.ok) return { ok: false, messages: [plan.userMessage] };
+				return toOutcome(guardedApply(plan.mutations));
+			},
+
+			addLocationProperty(property) {
+				const uuid = asUuid(crypto.randomUUID());
+				const applied = guardedApply(
+					addLocationPropertyMutations(get(), uuid, property),
+				);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid };
+			},
+
+			updateLocationProperty(uuid, patch) {
+				if (ownRecordValue(get().locationProperties, uuid) === undefined) {
+					warnUnresolved("updateLocationProperty", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([{ kind: "updateLocationProperty", uuid, patch }]),
+				);
+			},
+
+			removeLocationProperty(uuid) {
+				if (ownRecordValue(get().locationProperties, uuid) === undefined) {
+					warnUnresolved("removeLocationProperty", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(guardedApply(removeLocationPropertyMutations(uuid)));
+			},
+
+			addAutomation(automation) {
+				const uuid = automation.uuid;
+				if (findAuthoredBlueprintIdentity(get(), uuid) !== undefined) {
+					warnUnresolved("addAutomation", { uuid });
+					return NOOP_REJECTION;
+				}
+				const applied = guardedApply([
+					{
+						kind: "addAutomation",
+						automation,
+					},
+				]);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid };
+			},
+
+			replaceAutomation(automation, expectedFingerprint) {
+				const before = ownRecordValue(get().automations, automation.uuid);
+				if (before === undefined) {
+					warnUnresolved("replaceAutomation", { uuid: automation.uuid });
+					return NOOP_REJECTION;
+				}
+				if (
+					expectedFingerprint !== undefined &&
+					JSON.stringify(before) !== expectedFingerprint
+				) {
+					return rejectAutomationConflict();
+				}
+				return toOutcome(
+					guardedApply(automationChangesForUpdate(before, automation)),
+				);
+			},
+
+			updateAutomation(mutation) {
+				if (ownRecordValue(get().automations, mutation.uuid) === undefined) {
+					warnUnresolved("updateAutomation", { uuid: mutation.uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([{ kind: "updateAutomation", ...mutation }]),
+				);
+			},
+
+			removeAutomation(uuid, expectedFingerprint) {
+				const before = ownRecordValue(get().automations, uuid);
+				if (before === undefined) {
+					warnUnresolved("removeAutomation", { uuid });
+					return NOOP_REJECTION;
+				}
+				if (
+					expectedFingerprint !== undefined &&
+					JSON.stringify(before) !== expectedFingerprint
+				) {
+					return rejectAutomationConflict();
+				}
+				return toOutcome(
+					guardedApply([
+						{ kind: "removeAutomation", uuid, targetKind: before.kind },
+					]),
+				);
+			},
+
+			editAutomationItem(mutation) {
+				const automation = ownRecordValue(
+					get().automations,
+					mutation.automationUuid,
+				);
+				if (
+					automation === undefined ||
+					automation.kind !== mutation.targetKind
+				) {
+					warnUnresolved("editAutomationItem", {
+						uuid: mutation.automationUuid,
+					});
+					return NOOP_REJECTION;
+				}
+				return toOutcome(guardedApply([mutation]));
+			},
+
+			setAutomationSchedule(uuid, schedule) {
+				if (ownRecordValue(get().automations, uuid) === undefined) {
+					warnUnresolved("setAutomationSchedule", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([{ kind: "setAutomationSchedule", uuid, schedule }]),
+				);
+			},
+
+			updateAutomationSchedule(uuid, patch) {
+				if (ownRecordValue(get().automations, uuid) === undefined) {
+					warnUnresolved("updateAutomationSchedule", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([{ kind: "updateAutomationSchedule", uuid, patch }]),
+				);
+			},
+
+			setPersonaLocations(personaUuid, locationIds) {
+				if (ownRecordValue(get().personas, personaUuid) === undefined) {
+					warnUnresolved("setPersonaLocations", { uuid: personaUuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply(setPersonaLocationsMutations(personaUuid, locationIds)),
+				);
+			},
+
+			addUserProperty(property) {
+				const uuid = asUuid(crypto.randomUUID());
+				const applied = guardedApply(
+					addUserPropertyMutations(get(), uuid, property),
+				);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid };
+			},
+
+			updateUserProperty(uuid, patch) {
+				if (ownRecordValue(get().userProperties, uuid) === undefined) {
+					warnUnresolved("updateUserProperty", { uuid });
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([{ kind: "updateUserProperty", uuid, patch }]),
+				);
+			},
+
+			removeUserProperty(uuid) {
+				const doc = get();
+				if (ownRecordValue(doc.userProperties, uuid) === undefined) {
+					warnUnresolved("removeUserProperty", { uuid });
+					return NOOP_REJECTION;
+				}
+				const plan = removeUserPropertyPlan(doc, uuid);
+				if (!plan.ok) {
+					if (announce) notifyRejectedCommit([plan.userMessage]);
+					return { ok: false, messages: [plan.userMessage] };
+				}
+				return toOutcome(guardedApply(plan.mutations));
+			},
+
+			inspectUserPropertyRemoval(uuid) {
+				return removeUserPropertyPlan(get(), uuid);
+			},
+
+			addUserType(userType) {
+				const uuid = asUuid(crypto.randomUUID());
+				const applied = guardedApply(
+					addUserTypeMutations(get(), uuid, userType),
+				);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid };
+			},
+
+			updateUserType(uuid, patch) {
+				const doc = get();
+				if (ownRecordValue(doc.userTypes, uuid) === undefined) {
+					warnUnresolved("updateUserType", { uuid });
+					return NOOP_REJECTION;
+				}
+				const planned = updateUserTypeMutations(doc, uuid, patch);
+				if (planned.length === 0) return COMMITTED;
+				return toOutcome(guardedApply(planned));
+			},
+
+			updateUserTypeValue(uuid, userPropertyUuid, value) {
+				const doc = get();
+				if (ownRecordValue(doc.userTypes, uuid) === undefined) {
+					warnUnresolved("updateUserTypeValue", { uuid });
+					return NOOP_REJECTION;
+				}
+				const planned = updateUserTypeValueMutations(
+					doc,
+					uuid,
+					userPropertyUuid,
+					value,
+				);
+				if (planned.length === 0) return COMMITTED;
+				return toOutcome(guardedApply(planned));
+			},
+
+			removeUserType(uuid) {
+				const doc = get();
+				if (ownRecordValue(doc.userTypes, uuid) === undefined) {
+					warnUnresolved("removeUserType", { uuid });
+					return NOOP_REJECTION;
+				}
+				const plan = removeUserTypePlan(doc, uuid);
+				if (!plan.ok) {
+					/* A held role is a dependency refusal, not a gate finding —
+					 * announce it the same way so the author sees one voice. */
+					const lines = [plan.userMessage];
 					if (announce) notifyRejectedCommit(lines);
 					return { ok: false, messages: lines };
 				}
-				const verdict = mutationCommitVerdictWithPrevalidation(
+				return toOutcome(guardedApply(plan.mutations));
+			},
+
+			addPersona(persona) {
+				const uuid = asUuid(crypto.randomUUID());
+				const applied = guardedApply(addPersonaMutations(get(), uuid, persona));
+				if (!applied.ok) return applied;
+				return { ok: true, uuid };
+			},
+
+			updatePersona(uuid, patch) {
+				const doc = get();
+				if (ownRecordValue(doc.personas, uuid) === undefined) {
+					warnUnresolved("updatePersona", { uuid });
+					return NOOP_REJECTION;
+				}
+				const planned = updatePersonaMutations(doc, uuid, patch);
+				if (planned.length === 0) return COMMITTED;
+				return toOutcome(guardedApply(planned));
+			},
+
+			updatePersonaValue(uuid, userPropertyUuid, value) {
+				const doc = get();
+				if (ownRecordValue(doc.personas, uuid) === undefined) {
+					warnUnresolved("updatePersonaValue", { uuid });
+					return NOOP_REJECTION;
+				}
+				const planned = updatePersonaValueMutations(
 					doc,
-					projected.mutations,
-					lookupCommitState.lookupContext,
+					uuid,
+					userPropertyUuid,
+					value,
 				);
-				if (!verdict.ok) {
-					// Render to the concise BUILDER copy once — both the toast
-					// and the returned `CommitOutcome.messages` speak it. The
-					// SA path keeps the verbose `ValidationError.message`.
-					const lines = userFacingErrors(verdict.findings);
-					if (announce) notifyRejectedCommit(lines);
-					return { ok: false, messages: lines, findings: verdict.findings };
+				if (planned.length === 0) return COMMITTED;
+				return toOutcome(guardedApply(planned));
+			},
+
+			removePersona(uuid) {
+				if (ownRecordValue(get().personas, uuid) === undefined) {
+					warnUnresolved("removePersona", { uuid });
+					return NOOP_REJECTION;
 				}
-				// The candidate commits, and the batch that produced it is kept
-				// verbatim. Persistence replays exactly these commands rather than
-				// re-deriving them by diffing the committed document against a base.
-				if (commitCandidate) {
-					store.getState().commitDoc(verdict.nextDoc, verdict.mutations);
+				return toOutcome(guardedApply(removePersonaMutations(uuid)));
+			},
+
+			createCaseListModule({ caseType, name, parentModuleUuid, after }) {
+				const { mutations, moduleUuid } = caseListModuleMutations(get(), {
+					caseType,
+					...(name !== undefined && { name }),
+					...(parentModuleUuid !== undefined && { parentModuleUuid }),
+					...(after !== undefined && { after }),
+				});
+				const applied = guardedApply(mutations);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid: moduleUuid };
+			},
+
+			createSurveyModule(args) {
+				const { mutations, moduleUuid } = surveyModuleMutations(
+					get(),
+					args ?? {},
+				);
+				const applied = guardedApply(mutations);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid: moduleUuid };
+			},
+
+			createForm(moduleUuid, type, index) {
+				const doc = get();
+				if (!doc.modules[moduleUuid]) {
+					warnUnresolved("createForm", { moduleUuid });
+					return NOOP_REJECTION;
 				}
-				return { ok: true, results: verdict.results };
-			};
+				const scaffold = formScaffoldMutations(doc, moduleUuid, type, index);
+				if (!scaffold) return NOOP_REJECTION;
+				const applied = guardedApply(scaffold.mutations);
+				if (!applied.ok) return applied;
+				return { ok: true, uuid: scaffold.formUuid };
+			},
 
-			/** Project a `guardedApply` result onto the plain commit outcome. */
-			const toOutcome = (
-				applied: ReturnType<typeof guardedApply>,
-			): CommitOutcome => (applied.ok ? COMMITTED : applied);
-			const rejectConnectOwnership = (): {
-				ok: false;
-				messages: string[];
-			} => {
-				const messages = [
-					"Connect participation must be changed through the app-wide Connect configuration.",
-				];
-				if (announce) notifyRejectedCommit(messages);
-				return { ok: false, messages };
-			};
-			const rejectAutomationConflict = (): CommitOutcome & { ok: false } => {
-				const messages = [
-					"This automation changed while you were editing it. Close and reopen it to review the latest version.",
-				];
-				if (announce) notifyRejectedCommit(messages);
-				return { ok: false, messages };
-			};
+			updateApp(patch) {
+				return toOutcome(
+					guardedApply([{ kind: "setAppName", name: patch.app_name }]),
+				);
+			},
 
-			return {
-				addField(parentUuid, field, opts) {
-					const doc = get();
-					// Verify parent exists — must be either a form or a group/repeat
-					// field that can contain children.
-					if (
-						doc.forms[parentUuid] === undefined &&
-						doc.fields[parentUuid] === undefined
-					) {
-						warnUnresolved("addField", { parentUuid });
-						return NOOP_REJECTION;
-					}
+			setAppLogo(logo) {
+				// No uuid to validate — the logo is a single app-level slot, so
+				// this is a bare dispatch rather than the entity-guarded
+				// `setFormMedia` / `setModuleMedia`. The payload carries an
+				// explicit `MediaAssetId | null`; the reducer maps `null →
+				// undefined` so a clear drops the optional key off the doc.
+				return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
+			},
 
-					// Resolve the requested slot (atIndex / beforeUuid / afterUuid,
-					// default append) to the uuid the new field follows.
-					const fieldAfter = fieldSlotAfter(doc, parentUuid, {
-						index: opts?.atIndex,
-						beforeUuid: opts?.beforeUuid,
-						afterUuid: opts?.afterUuid,
-					});
-
-					// Mint a uuid if the caller didn't supply one. FieldTypePicker
-					// and the SA tool handlers pass shapes without uuids and rely on
-					// the store to generate identity.
-					const maybeUuid = field.uuid;
-					const uuid = asUuid(
-						typeof maybeUuid === "string" && maybeUuid.length > 0
-							? maybeUuid
-							: crypto.randomUUID(),
-					);
-					// Field is a discriminated union; the narrowed generic input is a
-					// specific variant's Omit — we stamp the uuid and cast via
-					// `unknown` because the distributive Omit shape doesn't round-trip
-					// back to the full union narrowly (TS limitation around Omit +
-					// discriminated unions). Placement rides the mutation, not the
-					// entity: where a field goes is the gesture's business, not the
-					// field's.
-					const entity = {
-						...field,
-						uuid,
-					} as unknown as Field;
-
-					// Declaration chokepoint: a field writing to a type absent from
-					// the catalog prepends `declareCaseType` (the reducer no longer
-					// auto-creates the type — that kept it from clobbering a
-					// concurrent declaration). A no-op when the type is already
-					// declared or the field writes to no case.
-					const declare = declareCaseTypeForField(doc, entity);
-
-					const applied = guardedApply([
-						...declare,
+			renameCaseProperties(renames) {
+				return toOutcome(
+					guardedApply([
 						{
-							kind: "addField",
-							parentUuid,
-							field: entity,
-							after: fieldAfter,
-						},
-					]);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid };
-				},
-
-				updateField(uuid, targetKind, patch) {
-					const doc = get();
-					if (!doc.fields[uuid]) {
-						warnUnresolved("updateField", { uuid, targetKind });
-						return NOOP_REJECTION;
-					}
-					// `targetKind` + `patch` are typed against the same variant via
-					// the generic, so the spread into the mutation literal lands on
-					// the discriminated `updateField` arm without further narrowing.
-					// The intermediate cast is required because TypeScript can't
-					// match the generic `K` back to the union of literal-keyed arms
-					// in `Mutation` — at the value level the shape is structurally
-					// identical, but TS treats the union arms as distinct types
-					// rather than a parameterized one.
-					// Declaration chokepoint: a patch retargeting the complete
-					// `caseWrite` pair to a type absent from the catalog prepends
-					// `declareCaseType`.
-					const nextCaseWrite = (
-						patch as {
-							caseWrite?: {
-								caseType: string;
-								property: string;
-							} | null;
-						}
-					).caseWrite;
-					const nextType = nextCaseWrite?.caseType;
-					const declare =
-						typeof nextType === "string" && nextType.length > 0
-							? declareCaseTypeMutations(doc, nextType)
-							: [];
-					return toOutcome(
-						guardedApply([
-							...declare,
-							{
-								kind: "updateField",
-								uuid,
-								targetKind,
-								patch: jsonStableClearPatch(
-									patch as Readonly<Record<string, unknown>>,
-								) as FieldPatchFor<typeof targetKind>,
-							} as Mutation,
-						]),
-					);
-				},
-
-				removeField(uuid) {
-					const doc = get();
-					if (!doc.fields[uuid]) {
-						warnUnresolved("removeField", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(guardedApply([{ kind: "removeField", uuid }]));
-				},
-
-				renameField(uuid, newId) {
-					const doc = get();
-					const field = doc.fields[uuid];
-					if (!field) {
-						warnUnresolved("renameField", { uuid });
-						return {};
-					}
-
-					// Conflict check: reject the rename before dispatching so the
-					// UI can surface a "name already taken" message without
-					// unwinding a half-applied mutation. Field id is form-local, so
-					// the shared verdict checks only this field's sibling scope.
-					if (findRenameSiblingConflict(doc, uuid, newId) !== undefined) {
-						return { conflict: true };
-					}
-
-					// Field ID is an ordinary mutable field slot. Persist exactly
-					// the canonical per-kind update command. UUID identity keeps
-					// references stable, and the independent `caseWrite` binding is
-					// untouched.
-					const applied = guardedApply([
-						{
-							kind: "updateField",
-							uuid,
-							targetKind: field.kind,
-							patch: { id: newId },
-						} as Mutation,
-					]);
-					if (!applied.ok) {
-						return { rejected: applied.messages };
-					}
-					return {};
-				},
-
-				moveField(uuid, opts) {
-					const doc = get();
-					const field = doc.fields[uuid];
-					if (!field) {
-						warnUnresolved("moveField", { uuid });
-						return NOOP_REJECTION;
-					}
-
-					// Default destination: the field's current parent (same-parent
-					// reorder). Fall back to the field's own uuid as a guard — this
-					// is unreachable in practice because every field has a parent
-					// entry in `fieldOrder`. Read the parent directly from the
-					// store-maintained `fieldParent` reverse index (O(1)).
-					const toParentUuid =
-						opts.toParentUuid ?? doc.fieldParent[uuid] ?? uuid;
-
-					// Resolve the requested slot to a landing in the destination
-					// parent's sequence, excluding the moved field from the neighbour
-					// set — a same-parent reorder places it among the OTHER siblings.
-					const after = fieldSlotAfter(
-						doc,
-						toParentUuid,
-						{
-							index: opts.toIndex,
-							beforeUuid: opts.beforeUuid,
-							afterUuid: opts.afterUuid,
-						},
-						uuid,
-					);
-
-					return toOutcome(
-						guardedApply([{ kind: "moveField", uuid, toParentUuid, after }]),
-					);
-				},
-
-				applyFormSectionPlan(plan) {
-					if (!plan.ok) {
-						if (announce) notifyRejectedCommit([plan.reason]);
-						return { ok: false, messages: [plan.reason] };
-					}
-					if (plan.mutations.length === 0) {
-						return { ok: true, sectionUuids: plan.sectionUuids };
-					}
-					const applied = guardedApply(plan.mutations);
-					return applied.ok
-						? { ok: true, sectionUuids: plan.sectionUuids }
-						: applied;
-				},
-
-				duplicateField(uuid) {
-					const doc = get();
-					const plan = duplicateFieldMutations(doc, uuid);
-					if (plan === undefined) {
-						warnUnresolved("duplicateField", { uuid });
-						return undefined;
-					}
-					if (!guardedApply(plan.mutations).ok) return undefined;
-
-					// The clone's path is read AFTER the commit: the batch may have
-					// deduped its id against a sibling, and the path is what the
-					// caller navigates to.
-					const after = get();
-					const clone = after.fields[plan.cloneUuid];
-					if (clone === undefined) return undefined;
-					const parentUuid = after.fieldParent[plan.cloneUuid] ?? undefined;
-					if (parentUuid === undefined) return undefined;
-					const parentPath = after.forms[parentUuid]
-						? "" // parent is the form root
-						: (computePathForUuid(after, parentUuid) ?? "");
-					const newPath = (
-						parentPath ? `${parentPath}/${clone.id}` : clone.id
-					) as FieldPath;
-
-					return { newPath, newUuid: plan.cloneUuid as string };
-				},
-
-				convertField(uuid, toKind) {
-					const doc = get();
-					const field = doc.fields[uuid];
-					if (!field) {
-						// Include `toKind` so the dev-mode warn disambiguates the caller's
-						// intent — a stale UI closure and a drifted SA dispatch present
-						// identically without it. Matches the debug payload shape the
-						// other multi-arg mutations (updateCaseProperty, etc.) use.
-						warnUnresolved("convertField", { uuid, toKind });
-						return NOOP_REJECTION;
-					}
-					const batch: Mutation[] = [];
-					// Converting to hidden must land with a value source or the
-					// gate rejects on HIDDEN_NO_VALUE — and this gesture has no
-					// authoring step. Seed the same inert `''` default a
-					// picker-inserted hidden is born with (the user authors the
-					// real calculate in the inspector right after); the seed
-					// lands on the SOURCE field pre-convert (its kind declares
-					// `default_value`) and carries through the kind swap. A
-					// field that already has a default keeps it.
-					if (
-						toKind === "hidden" &&
-						!("default_value" in field && field.default_value) &&
-						!("calculate" in field && field.calculate)
-					) {
-						batch.push({
-							kind: "updateField",
-							uuid,
-							targetKind: field.kind,
-							patch: { default_value: HIDDEN_INERT_DEFAULT_VALUE },
-						} as Mutation);
-					}
-					// The property-centric plan (shared with the SA's editField):
-					// a case-bound string-scalar conversion carries the
-					// property's other writers across in the same batch and
-					// re-declares a stale declared data_type — one field at a
-					// time can never cross the agreement gate. Select targets
-					// whose source has no options get the same starter pair a
-					// picker-inserted select is born with, minted fresh per
-					// converted field; the user renames them in the inspector.
-					const plan = planKindConversion({
-						doc,
-						field,
-						toKind,
-						optionsSource: {
-							kind: "inline",
-							options: DEFAULT_SELECT_OPTIONS.map((option) => ({
-								...option,
-								uuid: asUuid(crypto.randomUUID()),
+							kind: "renameCaseProperties",
+							renames: renames.map(({ caseType, from, to }) => ({
+								caseType,
+								from,
+								to,
 							})),
 						},
-					});
-					if (!plan.ok) {
-						const message =
-							plan.blocker.carrier === "case-operation"
-								? `This field's case property is also written by case operation “${plan.blocker.id}”. Update or remove that operation before changing the property's data type.`
-								: `This field's case property is also captured by a ${fieldRegistry[plan.blocker.kind].label} field in another form, which can't become a ${fieldRegistry[toKind].label}. Convert that field to Text first, then convert this one.`;
-						return {
-							ok: false,
-							messages: [message],
-						};
-					}
-					batch.push(...plan.mutations);
-					return toOutcome(guardedApply(batch));
-				},
+					]),
+				);
+			},
 
-				addForm(moduleUuid, form) {
-					const doc = get();
-					if (!doc.modules[moduleUuid]) {
-						warnUnresolved("addForm", { moduleUuid });
-						return NOOP_REJECTION;
-					}
-					/* Runtime backstop for untyped callers: the public input omits
-					 * `connect`, but a cast or stale bundle must not smuggle a new
-					 * participant through the generic form writer. */
-					if (Object.hasOwn(form, "connect")) {
-						return rejectConnectOwnership();
-					}
-					const maybeUuid = form.uuid;
-					const formUuid = asUuid(
-						typeof maybeUuid === "string" && maybeUuid.length > 0
-							? maybeUuid
-							: crypto.randomUUID(),
-					);
-					const applied = guardedApply([
+			updateCaseProperty(caseTypeName, propertyName, updates) {
+				const doc = get();
+				const currentCaseTypes = doc.caseTypes;
+				if (!currentCaseTypes) {
+					warnUnresolved("updateCaseProperty", {
+						caseTypeName,
+						propertyName,
+					});
+					return NOOP_REJECTION;
+				}
+				const caseType = currentCaseTypes.find(
+					(candidate) => candidate.name === caseTypeName,
+				);
+				if (caseType === undefined) {
+					warnUnresolved("updateCaseProperty", {
+						caseTypeName,
+						reason: "case type not found",
+					});
+					return NOOP_REJECTION;
+				}
+				const property = caseType.properties.find(
+					(candidate) => candidate.name === propertyName,
+				);
+				if (property === undefined) {
+					warnUnresolved("updateCaseProperty", {
+						caseTypeName,
+						propertyName,
+						reason: "property not found",
+					});
+					return NOOP_REJECTION;
+				}
+				return toOutcome(
+					guardedApply([
 						{
-							kind: "addForm",
-							moduleUuid,
-							form: { ...form, uuid: formUuid } as Form,
+							kind: "setCaseProperty",
+							caseType: caseTypeName,
+							property: { ...property, ...updates },
 						},
-					]);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid: formUuid };
-				},
+					]),
+				);
+			},
 
-				updateForm(uuid, patch) {
-					const doc = get();
-					const form = doc.forms[uuid];
-					if (!form) {
-						warnUnresolved("updateForm", { uuid });
-						return NOOP_REJECTION;
-					}
-					/* The type omits `connect`; keep the same ownership invariant
-					 * at runtime for JavaScript, casts, and version-skewed clients. */
-					if (Object.hasOwn(patch, "connect")) {
-						return rejectConnectOwnership();
-					}
-					const { name, ...metadata } = patch;
-					const mutations: Mutation[] = [];
-					if (name !== undefined && name !== form.name) {
-						mutations.push({
-							kind: "renameForm",
-							uuid,
-							newId: name,
-						});
-					}
-					if (Object.keys(metadata).length > 0) {
-						mutations.push({
-							kind: "updateForm",
-							uuid,
-							patch: jsonStableClearPatch(metadata) as FormMutationPatch,
-						});
-					}
-					if (mutations.length === 0) return COMMITTED;
-					return toOutcome(guardedApply(mutations));
-				},
+			applyMany(mutations) {
+				// Batch dispatch — the store's `applyMany` wraps the whole set
+				// in one `set()` call so the whole patch is one history entry.
+				// Returns the reducer's per-mutation results in input order;
+				// surfaced here so callers can narrow specific positions. A
+				// gate rejection returns an empty array (positional reads see
+				// `undefined`, the same shape a no-op reducer produces).
+				const applied = guardedApply(mutations);
+				return applied.ok ? applied.results : [];
+			},
 
-				refineFormConnect(uuid, connect) {
-					const doc = get();
-					const form = doc.forms[uuid];
-					if (!form) {
-						warnUnresolved("refineFormConnect", { uuid });
-						return NOOP_REJECTION;
-					}
-					/* Refinement is intentionally narrower than membership:
-					 * a nonparticipant cannot be added here, and null/undefined
-					 * cannot remove one. The exact target planner is the only
-					 * owner of either transition. */
-					if (form.connect === undefined || connect == null) {
-						return rejectConnectOwnership();
-					}
-					return toOutcome(
-						guardedApply([
-							{
-								kind: "updateForm",
-								uuid,
-								patch: { connect },
-							},
-						]),
-					);
-				},
+			commitMany(mutations) {
+				return toOutcome(guardedApply(mutations));
+			},
 
-				setFormMedia(uuid, media) {
-					const doc = get();
-					if (!doc.forms[uuid]) {
-						warnUnresolved("setFormMedia", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([
-							{
-								kind: "setFormMedia",
-								uuid,
-								icon: media.icon,
-								audioLabel: media.audioLabel,
-							},
-						]),
-					);
-				},
-
-				removeForm(uuid) {
-					const doc = get();
-					if (!doc.forms[uuid]) {
-						warnUnresolved("removeForm", { uuid });
-						return NOOP_REJECTION;
-					}
-					/* After-submit links from OTHER forms that point at this one
-					 * would dangle. The shared planner refuses naming every link
-					 * (`lib/doc/formLinkDependents.ts`); the SA's `removeForm` tool
-					 * consults the same planner, so both surfaces refuse alike. */
-					const dependents = planFormLinkDependentsOnRemove(doc, {
-						kind: "form",
-						formUuid: uuid,
-					});
-					if (dependents.kind === "blocked") {
-						if (announce) notifyRejectedCommit([dependents.userMessage]);
-						return { ok: false, messages: [dependents.userMessage] };
-					}
-					const mutations: Mutation[] = [{ kind: "removeForm", uuid }];
-					/* Removing the LAST form of a case-managing module would leave it
-					 * formless+typed (`NO_FORMS_OR_CASE_LIST`). Convert it to a
-					 * case-list viewer in the same batch — the inverse of
-					 * `formScaffoldMutations` flipping `caseListOnly` off when the
-					 * first form is added (a form-bearing case module already carries
-					 * the columns a viewer needs, `MISSING_CASE_LIST_COLUMNS`). */
-					const parentId = Object.keys(doc.formOrder).find((m) =>
-						doc.formOrder[m]?.includes(uuid),
-					);
-					const parent = parentId ? doc.modules[parentId] : undefined;
-					if (
-						parent?.caseType &&
-						!parent.caseListOnly &&
-						doc.formOrder[parentId as string]?.length === 1
-					) {
-						mutations.push({
-							kind: "updateModule",
-							uuid: asUuid(parentId as string),
-							patch: { caseListOnly: true },
-						});
-					}
-					return toOutcome(guardedApply(mutations));
-				},
-
-				updateModule(uuid, patch) {
-					const doc = get();
-					if (!doc.modules[uuid]) {
-						warnUnresolved("updateModule", { uuid });
-						return NOOP_REJECTION;
-					}
-					/* A case-type change (or clear — the key present, value
-					 * undefined) can orphan the OLD type's record; the shared
-					 * planner retires it in the same batch or rejects naming what
-					 * still references it. Same cascade the SA's `updateModule`
-					 * tool runs — every surface inherits it identically. */
-					const retirement: CaseTypeRetirement =
-						"caseType" in patch
-							? planCaseTypeRetirementOnRetype(doc, uuid, patch.caseType)
-							: { kind: "none" };
-					if (retirement.kind === "blocked") {
-						if (announce) notifyRejectedCommit([retirement.userMessage]);
-						return { ok: false, messages: [retirement.userMessage] };
-					}
-					/* One granular catalog batch covers both retirement of an orphaned
-					 * old type and declaration of a brand-new one. A brand-new type
-					 * must be cataloged or the seeded `Name` column cannot resolve
-					 * (`CASE_LIST_COLUMN_UNKNOWN_FIELD`). */
-					const moduleMutations = modulePatchMutations(
-						doc.modules[uuid],
-						patch,
-					);
-					return toOutcome(
-						guardedApply([
-							...caseTypeCatalogMutations(doc, retirement, patch.caseType),
-							...moduleMutations,
-						]),
-					);
-				},
-
-				moveColumnOnSurface(moduleUuid, uuid, surface, toIndex) {
-					const doc = get();
-					const config = doc.modules[moduleUuid]?.caseListConfig;
-					if (!config?.columns.some((column) => column.uuid === uuid)) {
-						warnUnresolved("moveColumnOnSurface", {
-							moduleUuid,
-							uuid,
-							surface,
-						});
-						return NOOP_REJECTION;
-					}
-					// The requested index counts the surface's VISIBLE rows, which is
-					// what the author sees; the sequence holds hidden ones too, so the
-					// landing is expressed against the full sequence.
-					const sequence =
-						surface === "list"
-							? config.listColumnOrder
-							: config.detailColumnOrder;
-					const visible = sequence.filter((columnUuid) => {
-						const column = config.columns.find((c) => c.uuid === columnUuid);
-						if (column === undefined) return false;
-						return surface === "list"
-							? column.visibleInList !== false
-							: column.visibleInDetail !== false;
-					});
-					const others = visible.filter((columnUuid) => columnUuid !== uuid);
-					const clamped = Math.max(0, Math.min(toIndex, others.length));
-					const after = clamped === 0 ? null : (others[clamped - 1] ?? null);
-					// Already there: no mutation, so no undo or autosave entry.
-					const currentAfter = (() => {
-						const at = sequence.indexOf(uuid);
-						return at <= 0 ? null : sequence[at - 1];
-					})();
-					if (after === currentAfter) return COMMITTED;
-					return toOutcome(
-						guardedApply([
-							{ kind: "moveColumn", moduleUuid, uuid, surface, after },
-						]),
-					);
-				},
-
-				moveSearchInputToIndex(moduleUuid, uuid, toIndex) {
-					const doc = get();
-					const inputs = doc.modules[moduleUuid]?.caseListConfig?.searchInputs;
-					if (!inputs?.some((input) => input.uuid === uuid)) {
-						warnUnresolved("moveSearchInputToIndex", { moduleUuid, uuid });
-						return NOOP_REJECTION;
-					}
-					const others = inputs
-						.map((input) => input.uuid)
-						.filter((inputUuid) => inputUuid !== uuid);
-					const clamped = Math.max(0, Math.min(toIndex, others.length));
-					const after = clamped === 0 ? null : (others[clamped - 1] ?? null);
-					const at = inputs.findIndex((input) => input.uuid === uuid);
-					const currentAfter = at <= 0 ? null : inputs[at - 1].uuid;
-					if (after === currentAfter) return COMMITTED;
-					return toOutcome(
-						guardedApply([
-							{ kind: "moveSearchInput", moduleUuid, uuid, after },
-						]),
-					);
-				},
-
-				setModuleMedia(uuid, media) {
-					const doc = get();
-					if (!doc.modules[uuid]) {
-						warnUnresolved("setModuleMedia", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([
-							{
-								kind: "setModuleMedia",
-								uuid,
-								icon: media.icon,
-								audioLabel: media.audioLabel,
-							},
-						]),
-					);
-				},
-
-				moveModule(uuid, placement) {
-					if (!get().modules[uuid]) {
-						warnUnresolved("moveModule", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([{ kind: "moveModule", uuid, ...placement }]),
-					);
-				},
-
-				removeModule(uuid) {
-					const doc = get();
-					if (!doc.modules[uuid]) {
-						warnUnresolved("removeModule", { uuid });
-						return NOOP_REJECTION;
-					}
-					const childDependents = planModuleChildDependentsOnRemove(doc, uuid);
-					if (childDependents.kind === "blocked") {
-						if (announce) notifyRejectedCommit([childDependents.userMessage]);
-						return {
-							ok: false,
-							messages: [childDependents.userMessage],
-						};
-					}
-					/* When this module is the last owner of its case-type record,
-					 * the same batch retires the record — or the removal rejects
-					 * naming what still references the type. Same cascade the SA's
-					 * `removeModule` tool runs (`lib/doc/caseTypeRetirement.ts`). */
-					const retirement = planCaseTypeRetirementOnRemove(doc, uuid);
-					if (retirement.kind === "blocked") {
-						if (announce) notifyRejectedCommit([retirement.userMessage]);
-						return { ok: false, messages: [retirement.userMessage] };
-					}
-					/* After-submit links from forms OUTSIDE this module that point
-					 * into it would dangle; the shared planner refuses naming each
-					 * (`lib/doc/formLinkDependents.ts`). Links on the module's own
-					 * forms leave with them. */
-					const dependents = planFormLinkDependentsOnRemove(doc, {
-						kind: "module",
-						moduleUuid: uuid,
-					});
-					if (dependents.kind === "blocked") {
-						if (announce) notifyRejectedCommit([dependents.userMessage]);
-						return { ok: false, messages: [dependents.userMessage] };
-					}
-					return toOutcome(
-						guardedApply([
-							{ kind: "removeModule", uuid },
-							...(retirement.kind === "retire" ? retirement.mutations : []),
-						]),
-					);
-				},
-
-				addOrganizationLevel(level) {
-					const uuid = asUuid(crypto.randomUUID());
-					const applied = guardedApply(
-						addOrganizationLevelMutations(get(), uuid, level),
-					);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid };
-				},
-
-				updateOrganizationLevel(uuid, patch) {
-					if (ownRecordValue(get().organizationLevels, uuid) === undefined) {
-						warnUnresolved("updateOrganizationLevel", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([{ kind: "updateOrganizationLevel", uuid, patch }]),
-					);
-				},
-
-				removeOrganizationLevel(uuid, occupiedLevelUuids) {
-					const doc = get();
-					if (ownRecordValue(doc.organizationLevels, uuid) === undefined) {
-						warnUnresolved("removeOrganizationLevel", { uuid });
-						return NOOP_REJECTION;
-					}
-					const plan = removeOrganizationLevelPlan(
-						doc,
-						uuid,
-						occupiedLevelUuids,
-					);
-					if (!plan.ok) return { ok: false, messages: [plan.userMessage] };
-					return toOutcome(guardedApply(plan.mutations));
-				},
-
-				addLocationProperty(property) {
-					const uuid = asUuid(crypto.randomUUID());
-					const applied = guardedApply(
-						addLocationPropertyMutations(get(), uuid, property),
-					);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid };
-				},
-
-				updateLocationProperty(uuid, patch) {
-					if (ownRecordValue(get().locationProperties, uuid) === undefined) {
-						warnUnresolved("updateLocationProperty", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([{ kind: "updateLocationProperty", uuid, patch }]),
-					);
-				},
-
-				removeLocationProperty(uuid) {
-					if (ownRecordValue(get().locationProperties, uuid) === undefined) {
-						warnUnresolved("removeLocationProperty", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(guardedApply(removeLocationPropertyMutations(uuid)));
-				},
-
-				addAutomation(automation) {
-					const uuid = automation.uuid;
-					if (findAuthoredBlueprintIdentity(get(), uuid) !== undefined) {
-						warnUnresolved("addAutomation", { uuid });
-						return NOOP_REJECTION;
-					}
-					const applied = guardedApply([
-						{
-							kind: "addAutomation",
-							automation,
-						},
-					]);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid };
-				},
-
-				replaceAutomation(automation, expectedFingerprint) {
-					const before = ownRecordValue(get().automations, automation.uuid);
-					if (before === undefined) {
-						warnUnresolved("replaceAutomation", { uuid: automation.uuid });
-						return NOOP_REJECTION;
-					}
-					if (
-						expectedFingerprint !== undefined &&
-						JSON.stringify(before) !== expectedFingerprint
-					) {
-						return rejectAutomationConflict();
-					}
-					return toOutcome(
-						guardedApply(automationChangesForUpdate(before, automation)),
-					);
-				},
-
-				updateAutomation(mutation) {
-					if (ownRecordValue(get().automations, mutation.uuid) === undefined) {
-						warnUnresolved("updateAutomation", { uuid: mutation.uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([{ kind: "updateAutomation", ...mutation }]),
-					);
-				},
-
-				removeAutomation(uuid, expectedFingerprint) {
-					const before = ownRecordValue(get().automations, uuid);
-					if (before === undefined) {
-						warnUnresolved("removeAutomation", { uuid });
-						return NOOP_REJECTION;
-					}
-					if (
-						expectedFingerprint !== undefined &&
-						JSON.stringify(before) !== expectedFingerprint
-					) {
-						return rejectAutomationConflict();
-					}
-					return toOutcome(
-						guardedApply([
-							{ kind: "removeAutomation", uuid, targetKind: before.kind },
-						]),
-					);
-				},
-
-				editAutomationItem(mutation) {
-					const automation = ownRecordValue(
-						get().automations,
-						mutation.automationUuid,
-					);
-					if (
-						automation === undefined ||
-						automation.kind !== mutation.targetKind
-					) {
-						warnUnresolved("editAutomationItem", {
-							uuid: mutation.automationUuid,
-						});
-						return NOOP_REJECTION;
-					}
-					return toOutcome(guardedApply([mutation]));
-				},
-
-				setAutomationSchedule(uuid, schedule) {
-					if (ownRecordValue(get().automations, uuid) === undefined) {
-						warnUnresolved("setAutomationSchedule", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([{ kind: "setAutomationSchedule", uuid, schedule }]),
-					);
-				},
-
-				updateAutomationSchedule(uuid, patch) {
-					if (ownRecordValue(get().automations, uuid) === undefined) {
-						warnUnresolved("updateAutomationSchedule", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([{ kind: "updateAutomationSchedule", uuid, patch }]),
-					);
-				},
-
-				setPersonaLocations(personaUuid, locationIds) {
-					if (ownRecordValue(get().personas, personaUuid) === undefined) {
-						warnUnresolved("setPersonaLocations", { uuid: personaUuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply(
-							setPersonaLocationsMutations(personaUuid, locationIds),
-						),
-					);
-				},
-
-				addUserProperty(property) {
-					const uuid = asUuid(crypto.randomUUID());
-					const applied = guardedApply(
-						addUserPropertyMutations(get(), uuid, property),
-					);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid };
-				},
-
-				updateUserProperty(uuid, patch) {
-					if (ownRecordValue(get().userProperties, uuid) === undefined) {
-						warnUnresolved("updateUserProperty", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([{ kind: "updateUserProperty", uuid, patch }]),
-					);
-				},
-
-				removeUserProperty(uuid) {
-					const doc = get();
-					if (ownRecordValue(doc.userProperties, uuid) === undefined) {
-						warnUnresolved("removeUserProperty", { uuid });
-						return NOOP_REJECTION;
-					}
-					const plan = removeUserPropertyPlan(doc, uuid);
-					if (!plan.ok) {
-						if (announce) notifyRejectedCommit([plan.userMessage]);
-						return { ok: false, messages: [plan.userMessage] };
-					}
-					return toOutcome(guardedApply(plan.mutations));
-				},
-
-				inspectUserPropertyRemoval(uuid) {
-					return removeUserPropertyPlan(get(), uuid);
-				},
-
-				addUserType(userType) {
-					const uuid = asUuid(crypto.randomUUID());
-					const applied = guardedApply(
-						addUserTypeMutations(get(), uuid, userType),
-					);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid };
-				},
-
-				updateUserType(uuid, patch) {
-					const doc = get();
-					if (ownRecordValue(doc.userTypes, uuid) === undefined) {
-						warnUnresolved("updateUserType", { uuid });
-						return NOOP_REJECTION;
-					}
-					const planned = updateUserTypeMutations(doc, uuid, patch);
-					if (planned.length === 0) return COMMITTED;
-					return toOutcome(guardedApply(planned));
-				},
-
-				updateUserTypeValue(uuid, userPropertyUuid, value) {
-					const doc = get();
-					if (ownRecordValue(doc.userTypes, uuid) === undefined) {
-						warnUnresolved("updateUserTypeValue", { uuid });
-						return NOOP_REJECTION;
-					}
-					const planned = updateUserTypeValueMutations(
-						doc,
-						uuid,
-						userPropertyUuid,
-						value,
-					);
-					if (planned.length === 0) return COMMITTED;
-					return toOutcome(guardedApply(planned));
-				},
-
-				removeUserType(uuid) {
-					const doc = get();
-					if (ownRecordValue(doc.userTypes, uuid) === undefined) {
-						warnUnresolved("removeUserType", { uuid });
-						return NOOP_REJECTION;
-					}
-					const plan = removeUserTypePlan(doc, uuid);
-					if (!plan.ok) {
-						/* A held role is a dependency refusal, not a gate finding —
-						 * announce it the same way so the author sees one voice. */
-						const lines = [plan.userMessage];
-						if (announce) notifyRejectedCommit(lines);
-						return { ok: false, messages: lines };
-					}
-					return toOutcome(guardedApply(plan.mutations));
-				},
-
-				addPersona(persona) {
-					const uuid = asUuid(crypto.randomUUID());
-					const applied = guardedApply(
-						addPersonaMutations(get(), uuid, persona),
-					);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid };
-				},
-
-				updatePersona(uuid, patch) {
-					const doc = get();
-					if (ownRecordValue(doc.personas, uuid) === undefined) {
-						warnUnresolved("updatePersona", { uuid });
-						return NOOP_REJECTION;
-					}
-					const planned = updatePersonaMutations(doc, uuid, patch);
-					if (planned.length === 0) return COMMITTED;
-					return toOutcome(guardedApply(planned));
-				},
-
-				updatePersonaValue(uuid, userPropertyUuid, value) {
-					const doc = get();
-					if (ownRecordValue(doc.personas, uuid) === undefined) {
-						warnUnresolved("updatePersonaValue", { uuid });
-						return NOOP_REJECTION;
-					}
-					const planned = updatePersonaValueMutations(
-						doc,
-						uuid,
-						userPropertyUuid,
-						value,
-					);
-					if (planned.length === 0) return COMMITTED;
-					return toOutcome(guardedApply(planned));
-				},
-
-				removePersona(uuid) {
-					if (ownRecordValue(get().personas, uuid) === undefined) {
-						warnUnresolved("removePersona", { uuid });
-						return NOOP_REJECTION;
-					}
-					return toOutcome(guardedApply(removePersonaMutations(uuid)));
-				},
-
-				createCaseListModule({ caseType, name, parentModuleUuid, after }) {
-					const { mutations, moduleUuid } = caseListModuleMutations(get(), {
-						caseType,
-						...(name !== undefined && { name }),
-						...(parentModuleUuid !== undefined && { parentModuleUuid }),
-						...(after !== undefined && { after }),
-					});
-					const applied = guardedApply(mutations);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid: moduleUuid };
-				},
-
-				createSurveyModule(args) {
-					const { mutations, moduleUuid } = surveyModuleMutations(
-						get(),
-						args ?? {},
-					);
-					const applied = guardedApply(mutations);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid: moduleUuid };
-				},
-
-				createForm(moduleUuid, type, index) {
-					const doc = get();
-					if (!doc.modules[moduleUuid]) {
-						warnUnresolved("createForm", { moduleUuid });
-						return NOOP_REJECTION;
-					}
-					const scaffold = formScaffoldMutations(doc, moduleUuid, type, index);
-					if (!scaffold) return NOOP_REJECTION;
-					const applied = guardedApply(scaffold.mutations);
-					if (!applied.ok) return applied;
-					return { ok: true, uuid: scaffold.formUuid };
-				},
-
-				updateApp(patch) {
-					return toOutcome(
-						guardedApply([{ kind: "setAppName", name: patch.app_name }]),
-					);
-				},
-
-				setAppLogo(logo) {
-					// No uuid to validate — the logo is a single app-level slot, so
-					// this is a bare dispatch rather than the entity-guarded
-					// `setFormMedia` / `setModuleMedia`. The payload carries an
-					// explicit `MediaAssetId | null`; the reducer maps `null →
-					// undefined` so a clear drops the optional key off the doc.
-					return toOutcome(guardedApply([{ kind: "setAppLogo", logo }]));
-				},
-
-				renameCaseProperties(renames) {
-					return toOutcome(
-						guardedApply([
-							{
-								kind: "renameCaseProperties",
-								renames: renames.map(({ caseType, from, to }) => ({
-									caseType,
-									from,
-									to,
-								})),
-							},
-						]),
-					);
-				},
-
-				updateCaseProperty(caseTypeName, propertyName, updates) {
-					const doc = get();
-					const currentCaseTypes = doc.caseTypes;
-					if (!currentCaseTypes) {
-						warnUnresolved("updateCaseProperty", {
-							caseTypeName,
-							propertyName,
-						});
-						return NOOP_REJECTION;
-					}
-					const caseType = currentCaseTypes.find(
-						(candidate) => candidate.name === caseTypeName,
-					);
-					if (caseType === undefined) {
-						warnUnresolved("updateCaseProperty", {
-							caseTypeName,
-							reason: "case type not found",
-						});
-						return NOOP_REJECTION;
-					}
-					const property = caseType.properties.find(
-						(candidate) => candidate.name === propertyName,
-					);
-					if (property === undefined) {
-						warnUnresolved("updateCaseProperty", {
-							caseTypeName,
-							propertyName,
-							reason: "property not found",
-						});
-						return NOOP_REJECTION;
-					}
-					return toOutcome(
-						guardedApply([
-							{
-								kind: "setCaseProperty",
-								caseType: caseTypeName,
-								property: { ...property, ...updates },
-							},
-						]),
-					);
-				},
-
-				applyMany(mutations) {
-					// Batch dispatch — the store's `applyMany` wraps the whole set
-					// in one `set()` call so the whole patch is one history entry.
-					// Returns the reducer's per-mutation results in input order;
-					// surfaced here so callers can narrow specific positions. A
-					// gate rejection returns an empty array (positional reads see
-					// `undefined`, the same shape a no-op reducer produces).
-					const applied = guardedApply(mutations);
-					return applied.ok ? applied.results : [];
-				},
-
-				commitMany(mutations) {
-					return toOutcome(guardedApply(mutations));
-				},
-
-				reviewMany(mutations) {
-					const reviewed = guardedApply(mutations, false);
-					return reviewed.ok ? COMMITTED : reviewed;
-				},
-			};
+			reviewMany(mutations) {
+				const reviewed = guardedApply(mutations, false);
+				return reviewed.ok ? COMMITTED : reviewed;
+			},
 		};
+	};
 
-		return { ...makeApi(true), inline: makeApi(false) };
-	}, [store, canEdit, authoringLanguage, lookupCommitState]);
+	return { ...makeApi(true), inline: makeApi(false) };
 }

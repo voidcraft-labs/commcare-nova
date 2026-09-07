@@ -7,6 +7,7 @@ import {
 	type LookupValidationContext,
 } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc } from "@/lib/domain";
+import { isReservedInstanceTag } from "@/lib/lookup/constants";
 import type { LookupTableDefinition } from "@/lib/lookup/types";
 import {
 	type ValidationError,
@@ -119,6 +120,21 @@ export function validateLookupReferences(
 		const table = definitions.get(occurrence.tableId);
 		if (table === undefined) {
 			errors.push(tableNotAvailableFinding(occurrence));
+			continue;
+		}
+		if (isReservedInstanceTag(table.tag)) {
+			errors.push(
+				validationError(
+					"LOOKUP_TAG_RESERVED_BY_RUNTIME",
+					occurrence.location.scope,
+					`The lookup table ${table.name} uses the export tag ${table.tag}, which CommCare reserves for its own data. Rename the export tag in Project data, then try again.`,
+					occurrenceLocation(occurrence),
+					occurrenceDetails(occurrence, {
+						tag: table.tag,
+						tableName: table.name,
+					}),
+				),
+			);
 			continue;
 		}
 		if (occurrence.columnId === undefined) continue;

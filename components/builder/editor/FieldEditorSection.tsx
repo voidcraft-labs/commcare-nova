@@ -124,6 +124,7 @@ export function FieldEditorSection<F extends Field>({
 						label: string;
 						keyName: typeof key;
 						autoFocus?: boolean;
+						onDismissEmpty?: () => void;
 					}>;
 					const value = field[key];
 					return (
@@ -142,6 +143,7 @@ export function FieldEditorSection<F extends Field>({
 								keyName={key}
 								autoFocus={autoFocus}
 								onChange={(next) => setKey(key, next)}
+								onDismissEmpty={() => onCommit(key, undefined)}
 							/>
 						</motion.div>
 					);

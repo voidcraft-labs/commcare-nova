@@ -23,9 +23,11 @@ import {
 import { Field, FieldDescription, FieldLabel } from "@/components/shadcn/field";
 import { Switch } from "@/components/shadcn/switch";
 import { SimpleTooltip } from "@/components/shadcn/tooltip";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useUserProperties } from "@/lib/doc/hooks/useUserCollections";
 import { userPropertySlugVerdict } from "@/lib/doc/identifierVerdicts";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import type { RemoveUserPropertyPlan } from "@/lib/doc/userMutations";
 import { BUILT_IN_USER_PROPERTIES, type UserProperty } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -37,6 +39,8 @@ import { EntryRow, Subsection, SubsectionEmpty } from "./subsection";
 export function WorkerInformationSubsection() {
 	const properties = useUserProperties();
 	const canEdit = useCanEdit();
+	const lookupCommitState = useLookupCommitState();
+	const canWrite = builderWriteAdmission({ canEdit, lookupCommitState }).ok;
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
@@ -63,6 +67,7 @@ export function WorkerInformationSubsection() {
 			addLabel="Add worker information"
 			onAdd={add}
 			canEdit={canEdit}
+			addDisabled={!canWrite}
 			addButtonRef={addButtonRef}
 		>
 			{properties.length === 0 ? (
@@ -119,6 +124,8 @@ function PropertyRow({
 	returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
 	const canEdit = useCanEdit();
+	const lookupCommitState = useLookupCommitState();
+	const canWrite = builderWriteAdmission({ canEdit, lookupCommitState }).ok;
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const labelId = useId();
@@ -189,7 +196,7 @@ function PropertyRow({
 						inputRef={labelRef}
 						id={labelId}
 						value={property.label}
-						disabled={!canEdit}
+						disabled={!canWrite}
 						validate={(value) =>
 							value === "" ? "Enter a name people can see." : undefined
 						}
@@ -203,7 +210,7 @@ function PropertyRow({
 						id={slugId}
 						ariaDescribedBy={slugDescriptionId}
 						value={property.slug}
-						disabled={!canEdit}
+						disabled={!canWrite}
 						validate={validateSlug}
 						validateAsYouType
 						onCommit={(slug) => write({ slug })}
@@ -228,7 +235,7 @@ function PropertyRow({
 					<Switch
 						id={requiredId}
 						checked={property.required === true}
-						disabled={!canEdit}
+						disabled={!canWrite}
 						onCheckedChange={(checked) =>
 							write({ required: checked ? true : null })
 						}
@@ -242,7 +249,7 @@ function PropertyRow({
 						id={choicesId}
 						ariaDescribedBy={choicesDescriptionId}
 						value={property.choices ?? []}
-						disabled={!canEdit}
+						disabled={!canWrite}
 						onCommit={(choices) =>
 							write({ choices: choices === null ? null : [...choices] })
 						}
@@ -296,6 +303,7 @@ function PropertyRow({
 									<Button
 										type="button"
 										variant="destructive"
+										disabled={!canWrite}
 										onClick={() => {
 											if (!sessionApi.getState().canEdit) return;
 											const outcome = mutations.inline.removeUserProperty(
@@ -331,6 +339,7 @@ function PropertyRow({
 							ref={triggerRef}
 							type="button"
 							variant="ghost-destructive"
+							disabled={!canWrite}
 							onClick={() => {
 								setRemovalError(undefined);
 								setRemovalPlan(

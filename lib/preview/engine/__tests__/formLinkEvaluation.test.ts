@@ -9,22 +9,33 @@
  * create datum, a subcase datum) and every kind of target.
  */
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
-	buildDoc,
+	buildDoc as buildDocProduction,
 	caseListConfig,
 	type DocSpec,
 	type FieldSpec,
 	f,
+	withUserSequences,
 	xp,
 } from "@/lib/__tests__/docHelpers";
-import type { FormLink, LookupColumnId, LookupTableId } from "@/lib/domain";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { parseXPathForForm } from "@/lib/doc/expressionText";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { FormLink } from "@/lib/domain";
+import {
+	lookupColumnIdSchema,
+	lookupRowIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import { proseText } from "@/lib/domain/prose";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
 } from "@/lib/lookup/types";
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { evaluate } from "../../xpath/evaluator";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
@@ -40,10 +51,44 @@ import {
 	formLinkEvalContext,
 	formLinkWorkerInstances,
 	projectTargetCaseSelections,
-	sourceSessionDatums,
+	sourceSessionDatums as sourceSessionDatumsProduction,
 } from "../formLinkEvaluation";
 import type { PreviewSearchSessionValues } from "../identity";
 import { previewLookupData } from "../lookupEvaluation";
+
+const runtimes = new Set<XPathRuntime>();
+function ownedRuntime() {
+	const runtime = new XPathRuntime({
+		workerFactory: createInProcessXPathWorkerFactory(),
+	});
+	runtimes.add(runtime);
+	return runtime;
+}
+afterEach(() => {
+	for (const runtime of runtimes) runtime.dispose();
+	runtimes.clear();
+});
+function buildDoc(input: DocSpec) {
+	const role = testUuid("worker-role");
+	const doc = withUserSequences({
+		...buildDocProduction(input),
+		userProperties: { [role]: { uuid: role, slug: "role", label: "Role" } },
+	});
+	const first = doc.forms[testUuid("frm-register")].formLinks?.[0];
+	if (first)
+		first.condition = parseXPathForForm(
+			doc,
+			testUuid("frm-register"),
+			"#user/role = 'supervisor'",
+		);
+	return assertAdmittedPreviewDoc(doc);
+}
+function sourceSessionDatums(
+	...args: Parameters<typeof sourceSessionDatumsProduction>
+) {
+	assertAdmittedPreviewDoc(args[0]);
+	return sourceSessionDatumsProduction(...args);
+}
 
 const HOUSEHOLDS = testUuid("mod-households");
 const PATIENTS = testUuid("mod-patients");
@@ -185,7 +230,10 @@ function spec(args: { readonly patientsInRepeat?: boolean } = {}): DocSpec {
 							{
 								uuid: "lnk-survey",
 								target: { type: "form", moduleUuid: PATIENTS, formUuid: VISIT },
-								datums: [{ name: "case_id", xpath: "'p-manual'" }],
+								datums: [
+									{ name: "case_id", xpath: "'p-manual'" },
+									{ name: "parent_id", xpath: "'h-manual'" },
+								],
 							},
 						],
 						fields: [
@@ -202,6 +250,7 @@ function inputFor(
 	doc: ReturnType<typeof buildDoc>,
 	overrides: Partial<FormLinkEvaluationInput> = {},
 ): FormLinkEvaluationInput {
+	assertAdmittedPreviewDoc(doc);
 	return {
 		doc,
 		session: SESSION,
@@ -219,7 +268,13 @@ function nestedPatientDoc(): ReturnType<typeof buildDoc> {
 	// case-loading form first so the patient's ordinary `case_id` collides
 	// with the root selection and becomes `case_id_patient`.
 	doc.formOrder[HOUSEHOLDS] = [UPDATE, REGISTER, CLOSE];
-	return doc;
+	const surveyLink = doc.forms[FEEDBACK].formLinks?.[0];
+	if (surveyLink)
+		surveyLink.datums = [
+			{ name: "case_id", xpath: xp("'h-manual'") },
+			{ name: "case_id_patient", xpath: xp("'p-manual'") },
+		];
+	return assertAdmittedPreviewDoc(doc);
 }
 
 function linksOf(doc: ReturnType<typeof buildDoc>, formUuid: string) {
@@ -250,7 +305,7 @@ describe("form-link worker instances", () => {
 					"household",
 					new Map([
 						["case_id", caseId],
-						["village", "south"],
+						["village", "north"],
 					]),
 				],
 			]),
@@ -268,15 +323,13 @@ describe("form-link worker instances", () => {
 						case_name: "Household",
 						external_id: null,
 						parent_case_id: null,
-						properties: { village: "south" },
+						properties: { village: "north" },
 					},
 				],
 				indices: [],
 			},
 		});
-		const runtime = new XPathRuntime({
-			workerFactory: createInProcessXPathWorkerFactory(),
-		});
+		const runtime = ownedRuntime();
 		const world = createFormLinkWorkerWorld(input, "submission-world");
 		const choice = await evaluateFormLinksAsync({
 			links: linksOf(doc, "frm-update"),
@@ -296,24 +349,28 @@ describe("form-link worker instances", () => {
 			},
 		});
 
-		expect(choice).toEqual({ kind: "fallback", destination: "module" });
+		expect(choice).toMatchObject({ kind: "link", link: { uuid: LINK_CLOSE } });
 		runtime.dispose();
 	});
 
 	it("resolves both the suite fixture id and XForm tag for a declared lookup", async () => {
-		const tableId = "018f0000-0000-7000-8000-000000000001" as LookupTableId;
-		const columnId = "018f0000-0000-7000-8000-0000000000c1" as LookupColumnId;
+		const tableId = lookupTableIdSchema.parse(
+			"018f0000-0000-7000-8000-000000000001",
+		);
+		const columnId = lookupColumnIdSchema.parse(
+			"018f0000-0000-7000-8000-0000000000c1",
+		);
 		const definition: LookupTableDefinition = {
 			id: tableId,
 			name: "Clinics",
 			tag: "clinics",
-			definitionRevision: "1" as LookupTableDefinition["definitionRevision"],
+			definitionRevision: parseLookupRevision("1"),
 			columns: [
 				{ id: columnId, wireName: "code", label: "Code", dataType: "text" },
 			],
 		};
 		const row: LookupFixtureRow = {
-			id: "018f0000-0000-7000-8000-0000000000r1" as LookupFixtureRow["id"],
+			id: lookupRowIdSchema.parse("018f0000-0000-7000-8000-0000000000a1"),
 			values: { [columnId]: "north" },
 		};
 		const lookupData = previewLookupData({
@@ -327,9 +384,7 @@ describe("form-link worker instances", () => {
 			lookupData,
 			caseDatabase: { rows: [], indices: [] },
 		});
-		const runtime = new XPathRuntime({
-			workerFactory: createInProcessXPathWorkerFactory(),
-		});
+		const runtime = ownedRuntime();
 		for (const instanceId of [naming.xformInstanceId, naming.fixtureId]) {
 			const source = `instance('${instanceId}')/${naming.listElementName}/${naming.rowElementName}/${naming.columns[0]?.wireName}`;
 			expect(evaluate(source, formLinkEvalContext(input))).toBe("north");
@@ -781,11 +836,17 @@ describe("carriedCaseFor", () => {
 
 describe("projectTargetCaseSelections", () => {
 	it("projects the ancestor selection carried by a nested module target", () => {
-		const doc = nestedPatientDoc();
+		let doc = nestedPatientDoc();
 		/* A module target carries the structural parent's common selection
 		 * prefix. Keep only the two household case-loading entries so that
 		 * `case_id` is common, while the survey remains the link source. */
-		doc.formOrder[HOUSEHOLDS] = [UPDATE, CLOSE];
+		const removed = mutationCommitVerdict(
+			doc,
+			[{ kind: "removeForm", uuid: REGISTER }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!removed.ok) throw new Error(JSON.stringify(removed.findings));
+		doc = removed.nextDoc;
 		const link: FormLink = {
 			uuid: testUuid("nested-module-manual-link"),
 			target: { type: "module", moduleUuid: PATIENTS },

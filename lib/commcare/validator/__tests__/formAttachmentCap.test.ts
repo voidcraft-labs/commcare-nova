@@ -18,8 +18,9 @@
 import { describe, expect, it } from "vitest";
 import type { FieldSpec } from "@/lib/__tests__/docHelpers";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { MAX_FORM_ATTACHMENTS } from "@/lib/commcare/constants";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { blueprintDocSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
 
@@ -30,47 +31,46 @@ function captures(count: number, prefix = "shot"): FieldSpec[] {
 }
 
 function docWithFields(fields: FieldSpec[]) {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Captures",
 		modules: [{ name: "M", forms: [{ name: "F", type: "survey", fields }] }],
 	});
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	return doc;
 }
 
 function attachmentFindings(fields: FieldSpec[]) {
-	return runValidation(
-		docWithFields(fields),
-		LOOKUP_CONTEXT_UNAVAILABLE,
-	).filter((e) => e.code === "FORM_TOO_MANY_ATTACHMENTS");
+	return runValidation(docWithFields(fields), LOOKUP_CONTEXT_UNAVAILABLE);
 }
 
 describe("FORM_TOO_MANY_ATTACHMENTS", () => {
 	it("accepts a form sitting exactly on the cap", () => {
-		expect(attachmentFindings(captures(MAX_FORM_ATTACHMENTS))).toEqual([]);
+		expect(attachmentFindings(captures(50))).toEqual([]);
 	});
 
 	it("rejects one capture past the cap, and names the count", () => {
-		const findings = attachmentFindings(captures(MAX_FORM_ATTACHMENTS + 1));
-		expect(findings).toHaveLength(1);
-		expect(findings[0]?.details?.captureCount).toBe(
-			String(MAX_FORM_ATTACHMENTS + 1),
-		);
-		expect(findings[0]?.message).toContain(String(MAX_FORM_ATTACHMENTS));
+		const findings = attachmentFindings(captures(50 + 1));
+		expect(findings.map((e) => e.code)).toEqual(["FORM_TOO_MANY_ATTACHMENTS"]);
+		expect(findings[0]?.details?.captureCount).toBe(String(50 + 1));
+		expect(findings[0]?.message).toContain(String(50));
 	});
 
 	it("counts every capture kind, not just images", () => {
 		const mixed: FieldSpec[] = [
-			...captures(MAX_FORM_ATTACHMENTS - 3),
+			...captures(50 - 3),
 			f({ kind: "audio", id: "a", label: proseText("Audio") }),
 			f({ kind: "video", id: "v", label: proseText("Video") }),
 			f({ kind: "signature", id: "s", label: proseText("Signature") }),
 			f({ kind: "file", id: "d", label: proseText("Document") }),
 		];
-		expect(attachmentFindings(mixed)).toHaveLength(1);
+		expect(attachmentFindings(mixed).map((e) => e.code)).toEqual([
+			"FORM_TOO_MANY_ATTACHMENTS",
+		]);
 	});
 
 	it("counts captures nested in a plain group", () => {
 		const nested: FieldSpec[] = [
-			...captures(MAX_FORM_ATTACHMENTS),
+			...captures(50),
 			f({
 				kind: "group",
 				id: "extra",
@@ -80,7 +80,9 @@ describe("FORM_TOO_MANY_ATTACHMENTS", () => {
 				],
 			}),
 		];
-		expect(attachmentFindings(nested)).toHaveLength(1);
+		expect(attachmentFindings(nested).map((e) => e.code)).toEqual([
+			"FORM_TOO_MANY_ATTACHMENTS",
+		]);
 	});
 
 	it("does NOT count captures inside a repeat", () => {
@@ -88,7 +90,7 @@ describe("FORM_TOO_MANY_ATTACHMENTS", () => {
 		// runtime quantity, so counting its template once would report a
 		// bound the check cannot actually enforce.
 		const inRepeat: FieldSpec[] = [
-			...captures(MAX_FORM_ATTACHMENTS),
+			...captures(50),
 			f({
 				kind: "repeat",
 				id: "visits",
@@ -104,7 +106,7 @@ describe("FORM_TOO_MANY_ATTACHMENTS", () => {
 
 	it("ignores non-capture fields", () => {
 		const noisy: FieldSpec[] = [
-			...captures(MAX_FORM_ATTACHMENTS),
+			...captures(50),
 			...Array.from({ length: 20 }, (_, i) =>
 				f({ kind: "text", id: `note_${i}`, label: `Note ${i}` }),
 			),

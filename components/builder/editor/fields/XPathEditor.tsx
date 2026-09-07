@@ -115,9 +115,8 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	// `as` cast widens the literal-key patch back to the kind's partial
 	// shape: TS can't prove `validate_msg` belongs on `F` from inside
 	// this generic body.
-	/* Inline flavor: the validate-message editor renders the returned
-	 * outcome itself (EditableText's notice), and the clear arm removes a
-	 * message string: a removal no validator rule can object to. */
+	/* RefLabelInput owns draft retention; this consumer owns the one refusal
+	 * notice for both save and clear, including permission changes. */
 	const {
 		inline: { updateField },
 	} = useBlueprintMutations();
@@ -132,6 +131,7 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 			} else {
 				setValidateMsgRejection(outcome.messages.join(" "));
 			}
+			return outcome;
 		},
 		[updateField, field.uuid, field.kind],
 	);
@@ -144,17 +144,21 @@ export function XPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	//     removal patch unconditionally would stamp an undo-history
 	//     entry for a passive interaction the user never asked for.
 	//   - Add-pill state reset (`setAddingMsg(false)`) fires
-	//     unconditionally. The user backing out of "Add Validation
+	//     after success or an absent-slot no-op. Backing out of "Add Validation
 	//     Message" must always close the editor and bring the pill
 	//     back, regardless of whether the slot had a value to clear.
 	const clearValidateMsg = useCallback(() => {
-		if (validateMsg !== undefined) {
-			const outcome = updateField(field.uuid, field.kind, {
-				validate_msg: null,
-			} as unknown as FieldPatchFor<F["kind"]>);
-			setValidateMsgRejection(outcome.ok ? null : outcome.messages.join(" "));
-		}
-		setAddingMsg(false);
+		const outcome =
+			validateMsg === undefined
+				? undefined
+				: updateField(field.uuid, field.kind, {
+						validate_msg: null,
+					} as unknown as FieldPatchFor<F["kind"]>);
+		setValidateMsgRejection(
+			outcome === undefined || outcome.ok ? null : outcome.messages.join(" "),
+		);
+		if (outcome === undefined || outcome.ok) setAddingMsg(false);
+		return outcome;
 	}, [updateField, field.uuid, field.kind, validateMsg]);
 
 	return (

@@ -1,41 +1,11 @@
-/**
- * Behavioral tests for `updateCaseListColumn`.
- *
- * Coverage:
- *
- *   1. Effect on the doc — the existing column is replaced in place;
- *      the column's uuid is preserved.
- *   2. Surrounding columns + the other slots stay byte-identical.
- *   3. Switching kinds across the call is permitted (the input is a
- *      whole-column body, not a partial patch).
- *   4. Module-not-found surfaces an Elm-style error.
- *   5. Column-uuid not found surfaces an Elm-style error naming the
- *      missing uuid.
- */
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/** Schema-admitted shared tool calls through the real workspace and reducer.
+ * Controlled host receipts prove local state transitions, not SQL commits. */
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { updateCaseListColumnTool } from "../updateCaseListColumn";
 import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
 
 const TARGET_UUID = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const SIBLING_UUID = testUuid("cccccccc-cccc-cccc-cccc-cccccccccccc");
@@ -163,7 +133,7 @@ describe("updateCaseListColumn", () => {
 		).toBeUndefined();
 	});
 
-	it("surfaces the touched uuid in the structured result and the message", async () => {
+	it("surfaces the touched uuid in the structured result", async () => {
 		const h = makeCaseListFixture(fixtureWithColumn());
 		const result = await h.runTool(updateCaseListColumnTool, {
 			moduleUuid: MOD_A,

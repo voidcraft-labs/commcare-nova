@@ -1,56 +1,11 @@
 /**
- * Post-emit `media_suite.xml` ORACLE.
+ * Post-emission checks for Core SuiteParser/ResourceParser and Nova's local
+ * archive resource joins. MediaRuntimeTest exercises the actual native readers,
+ * resource table and installer. This is not a rendered-client or playback gate.
  *
- * Mirrors the contract CommCare's runtime enforces over the media-suite
- * archive descriptor — the file that tells the device which media resources
- * the app bundles and where they install from. Any state Nova's emitter can
- * reach must pass this oracle: a failing media suite here is a generator bug,
- * never an authoring error a user could fix. Same TEST-ORACLE posture as
- * `suiteOracle.ts` — co-developed with a property-based fuzzer that generates
- * media-bearing docs and asserts the oracle returns clean; a failing case is
- * either (A) the oracle being too strict (a shape the runtime would accept)
- * → fix the ORACLE, or (B) an emitter bug → fix the EMITTER, never a new
- * reject rule.
- *
- * ## Two failure categories
- *
- *   - **Category 1 — fatal at parse.** CommCare's runtime parses
- *     `media_suite.xml` through the generic suite machinery — the same
- *     `SuiteParser` + `ResourceParser` that read the main `suite.xml` —
- *     verified at `commcare-core/.../xml/SuiteParser.java::parse` (the
- *     `<media>`-tag branch routes each child through `ResourceParser::parse`).
- *     Two reads there abort the parse: `ResourceParser` reads the
- *     `<resource version>` through the guarded `ElementParser.parseInt`, which
- *     throws `InvalidStructureException` on an absent or non-integer value; and
- *     it reads each `<location authority>` with `.toLowerCase()` and no null
- *     guard, so an absent authority throws. Either aborts the read and the
- *     device rejects the archive.
- *
- *   - **Category 2 — parse-clean, install-fatal.** `BasicInstaller::install`
- *     (`commcare-core/.../resources/model/installers/BasicInstaller.java`)
- *     routes a resource by its location's `authority`: only `local` reads
- *     bundled bytes; every other authority returns `false` and the
- *     resource fails install. Nova bundles every media file locally, so
- *     the oracle treats anything other than `local` as a generator bug.
- *     Three more states parse clean and fail at install: duplicate
- *     `<resource id>` siblings, a location whose `./<wirePath>` isn't among
- *     the bundled zip entries, and an empty `<location>` — `ResourceParser`
- *     reads its text via `parser.nextText()`, which yields `""` without
- *     throwing, so the empty path simply can't resolve to bundled bytes.
- *
- * ## Bundled-file set (Category 2)
- *
- * The caller supplies `bundledPaths` — the set of zip entry paths the
- * compiler actually wrote into the `.ccz`. The Category-2 location-path
- * check resolves each `./<wirePath>` against this set. Without the bundled
- * set, the location-path check skips (the caller has nothing to resolve
- * against); the rest of the contract still runs.
- *
- * ## Empty suite
- *
- * The media-free placeholder `<suite version="1"/>` is the legitimate
- * media-OFF state — no media to bundle, no `<media>` blocks. The oracle
- * accepts it cleanly.
+ * Core accepts an empty media block and ignores its path attribute in
+ * InstallerFactory.getMediaInstaller; neither is a runtime refusal. Nova's
+ * compiler tests independently assert the intended emitted descriptor shape.
  */
 
 import { type Element, isTag } from "domhandler";
@@ -96,7 +51,9 @@ export function validateMediaSuite(
 
 	const { doc } = parsed;
 
-	const suiteEl = findAll((el) => el.name === "suite", doc.children)[0];
+	const suiteEl = doc.children.find(
+		(child): child is Element => isTag(child) && child.name === "suite",
+	);
 	if (suiteEl === undefined) {
 		return [
 			validationError(
@@ -125,7 +82,7 @@ export function validateMediaSuite(
 				loc,
 			),
 		);
-	} else if (!/^-?\d+$/.test(version)) {
+	} else if (!isJavaInteger(version)) {
 		errors.push(
 			validationError(
 				"MEDIA_SUITE_VERSION_NOT_INTEGER",
@@ -139,39 +96,9 @@ export function validateMediaSuite(
 	const seenResourceIds = new Set<string>();
 
 	for (const media of findAll((el) => el.name === "media", suiteEl.children)) {
-		// C1 — `<media path>`. SuiteParser reads `path` off the element and
-		// hands it to the MediaInstaller as the install root. A missing path
-		// produces a `null` install root, which the installer can't resolve.
-		if (getAttributeValue(media, "path") === undefined) {
-			errors.push(
-				validationError(
-					"MEDIA_NO_PATH",
-					"app",
-					`The generated media_suite.xml has a <media> block with no path attribute. CommCare hands this path to the MediaInstaller as the on-device install root; a missing path leaves no install location. This is a bug in the media-suite generator.`,
-					loc,
-				),
-			);
-		}
-
 		const resources = getChildren(media).filter(
 			(c): c is Element => isTag(c) && c.name === "resource",
 		);
-
-		// C1-ish — A `<media>` block with zero `<resource>` children parses
-		// clean (SuiteParser's `nextTagInBlock` loop simply exits), but the
-		// block is useless — it declares an install path with nothing to
-		// install. Flag it so a generator slip that produces empty blocks
-		// surfaces rather than silently shipping a no-op suite entry.
-		if (resources.length === 0) {
-			errors.push(
-				validationError(
-					"MEDIA_NO_RESOURCE",
-					"app",
-					`The generated media_suite.xml has a <media> block with no <resource> children. CommCare parses the block cleanly but installs nothing, so the block declares an install path with no file behind it. This is a bug in the media-suite generator.`,
-					loc,
-				),
-			);
-		}
 
 		for (const resource of resources) {
 			checkResource(resource, seenResourceIds, bundledPaths, loc, errors);
@@ -187,7 +114,7 @@ export function validateMediaSuite(
  * Nova), text content (the resource path), and — when `bundledPaths` is
  * supplied — that path must point at a bundled zip entry. Duplicate `id`
  * siblings within the suite are also flagged (the runtime keys resources
- * by id and silently last-writer-wins).
+ * by id and retains the first definition).
  */
 function checkResource(
 	resource: Element,
@@ -208,14 +135,14 @@ function checkResource(
 		);
 	} else {
 		// C2 — duplicate resource ids. The runtime keys the resource table by
-		// id; a duplicate silently last-writer-wins, leaving the earlier
-		// definition unreachable and the bytes orphaned.
+		// id; ResourceTable.addResource retains the first definition, so a
+		// later duplicate never receives its own installed resource.
 		if (seenResourceIds.has(id)) {
 			errors.push(
 				validationError(
 					"MEDIA_RESOURCE_DUPLICATE_ID",
 					"app",
-					`The generated media_suite.xml declares resource id "${id}" more than once. CommCare keys the resource table by id and keeps only the last, leaving the earlier resource's bytes unreachable. This is a bug in the media-suite generator.`,
+					`The generated media_suite.xml declares resource id "${id}" more than once. CommCare keys the resource table by id and keeps the first definition, leaving later resource definitions unused. This is a bug in the media-suite generator.`,
 					loc,
 				),
 			);
@@ -234,7 +161,7 @@ function checkResource(
 				loc,
 			),
 		);
-	} else if (!/^-?\d+$/.test(version)) {
+	} else if (!isJavaInteger(version)) {
 		errors.push(
 			validationError(
 				"MEDIA_RESOURCE_VERSION_NOT_INTEGER",
@@ -317,7 +244,7 @@ function checkLocation(
 		);
 	}
 
-	const pathText = readElementText(location).trim();
+	const pathText = readElementText(location);
 	if (pathText === "") {
 		errors.push(
 			validationError(
@@ -331,8 +258,8 @@ function checkLocation(
 	}
 
 	// C2 — local-path resolution. Nova emits `./commcare/<hash><ext>`; the
-	// install root is the suite's `<media path="../../commcare">`, so the
-	// effective on-device path is `commcare/<hash><ext>`. The compiler writes
+	// location resolves relative to the archive root. Core ignores the media
+	// path attribute when choosing its installer. The compiler writes
 	// the bytes at that path. A mismatch means the suite points the runtime
 	// at a file that isn't in the archive — the installer's `doesBinaryExist()`
 	// returns false and the resource fails install.
@@ -365,4 +292,13 @@ function readElementText(el: Element): string {
 		if (typeof data === "string") acc += data;
 	}
 	return acc;
+}
+
+/** Integer.parseInt accepts a sign and rejects values outside signed int32. */
+function isJavaInteger(value: string): boolean {
+	return (
+		/^[+-]?\d+$/.test(value) &&
+		Number(value) >= -2147483648 &&
+		Number(value) <= 2147483647
+	);
 }

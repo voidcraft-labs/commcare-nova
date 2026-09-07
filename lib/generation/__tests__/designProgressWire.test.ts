@@ -2,32 +2,17 @@
  * The client-safe progress wire is a RESTATEMENT of `lib/agent/build/progress`
  * (that module's type graph reaches the design-artifact schemas and the
  * design-session row, which must not enter the chat client's bundle graph).
- * A restatement can drift, so this suite is the pin: the type-level assertions
- * below fail to COMPILE the moment either side gains, loses, or retypes a
- * field, and `npm run typecheck` runs over test files.
+ * Runtime tests feed actual server envelopes into client parsers; the
+ * companion .test-d.ts owns compiler-level mutual assignability.
  */
 
 import { describe, expect, it } from "vitest";
-import type {
-	BuildLocalizationProjection as ServerBuildLocalization,
-	BuildPlanSummaryProjection as ServerBuildPlanSummary,
-	DesignBuildStage as ServerDesignBuildStage,
-	DesignOutlineProjection as ServerDesignOutline,
-	DesignPulseProjection as ServerDesignPulse,
-	DesignProgressEnvelope as ServerEnvelope,
-} from "@/lib/agent/build/progress";
+import { progressEnvelope } from "@/lib/agent/build/progress";
 import {
-	type BuildLocalizationProjection,
-	type BuildPlanSummaryProjection,
 	DESIGN_BUILD_STAGES,
 	DESIGN_PULSE_PHASES,
-	type DesignBuildStage,
-	type DesignOutlineProjection,
-	type DesignProgressEnvelope,
-	type DesignPulseProjection,
 	designPulseStage,
 	designStageIsWorking,
-	designStageLabel,
 	parseBuildCompletion,
 	parseBuildLocalization,
 	parseBuildPlanSummary,
@@ -37,48 +22,13 @@ import {
 	parseDesignSessionScope,
 } from "@/lib/generation/designProgressWire";
 
-/** Mutual assignability — an inexact restatement fails to compile. */
-type Exact<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-
-const stagesMatch: Exact<DesignBuildStage, ServerDesignBuildStage> = true;
-const outlineMatches: Exact<DesignOutlineProjection, ServerDesignOutline> =
-	true;
-const planMatches: Exact<BuildPlanSummaryProjection, ServerBuildPlanSummary> =
-	true;
-const localizationMatches: Exact<
-	BuildLocalizationProjection,
-	ServerBuildLocalization
-> = true;
-const envelopeMatches: Exact<
-	DesignProgressEnvelope<string>,
-	ServerEnvelope<string>
-> = true;
-const pulseMatches: Exact<DesignPulseProjection, ServerDesignPulse> = true;
-
 const SESSION = "11111111-1111-4111-8111-111111111111";
 
 function envelope(data: unknown, designSessionId = SESSION) {
-	return {
-		eventVersion: 1,
-		designSessionId,
-		orchestrationEventId: "event-1",
-		orchestrationRevision: 4,
-		data,
-	};
+	return progressEnvelope(designSessionId, null, data);
 }
 
 describe("design progress wire", () => {
-	it("restates the server's shapes exactly", () => {
-		expect([
-			stagesMatch,
-			outlineMatches,
-			planMatches,
-			localizationMatches,
-			envelopeMatches,
-			pulseMatches,
-		]).toEqual([true, true, true, true, true, true]);
-	});
-
 	it("maps every pulse phase onto a working stage", () => {
 		for (const phase of DESIGN_PULSE_PHASES) {
 			const stage = designPulseStage(phase);
@@ -95,11 +45,11 @@ describe("design progress wire", () => {
 			parseDesignPulse(envelope({ phase: "compile", chars: 1 }), SESSION),
 		).toBeNull();
 		expect(
-			parseDesignPulse(envelope({ phase: "author", chars: -1 }), SESSION),
+			parseDesignPulse(envelope({ phase: "design", chars: -1 }), SESSION),
 		).toBeNull();
 		expect(
 			parseDesignPulse(
-				envelope({ phase: "author", chars: 5 }, "other"),
+				envelope({ phase: "design", chars: 5 }, "other"),
 				SESSION,
 			),
 		).toBeNull();
@@ -133,13 +83,6 @@ describe("design progress wire", () => {
 				SESSION,
 			),
 		).toBeNull();
-	});
-
-	it("labels every stage in the union", () => {
-		for (const stage of DESIGN_BUILD_STAGES) {
-			expect(designStageLabel(stage).length).toBeGreaterThan(0);
-		}
-		expect(new Set(DESIGN_BUILD_STAGES).size).toBe(DESIGN_BUILD_STAGES.length);
 	});
 
 	it("treats only the halted stages as not working", () => {

@@ -118,7 +118,7 @@ describe("validateXPath under session scope", () => {
 		},
 	);
 
-	it("leaves form scope exactly as it was", () => {
+	it("accepts the same known references while the form remains open", () => {
 		const valid = new Set(["/data/note"]);
 		expect(validateXPath("#form/note = 'yes'", valid, accept)).toEqual([]);
 		expect(validateXPath("/data/note = 'yes'", valid, accept)).toEqual([]);

@@ -130,8 +130,8 @@ export type ExternalReadSetKind =
 /**
  * Runtime capabilities a tool's execution requires. The policy test keeps
  * every external-WRITE capability off stageable classifications, and the
- * source guards (`lib/agent/__tests__/toolSourceGuards.test.ts`) admit an
- * external-writer import only where a declared capability justifies it.
+ * source guards (`lib/agent/__tests__/toolSourceGuards.test.ts`) restrict
+ * direct external-writer imports to reviewed tool modules.
  */
 export type ToolRuntimeCapability =
 	| "canonical-blueprint-write"
@@ -146,8 +146,8 @@ export type ToolRuntimeCapability =
 
 /**
  * Execution policy for one shared tool — the reviewed classification the
- * policy test (`lib/agent/__tests__/sharedToolRegistryPolicy.test.ts`) pins
- * entry by entry.
+ * policy test (`lib/agent/__tests__/sharedToolRegistryPolicy.test.ts`) checks
+ * for coherent declarations.
  *
  * - `effect` — what the tool changes: nothing (`read-blueprint`), the
  *   Blueprint through the guarded commit (`mutate-blueprint`), external

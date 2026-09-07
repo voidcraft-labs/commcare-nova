@@ -14,11 +14,20 @@
  */
 "use client";
 
+import { useBuilderLookupCatalog } from "@/components/builder/lookup/BuilderLookupCatalogProvider";
+import { Button } from "@/components/shadcn/button";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
+import { useCanEdit } from "@/lib/session/hooks";
 import { PersonasSubsection } from "./PersonasSubsection";
 import { RolesSubsection } from "./RolesSubsection";
 import { WorkerInformationSubsection } from "./WorkerInformationSubsection";
 
 export function UsersSection() {
+	const canEdit = useCanEdit();
+	const lookupCommitState = useLookupCommitState();
+	const admission = builderWriteAdmission({ canEdit, lookupCommitState });
+	const catalog = useBuilderLookupCatalog();
 	return (
 		<section aria-labelledby="app-setup-users-heading" className="pb-10">
 			{/* Named by the breadcrumb and the selected tab already, both within
@@ -33,6 +42,20 @@ export function UsersSection() {
 				and the roles they fill. Add personas to try those choices in Preview.
 				Worker accounts are created when you deploy.
 			</p>
+
+			{canEdit && !admission.ok && (
+				<div
+					role={catalog.kind === "error" ? "alert" : "status"}
+					className="mt-4 space-y-2 text-sm text-nova-text-secondary"
+				>
+					<p>{admission.messages.join(" ")}</p>
+					{catalog.kind === "error" && (
+						<Button variant="outline" onClick={() => void catalog.retry()}>
+							Try again
+						</Button>
+					)}
+				</div>
+			)}
 
 			<div className="mt-8 flex flex-col gap-10">
 				<WorkerInformationSubsection />

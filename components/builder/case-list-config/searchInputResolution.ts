@@ -62,6 +62,7 @@ import {
 	type ValueExpression,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { checkRelationPath } from "@/lib/domain/predicate/typeChecker";
 import { MATCH_MODE_VOCABULARY } from "../shared/matchModeVocabulary";
 import type { EditorSearchInputDecl } from "../shared/searchInputPresentation";
 
@@ -226,7 +227,7 @@ export type PropertyState =
 	| { kind: "ok" }
 	/** Simple arm naming a property the destination case type doesn't
 	 *  declare (renamed or removed since): also matches nothing. */
-	| { kind: "dangling"; destination: string };
+	| { kind: "dangling"; destination: string | undefined };
 
 export interface ResolvedRow {
 	readonly nameState: NameState;
@@ -320,33 +321,26 @@ export function resolveProperty(
 	);
 }
 
-/**
- * Resolve a relation walk's destination case type. Mirrors the
- * predicate editor's destination resolution: `self` stays at the
- * row's anchor, `ancestor` walks one parent step, `subcase` /
- * `any-relation` fall back to the row's anchor (the editor's
- * single-step `RelationPathBuilder` doesn't surface destination
- * qualifiers; the wire layer's per-mode property-type gate is the
- * runtime authority for stricter resolution).
- */
+/** Resolve the complete authored walk through the same catalog rules as admission. */
 export function resolveDestinationCaseType(
 	caseTypes: readonly CaseType[],
 	via: RelationPath | undefined,
 	currentCaseType: string,
-): string {
-	if (via === undefined) return currentCaseType;
-	switch (via.kind) {
-		case "self":
-			return currentCaseType;
-		case "ancestor": {
-			const ct = caseTypes.find((c) => c.name === currentCaseType);
-			return ct?.parent_type ?? currentCaseType;
-		}
-		case "subcase":
-			return currentCaseType;
-		case "any-relation":
-			return currentCaseType;
-	}
+): string | undefined {
+	if (via === undefined || via.kind === "self") return currentCaseType;
+	const errors: Parameters<typeof checkRelationPath>[3] = [];
+	const destination = checkRelationPath(
+		via,
+		currentCaseType,
+		{
+			caseTypes: [...caseTypes],
+			knownInputs: [],
+			currentCaseType,
+		},
+		errors,
+		["search-input", "via"],
+	);
+	return errors.length === 0 ? destination : undefined;
 }
 
 /**

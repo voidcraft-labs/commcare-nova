@@ -1,279 +1,27 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { calculatedColumn, dateColumn, plainColumn } from "@/lib/domain";
+import { f } from "@/lib/__tests__/docHelpers";
+import {
+	calculatedColumn,
+	dateColumn,
+	plainColumn,
+	proseText,
+} from "@/lib/domain";
 import { prop, term } from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
-import { runValidation } from "../../../runner";
+import {
+	admittedCaseListDoc,
+	findings,
+	withColumns,
+} from "./caseListRuleFixture";
 
-describe("columnReferences", () => {
-	it("fires when a column references a property no field saves to", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-						{ field: "ghost_property", header: "Ghost" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
-					e.message.includes("ghost_property"),
-			),
-		).toBe(true);
-	});
-
-	it("still validates an off-screen column that supplies Default order", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							plainColumn(
-								testUuid("col-sort"),
-								"missing_sort_property",
-								"Old sort",
-								{
-									visibleInList: false,
-									visibleInDetail: false,
-									sort: { direction: "asc", priority: 0 },
-								},
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(error) =>
-					error.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
-					error.details?.columnUuid === testUuid("col-sort"),
-			),
-		).toBe(true);
-	});
-
-	it("does not fire when every column resolves to a known property", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-						{ field: "age", header: "Age" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "int",
-									id: "age",
-									label: proseText("Age"),
-									caseWrite: { caseType: "patient", property: "age" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
-			),
-		).toBe(false);
-	});
-
-	it("walks every non-calculated column kind", () => {
-		// Date column with an unresolved field still fires — pins that
-		// the rule iterates the discriminated union arms uniformly,
-		// not just the `plain` arm.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							dateColumn(
-								testUuid("col-date"),
-								"missing_date",
-								"Date",
-								"%Y-%m-%d",
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) =>
-					e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
-					e.message.includes("missing_date"),
-			),
-		).toBe(true);
-	});
-
-	it("skips calculated columns (no `field` slot — checked by calculatedColumnTypeCheck)", () => {
-		// Calculated columns have no `field` slot; their property
-		// references live inside the expression AST. The rule must NOT
-		// emit an unknown-field error against the calc arm — that
-		// would be a structural false positive.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							calculatedColumn(
-								testUuid("col-calc"),
-								"Display name",
-								term(prop("patient", "case_name")),
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
-			),
-		).toBe(false);
-	});
-
-	it("admits declared-only properties (no field writer, no standard)", () => {
-		// `weight` is declared on `ct.properties[]` but NOT written by
-		// any field via `caseWrite`. Pre-fix, the rule consulted
-		// only writer-derived + standard, so a declared-only property
-		// would spuriously fire UNKNOWN_FIELD. The shared resolver's
-		// declared-first arm closes that gap; this test pins the
-		// admission for the declared-only path.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-						{ field: "weight", header: "Weight" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
+const id = testUuid("column");
+describe("column reference admission", () => {
+	it("admits standard, declared-only, writer-derived and calculated references", () => {
+		const base = admittedCaseListDoc({
 			caseTypes: [
 				{
 					name: "patient",
 					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						// Declared but no writer + not in the standard set.
 						{
 							name: "weight",
 							label: proseText("Weight"),
@@ -282,36 +30,57 @@ describe("columnReferences", () => {
 					],
 				},
 			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) =>
-					e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD" &&
-					e.message.includes("weight"),
-			),
-		).toBe(false);
-	});
-
-	it("short-circuits cleanly on modules without a caseType", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Survey-only",
-					forms: [
-						{
-							name: "Survey",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
-						},
-					],
-				},
+			fields: [
+				f({
+					kind: "int",
+					id: "age",
+					label: "Age",
+					caseWrite: { caseType: "patient", property: "age" },
+				}),
 			],
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_COLUMN_UNKNOWN_FIELD",
+		const columns = [
+			plainColumn(testUuid("name"), "case_name", "Name"),
+			plainColumn(testUuid("weight"), "weight", "Weight"),
+			plainColumn(testUuid("age"), "age", "Age"),
+			calculatedColumn(
+				testUuid("calc"),
+				"Display name",
+				term(prop("patient", "case_name")),
 			),
-		).toBe(false);
+		];
+		expect(findings(withColumns(base, columns))).toEqual([]);
+	});
+	it("rejects unresolved fields even when hidden and unsorted or hidden and sorted", () => {
+		const base = admittedCaseListDoc();
+		for (const sort of [
+			undefined,
+			{ direction: "asc" as const, priority: 0 },
+		]) {
+			const column = plainColumn(id, "missing", "Missing", {
+				visibleInList: false,
+				visibleInDetail: false,
+				...(sort ? { sort } : {}),
+			});
+			const result = findings(withColumns(base, [column]));
+			expect(result.map((error) => error.code)).toEqual([
+				"CASE_LIST_COLUMN_UNKNOWN_FIELD",
+			]);
+			expect(result[0].details).toEqual({
+				field: "missing",
+				columnUuid: id,
+				index: "0",
+			});
+		}
+	});
+	it("leaves unknown-date-property rejection to reference resolution alone", () => {
+		const result = findings(
+			withColumns(admittedCaseListDoc(), [
+				dateColumn(id, "missing", "Missing", "%Y-%m-%d"),
+			]),
+		);
+		expect(result.map((error) => error.code)).toEqual([
+			"CASE_LIST_COLUMN_UNKNOWN_FIELD",
+		]);
 	});
 });

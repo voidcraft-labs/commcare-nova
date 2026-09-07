@@ -43,6 +43,7 @@ import {
 import { BlueprintCommitRejectedError } from "./commitGuard";
 import { isTransientDbError } from "./schemaSyncRetry";
 import {
+	findUsercaseRow,
 	syncUsercaseRow,
 	workersNeedingUsercaseSync,
 	workersWithRemovedUsercases,
@@ -353,7 +354,13 @@ async function sweepCommittedUsercaseRows(
 				args.userId,
 				uuid,
 			);
-			await store.close({ appId: args.appId, caseId: uuid });
+			const row = await findUsercaseRow(store, {
+				appId: args.appId,
+				workerId: uuid,
+				doc: priorDoc,
+			});
+			if (row !== undefined)
+				await store.close({ appId: args.appId, caseId: row.case_id });
 		} catch (err) {
 			// A worker who never had a case (removed before any sync ran) is the
 			// ordinary case, not a fault.

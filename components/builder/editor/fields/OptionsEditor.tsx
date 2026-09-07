@@ -25,29 +25,21 @@ import {
 	asUuid,
 	type CommitOutcome,
 	type Field,
-	isMintedSelectOptionPlaceholder,
 	mintSelectOptionPlaceholder,
 	type ProseTemplate,
-	proseTemplateIsEmpty,
-	proseTemplateText,
-	repairSelectOptionValue,
 	type SelectOption,
 	type SelectOptionsSource,
 	sanitizeSelectOptionValue,
-	suggestSelectOptionValue,
 } from "@/lib/domain";
 import type { FieldEditorComponentProps } from "@/lib/domain/kinds";
 import { MEDIA_KINDS, type Media } from "@/lib/domain/multimedia";
-
-/**
- * Draft option with a stable identity for React key management.
- * The `id` is component-local and never persisted: it exists purely
- * so that reordering or editing doesn't cause React to lose input
- * state.
- */
-interface DraftOption extends SelectOption {
-	id: number;
-}
+import {
+	optionsSnapshotKey,
+	removeOptionDraft,
+	replaceOptionLabel,
+	replaceOptionMedia,
+	settleDraft,
+} from "./optionsDraftModel";
 
 export interface OptionsEditorWidgetProps {
 	options: SelectOption[];
@@ -62,68 +54,6 @@ export interface OptionsEditorWidgetProps {
 	autoFocus?: boolean;
 }
 
-/** Counter for generating monotonically increasing draft IDs. */
-let nextDraftId = 0;
-
-/** Wrap raw options with stable draft IDs. */
-function toDraftOptions(options: SelectOption[]): DraftOption[] {
-	return options.map((o) => ({ ...o, id: nextDraftId++ }));
-}
-
-/** Strip the component-local draft id before persisting, preserving
- *  every real option field (value, label, and optional media). A
- *  destructure-and-spread (rather than picking `{value, label}`) is
- *  load-bearing: picking would silently drop `media` on every commit,
- *  erasing an option's attached image/audio/video the moment its label
- *  or value is edited. */
-function toOptions(draft: DraftOption[]): SelectOption[] {
-	return draft.map(({ id: _id, ...option }) => option);
-}
-
-/**
- * Canonical key used to compare two `SelectOption[]` values. The
- * draft-sync gate uses it to detect external changes without
- * regenerating draft ids on every round-trip.
- */
-function serializeOptions(options: SelectOption[]): string {
-	return JSON.stringify(options);
-}
-
-/** A row worth keeping at commit: anything with a label, a value, or
- *  media. A row carrying media is kept even with blank text so attaching
- *  an image and then blanking the text doesn't silently discard the
- *  asset reference along with the row. */
-function rowHasContent(option: SelectOption): boolean {
-	return (
-		!proseTemplateIsEmpty(option.label) ||
-		option.value.trim().length > 0 ||
-		option.media !== undefined
-	);
-}
-
-/**
- * The draft as it will be saved: rows with nothing on them dropped, and a
- * row whose value box was emptied (the sanitizer returns `""` for a lone
- * quote or a cleared box) given the value its label suggests, so a routine
- * clear-and-retype never lands a choice that saves nothing. The minted
- * fallback keeps the row's position, never a sibling's value.
- */
-export function settleDraft<T extends SelectOption>(draft: T[]): T[] {
-	const kept = draft.filter(rowHasContent);
-	const taken = new Set(kept.map((option) => option.value));
-	return kept.map((option, index) => {
-		if (option.value.length > 0) return option;
-		const value = repairSelectOptionValue(
-			"",
-			proseTemplateText(option.label),
-			mintSelectOptionPlaceholder(index + 1).value,
-			taken,
-		);
-		taken.add(value);
-		return { ...option, value };
-	});
-}
-
 /**
  * Low-level widget: renders the label+value inputs, add/remove row
  * affordances, and commits on group blur / Enter keypress.
@@ -134,9 +64,7 @@ export function OptionsEditorWidget({
 	slotKeyBase,
 	autoFocus,
 }: OptionsEditorWidgetProps) {
-	const [draft, setDraft] = useState<DraftOption[]>(() =>
-		toDraftOptions(options),
-	);
+	const [draft, setDraft] = useState<SelectOption[]>(options);
 	const [focusIndex, setFocusIndex] = useState<number | null>(null);
 	const groupLabelId = useId();
 	// The two accessible names below are the only place an option label is
@@ -155,16 +83,16 @@ export function OptionsEditorWidget({
 	// Remember the key of the last *local* commit so we can
 	// distinguish "parent echoed our own write back" from "external
 	// mutation" (undo/redo, tool call, another editor). Only external
-	// mutations should regenerate draft ids + clear the focus index;
+	// mutations should replace the local draft + clear the focus index;
 	// echoes of our own commits would otherwise unmount the
 	// currently-focused input between keystrokes and drop caret/focus.
-	const lastCommittedKeyRef = useRef<string>(serializeOptions(options));
-	const currentKey = serializeOptions(options);
+	const lastCommittedKeyRef = useRef<string>(optionsSnapshotKey(options));
+	const currentKey = optionsSnapshotKey(options);
 	if (currentKey !== lastCommittedKeyRef.current) {
 		// External change: the prop no longer matches what we last
 		// wrote. Resync the draft and drop any pending focus hint.
 		lastCommittedKeyRef.current = currentKey;
-		setDraft(toDraftOptions(options));
+		setDraft(options);
 		setFocusIndex(null);
 	}
 
@@ -176,16 +104,17 @@ export function OptionsEditorWidget({
 	// filled from its label) replace the draft so the boxes show what was
 	// saved.
 	const commit = useCallback(
-		(updated: DraftOption[]) => {
+		(updated: SelectOption[]) => {
 			const settled = settleDraft(updated);
 			if (settled.some((row, index) => row !== updated[index])) {
 				setDraft(settled);
 			}
-			const cleaned = toOptions(settled);
+			const cleaned = settled;
 			const outcome = onSave(cleaned);
 			if (!outcome || outcome.ok) {
-				lastCommittedKeyRef.current = serializeOptions(cleaned);
+				lastCommittedKeyRef.current = optionsSnapshotKey(cleaned);
 			}
+			return outcome;
 		},
 		[onSave],
 	);
@@ -200,9 +129,9 @@ export function OptionsEditorWidget({
 	// sanitizer changes what was typed, React reassigns the input's value
 	// and the browser parks the caret at the end, so the caret is put back
 	// where the typing was: its position in the sanitized prefix.
-	const valueInputRefs = useRef(new Map<number, HTMLInputElement>());
+	const valueInputRefs = useRef(new Map<string, HTMLInputElement>());
 	const [pendingCaret, setPendingCaret] = useState<{
-		draftId: number;
+		draftId: string;
 		caret: number;
 	} | null>(null);
 	useLayoutEffect(() => {
@@ -222,7 +151,7 @@ export function OptionsEditorWidget({
 			if (value !== raw) {
 				const caretInRaw = input.selectionStart ?? raw.length;
 				setPendingCaret({
-					draftId: row.id,
+					draftId: row.uuid,
 					caret: sanitizeSelectOptionValue(raw.slice(0, caretInRaw)).length,
 				});
 			}
@@ -242,35 +171,17 @@ export function OptionsEditorWidget({
 	// first and edits the value after.
 	const saveLabel = useCallback(
 		(index: number, label: ProseTemplate) => {
-			const next = draft.map((option, optionIndex) => {
-				if (optionIndex !== index) return option;
-				if (!isMintedSelectOptionPlaceholder(option)) {
-					return { ...option, label };
-				}
-				const taken = new Set(
-					draft
-						.filter((_, otherIndex) => otherIndex !== index)
-						.map((other) => other.value),
-				);
-				return {
-					...option,
-					label,
-					value: suggestSelectOptionValue(
-						proseTemplateText(label),
-						option.value,
-						taken,
-					),
-				};
-			});
+			const next = replaceOptionLabel(draft, index, label);
 			setDraft(next);
-			commit(next);
+			return commit(next);
 		},
 		[draft, commit],
 	);
 
 	const removeOption = useCallback(
 		(index: number) => {
-			const next = draft.filter((_, i) => i !== index);
+			const next = removeOptionDraft(draft, index);
+			if (next === draft) return;
 			setDraft(next);
 			commit(next);
 		},
@@ -282,11 +193,7 @@ export function OptionsEditorWidget({
 	// so focus never returns to the fieldset to trigger the blur commit.
 	const setOptionMedia = useCallback(
 		(index: number, media: Media | undefined) => {
-			const next = draft.map((o, i) => {
-				if (i !== index) return o;
-				const { media: _was, ...base } = o;
-				return (media ? { ...base, media } : base) as DraftOption;
-			});
+			const next = replaceOptionMedia(draft, index, media);
 			setDraft(next);
 			commit(next);
 		},
@@ -295,10 +202,9 @@ export function OptionsEditorWidget({
 
 	const addOption = useCallback(() => {
 		// Mint the persisted identity once. Array order remains display order.
-		const next: DraftOption[] = [
+		const next: SelectOption[] = [
 			...draft,
 			{
-				id: nextDraftId++,
 				uuid: asUuid(crypto.randomUUID()),
 				...mintSelectOptionPlaceholder(draft.length + 1),
 			},
@@ -317,8 +223,7 @@ export function OptionsEditorWidget({
 	 * even when the user is tabbing between inputs inside the same
 	 * fieldset. `fieldsetRef.current?.contains(...)` is nullable to
 	 * survive the case where the fieldset itself unmounted between
-	 * blur and the rAF callback (e.g. the options array dropped to
-	 * zero rows and a parent hid the section).
+	 * blur and the rAF callback (e.g. the owning editor closed and a parent hid the section).
 	 */
 	const handleBlur = useCallback(() => {
 		requestAnimationFrame(() => {
@@ -358,7 +263,7 @@ export function OptionsEditorWidget({
 			<div className="space-y-1.5">
 				{draft.map((opt, i) => (
 					<div
-						key={opt.id}
+						key={opt.uuid}
 						className="flex flex-wrap items-center gap-1.5 group"
 					>
 						<div className="flex-1 min-w-0 flex gap-1">
@@ -375,8 +280,8 @@ export function OptionsEditorWidget({
 							</fieldset>
 							<input
 								ref={(input) => {
-									if (input) valueInputRefs.current.set(opt.id, input);
-									else valueInputRefs.current.delete(opt.id);
+									if (input) valueInputRefs.current.set(opt.uuid, input);
+									else valueInputRefs.current.delete(opt.uuid);
 								}}
 								value={opt.value}
 								onChange={(e) => updateValue(i, e.currentTarget)}

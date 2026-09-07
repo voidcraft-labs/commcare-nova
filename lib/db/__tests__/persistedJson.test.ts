@@ -303,7 +303,7 @@ describe("persisted JSON source boundaries", () => {
 		for (const relative of [
 			"lib/db/canonicalCommitKernel.ts",
 			"lib/db/mediaDeletion.ts",
-			"scripts/scan-lookup-reference-edges.ts",
+			"scripts/lib/persistedLookupReferenceScan.ts",
 		]) {
 			const source = readFileSync(path.join(root, relative), "utf8");
 			expect(source).toContain("assemblePersistedBlueprintJsonText");
@@ -311,6 +311,12 @@ describe("persisted JSON source boundaries", () => {
 			expect(source).toMatch(/localization.+::text/s);
 			expect(source).toMatch(/data.+::text/s);
 		}
+		const scanCli = readFileSync(
+			path.join(root, "scripts/scan-lookup-reference-edges.ts"),
+			"utf8",
+		);
+		expect(scanCli).toContain('from "./lib/persistedLookupReferenceScan"');
+		expect(scanCli).toContain("await scanPersistedLookupReferences(db)");
 	});
 
 	it("forbids parsed all-column app reads in production and operator code", () => {

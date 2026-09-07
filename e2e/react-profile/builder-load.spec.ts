@@ -2,15 +2,22 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import type { Page } from "@playwright/test";
 import { expect, test } from "../lib/fixtures";
-import { startCpuProfile, stopCpuProfile } from "./cpuProfile";
+import { requireScenarioSeed } from "../lib/scenarioSeeds";
+import {
+	cleanupCpuProfiles,
+	startCpuProfile,
+	stopCpuProfile,
+} from "./cpuProfile";
+
+interface ReactProfileSeed {
+	appId: string;
+	initialRoute: string;
+	targetRoute: string;
+	targetFieldUuid: string;
+}
 
 interface SeedManifest {
-	reactProfile?: {
-		appId: string;
-		initialRoute: string;
-		targetRoute: string;
-		targetFieldUuid: string;
-	};
+	reactProfileScenarios?: Record<string, ReactProfileSeed>;
 }
 
 interface BuilderLoadMarks {
@@ -55,10 +62,7 @@ function fixture() {
 	const seed = JSON.parse(
 		readFileSync(path.join(process.cwd(), "e2e", ".auth", "seed.json"), "utf8"),
 	) as SeedManifest;
-	if (!seed.reactProfile) {
-		throw new Error("The React profile seed is missing from the manifest.");
-	}
-	return seed.reactProfile;
+	return requireScenarioSeed(seed.reactProfileScenarios, test.info());
 }
 
 async function installLoadObserver(page: Page) {
@@ -281,7 +285,8 @@ async function logInteractionMetrics(
 				.map((entry) => ({
 					name: new URL(entry.name).pathname,
 					initiatorType: entry.initiatorType,
-					durationMs: entry.duration,
+					durationMs: entry.duration >= 0 ? entry.duration : null,
+					rawDurationMs: entry.duration,
 					transferBytes: entry.transferSize,
 					decodedBytes: entry.decodedBodySize,
 				}));
@@ -302,7 +307,7 @@ async function logInteractionMetrics(
 			return {
 				metric,
 				wallMs: performance.now() - startedAt,
-				visibleAfterStartMs: Object.fromEntries(
+				domObservedAfterStartMs: Object.fromEntries(
 					(
 						[
 							"form",
@@ -380,7 +385,9 @@ async function logLoadMetrics(
 			const usableAt = Math.max(
 				...usableMarks.map((name) => {
 					const mark = marks[name];
-					return typeof mark === "number" ? mark : 0;
+					if (typeof mark !== "number")
+						throw new Error(`Required DOM mark ${name} was not observed.`);
+					return mark;
 				}),
 			);
 			const blockingBeforeUsable = marks.longTasks.filter(
@@ -401,20 +408,20 @@ async function logLoadMetrics(
 				firstContentfulPaintMs:
 					performance.getEntriesByName("first-contentful-paint")[0]
 						?.startTime ?? null,
-				appTreeVisibleMs: marks.appTree,
-				homeVisibleMs: marks.home,
-				formVisibleMs: marks.form,
-				inspectorHeaderVisibleMs: marks.inspectorHeader,
-				inspectorLoadingVisibleMs: marks.inspectorLoading,
-				inspectorVisibleMs: marks.inspector,
-				fieldIdentityVisibleMs: marks.fieldIdentity,
-				xpathEditorVisibleMs: marks.xpathEditor,
-				chatVisibleMs: marks.chat,
-				builderUsableMs: usableAt,
+				appTreeDomObservedMs: marks.appTree,
+				homeDomObservedMs: marks.home,
+				formDomObservedMs: marks.form,
+				inspectorHeaderDomObservedMs: marks.inspectorHeader,
+				inspectorLoadingDomObservedMs: marks.inspectorLoading,
+				inspectorDomObservedMs: marks.inspector,
+				fieldIdentityDomObservedMs: marks.fieldIdentity,
+				xpathEditorDomObservedMs: marks.xpathEditor,
+				chatDomObservedMs: marks.chat,
+				builderDomObservedMs: usableAt,
 				previewEngineReadyMs: marks.engine,
 				renderedTreeFieldCount:
 					document.querySelectorAll("[data-tree-field]").length,
-				clientAfterResponseMs: usableAt - navigation.responseEnd,
+				domAfterResponseMs: usableAt - navigation.responseEnd,
 				longTaskCountBeforeUsable: blockingBeforeUsable.length,
 				longTaskMsBeforeUsable: blockingBeforeUsable.reduce(
 					(total, task) => total + task.duration,
@@ -472,8 +479,8 @@ async function logLoadMetrics(
  * Production-load characterization. Run against an already-built standalone
  * server with this file selected explicitly; it needs no React DevTools
  * connection. The observer starts before application JavaScript and separates
- * server/document delivery from the client work required to show a usable
- * Builder and finish its background Preview initialization.
+ * server/document delivery from observed DOM construction and background
+ * Preview initialization. These are diagnostic measurements, not latency gates.
  */
 test("measures a production-shaped Builder home load", async ({ page }) => {
 	const seed = fixture();
@@ -589,6 +596,10 @@ test("measures a production-shaped ordinary field edit", async ({ page }) => {
 	await expect(inspector).toBeVisible({ timeout: 30_000 });
 	const input = inspector.locator('[data-field-id="id"] input');
 	await expect(input).toBeVisible({ timeout: 30_000 });
+	await expectAnimationsSettled(page);
+	await expect(
+		page.locator('[data-builder-resource="lookup-catalog"]'),
+	).toHaveAttribute("data-state", "ready");
 	const currentId = await input.inputValue();
 	const nextId = currentId.endsWith("_fast")
 		? "profile_target_hidden_quick"
@@ -600,7 +611,7 @@ test("measures a production-shaped ordinary field edit", async ({ page }) => {
 		process.env.NOVA_PROFILE_INTERACTION_CPU === "1"
 			? await startCpuProfile(page)
 			: null;
-	await page.keyboard.press("Tab");
+	await input.press("Tab");
 	await expect(
 		page.getByRole("button", {
 			name: nextId,
@@ -620,7 +631,7 @@ test("measures a production-shaped ordinary field edit", async ({ page }) => {
 		: "profile_target_hidden_fast";
 	await input.fill(steadyId);
 	const steadyStartedAt = await beginInteractionWindow(page);
-	await page.keyboard.press("Tab");
+	await input.press("Tab");
 	await expect(
 		page.getByRole("button", {
 			name: steadyId,
@@ -628,6 +639,7 @@ test("measures a production-shaped ordinary field edit", async ({ page }) => {
 		}),
 	).toBeVisible();
 	await logInteractionMetrics(page, "field-id-steady-commit", steadyStartedAt);
+	await expect(page.getByText(/^Saved /)).toBeVisible();
 });
 
 test("measures production-shaped Builder and Preview interactions", async ({
@@ -699,4 +711,9 @@ test("measures production-shaped Builder and Preview interactions", async ({
 		startedAt,
 		selectionCpuTopSelfTime,
 	);
+	await expect(page.getByText(/^Saved /)).toBeVisible();
+});
+
+test.afterEach(async () => {
+	await cleanupCpuProfiles();
 });

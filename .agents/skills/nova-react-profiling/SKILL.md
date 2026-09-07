@@ -18,6 +18,11 @@ npm run profile:react
 
 No user action, OAuth, production data, GCP credential, or model call is needed.
 Raw and parsed artifacts land in the gitignored `react-profiles/` directory.
+With no arguments the harness runs only `builder-smoke.spec.ts`. Explicit
+Playwright arguments select other scenarios. Each scenario exports a distinct
+file using its test identity; `NOVA_REACT_PROFILE_OUTPUT`, when set, supplies
+the filename prefix. The harness analyzes every export and retains a run log.
+Load-only diagnostic scenarios need no React commit export.
 
 ## Safety and integration invariants
 

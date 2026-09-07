@@ -1,72 +1,22 @@
-/**
- * Wire-body pin for the SA's OpenAI Responses request — built through the
- * REAL production pieces (static prompt, app-state message, stable-prefix
- * breakpoint, reasoning provider options with the per-app cache pair,
- * strict:false tools) against a capturing fetch that never sends.
- *
- * This is the drift guard for the whole cache + statelessness configuration:
- * every assertion here is a field the provider must emit for caching or
- * privacy to work. Cheaper and stricter than a live probe: the request body
- * is asserted byte-level, offline, on every run.
- */
+/** The actual Solutions Architect factory, prompt composition, provider and SDK
+ * send to a native loopback Responses peer. This proves outbound settings and
+ * stable input prefixes; it makes no claim about a live provider cache hit. */
+import type { ModelMessage } from "ai";
+import { describe, expect, it, vi } from "vitest";
+import { MODEL_ROLES } from "@/lib/models";
+import { buildAppStateMessage, markStablePrefixBoundary } from "../prompts";
+import { createSolutionsArchitect } from "../solutionsArchitect";
+import { expectAdmittedDoc, surveyFixture } from "./admittedFixture";
+import { makeTestContext } from "./fixtures";
+import { withResponsesPeer } from "./responsesPeer";
 
-import { createOpenAI } from "@ai-sdk/openai";
-import { generateText, type ModelMessage, tool } from "ai";
-import { describe, expect, it } from "vitest";
-import { z } from "zod";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import type { BlueprintDoc } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
+// This suite does no tool work. A step still refreshes its run lease, whose
+// persistence is covered separately; retain every model/request owner.
+vi.mock("@/lib/db/apps", () => ({
+	refreshBuildLiveness: vi.fn().mockResolvedValue(undefined),
+	refreshEditLease: vi.fn().mockResolvedValue(undefined),
+}));
 
-import { MODEL_ROLES, reasoningProviderOptions } from "@/lib/models";
-import {
-	buildAppStateMessage,
-	buildSolutionsArchitectPrompt,
-	markStablePrefixBoundary,
-} from "../prompts";
-
-function fixtureDoc(): BlueprintDoc {
-	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
-	return {
-		appId: "a-probe",
-		appName: "Probe App",
-		connectType: null,
-		caseTypes: null,
-		modules: {
-			[modUuid]: {
-				uuid: modUuid,
-				id: "patients",
-				name: "Patients",
-				caseType: "patient",
-			},
-		},
-		forms: {
-			[formUuid]: {
-				uuid: formUuid,
-				id: "register",
-				name: "Register",
-				type: "registration",
-			},
-		},
-		fields: {
-			[fieldUuid]: {
-				uuid: fieldUuid,
-				id: "name",
-				kind: "text",
-				label: proseText("Name"),
-			},
-		},
-		moduleOrder: [modUuid],
-		formOrder: { [modUuid]: [formUuid] },
-		fieldOrder: { [formUuid]: [fieldUuid] },
-		fieldParent: {},
-	};
-}
-
-/** The captured Responses API request body, typed loosely on purpose — the
- *  assertions pin the exact wire fields, not a TS mirror of them. */
 interface CapturedBody {
 	model?: string;
 	store?: boolean;
@@ -84,105 +34,130 @@ interface CapturedBody {
 					prompt_cache_breakpoint?: { mode?: string };
 			  }>;
 	}>;
-	tools?: Array<{ name?: string; strict?: boolean }>;
+	tools?: Array<{ name?: string; strict?: boolean; parameters?: unknown }>;
 }
 
-async function captureEditTurnBody(): Promise<CapturedBody> {
-	let captured: CapturedBody | null = null;
-	const capture: typeof fetch = async (_url, init) => {
-		captured = JSON.parse(init?.body as string) as CapturedBody;
-		return new Response(JSON.stringify({ error: { message: "intercepted" } }), {
-			status: 500,
-		});
-	};
-	const openai = createOpenAI({ apiKey: "sk-fake-never-sent", fetch: capture });
-
-	const doc = fixtureDoc();
-	const history: ModelMessage[] = [
-		{ role: "user", content: [{ type: "text", text: "add a phone field" }] },
-		{ role: "assistant", content: [{ type: "text", text: "Done — added." }] },
-		{ role: "user", content: [{ type: "text", text: "rename the module" }] },
-	];
-	const appState = buildAppStateMessage(doc);
-	if (!appState)
-		throw new Error("populated doc must yield an app-state message");
-
-	await generateText({
-		model: openai(MODEL_ROLES.followUpEditor.modelId),
-		system: buildSolutionsArchitectPrompt(),
-		messages: [...markStablePrefixBoundary(history), appState],
-		maxRetries: 0,
-		tools: {
-			updateModule: tool({
-				description: "Update a module",
-				inputSchema: z.object({ id: z.string(), name: z.string().optional() }),
-				strict: false,
-				execute: async () => "ok",
-			}),
-		},
-		providerOptions: reasoningProviderOptions(
-			MODEL_ROLES.followUpEditor.reasoningEffort,
-			{
-				promptCacheKey: "nova:app:a-probe",
-			},
-		),
-	}).catch(() => {
-		// expected — the capturing fetch answers 500 after recording the body
-	});
-
-	if (!captured) throw new Error("no request captured");
-	return captured;
-}
-
-describe("SA edit-turn Responses wire body", () => {
-	it("carries the full cache + statelessness configuration", async () => {
-		const body = await captureEditTurnBody();
-
-		expect(body.model).toBe(MODEL_ROLES.followUpEditor.modelId);
-		// Stateless: nothing retained server-side, reasoning comes back as
-		// self-contained encrypted items the thread can replay.
-		expect(body.store).toBe(false);
-		expect(body.include).toContain("reasoning.encrypted_content");
-		expect(body.reasoning?.effort).toBe(
-			MODEL_ROLES.followUpEditor.reasoningEffort,
-		);
-		expect(body.reasoning?.summary).toBeTruthy();
-		// The documented GPT-5.6 cache triple, as ONE unit.
-		expect(body.prompt_cache_key).toBe("nova:app:a-probe");
-		expect(body.prompt_cache_options).toEqual({ mode: "implicit", ttl: "30m" });
-		// Non-strict tools: optionals stay omittable.
-		expect(body.tools?.find((t) => t.name === "updateModule")?.strict).toBe(
-			false,
-		);
-	});
-
-	it("emits one request-local boundary before the volatile state tail", async () => {
-		const body = await captureEditTurnBody();
-		const input = body.input ?? [];
-
-		const breakpoints = input.flatMap((item, i) =>
-			(Array.isArray(item.content) ? item.content : []).flatMap((part) =>
-				part.prompt_cache_breakpoint
-					? [
+async function captureEditTurns(): Promise<CapturedBody[]> {
+	const bodies: CapturedBody[] = [];
+	await withResponsesPeer(
+		(request, response) => {
+			let body = "";
+			request.setEncoding("utf8");
+			request.on("data", (chunk) => {
+				body += chunk;
+			});
+			request.on("end", () => {
+				bodies.push(JSON.parse(body));
+				response.writeHead(200, { "content-type": "application/json" });
+				response.end(
+					JSON.stringify({
+						id: "resp_local",
+						created_at: 1,
+						model: MODEL_ROLES.followUpEditor.modelId,
+						output: [
 							{
-								index: i,
-								role: item.role,
-								mode: part.prompt_cache_breakpoint.mode,
+								type: "message",
+								role: "assistant",
+								id: "msg_local",
+								content: [
+									{
+										type: "output_text",
+										text: "Ready for your next edit.",
+										annotations: [],
+									},
+								],
 							},
-						]
-					: [],
-			),
-		);
-		expect(breakpoints).toEqual([
-			{ index: input.length - 2, role: "user", mode: "explicit" },
-		]);
+						],
+						usage: { input_tokens: 11, output_tokens: 7 },
+					}),
+				);
+			});
+		},
+		async (_provider, transport) => {
+			const history: ModelMessage[] = [
+				{ role: "user", content: "Review this app" },
+				{ role: "assistant", content: "I have the current app." },
+				{ role: "user", content: "What is here?" },
+			];
+			const original = structuredClone(history);
+			for (const appName of ["Clinic North", "Clinic South"]) {
+				const doc = expectAdmittedDoc({
+					...surveyFixture(),
+					appId: "a-probe",
+					appName,
+				});
+				const appState = buildAppStateMessage(doc);
+				if (!appState) throw new Error("Admitted app has no state message");
+				const { ctx, usage } = makeTestContext({ appId: "a-probe", transport });
+				try {
+					const agent = createSolutionsArchitect(ctx, doc);
+					const result = await agent.generate({
+						messages: [...markStablePrefixBoundary(history), appState],
+					});
+					expect(result.text).toBe("Ready for your next edit.");
+					expect(usage.snapshot()).toMatchObject({
+						inputTokens: 11,
+						outputTokens: 7,
+						stepCount: 1,
+					});
+				} finally {
+					await ctx.stopRunLeaseHeartbeat();
+				}
+			}
+			expect(history).toEqual(original);
+		},
+	);
+	return bodies;
+}
 
-		// The app-state summary is the very last input item.
-		const last = input[input.length - 1];
-		expect(last?.role).toBe("user");
-		const lastText = Array.isArray(last?.content)
-			? last.content.map((p) => p.text ?? "").join("")
-			: (last?.content ?? "");
-		expect(lastText).toContain("Current app state");
+describe("actual SA edit-turn Responses wire", () => {
+	it("sends stateless cache settings and real optional tool schemas with a stable prefix", async () => {
+		const bodies = await captureEditTurns();
+		expect(bodies).toHaveLength(2);
+		for (const body of bodies) {
+			expect(body.model).toBe(MODEL_ROLES.followUpEditor.modelId);
+			expect(body.store).toBe(false);
+			expect(body.include).toContain("reasoning.encrypted_content");
+			expect(body.reasoning).toMatchObject({
+				effort: MODEL_ROLES.followUpEditor.reasoningEffort,
+				summary: "auto",
+			});
+			expect(body.prompt_cache_key).toBe("nova:app:a-probe");
+			expect(body.prompt_cache_options).toEqual({
+				mode: "implicit",
+				ttl: "30m",
+			});
+			expect(
+				body.tools?.find((tool) => tool.name === "updateModule"),
+			).toMatchObject({
+				strict: false,
+				parameters: {
+					required: ["moduleUuid"],
+					properties: { moduleUuid: { type: "string" }, name: {} },
+				},
+			});
+			const input = body.input ?? [];
+			const breakpoints = input.flatMap((item, index) =>
+				(Array.isArray(item.content) ? item.content : []).flatMap((part) =>
+					part.prompt_cache_breakpoint
+						? [
+								{
+									index,
+									role: item.role,
+									mode: part.prompt_cache_breakpoint.mode,
+								},
+							]
+						: [],
+				),
+			);
+			expect(breakpoints).toEqual([
+				{ index: input.length - 2, role: "user", mode: "explicit" },
+			]);
+		}
+		expect(bodies[0].input?.slice(0, -1)).toEqual(
+			bodies[1].input?.slice(0, -1),
+		);
+		expect(JSON.stringify(bodies[0].input?.at(-1))).toContain("Clinic North");
+		expect(JSON.stringify(bodies[1].input?.at(-1))).toContain("Clinic South");
 	});
 });

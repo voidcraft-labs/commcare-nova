@@ -139,22 +139,3 @@ export function appendKind(path: EditorPath, kind: string): EditorPath {
 export function serializePath(path: EditorPath): string {
 	return path.map(String).join("\0");
 }
-
-/**
- * Reverse of `serializePath`: used in tests / debugging only. The
- * runtime editor never deserializes; it routes through map lookups
- * by serialized key.
- */
-export function deserializePath(serialized: string): EditorPath {
-	if (serialized === "") return ROOT_PATH;
-	return serialized.split("\0").map((segment) => {
-		const asNumber = Number(segment);
-		// Numeric segments are array indices; everything else is a
-		// slot name or operator kind. The structural check
-		// distinguishes the two without committing to a per-slot
-		// schema.
-		return Number.isInteger(asNumber) && String(asNumber) === segment
-			? asNumber
-			: segment;
-	});
-}

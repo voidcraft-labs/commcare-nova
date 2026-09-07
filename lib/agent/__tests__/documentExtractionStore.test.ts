@@ -7,9 +7,10 @@
 //     tested as in/out, no I/O, no timers.
 //   - `ensureStoredExtract` is the orchestration: GCS-first fast path, then the
 //     status-driven branch (reuse / report-in-flight / claim+extract). Driven
-//     against mocked storage/db + a mocked extraction core so no GCS, Postgres,
-//     or model call happens. This is where the single-flight LIFECYCLE coverage
-//     lives (it used to sit on the route, before the two paths were unified).
+//     against controlled storage/db receipts and a structured-condenser reply so no GCS, Postgres,
+//     or model call happens. These tests exercise orchestration after controlled
+//     persistence receipts. The sibling .postgres suite owns actual concurrent
+//     claims, content-lock publication and deletion fencing.
 //
 // Poll delay is mocked at the boundary, so winner-order wait regressions exercise
 // the real status loop without leaving a timer for the async-leak gate.
@@ -26,7 +27,7 @@ import {
 	claimExtractionIfIdle,
 	publishClaimedAssetExtract,
 } from "@/lib/db/mediaAssets";
-import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import { asMediaAssetId, EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
 import { MODEL_ROLES } from "@/lib/models";
 import { deleteAsset, writeTextObject } from "@/lib/storage/media";
 import { withMediaObjectKeyLock } from "@/lib/storage/mediaObjectKeyLock";
@@ -39,7 +40,7 @@ const {
 	installCopiedReadyExtractMock,
 	claimExtractionIfIdleMock,
 	delayMock,
-	extractDocumentMock,
+	structuredResultMock,
 	deleteAssetMock,
 	downloadAssetBytesMock,
 	readTextObjectMock,
@@ -53,7 +54,7 @@ const {
 	installCopiedReadyExtractMock: vi.fn(),
 	claimExtractionIfIdleMock: vi.fn(),
 	delayMock: vi.fn(),
-	extractDocumentMock: vi.fn(),
+	structuredResultMock: vi.fn(),
 	deleteAssetMock: vi.fn(),
 	downloadAssetBytesMock: vi.fn(),
 	readTextObjectMock: vi.fn(),
@@ -84,18 +85,10 @@ vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
 vi.mock("@/lib/utils/delay", () => ({
 	delay: delayMock,
 }));
-// Mock the extraction core wholesale: keeps the real module (mammoth + the
-// Google provider) from loading, and lets us assert claim-vs-reuse without a
-// model call. The store calls only `extractDocument` from this module.
-vi.mock("@/lib/agent/documentExtraction", () => ({
-	extractDocument: extractDocumentMock,
-	EXTRACT_MAX_BYTES: 4 * 1024 * 1024,
-}));
-
 /** Build a ready document asset record, overridable per test. */
 function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
-		id: "asset-1",
+		id: asMediaAssetId("6cde961d-f140-4d10-b8d2-803af61d30a5"),
 		owner: "user-1",
 		project_id: "project-1",
 		contentHash: "a".repeat(64),
@@ -106,10 +99,9 @@ function docAsset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 		gcsObjectKey: "projects/project-1/aaaa.pdf",
 		originalFilename: "form.pdf",
 		status: "ready",
-		// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant to these tests
-		created_at: {} as any,
+		created_at: new Date(0),
 		...over,
-	} as MediaAssetRecord;
+	};
 }
 
 /** An `extract` subobject at a given status/age, shaped like the stored
@@ -134,8 +126,14 @@ function extractRecord(
 	};
 }
 
-/** extractDocument is mocked, so the condenser is never actually invoked. */
-const stubCondenser = {} as AttachmentCondenser;
+/** Keep dispatch, schema validation and normalization real; only the model reply
+ * is controlled in this orchestration suite. */
+const stubCondenser: AttachmentCondenser = {
+	async extractDocumentStructured(opts) {
+		const value = await structuredResultMock(opts);
+		return { object: opts.schema.parse(value), truncated: value.truncated };
+	},
+};
 
 beforeEach(() => {
 	vi.clearAllMocks();
@@ -171,8 +169,10 @@ beforeEach(() => {
 	delayMock.mockResolvedValue(undefined);
 	downloadAssetBytesMock.mockResolvedValue(Buffer.from("bytes"));
 	writeTextObjectMock.mockResolvedValue(undefined);
-	extractDocumentMock.mockResolvedValue({
+	structuredResultMock.mockResolvedValue({
 		extract: "FRESH EXTRACT",
+		title: "Document requirements",
+		summary: "Collect data.",
 		truncated: false,
 	});
 });
@@ -240,6 +240,22 @@ describe("decideExtractAction (single-flight policy)", () => {
 });
 
 describe("ensureStoredExtract (orchestration)", () => {
+	it("preserves literal escape sequences in stored text", async () => {
+		const text = String.raw`## Paths: C:\new\files and regex \n\d+`;
+		readTextObjectMock.mockResolvedValue(text);
+		const result = await ensureStoredExtract({
+			asset: docAsset({ extract: extractRecord("ready") }),
+			documentKind: "pdf",
+			condenser: stubCondenser,
+			onInflight: "wait",
+		});
+		expect(result).toMatchObject({
+			status: "ready",
+			text,
+			charCount: text.length,
+		});
+	});
+
 	it("reuses the stored GCS extract without a status read or a model call", async () => {
 		readTextObjectMock.mockResolvedValue("STORED");
 		const result = await ensureStoredExtract({
@@ -256,7 +272,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 			charCount: 6,
 		});
 		expect(loadAssetByIdMock).not.toHaveBeenCalled();
-		expect(extractDocumentMock).not.toHaveBeenCalled();
+		expect(structuredResultMock).not.toHaveBeenCalled();
 		expect(writeTextObject).not.toHaveBeenCalled();
 	});
 
@@ -280,7 +296,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 			truncated: false,
 			charCount: "FRESH EXTRACT".length,
 		});
-		expect(extractDocumentMock).toHaveBeenCalledOnce();
+		expect(structuredResultMock).toHaveBeenCalledOnce();
 		expect(writeTextObject).toHaveBeenCalledOnce();
 	});
 
@@ -313,11 +329,14 @@ describe("ensureStoredExtract (orchestration)", () => {
 			charCount: "SIBLING EXTRACT".length,
 		});
 		expect(installCopiedReadyExtractMock).toHaveBeenCalledWith(
-			{ assetId: "asset-1", extract: siblingExtract },
+			{
+				assetId: "6cde961d-f140-4d10-b8d2-803af61d30a5",
+				extract: siblingExtract,
+			},
 			expect.anything(),
 		);
 		expect(claimExtractionIfIdle).not.toHaveBeenCalled();
-		expect(extractDocumentMock).not.toHaveBeenCalled();
+		expect(structuredResultMock).not.toHaveBeenCalled();
 		expect(writeTextObject).not.toHaveBeenCalled();
 	});
 
@@ -355,7 +374,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 			truncated: true,
 			charCount: "WINNER EXTRACT".length,
 		});
-		expect(extractDocumentMock).toHaveBeenCalledOnce();
+		expect(structuredResultMock).toHaveBeenCalledOnce();
 		expect(publishClaimedAssetExtract).toHaveBeenCalledWith(
 			expect.objectContaining({ sharedReadyExtract: siblingExtract }),
 			expect.anything(),
@@ -363,7 +382,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 		expect(writeTextObject).not.toHaveBeenCalled();
 	});
 
-	it("atomically claims, then persists ready when no extract exists", async () => {
+	it("passes its successful claim receipt into ready publication", async () => {
 		readTextObjectMock.mockResolvedValue(null); // GCS miss
 		loadAssetByIdMock.mockResolvedValue(docAsset()); // no extract record
 
@@ -384,18 +403,18 @@ describe("ensureStoredExtract (orchestration)", () => {
 		// The `extracting` write is the atomic claim's job now — assert the store
 		// took the lock through it rather than via a plain status write.
 		expect(claimExtractionIfIdle).toHaveBeenCalledWith(
-			"asset-1",
+			"6cde961d-f140-4d10-b8d2-803af61d30a5",
 			expect.objectContaining({
 				currentVersion: EXTRACTOR_VERSION,
 				staleMs: EXTRACTING_STALE_MS,
 			}),
 		);
-		// Terminal publication proves the exact claim under a row lock before it
-		// writes the object and matching metadata.
+		// The store forwards its exact receipt to the publication boundary; the
+		// Postgres suite proves the boundary enforces that receipt under locks.
 		expect(publishClaimedAssetExtract).toHaveBeenCalledTimes(1);
 		expect(publishClaimedAssetExtract).toHaveBeenCalledWith(
 			expect.objectContaining({
-				assetId: "asset-1",
+				assetId: "6cde961d-f140-4d10-b8d2-803af61d30a5",
 				claim: expect.objectContaining({ extractedAt: 123 }),
 				extract: expect.objectContaining({ status: "ready", charCount: 13 }),
 				publishReadyObject: expect.any(Function),
@@ -429,7 +448,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 		});
 
 		expect(result).toEqual({ status: "extracting" });
-		expect(extractDocumentMock).not.toHaveBeenCalled();
+		expect(structuredResultMock).not.toHaveBeenCalled();
 		expect(publishClaimedAssetExtract).not.toHaveBeenCalled();
 		expect(writeTextObject).not.toHaveBeenCalled();
 	});
@@ -465,7 +484,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 			truncated: false,
 			charCount: "NEWER EXTRACT".length,
 		});
-		expect(extractDocumentMock).not.toHaveBeenCalled();
+		expect(structuredResultMock).not.toHaveBeenCalled();
 		expect(publishClaimedAssetExtract).not.toHaveBeenCalled();
 		expect(writeTextObject).not.toHaveBeenCalled();
 	});
@@ -533,7 +552,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 			onInflight: "report",
 		});
 		expect(result).toEqual({ status: "extracting" });
-		expect(extractDocumentMock).not.toHaveBeenCalled();
+		expect(structuredResultMock).not.toHaveBeenCalled();
 		expect(publishClaimedAssetExtract).not.toHaveBeenCalled();
 	});
 
@@ -549,7 +568,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 			onInflight: "report",
 		});
 		expect(result.status).toBe("ready");
-		expect(extractDocumentMock).toHaveBeenCalledOnce();
+		expect(structuredResultMock).toHaveBeenCalledOnce();
 	});
 
 	it("re-extracts when status is ready but the GCS object is gone", async () => {
@@ -564,13 +583,13 @@ describe("ensureStoredExtract (orchestration)", () => {
 			onInflight: "wait",
 		});
 		expect(result.status).toBe("ready");
-		expect(extractDocumentMock).toHaveBeenCalledOnce();
+		expect(structuredResultMock).toHaveBeenCalledOnce();
 	});
 
 	it("returns failed (recording the reason) when extraction throws", async () => {
 		readTextObjectMock.mockResolvedValue(null);
 		loadAssetByIdMock.mockResolvedValue(docAsset());
-		extractDocumentMock.mockRejectedValue(new Error("model exploded"));
+		structuredResultMock.mockRejectedValue(new Error("model exploded"));
 
 		const result = await ensureStoredExtract({
 			asset: docAsset(),
@@ -582,7 +601,7 @@ describe("ensureStoredExtract (orchestration)", () => {
 		expect(result).toEqual({ status: "failed", reason: "model exploded" });
 		expect(publishClaimedAssetExtract).toHaveBeenLastCalledWith(
 			expect.objectContaining({
-				assetId: "asset-1",
+				assetId: "6cde961d-f140-4d10-b8d2-803af61d30a5",
 				extract: expect.objectContaining({
 					status: "failed",
 					failureReason: "model exploded",

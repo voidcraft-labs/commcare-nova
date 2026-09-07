@@ -1,0 +1,12 @@
+{
+	"finding": "Previously admitted lookup tag selected_cases silently replaced by selected-entities instance in native Core FormDef map",
+	"limits": "Historical forensic fixture captured before reservation change; actual Nova expandDoc artifact, actual HQ stripping and Core parser. No selected session initialization or user submission claim.",
+	"files": {
+		"/tmp/nova-lookup-evidence/collision.xml": "48914dd655c2b61f3056b3bec5aa6f7a69e6ff6e0314917260d8c3036d5b7a16",
+		"/tmp/nova-lookup-evidence/collision.native.xml": "6fb12694680250ba89278776efdc975aa50b89b838e8a1e6e189a5b526cdd5bb",
+		"/tmp/nova-test-audit-parallel/commcare/collision-probe.ts": "2fb89065f3a772708ebe3f0e0d4d5012f71f6501b2c908d649028d86028b509e",
+		"/tmp/nova-test-audit-parallel/commcare/collision-strip.py": "a3eb45e0567aaf18739beef35fc821e61dc9ecc7660e6dfe966f859c9b0b27ae",
+		"/tmp/nova-lookup-collision-proof/LookupCollisionRuntimeTest.java": "4df9c18df1bb1844f3efd11a21462d7abc95fb1abc8107c79f4857bdb0d23332",
+		"/tmp/nova-core-capture-audit/build/reports/tests/TEST-nova.compatibility.LookupCollisionRuntimeTest.xml": "883210d499ab9c0d707c5215dc801d804e614cf94a7919d3f9bf2ae43a7457ab"
+	}
+}

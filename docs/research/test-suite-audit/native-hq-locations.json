@@ -1,0 +1,40 @@
+{
+	"hqCommit": "f391f622123f52c8943098d1228986f6999cddb8",
+	"sourceSha256": "83136f1feaafea9ccfc62d315501103ff59e1da22fd88c4dbc2c199e3f61f59b",
+	"records": [
+		{
+			"fixture": "complete",
+			"sha256": "9b65b91ea77f52f7b0035ccfefac9d2c4257d8ebc929baafdae5268ee1c43282"
+		},
+		{
+			"fixture": "empty",
+			"sha256": "b784683eb865b028f4af1620fbc33424ebc089d7adc062fba4aaeadf275ed1d5"
+		},
+		{
+			"fixture": "missing",
+			"sha256": "31488e26d6a77624e07a6d8d2b7f3c39640ddcfcd2f92f9e22b457aeba512487"
+		},
+		{
+			"fixture": "skipped",
+			"sha256": "4fa638f98050cce297c90e6d411a1116cc540db9202b9949f563fab91c51e5d8"
+		},
+		{
+			"form": "direct",
+			"inputSha256": "bb08d074cf0816611c55f47e5ff1f8c8d39efbe0de4c4e42381a0c6c2d4258b2",
+			"nativeSha256": "bc1a7a8dd8366259d68389cb637bb13053d0401290e948628de419a8a47818ce"
+		},
+		{
+			"form": "multirung",
+			"inputSha256": "6b2eac3d965e2e9149d6bfcbd597bc6e4363acc65a955cac2c5d5c7e73c95359",
+			"nativeSha256": "38c2370df862c8ca77222d059d4af7acbf7b7a11e9986338b394393bc10f5667"
+		},
+		{
+			"form": "plain",
+			"inputSha256": "29d6bda42782ae34e9354cf2c2b8c114cb01439ce338c11c1fbc0922885af924",
+			"nativeSha256": "e3b21df3b436b78ddfdc5f64d01bd50e1ba7e88fa6b75929de35f4bfb9a759dd"
+		}
+	],
+	"limits": "ORM rows are supplied; no HQ footprint SQL, network restore, save or remote build is claimed. Native Core consumes these exact restore and form artifacts.",
+	"reviewReport": "reviews/application-locations.json",
+	"capturedLogSha256": "4d0abb6cf798e3d3d717d16de6ba5e89dc981eac60b75cbc8af9f3db580fcf31"
+}

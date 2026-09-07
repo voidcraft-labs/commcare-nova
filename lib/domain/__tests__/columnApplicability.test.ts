@@ -15,6 +15,7 @@ describe("columnKindAcceptsPropertyType", () => {
 			"plain",
 			"date",
 			"phone",
+			"link",
 			"id-mapping",
 			"image-map",
 			"interval",
@@ -24,7 +25,7 @@ describe("columnKindAcceptsPropertyType", () => {
 		}
 	});
 
-	it("date / interval accept date and datetime, reject the rest", () => {
+	it("date / interval accept calendar values and reject sampled other types", () => {
 		for (const kind of ["date", "interval"] as const) {
 			expect(columnKindAcceptsPropertyType(kind, "date")).toBe(true);
 			expect(columnKindAcceptsPropertyType(kind, "datetime")).toBe(true);
@@ -34,14 +35,17 @@ describe("columnKindAcceptsPropertyType", () => {
 		}
 	});
 
-	it("phone accepts text-shaped, rejects temporal and numeric", () => {
-		expect(columnKindAcceptsPropertyType("phone", "text")).toBe(true);
-		expect(columnKindAcceptsPropertyType("phone", "single_select")).toBe(true);
-		expect(columnKindAcceptsPropertyType("phone", "date")).toBe(false);
-		expect(columnKindAcceptsPropertyType("phone", "int")).toBe(false);
-	});
+	it.each(["phone", "link"] as const)(
+		"%s accepts text-shaped values and rejects temporal and numeric",
+		(kind) => {
+			expect(columnKindAcceptsPropertyType(kind, "text")).toBe(true);
+			expect(columnKindAcceptsPropertyType(kind, "single_select")).toBe(true);
+			expect(columnKindAcceptsPropertyType(kind, "date")).toBe(false);
+			expect(columnKindAcceptsPropertyType(kind, "int")).toBe(false);
+		},
+	);
 
-	it("universal kinds accept every resolved type", () => {
+	it("universal kinds impose no requirement and accept date and geopoint", () => {
 		for (const kind of [
 			"plain",
 			"id-mapping",

@@ -16,7 +16,7 @@
  *     the editor's friendly chip projection.
  *   - Grammar leg (b): when the whole entry parses as VALID XPath (no
  *     error nodes anywhere), the clean `HashtagRef` spans inside the
- *     expression must equal the expected spans — the expression-surface
+ *     expression must equal the expected executable spans (quoted text stays literal) — the expression-surface
  *     agreement the rewriters and the emitter rely on.
  *   - Non-ref entries must produce zero spans from the regexes and zero
  *     clean `HashtagRef` nodes from a whole-entry parse.
@@ -75,9 +75,18 @@ function cleanHashtagSpans(text: string): Span[] {
 interface CorpusEntry {
 	text: string;
 	refs: string[];
+	xpathRefs?: string[];
 }
 
 const CORPUS: CorpusEntry[] = [
+	// A lexical editor matcher can locate text that XPath correctly leaves in
+	// a string literal. Token agreement is not expression-reference equality.
+	{ text: "'#form/age'", refs: ["#form/age"], xpathRefs: [] },
+	{
+		text: "concat('#form/age', #form/age)",
+		refs: ["#form/age", "#form/age"],
+		xpathRefs: ["#form/age"],
+	},
 	// Plain refs across the namespaces.
 	{ text: "#form/age", refs: ["#form/age"] },
 	{ text: "#user/username", refs: ["#user/username"] },
@@ -142,6 +151,14 @@ describe("hashtag matcher divergence corpus", () => {
 	for (const entry of CORPUS) {
 		describe(JSON.stringify(entry.text), () => {
 			const expected = expectedSpans(entry);
+			// The mixed literal/expression example's executable occurrence is last.
+			const xpathExpected =
+				entry.xpathRefs === undefined
+					? expected
+					: entry.xpathRefs.map((ref) => ({
+							from: entry.text.lastIndexOf(ref),
+							to: entry.text.lastIndexOf(ref) + ref.length,
+						}));
 
 			it("HASHTAG_REF_PATTERN matches exactly the expected spans", () => {
 				expect(regexSpans(HASHTAG_REF_PATTERN, entry.text)).toEqual(expected);
@@ -169,7 +186,7 @@ describe("hashtag matcher divergence corpus", () => {
 						expect(expected).toContainEqual(span);
 					}
 				} else {
-					expect(cleanHashtagSpans(entry.text)).toEqual(expected);
+					expect(cleanHashtagSpans(entry.text)).toEqual(xpathExpected);
 				}
 			});
 		});

@@ -1,19 +1,6 @@
-/**
- * Behavioral tests for the menu-media tools: `set_menu_media` and
- * `set_app_logo`.
- *
- * Both use nullable asset slots (asset id sets, `null` clears) and target
- * the menu carriers (module / form tiles, app logo). `set_menu_media` is
- * batch-shaped: one call sets any mix of module and form tiles,
- * all-or-nothing.
- *
- * Coverage: set both slots (module + form arms); a mixed multi-tile
- * batch; clear via null; clear survives the SSE JSON wire (the blocker
- * regression guard); a batch with one unresolvable item writes nothing
- * and names it; and the cross-surface parity check on one representative
- * tool.
- */
-
+/** Actual media command, preflight and canonical reducer behavior over admitted
+ * documents and controlled asset rows. JSON clear tests exercise serialization;
+ * native persistence and SA/MCP transport are separate proofs. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { applyOverWire } from "@/lib/doc/__tests__/wireRoundTrip";
@@ -31,9 +18,9 @@ import {
 	ASSET_LOGO,
 	errorOf,
 	FORM_A,
+	loadAssetsByIdsMock,
 	MOD_A,
 	makeMediaFixture,
-	makeMediaMcpFixture,
 	resetTestAssets,
 	seedTestAsset,
 } from "./fixtures";
@@ -53,18 +40,9 @@ type FormMenuItem = Extract<
 >;
 
 vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
 	loadAppProjectId: vi.fn(() =>
 		Promise.resolve({ kind: "found", projectId: "project-1" }),
 	),
-}));
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
 }));
 // The db-constructing module stubbed at the import boundary; the
 // attach verdict's asset reads resolve against the fixtures' in-memory
@@ -129,7 +107,9 @@ describe("setMenuMedia", () => {
 			items: [moduleItem("household", null), formItem("register", null)],
 		});
 		expect(h.currentDoc().modules[MOD_A]?.icon).toBe("nova-icon:household");
+		expect(loadAssetsByIdsMock).not.toHaveBeenCalled();
 		expect(h.currentDoc().forms[FORM_A]?.icon).toBe("nova-icon:register");
+		expect(loadAssetsByIdsMock).not.toHaveBeenCalled();
 		const success = result.result as { message: string; summary: unknown };
 		expect(success.message).toContain("2 tiles");
 		expect(success.summary).toEqual({ count: 2 });
@@ -148,7 +128,7 @@ describe("setMenuMedia", () => {
 		expect(mod?.audioLabel).toBe(ASSET_AUDIO);
 	});
 
-	it("clears tiles AFTER a JSON wire round-trip (blocker guard)", async () => {
+	it("clears tiles after JSON serialization and reducer application", async () => {
 		const h = makeMediaFixture();
 		await h.runTool(setMenuMediaTool, {
 			items: [
@@ -208,17 +188,6 @@ describe("setMenuMedia", () => {
 		expect(result.mutations).toEqual([]);
 		expect(errorOf(result)).toContain(UNKNOWN_FORM);
 	});
-
-	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		const h = makeMediaFixture();
-		const mcp = makeMediaMcpFixture();
-		const input = {
-			items: [moduleItem(ASSET_ICON, null), formItem("register", null)],
-		};
-		const r1 = await h.runTool(setMenuMediaTool, input);
-		const r2 = await mcp.runTool(setMenuMediaTool, input);
-		expect(r1.mutations).toEqual(r2.mutations);
-	});
 });
 
 describe("setAppLogo", () => {
@@ -238,7 +207,7 @@ describe("setAppLogo", () => {
 		expect(cleared.result).toContain("Cleared");
 	});
 
-	it("clears the logo AFTER a JSON wire round-trip (blocker guard)", async () => {
+	it("clears the logo after JSON serialization and reducer application", async () => {
 		const h = makeMediaFixture();
 		await h.runTool(setAppLogoTool, { logo: ASSET_LOGO });
 		const seededDoc = h.currentDoc();
@@ -246,20 +215,10 @@ describe("setAppLogo", () => {
 		const overWire = applyOverWire(seededDoc, clear.mutations);
 		expect(overWire.logo).toBeUndefined();
 	});
-
-	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		const h = makeMediaFixture();
-		const mcp = makeMediaMcpFixture();
-		const r1 = await h.runTool(setAppLogoTool, { logo: ASSET_LOGO });
-		const r2 = await mcp.runTool(setAppLogoTool, { logo: ASSET_LOGO });
-		expect(r1.mutations).toEqual(r2.mutations);
-	});
 });
 
 describe("menu-media built-in icons", () => {
-	// A built-in slug (e.g. "household") is NOT in the in-memory asset table, so
-	// these passing at all proves the built-in path resolves WITHOUT the at-source
-	// asset verdict — an uploaded id that wasn't seeded would error "not in library".
+	// Built-in icons are reserved refs and have no uploaded asset row.
 	it("stores the reserved ref for a built-in module-icon slug", async () => {
 		const h = makeMediaFixture();
 		const result = await h.runTool(setMenuMediaTool, {
@@ -267,6 +226,7 @@ describe("menu-media built-in icons", () => {
 		});
 		expect(result.kind).toBe("mutate");
 		expect(h.currentDoc().modules[MOD_A]?.icon).toBe("nova-icon:household");
+		expect(loadAssetsByIdsMock).not.toHaveBeenCalled();
 	});
 
 	it("stores the reserved ref for a built-in form-icon slug", async () => {
@@ -275,6 +235,7 @@ describe("menu-media built-in icons", () => {
 			items: [formItem("register", null)],
 		});
 		expect(h.currentDoc().forms[FORM_A]?.icon).toBe("nova-icon:register");
+		expect(loadAssetsByIdsMock).not.toHaveBeenCalled();
 	});
 
 	it("sets a built-in icon alongside an uploaded audio label (audio still verified)", async () => {

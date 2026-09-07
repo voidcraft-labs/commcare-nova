@@ -1604,7 +1604,14 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 					/* Abort any in-flight staged uploads — their drivers hold
 					 * closures into a session that's being torn down, so letting
 					 * them run would attach into a dead store. */
-					for (const abort of stagedUploadAborts.values()) abort();
+					const failures: unknown[] = [];
+					for (const abort of stagedUploadAborts.values()) {
+						try {
+							abort();
+						} catch (error) {
+							failures.push(error);
+						}
+					}
 					stagedUploadAborts.clear();
 					set({
 						/* Generation lifecycle. `buildUnfinished` is deliberately NOT
@@ -1666,6 +1673,12 @@ export function createBuilderSessionStore(init?: SessionStoreInit) {
 						editScrollByForm: {} as Record<string, EditScrollMemory>,
 						activeSectionByForm: {} as Record<string, string>,
 					});
+					if (failures.length > 0) {
+						throw new AggregateError(
+							failures,
+							"One or more session uploads failed to abort",
+						);
+					}
 				},
 			})),
 			{

@@ -24,6 +24,7 @@ import {
 } from "@/lib/domain";
 import { useLastConnectType, useSwitchConnectMode } from "@/lib/session/hooks";
 import { useBuilderSessionApi } from "@/lib/session/provider";
+import { FormSubConfigs, RejectionNoticeBlock } from "./ConnectEnableDialog";
 import {
 	assignDraftConnectIds,
 	type BlockDraft,
@@ -34,9 +35,8 @@ import {
 	draftSectionsComplete,
 	draftToConfig,
 	EMPTY_DRAFT,
-	FormSubConfigs,
-	RejectionNoticeBlock,
-} from "./ConnectEnableDialog";
+	hasDraftConnectParticipant,
+} from "./connectDraft";
 
 /**
  * App-wide CommCare Connect manager: the single surface that owns the
@@ -177,18 +177,6 @@ function dirtyKey(
 					];
 	}
 	return JSON.stringify(norm);
-}
-
-/** UI admission for the exact target floor. An empty app or a target with
- * every form switched off is never offered to the app-wide planner. */
-export function hasDraftConnectParticipant(
-	forms: readonly { readonly formUuid: string }[],
-	modeDrafts: Record<string, BlockDraft>,
-	mode: ConnectType,
-): boolean {
-	return forms.some((form) =>
-		draftParticipates(modeDrafts[form.formUuid] ?? EMPTY_DRAFT, mode),
-	);
 }
 
 export function ConnectManagerDialog({

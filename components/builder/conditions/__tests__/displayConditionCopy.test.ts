@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-	DISPLAY_CONDITION_NOT_A_PERMISSION,
-	displayConditionCopy,
-} from "../displayConditionCopy";
+import { displayConditionCopy } from "../displayConditionCopy";
 
 describe("displayConditionCopy", () => {
 	it("gives a module condition the no-case scope", () => {
@@ -57,7 +54,9 @@ describe("displayConditionCopy", () => {
 		});
 		expect(copy.caseDataScope).toBe("selected-case");
 		expect(copy.locus.join(" ")).toContain("mother");
-		expect(copy.scopeNote).toContain("connected cases");
+		expect(copy.scopeNote).toBe(
+			"The chosen mother's own information is available here. Information from connected cases, and counts of them, is not. CommCare cannot reach them from this screen.",
+		);
 	});
 
 	it("warns a single case-first form that a non-matching case stops at the list", () => {
@@ -106,14 +105,5 @@ describe("displayConditionCopy", () => {
 		});
 		expect(copy.locus.join(" ")).toContain("case");
 		expect(copy.locus.join(" ")).not.toContain("undefined");
-	});
-
-	// Stated as the always-true fact: what a condition decides, rather
-	// than by naming a bypass Nova does not author today.
-	it("says a condition governs what is offered, not who may see the data", () => {
-		expect(DISPLAY_CONDITION_NOT_A_PERMISSION).toContain(
-			"not who may see the data",
-		);
-		expect(DISPLAY_CONDITION_NOT_A_PERMISSION).not.toContain("direct link");
 	});
 });

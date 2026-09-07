@@ -1,7 +1,7 @@
 // lib/commcare/xpath/index.ts
 //
 // Public barrel for CommCare's XPath dialect: the Lezer-generated parser,
-// proven production JavaRosa lowering, and experimental transpiler.
+// proven production JavaRosa lowering.
 //
 // Lives inside lib/commcare/ because XPath is the expression dialect
 // that CommCare defines; the package's "one-way emission boundary" rule
@@ -14,8 +14,6 @@
 // scripts/build-xpath-parser.ts when the grammar changes). Consumers
 // outside lib/commcare/ import from this barrel only.
 //
-// Type inference (typeInfer.ts) and individual transpiler passes
-// (passes/) are implementation details — not exported.
 
 export {
 	analyzeXPathCompatibility,
@@ -38,4 +36,3 @@ export { lowerXPathForJavaRosa } from "./javaRosaLowering";
 export { parser } from "./parser";
 export * from "./parser.terms";
 export { xpathStringLiteral } from "./stringLiteral";
-export { transpile } from "./transpiler";

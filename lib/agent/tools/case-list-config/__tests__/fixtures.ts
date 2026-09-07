@@ -7,11 +7,9 @@
  * bundle so per-test bodies focus on the tool's behavior rather than
  * test-harness wiring.
  *
- * `makeCaseListMcpFixture` produces the parallel `McpContext`-hosted
- * shape for cross-surface tests that assert the same input produces
- * the same mutation batch on both surfaces.
  */
 
+import { expect } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	type BlueprintDoc,
@@ -21,13 +19,11 @@ import {
 	plainColumn,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../../__tests__/admittedFixture";
 import {
-	type MakeMcpTestContextHandles,
-	makeMcpTestContext,
 	makeToolWorkspaceHarness,
 	type ToolWorkspaceHarness,
 } from "../../../__tests__/fixtures";
-import { CanonicalMutationWorkspace } from "../../../workspace/canonicalWorkspace";
 
 /* Stable uuid constants — imported by the per-tool tests so each
  * assertion can reference the module / form by uuid against the
@@ -122,17 +118,8 @@ export interface CaseListFixture extends ToolWorkspaceHarness {
 	doc: BlueprintDoc;
 }
 
-/** Bundle of the starting doc + a canonical workspace hosted by the MCP
- *  `McpContext`, for cross-surface assertions. */
-export interface CaseListMcpFixture extends MakeMcpTestContextHandles {
-	doc: BlueprintDoc;
-	workspace: CanonicalMutationWorkspace;
-	runTool: ToolWorkspaceHarness["runTool"];
-	currentDoc(): BlueprintDoc;
-}
-
 /**
- * Build a `{ doc, runTool, ... }` bundle for the chat surface — the
+ * Build a `{ doc, runTool, ... }` bundle over a controlled host — the
  * common shape every per-tool test boots from. A test that needs a
  * different starting document passes it in, so the workspace owns the
  * exact doc the tool will read.
@@ -140,31 +127,31 @@ export interface CaseListMcpFixture extends MakeMcpTestContextHandles {
 export function makeCaseListFixture(
 	doc: BlueprintDoc = makeCaseListDoc(),
 ): CaseListFixture {
-	return { ...makeToolWorkspaceHarness(doc), doc };
-}
-
-/**
- * Build a `{ doc, runTool, ... }` bundle for the MCP surface — used in
- * cross-surface parity tests that assert the same input produces
- * structurally-identical mutation batches.
- */
-export function makeCaseListMcpFixture(
-	doc: BlueprintDoc = makeCaseListDoc(),
-): CaseListMcpFixture {
-	const handles = makeMcpTestContext({ initialDoc: doc });
-	const workspace = new CanonicalMutationWorkspace({
-		host: handles.ctx,
-		initialDoc: doc,
-	});
+	const h = makeToolWorkspaceHarness(expectAdmittedDoc(doc));
 	return {
-		...handles,
+		...h,
 		doc,
-		workspace,
-		runTool: (tool, input) =>
-			workspace.invoke({
-				toolName: "test-tool",
-				execute: (ctx) => tool.execute(input as never, ctx),
-			}),
-		currentDoc: () => workspace.currentSnapshot().doc,
+		runTool: async (tool, input) => {
+			const before = structuredClone(h.currentDoc());
+			try {
+				const outcome = await h.runTool(tool, input);
+				if (
+					typeof outcome === "object" &&
+					outcome !== null &&
+					"result" in outcome &&
+					typeof outcome.result === "object" &&
+					outcome.result !== null &&
+					"error" in outcome.result
+				) {
+					expect(h.currentDoc()).toEqual(before);
+				}
+				return outcome;
+			} catch (error) {
+				expect(h.currentDoc()).toEqual(before);
+				throw error;
+			} finally {
+				expectAdmittedDoc(h.currentDoc());
+			}
+		},
 	};
 }

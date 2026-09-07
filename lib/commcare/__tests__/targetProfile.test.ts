@@ -1,3 +1,4 @@
+/** Pure target-profile ownership and merge boundary; no HQ import or runtime claim. */
 import { describe, expect, it } from "vitest";
 import type { HqApplication } from "@/lib/commcare";
 import {
@@ -31,6 +32,30 @@ function application(withDerivedProfile = true): HqApplication {
 }
 
 describe("target profile projection", () => {
+	it.each(["available", "missing", "unverified", "not-needed"] as const)(
+		"preserves both inputs and unrelated application state for %s",
+		(state) => {
+			const input = application();
+			const current = {
+				properties: { foreign: { value: [1, "two", null] } },
+				custom_properties: {
+					"cc-index-case-search-results": "no",
+					foreign: "kept",
+				},
+			};
+			const beforeInput = structuredClone(input);
+			const beforeCurrent = structuredClone(current);
+			const created = projectNewAppProfileForTarget(input, state);
+			const updated = projectUpdatedAppProfileForTarget(input, current, state);
+			expect(input).toEqual(beforeInput);
+			expect(current).toEqual(beforeCurrent);
+			for (const result of [created, updated]) {
+				const { profile: _profile, ...remaining } = result.application;
+				const { profile: _beforeProfile, ...beforeRemaining } = beforeInput;
+				expect(remaining).toEqual(beforeRemaining);
+			}
+		},
+	);
 	it("keeps the derived property for a supported new app", () => {
 		const input = application();
 		expect(projectNewAppProfileForTarget(input, "available")).toEqual({

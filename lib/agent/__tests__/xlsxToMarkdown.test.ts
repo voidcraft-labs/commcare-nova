@@ -7,23 +7,12 @@
  */
 
 import AdmZip from "adm-zip";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import * as XLSX from "xlsx";
 import {
 	assertOfficeArchiveBudget,
 	xlsxToMarkdown,
 } from "../documentExtraction";
-
-/* Importing `documentExtraction` pulls in mammoth, which pulls in bluebird —
- * bluebird creates a module-level promise at import time that the async-leak
- * detector flags (failing the pre-push gate). `xlsxToMarkdown` never touches
- * mammoth, so mocking it at the import boundary keeps the real module (and
- * bluebird) from loading; matches the sibling extraction tests. */
-vi.mock("mammoth", () => ({
-	default: {
-		convertToMarkdown: vi.fn(async () => ({ value: "" })),
-	},
-}));
 
 /** Build an .xlsx buffer from a map of sheet name → array-of-arrays. A cell may
  *  be a primitive (value) or a `CellObject` carrying a formula (`f`). Writing
@@ -60,6 +49,29 @@ describe("xlsxToMarkdown", () => {
 		expect(md).toContain("- D3 = SUM(D2:D2)");
 	});
 
+	it("reports sheets that are outside the extraction window", () => {
+		const sheets = Object.fromEntries(
+			Array.from({ length: 33 }, (_, i) => [
+				`Sheet${i + 1}`,
+				[["field"], [`requirement ${i + 1}`]],
+			]),
+		);
+		const md = xlsxToMarkdown(workbookBuffer(sheets));
+		expect(md).toContain("### Sheet32");
+		expect(md).not.toContain("### Sheet33");
+		expect(md).toContain("1 additional sheet was not read");
+	});
+
+	it("reports formulas outside the calculation window", () => {
+		const rows: XLSX.CellObject[][] = Array.from({ length: 2001 }, (_, i) => [
+			{ t: "n", v: i + 1, f: `${i}+1` },
+		]);
+		const md = xlsxToMarkdown(workbookBuffer({ Calculations: rows }));
+		expect(md).toContain("- A2000 = 1999+1");
+		expect(md).not.toContain("- A2001 = 2000+1");
+		expect(md).toContain("1 additional formula was not read");
+	});
+
 	it("omits the Calculations block for a value-only sheet", () => {
 		const buffer = workbookBuffer({
 			PlainData: [
@@ -88,6 +100,7 @@ describe("xlsxToMarkdown", () => {
 			A2: { t: "s", v: "row2" },
 			B2: { t: "n", v: 6, f: "A2*C2" },
 			A5000: { t: "s", v: "far-down" },
+			B5000: { t: "n", v: 9, f: "B2+3" },
 		};
 		const wb = XLSX.utils.book_new();
 		XLSX.utils.book_append_sheet(wb, ws, "Sparse");
@@ -104,6 +117,8 @@ describe("xlsxToMarkdown", () => {
 		// declared range, so a cell anywhere in the sheet surfaces.
 		expect(md).toContain("#### Calculations");
 		expect(md).toContain("- B2 = A2*C2");
+		expect(md).toContain("- B5000 = B2+3");
+		expect(md).not.toContain("far-down");
 		// Bounded output — not a dump of the full declared range.
 		expect(md.length).toBeLessThan(100_000);
 	});
@@ -117,6 +132,17 @@ describe("office-archive preflight (decompression-bomb guard)", () => {
 		expect(() => xlsxToMarkdown(Buffer.from("this is not a zip"))).toThrow(
 			/valid XLSX archive/,
 		);
+	});
+
+	it("rejects a tiny ZIP whose central directory declares excessive expansion", () => {
+		const zip = new AdmZip();
+		zip.addFile("xl/workbook.xml", Buffer.from("<workbook/>"));
+		const bytes = zip.toBuffer();
+		const central = bytes.indexOf(Buffer.from([0x50, 0x4b, 0x01, 0x02]));
+		expect(central).toBeGreaterThanOrEqual(0);
+		// ZIP central-directory uncompressed-size field, not a large allocation.
+		bytes.writeUInt32LE(400 * 1024 * 1024, central + 24);
+		expect(() => xlsxToMarkdown(bytes)).toThrow(/contents expand to over/);
 	});
 
 	it("rejects an archive with an implausible number of entries", () => {

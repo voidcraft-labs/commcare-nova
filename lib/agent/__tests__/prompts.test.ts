@@ -1,73 +1,40 @@
-/**
- * `buildSolutionsArchitectPrompt` / `buildAppStateMessage` unit tests.
- *
- * The load-bearing property here is prompt STABILITY: provider prompt
- * caching is exact-prefix, so the system prompt must be byte-identical
- * across turns and across docs — anything app-specific that leaked into
- * it would re-bill the shared tail + tool rendering + history on every
- * doc-mutating turn. The volatile blueprint summary travels instead as
- * the per-turn app-state message (`buildAppStateMessage`), and the two
- * halves share one gate (`isEditableDoc`) so the edit framing and the
- * summary it promises cannot come apart.
- */
+/** Pure app-state framing and request-local cache metadata. Native request
+ * stability is exercised by wireCacheConfig against the actual SA factory.
+ * Prompt prose is reviewed with its contract; substring inventories cannot
+ * establish how a model follows that guidance. */
 
 import type { ModelMessage } from "ai";
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
-
 import {
 	buildAppStateMessage,
-	buildMcpAgentBuildPrompt,
-	buildSolutionsArchitectPrompt,
 	isEditableDoc,
 	markStablePrefixBoundary,
 } from "../prompts";
+import { expectAdmittedDoc } from "./admittedFixture";
 
 /** Minimal populated blueprint — one module + one form + one field, with
  *  distinctive names the assertions can spot in (or prove absent from)
  *  rendered output. */
 function fixtureDoc(appName: string, moduleName: string): BlueprintDoc {
-	const modUuid = testUuid("11111111-1111-1111-1111-111111111111");
-	const formUuid = testUuid("22222222-2222-2222-2222-222222222222");
-	const fieldUuid = testUuid("33333333-3333-3333-3333-333333333333");
-	return {
-		appId: "a-edit",
-		appName,
-		connectType: null,
-		caseTypes: null,
-		modules: {
-			[modUuid]: {
-				uuid: modUuid,
-				id: "patients",
-				name: moduleName,
-				caseType: "patient",
-			},
-		},
-		forms: {
-			[formUuid]: {
-				uuid: formUuid,
-				id: "register",
-				name: "Register Patient",
-				type: "registration",
-			},
-		},
-		fields: {
-			[fieldUuid]: {
-				uuid: fieldUuid,
-				id: "patient_name",
-				kind: "text",
-				label: proseText("Patient Name"),
-				required: xp("true()"),
-			},
-		},
-		moduleOrder: [modUuid],
-		formOrder: { [modUuid]: [formUuid] },
-		fieldOrder: { [formUuid]: [fieldUuid] },
-		fieldParent: {},
-	};
+	return expectAdmittedDoc(
+		buildDoc({
+			appName,
+			modules: [
+				{
+					name: moduleName,
+					forms: [
+						{
+							name: "Intake",
+							type: "survey",
+							fields: [f({ id: "note", kind: "text", label: "Note" })],
+						},
+					],
+				},
+			],
+		}),
+	);
 }
 
 /** Defensive in-memory empty shape; persisted `createApp` never writes this. */
@@ -87,150 +54,12 @@ function fixtureEmptyDoc(): BlueprintDoc {
 	};
 }
 
-describe("buildSolutionsArchitectPrompt", () => {
-	it("opens a human turn before extended reasoning", () => {
-		const sp = buildSolutionsArchitectPrompt();
-		expect(sp).toContain("Make it your first visible output");
-		expect(sp).toContain("before extended reasoning");
-		expect(sp).toContain(
-			"Do not treat the generated current-app-state message as a human turn",
-		);
-	});
-
-	it("edit prompt carries the editing framing but ZERO doc bytes", () => {
-		const sp = buildSolutionsArchitectPrompt();
-		expect(sp).toContain("Editing Mode");
-		expect(sp).toContain("full visibility");
-		/* The doc picks the branch and contributes nothing — an app name or
-		 * module name in the prompt means the volatile summary leaked back
-		 * into the cached prefix. */
-		expect(sp).not.toContain("Vaccine Tracker");
-		expect(sp).not.toContain("Patients");
-	});
-
-	it("teaches the user-identity bridge and explicit-clear contract", () => {
-		const sp = buildSolutionsArchitectPrompt();
-		expect(sp).toContain("addUserProperties");
-		expect(sp).toContain("userPropertyUuid");
-		expect(sp).toContain("valuePatch");
-		expect(sp).toContain("changes exactly one UUID-addressed value");
-		expect(sp).toContain("Removing a persona preserves");
-	});
-
-	it("teaches exact one-tier menu placement without conflating case parents", () => {
-		const sp = buildSolutionsArchitectPrompt();
-		expect(sp).toContain("Nova supports one child-menu tier");
-		expect(sp).toContain("`createModule.parentModuleUuid`");
-		expect(sp).toContain("`moveModule` always takes `after`");
-		expect(sp).toContain("separate from case `parent_type`");
-		expect(sp).toContain("does not author linked/shadow form reuse");
-	});
-
-	it("teaches effect-bound case-selection confirmation and distinct preload behavior", () => {
-		for (const prompt of [
-			buildSolutionsArchitectPrompt(),
-			buildMcpAgentBuildPrompt(),
-		]) {
-			expect(prompt).toContain(
-				"`confirmedModuleUuids` exactly equal to `requiredConfirmedModuleUuids`",
-			);
-			expect(prompt).toContain("returned `confirmationToken` unchanged");
-			expect(prompt).toContain(
-				"Never reuse either confirmation value from an older result",
-			);
-			expect(prompt).toContain("when its module opens one case at a time");
-			expect(prompt).toContain(
-				"Do not apply the one-case preload rule or add a hidden blank-preserving workaround",
-			);
-		}
-	});
-
-	it("requires explicit consent and a fresh read before Project data writes", () => {
-		for (const prompt of [
-			buildSolutionsArchitectPrompt(),
-			buildMcpAgentBuildPrompt(),
-		]) {
-			expect(prompt).toContain(
-				"Project data is shared by every app in the Project",
-			);
-			expect(prompt).toContain(
-				"only when the user's current request explicitly asks",
-			);
-			expect(prompt).toContain(
-				"Explain before the write that the change affects every app in the Project",
-			);
-			expect(prompt).toContain(
-				"does not by itself authorize changing the underlying table",
-			);
-			expect(prompt).toContain(
-				"Never infer consent or target identity from a similar table name",
-			);
-			expect(prompt).toContain("Read before every Project data write");
-			expect(prompt).toContain("also call `getLookupTableRows`");
-			expect(prompt).toContain(
-				"use the returned revision as the write's optimistic fence",
-			);
-		}
-	});
-
-	it("keeps automation match counts on Builder Preview instead of SA reads", () => {
-		const sp = buildSolutionsArchitectPrompt();
-		expect(sp).toContain("Matching case counts belong only to Builder Preview");
-		expect(sp).not.toContain(
-			"counts the locally representable matching subset",
-		);
-	});
-
-	it("teaches contextual automation host and message-property refusals", () => {
-		const sp = buildSolutionsArchitectPrompt();
-		expect(sp).toContain(
-			"advanced case operation can add a second extension relationship",
-		);
-		expect(sp).toContain(
-			"host-scoped criterion, update target, update source, or message case-property part",
-		);
-		expect(sp).toContain("`owner`, `host`, or `last_modified_by`");
-		expect(sp).toContain("formatter context shadows those names");
-		expect(sp).toContain(
-			"Every triggering case must contain each referenced filter property",
-		);
-		expect(sp).toContain(
-			"HQ filters only contacts that resolve to user accounts",
-		);
-		expect(sp).toContain("case, parent/child-case, case-email, case-group");
-		expect(sp).toContain(
-			"case-property event-time value must begin with H:MM or HH:MM",
-		);
-		expect(sp).toContain("AM/PM or seconds are accepted");
-		expect(sp).toContain("blank, nonmatching, or unparseable values");
-		expect(sp).toContain("12:00 PM");
-		expect(sp).toContain(
-			"Every host-scoped reference also requires exactly one live extension at runtime",
-		);
-		expect(sp).toContain(
-			"Retained extra extension indices make the current-match count unavailable",
-		);
-	});
-
-	it("edit prompt is byte-identical across different apps", () => {
-		const a = buildSolutionsArchitectPrompt();
-		const b = buildSolutionsArchitectPrompt();
-		expect(a).toBe(b);
-	});
-
-	it("has no build composition — the design pipeline owns new-app builds", () => {
-		const sp = buildSolutionsArchitectPrompt();
-		expect(sp).not.toContain("Initial Build");
-		expect(sp).toContain("Editing Mode");
-	});
-});
-
 describe("buildAppStateMessage", () => {
 	it("renders the fresh summary as a clearly-labeled reference message", () => {
 		const msg = buildAppStateMessage(fixtureDoc("Vaccine Tracker", "Patients"));
 		expect(msg).not.toBeNull();
 		expect(msg?.role).toBe("user");
-		const content = msg?.content as string;
+		const content = msg?.content;
 		/* The label is the handle `EDIT_PREAMBLE` teaches — the model finds
 		 * the summary by this name. */
 		expect(content).toContain("Current app state");
@@ -299,4 +128,39 @@ describe("markStablePrefixBoundary", () => {
 				: undefined,
 		).toBeDefined();
 	});
+});
+
+it("marks scalar user content and system fallback without changing caller metadata", () => {
+	const original: ModelMessage[] = [
+		{
+			role: "system",
+			content: "Rules",
+			providerOptions: { openai: { custom: "keep" } },
+		},
+		{ role: "assistant", content: "Prior answer" },
+	];
+	const before = structuredClone(original);
+	const marked = markStablePrefixBoundary(original);
+	expect(marked[0]).toMatchObject({
+		role: "system",
+		content: "Rules",
+		providerOptions: {
+			openai: { promptCacheBreakpoint: { mode: "explicit" } },
+		},
+	});
+	expect(original).toEqual(before);
+	const scalar = markStablePrefixBoundary([
+		{ role: "user", content: "Question" },
+	]);
+	expect(scalar[0]?.content).toEqual([
+		{
+			type: "text",
+			text: "Question",
+			providerOptions: {
+				openai: { promptCacheBreakpoint: { mode: "explicit" } },
+			},
+		},
+	]);
+	const unmarkable: ModelMessage[] = [{ role: "assistant", content: "Answer" }];
+	expect(markStablePrefixBoundary(unmarkable)).toBe(unmarkable);
 });

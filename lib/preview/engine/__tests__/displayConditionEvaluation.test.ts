@@ -1,11 +1,10 @@
-// Device-parity semantics for navigation display conditions: the
-// shared on-device emitter prints, the preview evaluator decides, and
-// the recorded raw absent-node facts hold — an absent value
-// string-unpacks to "" and numeric-coerces to NaN, with no presence
-// guards.
+// Preview navigation evaluation over typed conditions and loaded lookup data.
+// This suite executes Nova emission and evaluation; native Core compatibility
+// is established separately by the independent wire corpus.
 
 import { describe, expect, it } from "vitest";
 import type { LookupColumnId, LookupTableId } from "@/lib/domain";
+import { lookupRowIdSchema } from "@/lib/domain";
 import {
 	and,
 	eq,
@@ -19,6 +18,7 @@ import {
 	tableLookup,
 	term,
 } from "@/lib/domain/predicate";
+import { parseLookupRevision } from "@/lib/lookup/schema";
 import type {
 	LookupFixtureRow,
 	LookupTableDefinition,
@@ -46,14 +46,14 @@ const DEFINITION: LookupTableDefinition = {
 	id: TABLE,
 	name: "Clinics",
 	tag: "clinics",
-	definitionRevision: "1" as LookupTableDefinition["definitionRevision"],
+	definitionRevision: parseLookupRevision("1"),
 	columns: [
 		{ id: COL_CODE, wireName: "code", label: "Code", dataType: "text" },
 		{ id: COL_REGION, wireName: "region", label: "Region", dataType: "text" },
 	],
 };
 const ROW: LookupFixtureRow = {
-	id: "018f0000-0000-7000-8000-0000000000r1" as LookupFixtureRow["id"],
+	id: lookupRowIdSchema.parse("018f0000-0000-7000-8000-0000000000a1"),
 	values: { [COL_CODE]: "a1", [COL_REGION]: "north" },
 };
 const LOOKUP_DATA: PreviewLookupStatus = {

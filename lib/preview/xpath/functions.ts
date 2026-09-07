@@ -9,7 +9,7 @@ import {
 	javaRosaDistance,
 	javaRosaIsPointInsidePolygon,
 } from "./javaRosaGeo";
-import { javaRosaSplitOnSpaces } from "./javaString";
+import { javaRosaSplitOnSpaces, javaTrim } from "./javaString";
 import { nodeSetJavaRosaFunctions } from "./nodeSetJavaRosaFunctions";
 import {
 	unpackXPathRuntimeValue,
@@ -162,7 +162,7 @@ register("join", (args) => {
 
 register("selected", (args) => {
 	const value = requireJavaString(args[0] ?? "", "selected", 1);
-	const option = requireJavaString(args[1] ?? "", "selected", 2).trim();
+	const option = javaTrim(requireJavaString(args[1] ?? "", "selected", 2));
 	return ` ${value} `.includes(` ${option} `);
 });
 register("count-selected", (args) => {

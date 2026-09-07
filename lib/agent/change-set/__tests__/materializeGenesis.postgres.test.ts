@@ -1,13 +1,8 @@
-/**
- * Design-slice materialization against a REAL Postgres — the §20.13 gate:
- * one complete sequence-1 app or no app at every failure point, the holder
- * and reservation transferring exactly once, and lost-response replay
- * converging on the stored receipt.
- *
- * The mid-transaction crash window is exercised through the gate rejection:
- * the absolute verdict runs AFTER the app row insert inside the same
- * transaction, so a rejected candidate proves the app row, entities,
- * baseline, schema rows, and session transfer all rolled back together.
+/** Native genesis transaction admission, holder transfer and stored replay.
+ * Direct stage persistence seeds schema-admitted private candidate batches;
+ * the materialization owner must recompute its verdict from those mutations.
+ * A late SQL trigger failure proves rollback after canonical rows and sidecars
+ * were written; ordinary gate refusal separately proves invalid-app admission.
  */
 
 import type { Kysely } from "kysely";
@@ -17,11 +12,13 @@ import { PostgresCaseStore } from "@/lib/case-store/postgres/store";
 import { HeuristicCaseGenerator } from "@/lib/case-store/sample/heuristic";
 import type { Database } from "@/lib/case-store/sql/database";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
+import { prepareGenesisCandidate } from "@/lib/db/appGenesis";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import {
 	createAndClaimDesignSessionRun,
 	setDesignSessionAwaitingInput,
 } from "@/lib/db/designSessions";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import {
 	canonicalAppGenesis,
@@ -35,15 +32,17 @@ import {
 	emptyGenesisBase,
 	loadCanonicalBlueprintAtSequence,
 } from "../baseLoader";
+import { evaluateOverlayFindings, findingFingerprint } from "../diagnostics";
 import { canonicalJsonDigest, workspaceCallInputDigest } from "../digest";
 import { ChangeSetScopeLostError } from "../errors";
 import { materializeAppFromGenesis } from "../materializeGenesis";
+import { rehydrateChangeSet } from "../runtime";
 import { changeSetHandleSchema } from "../schemas";
 import {
+	beginAppEditChangeSet,
 	beginGenesisChangeSet,
 	loadChangeSet,
 	loadChangeSetSteps,
-	loadPriorCommittedPlanHandleBindings,
 	type StageHandleAllocation,
 	stageChangeSetRequest,
 } from "../store";
@@ -139,6 +138,17 @@ async function persistPrivateMutation(
 	handles: readonly StageHandleAllocation[] = [],
 ): Promise<void> {
 	const admitted = admitMutationBatch(mutations);
+	const changeSet = await loadChangeSet(changeSetId);
+	if (!changeSet?.proposedAppId) throw new Error("missing genesis change set");
+	const candidate = prepareGenesisCandidate({
+		appId: changeSet.proposedAppId,
+		projectId: PROJECT,
+		mutations: admitted,
+	});
+	const findings = evaluateOverlayFindings(
+		candidate.prepared.nextDoc,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
 	await stageChangeSetRequest({
 		changeSetId,
 		requestId,
@@ -160,10 +170,10 @@ async function persistPrivateMutation(
 			readSet: [],
 			exclusiveKind: null,
 			diagnostics: {
-				candidateDigest: canonicalJsonDigest("candidate"),
-				findingCount: 0,
-				findingFingerprints: [],
-				canCommit: true,
+				candidateDigest: candidate.candidateDigest,
+				findingCount: findings.length,
+				findingFingerprints: findings.map(findingFingerprint).sort(),
+				canCommit: findings.length === 0,
 			},
 		},
 	});
@@ -235,19 +245,54 @@ describe("materializeAppFromGenesis", () => {
 		const committedRoot = await loadChangeSet(fixture.changeSetId);
 		if (committedRoot === undefined) throw new Error("missing committed root");
 
-		const imported = await loadPriorCommittedPlanHandleBindings({
-			...committedRoot,
-			id: crypto.randomUUID(),
-			kind: "app-edit",
+		const priorAttempt = await h
+			.db()
+			.selectFrom("design_slice_attempts")
+			.selectAll()
+			.where("id", "=", committedRoot.attemptId)
+			.executeTakeFirstOrThrow();
+		const attemptId = crypto.randomUUID();
+		const sliceId = asDesignId(crypto.randomUUID());
+		await h
+			.db()
+			.insertInto("design_slice_attempts")
+			.values({
+				...priorAttempt,
+				id: attemptId,
+				slice_id: sliceId,
+				attempt: 1,
+				base_kind: "app",
+				base_app_id: fixture.proposedAppId,
+				base_proposed_app_id: null,
+				base_seq: outcome.receipt.seq,
+				base_snapshot_digest: outcome.receipt.snapshotDigest,
+				change_set_id: null,
+				brief_digest: canonicalJsonDigest(`brief:${attemptId}`),
+				execution_run_ids: JSON.stringify([RUN]),
+				status: "running",
+				failure_code: null,
+				wall_clock_ms_used: 0,
+				wall_clock_accrued_at: new Date(),
+				created_at: new Date(),
+				updated_at: new Date(),
+			})
+			.execute();
+		const next = await beginAppEditChangeSet({
 			appId: fixture.proposedAppId,
-			proposedAppId: null,
-			baseSeq: outcome.receipt.seq,
-			baseSnapshotDigest: outcome.receipt.snapshotDigest,
-			status: "open",
-			committedSeq: null,
-			committedBatchId: null,
-			committedSnapshotDigest: null,
+			expectedProjectId: PROJECT,
+			ownerUserId: ACTOR,
+			ownerRunId: RUN,
+			lineage: {
+				designSessionId: committedRoot.designSessionId,
+				designRevisionId: committedRoot.designRevisionId,
+				designRevisionDigest: committedRoot.designRevisionDigest,
+				buildPlanId: committedRoot.buildPlanId,
+				buildPlanDigest: committedRoot.buildPlanDigest,
+				attemptId,
+				sliceId,
+			},
 		});
+		const imported = (await rehydrateChangeSet(next)).handles;
 		expect(imported).toEqual([
 			expect.objectContaining({
 				handle: rootHandle,
@@ -432,11 +477,11 @@ describe("materializeAppFromGenesis", () => {
 		).toEqual([]);
 	});
 
-	it("a gate-rejected candidate materializes NOTHING — the crash-window proof", async () => {
+	it("refuses an invalid private candidate without persisting an app", async () => {
 		const fixture = await claimedGenesisFixture();
 		/* A lone module with neither forms nor case list is a gating finding
 		 * (NO_FORMS_OR_CASE_LIST): the verdict runs AFTER the app-row insert,
-		 * so the rejection proves the whole transaction rolled back. */
+		 * so the rejection proves that provisional insert rolls back. */
 		await persistPrivateMutation(fixture.changeSetId, [
 			{ kind: "setAppName", name: "Half-built" },
 			...caseListModuleMutations(emptyBlueprintDoc(fixture.proposedAppId), {
@@ -465,6 +510,77 @@ describe("materializeAppFromGenesis", () => {
 		).toBe(false);
 		expect((await loadChangeSet(fixture.changeSetId))?.status).toBe("open");
 		expect(await loadChangeSetSteps(fixture.changeSetId)).toHaveLength(1);
+	});
+
+	it("rolls back a native failure after app rows, schema rows and the committed receipt exist", async () => {
+		const fixture = await claimedGenesisFixture();
+		await persistPrivateMutation(
+			fixture.changeSetId,
+			exportReadyBatch(fixture.proposedAppId),
+		);
+		await h.pool().query(`
+   CREATE FUNCTION audit_refuse_genesis_transfer() RETURNS trigger LANGUAGE plpgsql AS $$
+   BEGIN
+    IF OLD.state = 'active' AND NEW.state = 'materialized' THEN
+     IF NOT EXISTS (SELECT 1 FROM apps WHERE id = NEW.app_id)
+      OR NOT EXISTS (SELECT 1 FROM blueprint_entities WHERE app_id = NEW.app_id)
+      OR NOT EXISTS (SELECT 1 FROM app_changes WHERE app_id = NEW.app_id)
+      OR NOT EXISTS (SELECT 1 FROM app_change_fold_baselines WHERE app_id = NEW.app_id)
+      OR NOT EXISTS (SELECT 1 FROM case_type_schemas WHERE app_id = NEW.app_id)
+      OR NOT EXISTS (SELECT 1 FROM design_committed_slices WHERE app_id = NEW.app_id)
+     THEN RAISE EXCEPTION 'audit failure before required writes'; END IF;
+     RAISE EXCEPTION 'audit late transfer failure after all required writes';
+    END IF;
+    RETURN NEW;
+   END $$;
+   CREATE TRIGGER audit_refuse_genesis_transfer BEFORE UPDATE ON design_sessions
+    FOR EACH ROW EXECUTE FUNCTION audit_refuse_genesis_transfer();
+  `);
+		try {
+			await expect(
+				materializeAppFromGenesis(materializeArgs(fixture)),
+			).rejects.toThrow(
+				"audit late transfer failure after all required writes",
+			);
+			const remaining = await h.pool().query<{ present: boolean }>(
+				`
+    SELECT EXISTS (SELECT 1 FROM apps WHERE id = $1)
+     OR EXISTS (SELECT 1 FROM blueprint_entities WHERE app_id = $1)
+     OR EXISTS (SELECT 1 FROM app_changes WHERE app_id = $1)
+     OR EXISTS (SELECT 1 FROM app_change_fold_baselines WHERE app_id = $1)
+     OR EXISTS (SELECT 1 FROM case_type_schemas WHERE app_id = $1)
+     OR EXISTS (SELECT 1 FROM design_committed_slices WHERE app_id = $1) AS present
+   `,
+				[fixture.proposedAppId],
+			);
+			expect(remaining.rows).toEqual([{ present: false }]);
+			expect((await loadChangeSet(fixture.changeSetId))?.status).toBe("open");
+			expect(await loadChangeSetSteps(fixture.changeSetId)).toHaveLength(1);
+			expect(
+				await h.readDesignSessionRow(fixture.designSessionId),
+			).toMatchObject({
+				state: "active",
+				run_id: RUN,
+				run_holder_nonce: fixture.holderNonce,
+			});
+			expect(
+				await h.readDesignSessionReservation(fixture.designSessionId),
+			).toMatchObject({
+				reserved: 100,
+				settled: false,
+				userId: ACTOR,
+				runId: RUN,
+			});
+		} finally {
+			await h
+				.pool()
+				.query(
+					"DROP TRIGGER IF EXISTS audit_refuse_genesis_transfer ON design_sessions; DROP FUNCTION IF EXISTS audit_refuse_genesis_transfer();",
+				);
+		}
+		expect(
+			(await materializeAppFromGenesis(materializeArgs(fixture))).kind,
+		).toBe("materialized");
 	});
 
 	it("admits runtime case-schema rows transactionally at synced_seq 1", async () => {

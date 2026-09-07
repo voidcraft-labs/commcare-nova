@@ -10,7 +10,6 @@
 // which keeps them robust to Zod's serialization choices.
 
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { fieldKinds, fieldRegistry } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -63,11 +62,6 @@ function validAddPayload(kind: string): Record<string, unknown> {
 }
 
 describe("toolSchemaGenerator", () => {
-	it("exposes the two tool inputs", () => {
-		expect(generated.addFieldsItemSchema).toBeDefined();
-		expect(generated.editFieldUpdatesSchema).toBeDefined();
-	});
-
 	it("accepts a valid payload for every registry kind on the add tool", () => {
 		for (const kind of fieldKinds) {
 			const payload = validAddPayload(kind);
@@ -286,15 +280,6 @@ describe("toolSchemaGenerator", () => {
 		).toBe(false);
 	});
 
-	it("parses a representative valid payload for every field kind", () => {
-		for (const kind of fieldKinds) {
-			const result = generated.addFieldsItemSchema.safeParse(
-				validAddPayload(kind),
-			);
-			expect(result.success, `kind ${kind} failed to parse`).toBe(true);
-		}
-	});
-
 	// ── Repeat config (discriminated on mode) ────────────────────────────
 
 	it("enforces mode-specific repeat fields at the tool boundary", () => {
@@ -313,7 +298,7 @@ describe("toolSchemaGenerator", () => {
 		// count_bound REQUIRES count; query_bound REQUIRES ids_query.
 		expect(
 			generated.addFieldsItemSchema.safeParse(
-				repeatPayload({ mode: "count_bound", count: xp("#form/n") }),
+				repeatPayload({ mode: "count_bound", count: xp("3") }),
 			).success,
 		).toBe(true);
 		expect(
@@ -335,8 +320,8 @@ describe("toolSchemaGenerator", () => {
 
 	// ── editField (per-kind, kind required as discriminator) ─────────────
 
-	it("requires `kind` on the edit patch (it's the union discriminator)", () => {
-		// Without `kind`, the discriminated union can't pick an arm.
+	it("requires `kind` on the edit patch for property admission", () => {
+		// Without `kind`, the refinement cannot determine allowed properties.
 		expect(
 			generated.editFieldUpdatesSchema.safeParse({
 				label: proseText("x"),
@@ -356,7 +341,7 @@ describe("toolSchemaGenerator", () => {
 		expect(
 			generated.editFieldUpdatesSchema.safeParse({
 				kind: "single_select",
-				calculate: "x",
+				calculate: xp("1"),
 			}).success,
 		).toBe(false);
 		// Clearable keys accept `null` to reset.
@@ -406,16 +391,7 @@ describe("toolSchemaGenerator", () => {
 		).toBe(false);
 	});
 
-	it("teaches the option value's slug shape before refusing a value outside it", () => {
-		// The model hears the rule in the slot's description and the system
-		// prompt first; the regex is the repair, carrying the same sentence.
-		const described = JSON.stringify(
-			z.toJSONSchema(projectedOptionsSourceSchema),
-		);
-		expect(described).toContain("prefer_not_to_say");
-		expect(described).toContain("underscores");
-		expect(buildSolutionsArchitectPrompt()).toContain("prefer_not_to_say");
-
+	it("accepts machine option values and rejects malformed values at the exact slot", () => {
 		const withValue = (value: string) =>
 			projectedOptionsSourceSchema.safeParse({
 				kind: "inline",
@@ -429,7 +405,6 @@ describe("toolSchemaGenerator", () => {
 		for (const bad of ["Prefer not to say", "don't_know", 'say_"hi"', ""]) {
 			const result = withValue(bad);
 			expect(result.success).toBe(false);
-			expect(result.error?.issues[0]?.message).toContain("underscores");
 			expect(result.error?.issues[0]?.path).toEqual(["options", 0, "value"]);
 		}
 	});

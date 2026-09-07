@@ -78,6 +78,7 @@ import {
 	predicateCardSchemaList,
 	predicateCardSchemas,
 } from "../editorSchemas";
+import { logicalClauses } from "../logicalGroupModel";
 import { appendKindIndex, appendKindSlot, type EditorPath } from "../path";
 import { useStableListIdentity } from "../useStableListIdentity";
 import { ChildPredicateEditor } from "./ChildPredicateEditor";
@@ -192,24 +193,6 @@ interface AndOrBodyProps {
 	readonly path: EditorPath;
 }
 
-/**
- * Apply the and/or builder against a non-empty clause array. The
- * builders' two-or-more overload requires at least one rest member,
- * which TS can't prove from a spread of an arbitrary
- * `readonly Predicate[]`. The cast widens `and` / `or` to a single
- * accepting signature; callers guarantee the array is non-empty by
- * construction (the surrounding card collapses an empty clauses
- * list to a sentinel before reaching this helper, and the schema
- * layer rejects an empty list at parse time).
- */
-function applyLogical(
-	kind: "and" | "or",
-	clauses: readonly Predicate[],
-): Predicate {
-	const builder = kind === "or" ? or : and;
-	return (builder as (...args: Predicate[]) => Predicate)(...clauses);
-}
-
 function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 	const ctx = usePredicateEditContext();
 	// Memoize the editor-context view so the addClause callback's
@@ -298,7 +281,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 					fromIndex,
 					toIndex,
 				});
-				onChangeRef.current(applyLogical(kindRef.current, reordered));
+				onChangeRef.current(logicalClauses(kindRef.current, reordered));
 			},
 			onDrag: ({ source, location }) => {
 				const sourceData = readClauseDragData(source.data);
@@ -355,7 +338,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 			// `or(single)` / `and(single)` collapses to `single` per
 			// the reductions: the parent's onChange replaces the
 			// group with the unwrapped clause.
-			onChange(applyLogical(value.kind, filtered));
+			onChange(logicalClauses(value.kind, filtered));
 		},
 		[onChange, rowIdentity, value.clauses, value.kind],
 	);
@@ -366,7 +349,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 				clauseIndex === index ? next : clause,
 			);
 			rowIdentity.stage(updated, { kind: "replace" });
-			onChange(applyLogical(value.kind, updated));
+			onChange(logicalClauses(value.kind, updated));
 		},
 		[onChange, rowIdentity, value.clauses, value.kind],
 	);
@@ -381,7 +364,7 @@ function AndOrBody({ value, onChange, path }: AndOrBodyProps) {
 				deleteCount: 0,
 				insertCount: 1,
 			});
-			onChange(applyLogical(value.kind, clauses));
+			onChange(logicalClauses(value.kind, clauses));
 		},
 		[editCtx, onChange, rowIdentity, value.clauses, value.kind],
 	);

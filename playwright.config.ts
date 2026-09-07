@@ -136,7 +136,7 @@ export default defineConfig({
 		{
 			name: "authed",
 			testMatch:
-				/(?:authed|deep-links|localization|error-guard|reconciler-lifetime|media-extraction|media-transport|media-library|worker-credentials)\.spec\.ts/,
+				/(?:authed|deep-links|localization|error-guard|reconciler-lifetime|media-extraction|media-transport|media-library|worker-credentials|builder-controls|builder-layout-audit|builder-automations|builder-data|builder-tree|builder-session-controls|builder-users-readiness|publishing|preview-interactions-audit|chat-controls-audit|preview-geopoint-audit|preview-repeats-audit|preview-shell-audit|preview-form-lifecycle-audit|preview-attachments-audit|preview-search-audit|preview-cases-audit|case-workspace-audit|case-workspace-surface|manual-session-audit|preview-xpath-worker-audit|codemirror-audit)\.spec\.ts/,
 			use: {
 				...devices["Desktop Chrome"],
 				storageState: "e2e/.auth/state.json",

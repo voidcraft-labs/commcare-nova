@@ -7,7 +7,11 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { roleAllowsApp } from "../projectRoles";
+import {
+	roleAllowsApp,
+	roleCanManageProject,
+	roleIsOwner,
+} from "../projectRoles";
 
 describe("roleAllowsApp", () => {
 	it("viewer is read-only", () => {
@@ -45,3 +49,21 @@ describe("roleAllowsApp", () => {
 		expect(roleAllowsApp("viewer,bogus", "edit")).toBe(false);
 	});
 });
+
+it.each([
+	["owner", true, true],
+	["admin", true, false],
+	["editor", false, false],
+	["viewer", false, false],
+	["member", false, false],
+	["", false, false],
+	["bogus", false, false],
+	["viewer,owner", true, true],
+	["editor,admin", true, false],
+] as const)(
+	"membership role %s preserves management and ownership distinctions",
+	(role, management, ownership) => {
+		expect(roleCanManageProject(role)).toBe(management);
+		expect(roleIsOwner(role)).toBe(ownership);
+	},
+);

@@ -277,7 +277,10 @@ export class DurableStreamWriter implements UIMessageStreamWriter {
 	 * the truth.
 	 */
 	async close(outcome?: string): Promise<void> {
-		if (this.closed) return;
+		if (this.closed) {
+			await this.flushChain;
+			return;
+		}
 		this.terminalOutcome = outcome;
 		if (!this.sawFinish) this.write({ type: "finish" });
 		this.closed = true;

@@ -1,29 +1,21 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
-	SEARCH_INPUT_RUNTIME_VALUE_TYPES,
+	blueprintDocSchema,
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { matchAll } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { runValidation } from "../../../runner";
 import { moduleTypeContext } from "../shared";
 
 describe("moduleTypeContext search-input runtime values", () => {
-	it("pins every widget's runtime scalar type", () => {
-		expect(SEARCH_INPUT_RUNTIME_VALUE_TYPES).toEqual({
-			text: "text",
-			date: "date",
-			"date-range": "text",
-			barcode: "text",
-			select: "text",
-			"multi-select": "text",
-		});
-	});
-
 	it("types both authoring arms from their widget output, including encoded date ranges", () => {
-		const config = caseListConfig([]);
+		const config = caseListConfig([{ field: "case_name", header: "Name" }]);
 		config.searchInputs = [
 			simpleSearchInputDef(
 				testUuid("00000000-0000-4000-8000-00000000b001"),
@@ -41,7 +33,7 @@ describe("moduleTypeContext search-input runtime values", () => {
 			),
 			simpleSearchInputDef(
 				testUuid("00000000-0000-4000-8000-00000000b003"),
-				"simple_range",
+				"visit_date",
 				"Simple range",
 				"date-range",
 				"visit_date",
@@ -61,7 +53,20 @@ describe("moduleTypeContext search-input runtime values", () => {
 					name: "Visits",
 					caseType: "visit",
 					caseListConfig: config,
-					forms: [],
+					forms: [
+						{
+							name: "Register visit",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: "Name",
+									caseWrite: { caseType: "visit", property: "case_name" },
+								}),
+							],
+						},
+					],
 				},
 			],
 			caseTypes: [
@@ -83,6 +88,8 @@ describe("moduleTypeContext search-input runtime values", () => {
 			],
 		});
 
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
 		const moduleUuid = doc.moduleOrder[0];
 		if (moduleUuid === undefined) throw new Error("missing module fixture");
 		expect(moduleTypeContext(doc.modules[moduleUuid], doc).knownInputs).toEqual(
@@ -99,7 +106,7 @@ describe("moduleTypeContext search-input runtime values", () => {
 				},
 				{
 					uuid: config.searchInputs[2]?.uuid,
-					name: "simple_range",
+					name: "visit_date",
 					data_type: "text",
 				},
 				{

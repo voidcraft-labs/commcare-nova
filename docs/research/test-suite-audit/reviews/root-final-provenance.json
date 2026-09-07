@@ -1,0 +1,48 @@
+{
+	"owner": "root",
+	"kind": "final-provenance-reconciliation",
+	"files": [
+		{
+			"file": "lib/collab/__tests__/ReconcilerProvider.test.ts",
+			"previousSha256": "2c331ddce53be8e6912b23b96cf454a969fe0eeae7badb88d1545747b8c498c2",
+			"reviewedSha256": "86d090f69fbdcec024790c88907f8c69713849bb3121c0055c4f9832103172b7",
+			"status": "revised",
+			"review": "Final provenance reconciliation: root reread the complete two-case supplement in commit 8f142cad against its exact preceding reviewed file. Actual malformed mutation/reload JSON must not survive in Error string, stack, cause, originalError or report stack; stream closure and recovery state remain observed. The previous hash matches the parent commit exactly. Whole runtime method review remains as recorded."
+		},
+		{
+			"file": "lib/db/__tests__/commitGuardedBatchTransactions.postgres.test.ts",
+			"previousSha256": "4baec678205e4c007c4702ac76bd16ae15a51bf79f3f067fadff32cf3f733306",
+			"reviewedSha256": "129322a05e99d4342f7990359d87c1645ee91359dcc13e822440345012e77ac1",
+			"status": "revised",
+			"review": "Root reread the complete native organization-race addition and setup diff. Actual updateLocation holds the app lock behind a held organization row; pg_blocking_pids proves canonical commit waits on that writer. The old revision refuses without doc/sequence/history writes, and the exact batch at the refreshed revision succeeds. PoolMax 2 supplies independent writers; both tasks are joined. Doc adjacentRevisited report records 31 passed and this exact final hash; full Postgres aggregate also passed."
+		},
+		{
+			"file": "lib/export/__tests__/boundaryValidation.test.ts",
+			"previousSha256": "b78c0eaf0940bdcbd266f7a9d037fe92f7dbef03d4b7af3feee6ce73122a181e",
+			"reviewedSha256": "73abe8dd8741f7d484a11926415e1e766452a7887595af353cef35cf5c811652",
+			"status": "revised",
+			"review": "Root reread the complete follow-up diff over the exact original reviewed HEAD file. Admitted nested-selection fixtures prove local export remains available while only native-proven HQ losses refuse before bytes; all actual entry kinds have controls. Independent XML decoding checks preserved lookup padding, BOM and interior whitespace; native-proven HQ trimming refuses with exact row diagnostics. Runtime-reserved historical tags refuse all three modes. Original whole export-boundary method review and native HQ/Core records remain authoritative."
+		},
+		{
+			"file": "lib/commcare/__tests__/caseOps.test.ts",
+			"previousSha256": "61c2f99250d1377d7d85d147099a0ce2d74b93379d98b7536e3bb9d1e66148fa",
+			"reviewedSha256": null,
+			"status": "removed",
+			"review": "Final ledger normalization only: this already-reviewed removal retained its pre-removal reviewed file hash. Preserve that hash as prior evidence and record the absent final file as null. The original full-method replacement, admitted corpus and native consumer evidence remain unchanged; this does not add a review or execution claim."
+		},
+		{
+			"file": "lib/commcare/__tests__/tileGroupEmission.test.ts",
+			"previousSha256": "995edb84a787c527682cae74c15f05f30326ac235ef3ca7ef6ec71529261480e",
+			"reviewedSha256": null,
+			"status": "removed",
+			"review": "Final ledger normalization only: this already-reviewed removal retained its pre-removal reviewed file hash. Preserve that hash as prior evidence and record the absent final file as null. The original full-method replacement, admitted corpus and native consumer evidence remain unchanged; this does not add a review or execution claim."
+		},
+		{
+			"file": "lib/commcare/hqJson/__tests__/caseTile.test.ts",
+			"previousSha256": "a330e371910ba53052576c5297e2409fe81a537ebdfb1d20e9b640c5dc7a5dc1",
+			"reviewedSha256": null,
+			"status": "removed",
+			"review": "Final ledger normalization only: this already-reviewed removal retained its pre-removal reviewed file hash. Preserve that hash as prior evidence and record the absent final file as null. The original full-method replacement, admitted corpus and native consumer evidence remain unchanged; this does not add a review or execution claim."
+		}
+	]
+}

@@ -1,374 +1,286 @@
-// lib/agent/__tests__/resolveAttachments.test.ts
-//
-// Unit tests for the chat attachment resolver: refs (in message metadata) →
-// model-ready parts. Driven against mocked storage/db + a stub condenser so no
-// GCS, Postgres, or model call happens. Covers the contracts the chat route
-// and the multi-turn fix depend on: ready-extract reuse, the lazy backstop,
-// image → data-URL file part, never-drop placeholders, cross-turn dedup, and —
-// the multi-turn crash fix — that NO raw file part with a document media type
-// is ever produced (every doc becomes a text part).
-
+/** Attachment-reference projection. Persistence/storage replies are controlled;
+ * the sibling extraction-store Postgres suite owns claims and publication. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
-import type { AttachmentCondenser } from "@/lib/agent/documentExtraction";
+import {
+	type AttachmentRef,
+	attachmentRefSchema,
+	type NovaUIMessage,
+} from "@/lib/chat/attachmentRefs";
+import { loadAssetsByIds, type MediaAssetRecord } from "@/lib/db/mediaAssets";
+import { EXTRACTOR_VERSION } from "@/lib/domain/multimedia";
+import { downloadAssetBytes } from "@/lib/storage/media";
+import type { AttachmentCondenser } from "../documentExtraction";
+import { ensureStoredExtract } from "../documentExtractionStore";
 import {
 	countDocumentsNeedingRead,
 	resolveAttachments,
-} from "@/lib/agent/resolveAttachments";
-import type { AttachmentRef, NovaUIMessage } from "@/lib/chat/attachmentRefs";
-import type { MediaAssetRecord } from "@/lib/db/mediaAssets";
-import {
-	loadAssetsByIds,
-	publishClaimedAssetExtract,
-} from "@/lib/db/mediaAssets";
-import { EXTRACTOR_VERSION, type MediaAssetId } from "@/lib/domain/multimedia";
-import { readTextObject, writeTextObject } from "@/lib/storage/media";
+} from "../resolveAttachments";
 
-// mammoth pulls bluebird (a module-level promise the leak detector flags); the
-// real documentExtraction core imports it. We never exercise the docx path here,
-// so mock it at the boundary.
-vi.mock("mammoth", () => ({
-	default: { convertToMarkdown: vi.fn(async () => ({ value: "" })) },
-}));
+vi.mock("@/lib/db/mediaAssets", () => ({ loadAssetsByIds: vi.fn() }));
+vi.mock("@/lib/storage/media", () => ({ downloadAssetBytes: vi.fn() }));
+vi.mock("../documentExtractionStore", () => ({ ensureStoredExtract: vi.fn() }));
 
-const {
-	loadAssetsByIdsMock,
-	loadAssetByIdMock,
-	publishClaimedAssetExtractMock,
-	findReadyExtractForProjectAndHashMock,
-	hasReadyExtractForProjectAndHashMock,
-	installCopiedReadyExtractMock,
-	claimExtractionIfIdleMock,
-	deleteAssetMock,
-	downloadAssetBytesMock,
-	readTextObjectMock,
-	writeTextObjectMock,
-	withMediaObjectKeyLockMock,
-} = vi.hoisted(() => ({
-	loadAssetsByIdsMock: vi.fn(),
-	loadAssetByIdMock: vi.fn(),
-	publishClaimedAssetExtractMock: vi.fn(),
-	findReadyExtractForProjectAndHashMock: vi.fn(),
-	hasReadyExtractForProjectAndHashMock: vi.fn(),
-	installCopiedReadyExtractMock: vi.fn(),
-	claimExtractionIfIdleMock: vi.fn(),
-	deleteAssetMock: vi.fn(),
-	downloadAssetBytesMock: vi.fn(),
-	readTextObjectMock: vi.fn(),
-	writeTextObjectMock: vi.fn(),
-	withMediaObjectKeyLockMock: vi.fn(
-		async (_key: string, body: (lockedDb: unknown) => Promise<unknown>) =>
-			body({ pinned: true }),
-	),
-}));
-
-// `loadAssetById` + `claimExtractionIfIdle` are pulled in transitively via the
-// shared extract store (the backstop delegates to it); on a GCS miss the store
-// re-reads status fresh by id, then atomically claims via `claimExtractionIfIdle`
-// before running the model.
-vi.mock("@/lib/db/mediaAssets", () => ({
-	loadAssetsByIds: loadAssetsByIdsMock,
-	loadAssetById: loadAssetByIdMock,
-	publishClaimedAssetExtract: publishClaimedAssetExtractMock,
-	findReadyExtractForProjectAndHash: findReadyExtractForProjectAndHashMock,
-	hasReadyExtractForProjectAndHash: hasReadyExtractForProjectAndHashMock,
-	installCopiedReadyExtract: installCopiedReadyExtractMock,
-	claimExtractionIfIdle: claimExtractionIfIdleMock,
-}));
-vi.mock("@/lib/storage/media", () => ({
-	deleteAsset: deleteAssetMock,
-	downloadAssetBytes: downloadAssetBytesMock,
-	readTextObject: readTextObjectMock,
-	writeTextObject: writeTextObjectMock,
-}));
-vi.mock("@/lib/storage/mediaObjectKeyLock", () => ({
-	withMediaObjectKeyLock: withMediaObjectKeyLockMock,
-}));
-
-/** A condenser whose lazy-backstop extraction returns a fixed result from the
- *  one structured call. Title/summary are irrelevant to these resolve-path
- *  assertions; cast because `vi.fn` can't express the generic method signature. */
-function stubCondenser(text = "LAZY EXTRACT"): AttachmentCondenser {
-	return {
-		extractDocumentStructured: vi.fn(async () => ({
-			object: { extract: text, title: "T", summary: "S" },
-			truncated: false,
-		})) as unknown as AttachmentCondenser["extractDocumentStructured"],
-	};
-}
-
+const condenser: AttachmentCondenser = {
+	async extractDocumentStructured() {
+		throw new Error("The resolver delegates model work to the store");
+	},
+};
+const DOC = testMediaAssetId("doc-1");
+const IMAGE = testMediaAssetId("image-1");
 function asset(over: Partial<MediaAssetRecord> = {}): MediaAssetRecord {
 	return {
-		id: testMediaAssetId("doc-1"),
-		owner: "user-1",
-		project_id: "project-1",
+		id: DOC,
+		owner: "uploader",
+		project_id: "shared-project",
 		contentHash: "a".repeat(64),
 		mimeType: "text/markdown",
 		extension: ".md",
 		sizeBytes: 100,
 		kind: "text",
-		gcsObjectKey: "projects/project-1/aaaa.md",
+		gcsObjectKey: "projects/shared-project/aaaa.md",
 		originalFilename: "spec.md",
 		status: "ready",
-		// biome-ignore lint/suspicious/noExplicitAny: Timestamp irrelevant to these tests
-		created_at: {} as any,
+		created_at: new Date(0),
 		...over,
-	} as MediaAssetRecord;
-}
-
-function readyExtract(): MediaAssetRecord["extract"] {
-	return {
-		status: "ready",
-		version: EXTRACTOR_VERSION,
-		model: "gpt-5.6-luna",
-		truncated: false,
-		charCount: 100,
-		extractedAt: 123,
 	};
 }
-
-/** A user message carrying one attachment ref. */
-function userMsg(
-	id: string,
-	ref: {
-		assetId: MediaAssetId;
-		kind: MediaAssetRecord["kind"];
-		filename: string;
-	},
-): NovaUIMessage {
+function ref(over: Partial<AttachmentRef> = {}): AttachmentRef {
+	return attachmentRefSchema.parse({
+		assetId: DOC,
+		filename: "spec.md",
+		kind: "text",
+		mimeType: "text/markdown",
+		...over,
+	});
+}
+function userMsg(id: string, ...refs: AttachmentRef[]): NovaUIMessage {
 	return {
 		id,
 		role: "user",
-		parts: [{ type: "text", text: "please build this" }],
-		metadata: {
-			attachments: [{ ...ref, mimeType: "text/markdown" }],
-		},
-	} as NovaUIMessage;
+		parts: [{ type: "text", text: "Build this workflow" }],
+		metadata: { attachments: refs },
+	};
 }
-
 beforeEach(() => {
-	vi.clearAllMocks();
-	publishClaimedAssetExtractMock.mockImplementation(
-		async (args: {
-			extract: Record<string, unknown>;
-			publishReadyObject?: () => Promise<void>;
-		}) => {
-			await args.publishReadyObject?.();
-			return {
-				kind: "published",
-				extract: { ...args.extract, extractedAt: 456 },
-			};
-		},
-	);
-	hasReadyExtractForProjectAndHashMock.mockResolvedValue(false);
-	findReadyExtractForProjectAndHashMock.mockResolvedValue(null);
-	installCopiedReadyExtractMock.mockImplementation(
-		async (args: { extract: MediaAssetRecord["extract"] }) => args.extract,
-	);
-	deleteAssetMock.mockResolvedValue(undefined);
-	// The store atomically claims before extracting; the backstop's lazy path
-	// always wins the claim in these single-caller tests.
-	claimExtractionIfIdleMock.mockResolvedValue({
-		kind: "claimed",
-		claim: {
-			version: EXTRACTOR_VERSION,
-			model: "gpt-5.6-luna",
-			extractedAt: 123,
-		},
+	vi.resetAllMocks();
+	vi.mocked(loadAssetsByIds).mockResolvedValue([asset()]);
+	vi.mocked(ensureStoredExtract).mockResolvedValue({
+		status: "ready",
+		text: "EXTRACT",
+		version: EXTRACTOR_VERSION,
+		truncated: false,
+		charCount: 7,
 	});
-	downloadAssetBytesMock.mockResolvedValue(Buffer.from("raw bytes"));
-	writeTextObjectMock.mockResolvedValue(undefined);
-	// Default fresh status read: an asset with no extract record yet, so the
-	// store's miss path decides "extract now" (no in-flight job to wait on).
-	loadAssetByIdMock.mockResolvedValue(asset());
+	vi.mocked(downloadAssetBytes).mockResolvedValue(Buffer.from([0, 127, 255]));
 });
 
 describe("resolveAttachments", () => {
-	const DOC = testMediaAssetId("doc-1");
-	const IMAGE = testMediaAssetId("img-1");
-	const GHOST = testMediaAssetId("ghost");
-
-	it("appends a document's STORED extract as a text part (no model call)", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([asset({ extract: readyExtract() })]);
-		readTextObjectMock.mockResolvedValue("STORED EXTRACT BODY");
-		const condenser = stubCondenser();
-
-		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
-			"user-1",
-			condenser,
-		);
-		const texts = msg.parts.filter((p) => p.type === "text").map((p) => p.text);
-		expect(texts.some((t) => t.includes("STORED EXTRACT BODY"))).toBe(true);
-		expect(texts.some((t) => t.includes("spec.md"))).toBe(true);
-		// Reused the stored extract — no lazy extraction.
-		expect(condenser.extractDocumentStructured).not.toHaveBeenCalled();
-		expect(writeTextObject).not.toHaveBeenCalled();
-	});
-
-	it("lazily extracts + persists when no stored extract exists", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([asset()]);
-		readTextObjectMock.mockResolvedValue(null); // no current extract
-		const condenser = stubCondenser("FRESH EXTRACT");
-
-		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
-			"user-1",
-			condenser,
-		);
-		const texts = msg.parts.filter((p) => p.type === "text").map((p) => p.text);
-		expect(texts.some((t) => t.includes("FRESH EXTRACT"))).toBe(true);
-		expect(condenser.extractDocumentStructured).toHaveBeenCalledOnce();
-		// Persisted for reuse next turn.
-		expect(writeTextObject).toHaveBeenCalledOnce();
-		expect(publishClaimedAssetExtract).toHaveBeenCalledWith(
-			expect.objectContaining({
-				assetId: DOC,
-				extract: expect.objectContaining({ status: "ready" }),
-			}),
-			expect.anything(),
-		);
-	});
-
-	it("appends an image as a data-URL file part for the vision pass", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([
-			asset({
-				id: IMAGE,
-				kind: "image",
-				mimeType: "image/png",
-			}),
-		]);
-		const [msg] = await resolveAttachments(
-			[
-				userMsg("u1", {
+	it("projects all user turns in order, deduplicates work, and preserves the source transcript", async () => {
+		const img = asset({
+			id: IMAGE,
+			kind: "image",
+			mimeType: "image/png",
+			extension: ".png",
+			originalFilename: "diagram.png",
+			gcsObjectKey: "projects/shared-project/image.png",
+		});
+		vi.mocked(loadAssetsByIds).mockResolvedValue([img, asset()]);
+		const messages = [
+			userMsg(
+				"first",
+				ref(),
+				ref({
 					assetId: IMAGE,
 					kind: "image",
 					filename: "diagram.png",
+					mimeType: "image/png",
 				}),
-			],
-			"user-1",
-			stubCondenser(),
-		);
-		const filePart = msg.parts.find((p) => p.type === "file");
-		expect(filePart).toBeDefined();
-		expect(filePart).toMatchObject({
-			type: "file",
-			mediaType: "image/png",
-			// The image rides as an inline base64 data URL for the vision pass —
-			// not a GCS path. Assert the url the test name promises (a regression
-			// emitting an empty/path url would otherwise still pass).
-			url: expect.stringContaining("data:image/png;base64,"),
-		});
-		expect(readTextObject).not.toHaveBeenCalled();
-	});
-
-	it("never emits a raw document file part (the multi-turn crash fix)", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([asset({ extract: readyExtract() })]);
-		readTextObjectMock.mockResolvedValue("EXTRACT");
-		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
-			"user-1",
-			stubCondenser(),
-		);
-		// A document resolves to TEXT, never a file part Anthropic would reject.
-		expect(msg.parts.some((p) => p.type === "file")).toBe(false);
-	});
-
-	it("placeholders a missing/foreign asset rather than dropping it", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([]); // id not owned / not found
-		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: GHOST, kind: "text", filename: "gone.md" })],
-			"user-1",
-			stubCondenser(),
-		);
-		const texts = msg.parts.filter((p) => p.type === "text").map((p) => p.text);
-		expect(
-			texts.some(
-				(t) => t.includes("gone.md") && t.includes("couldn't be loaded"),
 			),
-		).toBe(true);
-	});
-
-	it("placeholders a still-pending asset without downloading bytes or extracting", async () => {
-		// A ref to an owned-but-pending (not-yet-confirmed) asset must NOT feed
-		// unvalidated bytes to the model or the extractor — it resolves to a
-		// placeholder, like the proxy GET (404) and extract route (409) do.
-		loadAssetsByIdsMock.mockResolvedValue([asset({ status: "pending" })]);
-		const condenser = stubCondenser();
-
-		const [msg] = await resolveAttachments(
-			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
-			"user-1",
+			userMsg("second", ref()),
+		];
+		const before = JSON.stringify(messages);
+		const resolved = await resolveAttachments(
+			messages,
+			"shared-project",
 			condenser,
 		);
+		expect(JSON.stringify(messages)).toBe(before);
+		expect(resolved).not.toBe(messages);
+		expect(resolved[0]).not.toBe(messages[0]);
+		expect(resolved[0].parts).toEqual([
+			messages[0].parts[0],
+			{ type: "text", text: "<<Attachment: spec.md>>\nEXTRACT" },
+			{
+				type: "file",
+				mediaType: "image/png",
+				url: "data:image/png;base64,AH//",
+				filename: "diagram.png",
+			},
+		]);
+		expect(resolved[1].parts).toEqual([
+			messages[1].parts[0],
+			resolved[0].parts[1],
+		]);
+		expect(loadAssetsByIds).toHaveBeenCalledExactlyOnceWith(
+			[DOC, IMAGE],
+			"shared-project",
+		);
+		expect(ensureStoredExtract).toHaveBeenCalledOnce();
+		expect(downloadAssetBytes).toHaveBeenCalledOnce();
+	});
 
-		const texts = msg.parts.filter((p) => p.type === "text").map((p) => p.text);
-		expect(
-			texts.some(
-				(t) => t.includes("spec.md") && t.includes("still being prepared"),
+	it.each(["text", "pdf", "docx", "xlsx"] as const)(
+		"uses authoritative %s asset kind and delegates extraction with wait/progress",
+		async (kind) => {
+			const formats = {
+				text: ["text/markdown", ".md"],
+				pdf: ["application/pdf", ".pdf"],
+				docx: [
+					"application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+					".docx",
+				],
+				xlsx: [
+					"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+					".xlsx",
+				],
+			} as const;
+			const [mimeType, extension] = formats[kind];
+			const record = asset({
+				kind,
+				mimeType,
+				extension,
+				originalFilename: `spec${extension}`,
+			});
+			vi.mocked(loadAssetsByIds).mockResolvedValue([record]);
+			const progress = vi.fn();
+			// Display-only metadata disagrees; persisted asset kind controls resolution.
+			const [resolved] = await resolveAttachments(
+				[userMsg("u", ref({ kind: "image", mimeType: "image/png" }))],
+				"shared-project",
+				condenser,
+				progress,
+			);
+			expect(resolved.parts.at(-1)).toEqual({
+				type: "text",
+				text: "<<Attachment: spec.md>>\nEXTRACT",
+			});
+			expect(ensureStoredExtract).toHaveBeenCalledExactlyOnceWith({
+				asset: record,
+				documentKind: kind,
+				condenser,
+				onInflight: "wait",
+				onProgress: progress,
+			});
+			expect(downloadAssetBytes).not.toHaveBeenCalled();
+		},
+	);
+
+	it.each(["absent", "pending"] as const)(
+		"keeps a placeholder for an %s asset without reading bytes",
+		async (state) => {
+			vi.mocked(loadAssetsByIds).mockResolvedValue(
+				state === "absent" ? [] : [asset({ status: "pending" })],
+			);
+			const [resolved] = await resolveAttachments(
+				[userMsg("u", ref())],
+				"shared-project",
+				condenser,
+			);
+			expect(resolved.parts).toHaveLength(2);
+			expect(resolved.parts.at(-1)).toMatchObject({
+				type: "text",
+				text: expect.stringContaining("spec.md"),
+			});
+			expect(ensureStoredExtract).not.toHaveBeenCalled();
+			expect(downloadAssetBytes).not.toHaveBeenCalled();
+		},
+	);
+
+	it("keeps every attachment visible when the authorized batch read fails", async () => {
+		vi.mocked(loadAssetsByIds).mockRejectedValue(
+			new Error("database unavailable"),
+		);
+		const [resolved] = await resolveAttachments(
+			[
+				userMsg(
+					"u",
+					ref(),
+					ref({ assetId: IMAGE, filename: "diagram.png", kind: "image" }),
+				),
+			],
+			"shared-project",
+			condenser,
+		);
+		expect(resolved.parts.slice(1)).toEqual([
+			{ type: "text", text: expect.stringContaining("spec.md") },
+			{ type: "text", text: expect.stringContaining("diagram.png") },
+		]);
+		expect(ensureStoredExtract).not.toHaveBeenCalled();
+		expect(downloadAssetBytes).not.toHaveBeenCalled();
+	});
+
+	it.each(["document", "image"] as const)(
+		"keeps a %s read failure as a safe named placeholder",
+		async (kind) => {
+			if (kind === "document")
+				vi.mocked(ensureStoredExtract).mockResolvedValue({
+					status: "failed",
+					reason: "private diagnostic",
+				});
+			else {
+				vi.mocked(loadAssetsByIds).mockResolvedValue([
+					asset({ kind: "image", mimeType: "image/png" }),
+				]);
+				vi.mocked(downloadAssetBytes).mockRejectedValue(
+					new Error("private diagnostic"),
+				);
+			}
+			const [resolved] = await resolveAttachments(
+				[userMsg("u", ref())],
+				"shared-project",
+				condenser,
+			);
+			expect(resolved.parts.at(-1)).toMatchObject({
+				type: "text",
+				text: expect.stringContaining("spec.md"),
+			});
+			expect(JSON.stringify(resolved)).not.toContain("private diagnostic");
+		},
+	);
+
+	it("carries the historical incomplete-extract warning with the exact text", async () => {
+		vi.mocked(ensureStoredExtract).mockResolvedValue({
+			status: "ready",
+			text: "PARTIAL",
+			version: 1,
+			truncated: true,
+			charCount: 7,
+		});
+		const [resolved] = await resolveAttachments(
+			[userMsg("u", ref())],
+			"shared-project",
+			condenser,
+		);
+		expect(resolved.parts.at(-1)).toMatchObject({
+			type: "text",
+			text: expect.stringContaining("PARTIAL"),
+		});
+		expect(resolved.parts.at(-1)).toMatchObject({
+			type: "text",
+			text: expect.stringContaining(
+				"trailing content from the original document may be missing",
 			),
-		).toBe(true);
-		// No bytes read, no extraction run.
-		expect(downloadAssetBytesMock).not.toHaveBeenCalled();
-		expect(readTextObjectMock).not.toHaveBeenCalled();
-		expect(condenser.extractDocumentStructured).not.toHaveBeenCalled();
+		});
 	});
 
-	it("resolves EVERY turn's attachments and dedups a repeated ref to one read", async () => {
-		loadAssetsByIdsMock.mockResolvedValue([asset({ extract: readyExtract() })]);
-		readTextObjectMock.mockResolvedValue("SHARED EXTRACT");
-		const ref = {
-			assetId: DOC,
-			kind: "text" as const,
-			filename: "spec.md",
-		};
-
-		const resolved = await resolveAttachments(
-			[userMsg("u1", ref), userMsg("u2", ref)],
-			"user-1",
-			stubCondenser(),
-		);
-		// Both turns carry the extract — the historical turn is resolved too.
-		for (const msg of resolved) {
-			const texts = msg.parts
-				.filter((p) => p.type === "text")
-				.map((p) => p.text);
-			expect(texts.some((t) => t.includes("SHARED EXTRACT"))).toBe(true);
-		}
-		// One batch load (unique ids) + one extract read (deduped by assetId).
-		expect(loadAssetsByIds).toHaveBeenCalledOnce();
-		expect(loadAssetsByIds).toHaveBeenCalledWith([DOC], "user-1");
-		expect(readTextObject).toHaveBeenCalledOnce();
-	});
-
-	it("degrades to placeholders (never throws) when the batch asset load fails", async () => {
-		// A Postgres outage in loadAssetsByIds must not fail the whole turn from
-		// outside the route's try/finally — it degrades to placeholders, upholding
-		// the never-drop invariant.
-		loadAssetsByIdsMock.mockRejectedValue(new Error("postgres down"));
-		const resolved = await resolveAttachments(
-			[userMsg("u1", { assetId: DOC, kind: "text", filename: "spec.md" })],
-			"user-1",
-			stubCondenser(),
-		);
-		const texts = resolved[0].parts
-			.filter((p) => p.type === "text")
-			.map((p) => p.text);
-		expect(texts.some((t) => t.includes("spec.md"))).toBe(true);
-	});
-
-	it("passes messages without attachments through untouched", async () => {
-		const plain: NovaUIMessage = {
-			id: "u1",
-			role: "user",
-			parts: [{ type: "text", text: "no files here" }],
-		} as NovaUIMessage;
-		const result = await resolveAttachments([plain], "user-1", stubCondenser());
-		// Pass-through by reference: a ref-free message is returned as the SAME
-		// object, never cloned (source short-circuits with `return messages` when
-		// there are no attachment ids to resolve).
-		expect(result[0]).toBe(plain);
-		expect(result[0].parts).toHaveLength(1);
+	it("passes a ref-free transcript through without I/O", async () => {
+		const messages: NovaUIMessage[] = [
+			{ id: "u", role: "user", parts: [{ type: "text", text: "No files" }] },
+		];
+		expect(
+			await resolveAttachments(messages, "shared-project", condenser),
+		).toBe(messages);
 		expect(loadAssetsByIds).not.toHaveBeenCalled();
 	});
 });
@@ -386,13 +298,12 @@ describe("countDocumentsNeedingRead", () => {
 		...over,
 	});
 
-	const userMsgWith = (...refs: AttachmentRef[]): NovaUIMessage =>
-		({
-			id: "u",
-			role: "user",
-			parts: [{ type: "text", text: "build this" }],
-			metadata: { attachments: refs },
-		}) as NovaUIMessage;
+	const userMsgWith = (...refs: AttachmentRef[]): NovaUIMessage => ({
+		id: "u",
+		role: "user",
+		parts: [{ type: "text", text: "build this" }],
+		metadata: { attachments: refs },
+	});
 
 	it("counts a document whose extract wasn't ready (no title snapshot)", () => {
 		expect(countDocumentsNeedingRead([userMsgWith(ref({}))])).toBe(1);
@@ -430,11 +341,11 @@ describe("countDocumentsNeedingRead", () => {
 	});
 
 	it("returns 0 when the last message carries no attachments", () => {
-		const plain = {
+		const plain: NovaUIMessage = {
 			id: "u",
 			role: "user",
 			parts: [{ type: "text", text: "no files" }],
-		} as NovaUIMessage;
+		};
 		expect(countDocumentsNeedingRead([plain])).toBe(0);
 	});
 
@@ -442,20 +353,20 @@ describe("countDocumentsNeedingRead", () => {
 		// A prior turn's unread doc must not re-trigger the status on a later turn —
 		// the status is for the new turn's docs only.
 		const prior = userMsgWith(ref({ assetId: testMediaAssetId("old") }));
-		const latest = {
+		const latest: NovaUIMessage = {
 			id: "u2",
 			role: "user",
 			parts: [{ type: "text", text: "follow-up, no files" }],
-		} as NovaUIMessage;
+		};
 		expect(countDocumentsNeedingRead([prior, latest])).toBe(0);
 	});
 
 	it("returns 0 when the last message isn't a user message", () => {
-		const assistant = {
+		const assistant: NovaUIMessage = {
 			id: "a",
 			role: "assistant",
 			parts: [{ type: "text", text: "done" }],
-		} as NovaUIMessage;
+		};
 		expect(countDocumentsNeedingRead([assistant])).toBe(0);
 	});
 });

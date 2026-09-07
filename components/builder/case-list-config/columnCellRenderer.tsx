@@ -167,20 +167,16 @@ export function projectColumnDisplay(
 				context.projectProse,
 			);
 		case "phone":
-		// A link cell's visible text is the LABEL, not the address. Quick
-		// Filter matches what `projectColumnDisplay` returns, so returning
-		// the address here would let a worker find a row by typing a URL
-		// they never see, and never by typing the word in front of them.
-		case "link":
+			return { kind: "value", text: caseRowDisplayValue(row, column.field) };
+		case "link": {
+			// Quick Filter follows the actual cell: authored wording for a web
+			// link, the visible raw fallback otherwise, and nothing for blank data.
+			const address = caseRowDisplayValue(row, column.field).trim();
 			return {
 				kind: "value",
-				text:
-					column.kind === "link"
-						? caseRowDisplayValue(row, column.field) === ""
-							? ""
-							: column.linkText
-						: caseRowDisplayValue(row, column.field),
+				text: isOpenableAddress(address) ? column.linkText : address,
 			};
+		}
 		case "date":
 			return formatDateForPreview(
 				caseRowDisplayValue(row, column.field),

@@ -1,14 +1,23 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+import type { MockAgent } from "undici";
+import { describe, expect, it, vi } from "vitest";
+import {
+	readHttpRequestBody,
+	withHttpPeer,
+} from "@/__tests__/helpers/httpPeer";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { xp } from "@/lib/__tests__/docHelpers";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Field, Uuid } from "@/lib/domain";
-import type { PersistableDoc } from "@/lib/domain/blueprint";
 import { proseText } from "@/lib/domain/prose";
+import {
+	admittedControllerDoc,
+	applyControllerEdit,
+} from "@/lib/preview/engine/__tests__/fixtures/controllerDoc";
 import { EngineController } from "@/lib/preview/engine/engineController";
 import {
 	__resetAttachmentCoordinatorForTests,
 	getAttachmentSlotDraft,
+	getAttachmentSlotIssue,
 	getAttachmentSlotPath,
 	getOwnedStagedAttachment,
 	getSignatureDraft,
@@ -22,58 +31,84 @@ import {
 } from "../attachmentClient";
 
 const APP_ID = "test-app";
-const MODULE_UUID = testUuid("aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa");
-const FORM_UUID = testUuid("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb");
-
-function makeDoc(
-	fields: Record<string, Field>,
-	fieldOrder: Record<string, Uuid[]>,
-): PersistableDoc {
-	return {
-		appId: APP_ID,
-		appName: "Attachment migration boundary",
-		connectType: null,
-		caseTypes: null,
-		modules: {
-			[MODULE_UUID]: {
-				uuid: MODULE_UUID,
-				id: "module",
-				name: "Module",
-			},
-		},
-		forms: {
-			[FORM_UUID]: {
-				uuid: FORM_UUID,
-				id: "survey",
-				name: "Survey",
-				type: "survey",
-			},
-		},
-		fields,
-		moduleOrder: [MODULE_UUID],
-		formOrder: { [MODULE_UUID]: [FORM_UUID] },
-		fieldOrder,
-	};
+const MODULE_UUID = testUuid("migration-module");
+const FORM_UUID = testUuid("migration-form");
+const A = testUuid("migration-a"),
+	B = testUuid("migration-b"),
+	C = testUuid("migration-c");
+const nativeFetch = globalThis.fetch;
+const controllers = new Set<EngineController>();
+const subscriptions = new Set<() => void>();
+async function withAttachmentPeer(run: (peer: MockAgent) => Promise<void>) {
+	await withHttpPeer(async (peer) => {
+		const requests: Promise<Response>[] = [];
+		// Node has no document base URL. Preserve native fetch and normalize only
+		// the same-origin URL that a browser would resolve before its HTTP request.
+		vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) => {
+			const request = nativeFetch(
+				new URL(String(input), "https://nova.test"),
+				init,
+			);
+			requests.push(request);
+			return request;
+		});
+		try {
+			await run(peer);
+		} finally {
+			for (const unsubscribe of subscriptions) unsubscribe();
+			subscriptions.clear();
+			for (const controller of controllers) controller.dispose();
+			await Promise.all(
+				[...controllers].map((controller) => controller.awaitSettled()),
+			);
+			controllers.clear();
+			await __resetAttachmentCoordinatorForTests();
+			const responses = await Promise.all(requests);
+			for (const response of responses)
+				expect(response.body === null || response.bodyUsed).toBe(true);
+			vi.unstubAllGlobals();
+		}
+	});
 }
-
-function loadedController(doc: PersistableDoc) {
+function fixture(fields: Field[], fieldOrder: Record<string, Uuid[]>) {
 	const store = createBlueprintDocStore();
-	store.getState().load(doc);
+	store.getState().load(
+		admittedControllerDoc({
+			appId: APP_ID,
+			appName: "Attachment migration",
+			connectType: null,
+			caseTypes: null,
+			modules: {
+				[MODULE_UUID]: { uuid: MODULE_UUID, id: "module", name: "Module" },
+			},
+			forms: {
+				[FORM_UUID]: {
+					uuid: FORM_UUID,
+					id: "survey",
+					name: "Survey",
+					type: "survey",
+				},
+			},
+			fields: Object.fromEntries(fields.map((field) => [field.uuid, field])),
+			moduleOrder: [MODULE_UUID],
+			formOrder: { [MODULE_UUID]: [FORM_UUID] },
+			fieldOrder,
+		}),
+	);
 	store.getState().startTracking();
 	const controller = new EngineController();
+	controllers.add(controller);
 	controller.setDocStore(store);
 	controller.activateForm(FORM_UUID);
 	const entryKey = controller.entryKey;
-	if (entryKey === undefined) {
-		throw new Error("The activated form did not mint an attachment entry key.");
-	}
+	if (!entryKey) throw new Error("No entry key");
 	const snapshot = {
 		appId: APP_ID,
 		entryKey,
 		formUuid: FORM_UUID,
-		projectId: "project-attachment-engine-test",
-		actorUserId: "actor-attachment-engine-test",
-		ownerId: "actor-attachment-engine-test",
+		projectId: "project",
+		actorUserId: "actor",
+		ownerId: "actor",
 		scopeEpoch: 1,
 		accessPhase: "authorized" as const,
 		canEdit: true,
@@ -87,386 +122,258 @@ function loadedController(doc: PersistableDoc) {
 			formUuid: controller.formUuid,
 		}),
 	});
-	return { store, controller, entryKey };
+	const pending: Promise<unknown>[] = [];
+	subscriptions.add(
+		controller.subscribeAuthoredCapturePathMigration((migration) => {
+			pending.push(
+				reconcileAttachmentAuthoredPathMigration({
+					appId: APP_ID,
+					entryKey,
+					migration,
+				}),
+			);
+		}),
+	);
+	const slotArgs = (slotKey: string) => ({ appId: APP_ID, entryKey, slotKey });
+	return { store, controller, entryKey, pending, slotArgs };
 }
-
-function ownSlot(args: {
-	entryKey: string;
-	slotKey: string;
-	fieldUuid: Uuid;
-	instancePath: string;
-	attachmentId: string;
-	captureKind?: string;
-}): void {
+function ownSlot(
+	entryKey: string,
+	slotKey: string,
+	fieldUuid: Uuid,
+	instancePath: string,
+	captureKind = "image",
+) {
 	registerAttachmentSlotPath({
 		appId: APP_ID,
-		entryKey: args.entryKey,
-		slotKey: args.slotKey,
-		fieldUuid: args.fieldUuid,
-		instancePath: args.instancePath,
-		captureKind: args.captureKind ?? "image",
+		entryKey,
+		slotKey,
+		fieldUuid,
+		instancePath,
+		captureKind,
 	});
 	rememberOwnedStagedAttachment({
 		appId: APP_ID,
-		entryKey: args.entryKey,
-		slotKey: args.slotKey,
-		instancePath: args.instancePath,
+		entryKey,
+		slotKey,
+		instancePath,
 		attachment: {
-			attachmentId: args.attachmentId,
-			attachmentName: `${args.attachmentId}.png`,
-			originalFilename: `${args.attachmentId}.png`,
+			attachmentId: slotKey,
+			attachmentName: `${slotKey}.png`,
+			originalFilename: `${slotKey}.png`,
 			sizeBytes: 3,
 		},
 	});
 }
-
-function deferred<T>() {
-	let resolve!: (value: T) => void;
-	const promise = new Promise<T>((accept) => {
-		resolve = accept;
-	});
-	return { promise, resolve };
+function replyToMove(
+	peer: MockAgent,
+	id: string,
+	before: string,
+	after: string,
+	observe?: () => void,
+) {
+	peer
+		.get("https://nova.test")
+		.intercept({
+			method: "PATCH",
+			path: `/api/apps/${APP_ID}/attachments/${id}`,
+		})
+		.reply(async (request) => {
+			expect(
+				JSON.parse((await readHttpRequestBody(request)).toString()),
+			).toEqual({ expectedInstancePath: before, instancePath: after });
+			observe?.();
+			return { statusCode: 200, data: JSON.stringify({ instancePath: after }) };
+		});
+}
+function repeat(uuid: Uuid, id: string): Field {
+	return {
+		uuid,
+		id,
+		kind: "repeat",
+		label: proseText(id),
+		repeat_mode: "user_controlled",
+	};
 }
 
-function wireCoordinator(controller: EngineController) {
-	const pending: Array<Promise<unknown>> = [];
-	const unsubscribe = controller.subscribeAuthoredCapturePathMigration(
-		(event) => {
-			pending.push(
-				reconcileAttachmentAuthoredPathMigration({
-					appId: APP_ID,
-					entryKey: event.entryKey,
-					migration: event,
-				}),
-			);
-		},
-	);
-	return { pending, unsubscribe };
-}
-
-afterEach(async () => {
-	await __resetAttachmentCoordinatorForTests();
-	vi.unstubAllGlobals();
-});
-
-describe("engine-to-attachment migration boundary", () => {
-	it("installs both sides of an atomic capture swap before either PATCH starts", async () => {
-		const firstUuid = testUuid("11111111-1111-4111-8111-111111111111");
-		const secondUuid = testUuid("22222222-2222-4222-8222-222222222222");
-		const { store, controller, entryKey } = loadedController(
-			makeDoc(
-				{
-					[firstUuid]: {
-						uuid: firstUuid,
+describe("admitted engine edits through the attachment HTTP adapter", () => {
+	it("installs both swap destinations before either compare-and-swap request reaches the peer", async () =>
+		withAttachmentPeer(async (peer) => {
+			const h = fixture(
+				[
+					{
+						uuid: A,
 						id: "photo",
 						kind: "signature",
 						label: proseText("Signature"),
 						relevant: xp("false()"),
 					},
-					[secondUuid]: {
-						uuid: secondUuid,
+					{
+						uuid: B,
 						id: "document",
 						kind: "file",
 						label: proseText("Document"),
 					},
+				],
+				{ [FORM_UUID]: [A, B] },
+			);
+			ownSlot(h.entryKey, "signature", A, "/data/photo", "signature");
+			ownSlot(h.entryKey, "document", B, "/data/document", "file");
+			const file = new File(["new document"], "new.pdf", {
+				type: "application/pdf",
+			});
+			rememberAttachmentSlotDraft({
+				...h.slotArgs("document"),
+				file,
+				status: "uploading",
+				generation: 4,
+			});
+			const ink = [[{ x: 0.25, y: 0.75 }]];
+			rememberSignatureDraft(h.entryKey, "signature", ink);
+			const started = Promise.withResolvers<void>(),
+				release = Promise.withResolvers<void>();
+			const upload = runAttachmentTask({
+				entryKey: h.entryKey,
+				slotKey: "document",
+				task: async () => {
+					started.resolve();
+					await release.promise;
 				},
-				{ [FORM_UUID]: [firstUuid, secondUuid] },
-			),
-		);
-		ownSlot({
-			entryKey,
-			slotKey: "photo-slot",
-			fieldUuid: firstUuid,
-			instancePath: "/data/photo",
-			attachmentId: "photo-owner",
-			captureKind: "signature",
-		});
-		ownSlot({
-			entryKey,
-			slotKey: "document-slot",
-			fieldUuid: secondUuid,
-			instancePath: "/data/document",
-			attachmentId: "document-owner",
-			captureKind: "file",
-		});
-		const fileDraft = new File(["new document"], "new-document.pdf", {
-			type: "application/pdf",
-		});
-		rememberAttachmentSlotDraft({
-			appId: APP_ID,
-			entryKey,
-			slotKey: "document-slot",
-			file: fileDraft,
-			status: "uploading",
-			generation: 4,
-		});
-		const signatureInk = [[{ x: 0.25, y: 0.75 }]];
-		rememberSignatureDraft(entryKey, "photo-slot", signatureInk);
-		const uploadStarted = deferred<void>();
-		const uploadRelease = deferred<void>();
-		const upload = runAttachmentTask({
-			entryKey,
-			slotKey: "document-slot",
-			task: async () => {
-				uploadStarted.resolve();
-				await uploadRelease.promise;
-			},
-		});
-		await uploadStarted.promise;
-		const fetchMock = vi.fn(async () => {
-			expect(
-				getAttachmentSlotPath({
-					appId: APP_ID,
-					entryKey,
-					slotKey: "photo-slot",
-				}),
-			).toBe("/data/document");
-			expect(
-				getAttachmentSlotPath({
-					appId: APP_ID,
-					entryKey,
-					slotKey: "document-slot",
-				}),
-			).toBe("/data/photo");
-			return { ok: true, status: 200 };
-		});
-		vi.stubGlobal("fetch", fetchMock);
-		const wired = wireCoordinator(controller);
-
-		store.getState().applyMany([
-			{
-				kind: "updateField",
-				uuid: firstUuid,
-				targetKind: "signature",
-				patch: { id: "document" },
-			},
-			{
-				kind: "updateField",
-				uuid: secondUuid,
-				targetKind: "file",
-				patch: { id: "photo" },
-			},
-		]);
-		expect(fetchMock).not.toHaveBeenCalled();
-		expect(
-			getAttachmentSlotPath({
-				appId: APP_ID,
-				entryKey,
-				slotKey: "photo-slot",
-			}),
-		).toBe("/data/document");
-		expect(
-			getAttachmentSlotPath({
-				appId: APP_ID,
-				entryKey,
-				slotKey: "document-slot",
-			}),
-		).toBe("/data/photo");
-		uploadRelease.resolve();
-		await Promise.all([upload, ...wired.pending]);
-		wired.unsubscribe();
-
-		expect(fetchMock).toHaveBeenCalledTimes(2);
-		expect(
-			getOwnedStagedAttachment({
-				appId: APP_ID,
-				entryKey,
-				slotKey: "photo-slot",
-			}),
-		).toMatchObject({ attachmentId: "photo-owner" });
-		expect(
-			getOwnedStagedAttachment({
-				appId: APP_ID,
-				entryKey,
-				slotKey: "document-slot",
-			}),
-		).toMatchObject({ attachmentId: "document-owner" });
-		expect(
-			getAttachmentSlotDraft({
-				appId: APP_ID,
-				entryKey,
-				slotKey: "document-slot",
-			}),
-		).toMatchObject({ file: fileDraft, status: "uploading", generation: 4 });
-		expect(getSignatureDraft(entryKey, "photo-slot")).toEqual(signatureInk);
-	});
-
-	it("maps index zero and retires only higher instances across distinct repeat parents", async () => {
-		const leftUuid = testUuid("33333333-3333-4333-8333-333333333333");
-		const rightUuid = testUuid("44444444-4444-4444-8444-444444444444");
-		const captureUuid = testUuid("55555555-5555-4555-8555-555555555555");
-		const { store, controller, entryKey } = loadedController(
-			makeDoc(
-				{
-					[leftUuid]: {
-						uuid: leftUuid,
-						id: "left",
-						kind: "repeat",
-						label: proseText("Left"),
-						repeat_mode: "user_controlled",
+			});
+			const observedPaths: unknown[] = [];
+			const observe = () =>
+				observedPaths.push([
+					getAttachmentSlotPath(h.slotArgs("signature")),
+					getAttachmentSlotPath(h.slotArgs("document")),
+				]);
+			replyToMove(peer, "signature", "/data/photo", "/data/document", observe);
+			replyToMove(peer, "document", "/data/document", "/data/photo", observe);
+			try {
+				await started.promise;
+				applyControllerEdit(h.store, [
+					{
+						kind: "updateField",
+						uuid: A,
+						targetKind: "signature",
+						patch: { id: "document" },
 					},
-					[rightUuid]: {
-						uuid: rightUuid,
-						id: "right",
-						kind: "repeat",
-						label: proseText("Right"),
-						repeat_mode: "user_controlled",
+					{
+						kind: "updateField",
+						uuid: B,
+						targetKind: "file",
+						patch: { id: "photo" },
 					},
-					[captureUuid]: {
-						uuid: captureUuid,
-						id: "photo",
-						kind: "image",
-						label: proseText("Photo"),
-					},
-				},
-				{
-					[FORM_UUID]: [leftUuid, rightUuid],
-					[leftUuid]: [captureUuid],
-					[rightUuid]: [],
-				},
-			),
-		);
-		controller.addRepeat(leftUuid);
-		ownSlot({
-			entryKey,
-			slotKey: "left-0",
-			fieldUuid: captureUuid,
-			instancePath: "/data/left[0]/photo",
-			attachmentId: "left-owner-0",
-		});
-		ownSlot({
-			entryKey,
-			slotKey: "left-1",
-			fieldUuid: captureUuid,
-			instancePath: "/data/left[1]/photo",
-			attachmentId: "left-owner-1",
-		});
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-		vi.stubGlobal("fetch", fetchMock);
-		const wired = wireCoordinator(controller);
-
-		store.getState().applyMany([
-			{
-				kind: "moveField",
-				uuid: captureUuid,
-				toParentUuid: rightUuid,
-				after: null,
-			},
-		]);
-		await Promise.all(wired.pending);
-		await vi.waitFor(() =>
-			expect(
-				fetchMock.mock.calls.some(
-					([url, init]) =>
-						String(url).endsWith("/left-owner-1") && init?.method === "DELETE",
-				),
-			).toBe(true),
-		);
-		wired.unsubscribe();
-
-		expect(
-			getAttachmentSlotPath({
-				appId: APP_ID,
-				entryKey,
-				slotKey: "left-0",
-			}),
-		).toBe("/data/right[0]/photo");
-		expect(
-			getAttachmentSlotPath({
-				appId: APP_ID,
-				entryKey,
-				slotKey: "left-1",
-			}),
-		).toBeUndefined();
-		expect(
-			fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
-		).toHaveLength(1);
-	});
-
-	it("preserves retained inner repeat indices when its ancestor gains depth", async () => {
-		const outerUuid = testUuid("66666666-6666-4666-8666-666666666666");
-		const innerUuid = testUuid("77777777-7777-4777-8777-777777777777");
-		const captureUuid = testUuid("88888888-8888-4888-8888-888888888888");
-		const { store, controller, entryKey } = loadedController(
-			makeDoc(
-				{
-					[outerUuid]: {
-						uuid: outerUuid,
-						id: "rounds",
-						kind: "repeat",
-						label: proseText("Rounds"),
-						repeat_mode: "user_controlled",
-					},
-					[innerUuid]: {
-						uuid: innerUuid,
-						id: "visits",
-						kind: "repeat",
-						label: proseText("Visits"),
-						repeat_mode: "user_controlled",
-					},
-					[captureUuid]: {
-						uuid: captureUuid,
-						id: "photo",
-						kind: "image",
-						label: proseText("Photo"),
-					},
-				},
-				{
-					[FORM_UUID]: [outerUuid, innerUuid],
-					[outerUuid]: [],
-					[innerUuid]: [captureUuid],
-				},
-			),
-		);
-		controller.addRepeat(innerUuid);
-		ownSlot({
-			entryKey,
-			slotKey: "visit-0",
-			fieldUuid: captureUuid,
-			instancePath: "/data/visits[0]/photo",
-			attachmentId: "visit-owner-0",
-		});
-		ownSlot({
-			entryKey,
-			slotKey: "visit-1",
-			fieldUuid: captureUuid,
-			instancePath: "/data/visits[1]/photo",
-			attachmentId: "visit-owner-1",
-		});
-		const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-		vi.stubGlobal("fetch", fetchMock);
-		const wired = wireCoordinator(controller);
-
-		store.getState().applyMany([
-			{
-				kind: "moveField",
-				uuid: innerUuid,
-				toParentUuid: outerUuid,
-				after: null,
-			},
-		]);
-		await Promise.all(wired.pending);
-		wired.unsubscribe();
-
-		expect(
-			getAttachmentSlotPath({
-				appId: APP_ID,
-				entryKey,
-				slotKey: "visit-0",
-			}),
-		).toBe("/data/rounds[0]/visits[0]/photo");
-		expect(
-			getAttachmentSlotPath({
-				appId: APP_ID,
-				entryKey,
-				slotKey: "visit-1",
-			}),
-		).toBe("/data/rounds[0]/visits[1]/photo");
-		expect(
-			fetchMock.mock.calls.filter(([, init]) => init?.method === "PATCH"),
-		).toHaveLength(2);
-		expect(
-			fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE"),
-		).toHaveLength(0);
-	});
+				]);
+				expect(peer.getCallHistory()?.calls()).toEqual([]);
+				expect(getAttachmentSlotPath(h.slotArgs("signature"))).toBe(
+					"/data/document",
+				);
+				expect(getAttachmentSlotPath(h.slotArgs("document"))).toBe(
+					"/data/photo",
+				);
+				release.resolve();
+				await upload;
+				expect(await Promise.all(h.pending)).toEqual([[]]);
+				expect(observedPaths).toEqual([
+					["/data/document", "/data/photo"],
+					["/data/document", "/data/photo"],
+				]);
+				expect(
+					getOwnedStagedAttachment(h.slotArgs("signature"))?.attachmentId,
+				).toBe("signature");
+				expect(
+					getOwnedStagedAttachment(h.slotArgs("document"))?.attachmentId,
+				).toBe("document");
+				expect(getAttachmentSlotIssue(h.slotArgs("signature"))).toBeUndefined();
+				expect(getAttachmentSlotIssue(h.slotArgs("document"))).toBeUndefined();
+				expect(getAttachmentSlotDraft(h.slotArgs("document"))).toMatchObject({
+					file,
+					status: "uploading",
+					generation: 4,
+				});
+				expect(getSignatureDraft(h.entryKey, "signature")).toEqual(ink);
+			} finally {
+				release.resolve();
+				await upload;
+				await Promise.all(h.pending);
+			}
+		}));
+	it("retargets index zero and deletes only the higher instance when moving between distinct repeats", async () =>
+		withAttachmentPeer(async (peer) => {
+			const h = fixture(
+				[
+					repeat(A, "left"),
+					repeat(B, "right"),
+					{ uuid: C, id: "photo", kind: "image", label: proseText("Photo") },
+				],
+				{ [FORM_UUID]: [A, B], [A]: [C], [B]: [] },
+			);
+			h.controller.addRepeat(A);
+			ownSlot(h.entryKey, "left-0", C, "/data/left[0]/photo");
+			ownSlot(h.entryKey, "left-1", C, "/data/left[1]/photo");
+			replyToMove(
+				peer,
+				"left-0",
+				"/data/left[0]/photo",
+				"/data/right[0]/photo",
+			);
+			peer
+				.get("https://nova.test")
+				.intercept({
+					method: "DELETE",
+					path: `/api/apps/${APP_ID}/attachments/left-1`,
+				})
+				.reply(204, "");
+			applyControllerEdit(h.store, [
+				{ kind: "moveField", uuid: C, toParentUuid: B, after: null },
+			]);
+			expect(await Promise.all(h.pending)).toEqual([[]]);
+			await vi.waitFor(() =>
+				expect(peer.getCallHistory()?.calls()).toHaveLength(2),
+			);
+			expect(getAttachmentSlotPath(h.slotArgs("left-0"))).toBe(
+				"/data/right[0]/photo",
+			);
+			expect(getAttachmentSlotPath(h.slotArgs("left-1"))).toBeUndefined();
+			expect(getAttachmentSlotIssue(h.slotArgs("left-0"))).toBeUndefined();
+		}));
+	it("preserves both retained inner indices when their repeat gains a new ancestor", async () =>
+		withAttachmentPeer(async (peer) => {
+			const h = fixture(
+				[
+					repeat(A, "rounds"),
+					repeat(B, "visits"),
+					{ uuid: C, id: "photo", kind: "image", label: proseText("Photo") },
+				],
+				{ [FORM_UUID]: [A, B], [A]: [], [B]: [C] },
+			);
+			h.controller.addRepeat(B);
+			for (const index of [0, 1]) {
+				ownSlot(
+					h.entryKey,
+					`visit-${index}`,
+					C,
+					`/data/visits[${index}]/photo`,
+				);
+				replyToMove(
+					peer,
+					`visit-${index}`,
+					`/data/visits[${index}]/photo`,
+					`/data/rounds[0]/visits[${index}]/photo`,
+				);
+			}
+			applyControllerEdit(h.store, [
+				{ kind: "moveField", uuid: B, toParentUuid: A, after: null },
+			]);
+			expect(await Promise.all(h.pending)).toEqual([[]]);
+			for (const index of [0, 1]) {
+				expect(getAttachmentSlotPath(h.slotArgs(`visit-${index}`))).toBe(
+					`/data/rounds[0]/visits[${index}]/photo`,
+				);
+				expect(
+					getAttachmentSlotIssue(h.slotArgs(`visit-${index}`)),
+				).toBeUndefined();
+			}
+			expect(peer.getCallHistory()?.calls()).toHaveLength(2);
+		}));
 });

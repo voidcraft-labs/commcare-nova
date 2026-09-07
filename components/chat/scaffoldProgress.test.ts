@@ -40,22 +40,17 @@ describe("computeScaffoldProgress", () => {
 		);
 	});
 
-	it("ramps through foundation work as the optional data model lands", () => {
-		expect(
-			computeScaffoldProgress(
-				BuilderPhase.Generating,
-				GenerationStage.Foundation,
-				false,
-			),
-		).toBe(0.05);
-		expect(
-			computeScaffoldProgress(
-				BuilderPhase.Generating,
-				GenerationStage.Foundation,
-				true,
-			),
-		).toBe(0.3);
-	});
+	it.each([null, GenerationStage.Foundation])(
+		"keeps stage %s below completion while the foundation lands",
+		(stage) => {
+			expect(
+				computeScaffoldProgress(BuilderPhase.Generating, stage, false),
+			).toBe(0.05);
+			expect(
+				computeScaffoldProgress(BuilderPhase.Generating, stage, true),
+			).toBe(0.3);
+		},
+	);
 
 	it("hands the visual off once content construction starts", () => {
 		expect(

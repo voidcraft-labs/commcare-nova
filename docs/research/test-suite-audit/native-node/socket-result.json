@@ -1,0 +1,38 @@
+{
+	"node": "v24.18.1",
+	"bundledUndici": "7.29.0",
+	"dispatcherUndici": "8.10.0",
+	"phase": "beforeExit after body consumption and transport close",
+	"resources": [
+		[
+			48,
+			{
+				"type": "PROMISE",
+				"trigger": 29,
+				"stack": "Error\n    at AsyncHook.init (<repo>/docs/research/test-suite-audit/native-node/socket-multipart.mjs:16:12)\n    at emitInitNative (node:internal/async_hooks:206:43)\n    at emitInitScript (node:internal/async_hooks:513:3)\n    at promiseInitHook (node:internal/async_hooks:332:3)\n    at promiseInitHookWithDestroyTracking (node:internal/async_hooks:336:3)\n    at Promise.withResolvers (<anonymous>)\n    at new InternalReadableByteStream (node:internal/webstreams/readablestream:1299:28)\n    at createReadableByteStream (node:internal/webstreams/readablestream:1315:18)\n    at readableByteStreamTee (node:internal/webstreams/readablestream:2056:5)\n    at readableStreamTee (node:internal/webstreams/readablestream:1694:12)\n    at ReadableStream.tee (node:internal/webstreams/readablestream:444:12)\n    at cloneBody (node:internal/deps/undici/undici:6962:48)\n    at cloneRequest (node:internal/deps/undici/undici:12588:27)\n    at httpNetworkOrCacheFetch (node:internal/deps/undici/undici:13551:23)\n    at httpFetch (node:internal/deps/undici/undici:13446:43)\n    at schemeFetch (node:internal/deps/undici/undici:13363:18)\n    at mainFetch (node:internal/deps/undici/undici:13207:30)\n    at fetching (node:internal/deps/undici/undici:13176:7)\n    at fetch (node:internal/deps/undici/undici:13040:20)\n    at fetch (node:internal/deps/undici/undici:17708:10)\n    at fetch (node:internal/bootstrap/web/exposed-window-or-worker:83:12)\n    at <repo>/docs/research/test-suite-audit/native-node/socket-multipart.mjs:53:24\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+				"destroyed": false,
+				"resolved": false
+			}
+		],
+		[
+			69,
+			{
+				"type": "BLOBREADER",
+				"trigger": 42,
+				"stack": "Error\n    at AsyncHook.init (<repo>/docs/research/test-suite-audit/native-node/socket-multipart.mjs:16:12)\n    at BlobReader.emitInitNative (node:internal/async_hooks:206:43)\n    at File.stream (node:internal/blob:325:49)\n    at action (node:internal/deps/undici/undici:6901:27)\n    at AsyncGenerator.next (<anonymous>)\n    at node:internal/deps/undici/undici:6937:30\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+				"destroyed": false,
+				"resolved": false
+			}
+		],
+		[
+			205,
+			{
+				"type": "BLOBREADER",
+				"trigger": 201,
+				"stack": "Error\n    at AsyncHook.init (<repo>/docs/research/test-suite-audit/native-node/socket-multipart.mjs:16:12)\n    at BlobReader.emitInitNative (node:internal/async_hooks:206:43)\n    at arrayBuffer (node:internal/blob:416:32)\n    at File.text (node:internal/blob:303:7)\n    at Server.<anonymous> (<repo>/docs/research/test-suite-audit/native-node/socket-multipart.mjs:37:35)\n    at process.processTicksAndRejections (node:internal/process/task_queues:104:5)",
+				"destroyed": false,
+				"resolved": false
+			}
+		]
+	]
+}

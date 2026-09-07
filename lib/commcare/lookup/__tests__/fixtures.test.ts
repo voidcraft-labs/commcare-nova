@@ -1,14 +1,10 @@
+import { isTag } from "domhandler";
+import { textContent } from "domutils";
+import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { describe, expect, it } from "vitest";
 import { el } from "@/lib/commcare/elementBuilders";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
-import type {
-	LookupCellValue,
-	LookupFixtureRow,
-	LookupRevision,
-	LookupRowId,
-	LookupRowValues,
-	LookupTableDefinition,
-} from "@/lib/lookup/types";
+import { lookupTableIdSchema } from "@/lib/domain/lookupIds";
 import {
 	buildLookupFixtures,
 	type CompiledLookupFixture,
@@ -19,146 +15,88 @@ import {
 	MAX_LOOKUP_FIXTURE_ROWS,
 } from "../fixtures";
 import { lookupFixtureId, lookupWireNaming } from "../naming";
+import {
+	lookupWireCorpus,
+	wireRow,
+	wireTable,
+	wireUuid,
+} from "./lookupWireCorpus";
 
-const CODE_COL = "018f0000-0000-7000-8000-0000000000c1" as LookupColumnId;
-const NAME_COL = "018f0000-0000-7000-8000-0000000000c2" as LookupColumnId;
-const QTY_COL = "018f0000-0000-7000-8000-0000000000c3" as LookupColumnId;
-
-function tableId(tag: string): LookupTableId {
-	return `018f0000-0000-7000-8000-table${tag}` as LookupTableId;
-}
-
-function vals(entries: Record<string, LookupCellValue>): LookupRowValues {
-	return entries as LookupRowValues;
-}
-
-let rowSeq = 0;
-function row(values: LookupRowValues): LookupFixtureRow {
-	rowSeq += 1;
-	return { id: `018f0000-0000-7000-8000-row${rowSeq}` as LookupRowId, values };
-}
-
-function demoTable(): LookupTableDefinition {
-	return {
-		id: tableId("demo"),
-		name: "Demo",
-		tag: "demo",
-		definitionRevision: "1" as LookupRevision,
-		columns: [
-			{ id: CODE_COL, wireName: "code", label: "Code", dataType: "text" },
-			{ id: NAME_COL, wireName: "name", label: "Name", dataType: "text" },
-			{ id: QTY_COL, wireName: "qty", label: "Qty", dataType: "int" },
-		],
-	};
-}
-
-function oneTextColumnTable(tag: string): LookupTableDefinition {
-	return {
-		id: tableId(tag),
-		name: tag,
-		tag,
-		definitionRevision: "1" as LookupRevision,
-		columns: [{ id: CODE_COL, wireName: "v", label: "V", dataType: "text" }],
-	};
-}
-
-describe("buildLookupFixtures serialization", () => {
-	it("serializes a fixture block byte-for-byte in authored column order", () => {
-		const table = demoTable();
-		const rows: LookupFixtureRow[] = [
-			row(vals({ [CODE_COL]: "a", [NAME_COL]: "Alpha", [QTY_COL]: 1 })),
-			// Empty text code, absent name key, present qty: both blank spellings
-			// collapse to one empty element per column.
-			row(vals({ [CODE_COL]: "", [QTY_COL]: 2 })),
-		];
-
+describe("lookup fixture serialization", () => {
+	it("preserves admitted typed values, absent cells, shape and order in independent XML decoding", () => {
+		const corpus = lookupWireCorpus();
+		const before = structuredClone(corpus);
 		const set = buildLookupFixtures(
-			lookupWireNaming([table]),
-			new Map([[table.id, rows]]),
-		);
-
-		expect(set.fixtures[0].xml).toBe(
-			'<fixture id="item-list:demo"><demo_list>' +
-				"<demo><code>a</code><name>Alpha</name><qty>1</qty></demo>" +
-				"<demo><code/><name/><qty>2</qty></demo>" +
-				"</demo_list></fixture>",
-		);
-	});
-
-	it("reports bytes as the exact UTF-8 length of the serialized xml", () => {
-		const table = demoTable();
-		const set = buildLookupFixtures(
-			lookupWireNaming([table]),
-			new Map([[table.id, [row(vals({ [CODE_COL]: "a" }))]]]),
-		);
-		const fixture = set.fixtures[0];
-		expect(fixture.bytes).toBe(Buffer.byteLength(fixture.xml, "utf8"));
-	});
-
-	it("inflates bytes through entity escaping without altering code-point count", () => {
-		const table = oneTextColumnTable("esc");
-		const naming = lookupWireNaming([table]);
-		const special = "a<b&cé";
-		const control = "axbxcx"; // same code-point count, no special chars
-
-		const escaped = buildLookupFixtures(
-			naming,
-			new Map([[table.id, [row(vals({ [CODE_COL]: special }))]]]),
-		).fixtures[0];
-		const plain = buildLookupFixtures(
-			naming,
-			new Map([[table.id, [row(vals({ [CODE_COL]: control }))]]]),
-		).fixtures[0];
-
-		expect(escaped.xml).toContain("&lt;");
-		expect(escaped.xml).toContain("&amp;");
-		expect(escaped.xml).toContain("&#xe9;");
-		expect(escaped.bytes).toBe(Buffer.byteLength(escaped.xml, "utf8"));
-		// Identical code-point count, so the extra bytes are purely escaping.
-		expect([...special]).toHaveLength([...control].length);
-		expect(escaped.bytes).toBeGreaterThan(plain.bytes);
-	});
-
-	it("sorts fixtures by tag regardless of the input definition order", () => {
-		const zebra = oneTextColumnTable("zebra");
-		const alpha = oneTextColumnTable("alpha");
-		const set = buildLookupFixtures(
-			lookupWireNaming([zebra, alpha]),
-			new Map([
-				[zebra.id, []],
-				[alpha.id, []],
-			]),
+			lookupWireNaming(corpus.definitions),
+			corpus.rowsByTable,
 		);
 		expect(set.fixtures.map((fixture) => fixture.tag)).toEqual([
-			"alpha",
-			"zebra",
+			"empty",
+			"records",
 		]);
-	});
-
-	it("counts cells as rowCount * columnCount, including a row with no stored values", () => {
-		const table = demoTable();
-		const rows: LookupFixtureRow[] = [
-			row(vals({ [CODE_COL]: "a", [NAME_COL]: "Alpha", [QTY_COL]: 1 })),
-			row(vals({})), // zero stored values still contributes columnCount cells
-		];
-		const set = buildLookupFixtures(
-			lookupWireNaming([table]),
-			new Map([[table.id, rows]]),
+		for (const [index, fixture] of set.fixtures.entries()) {
+			const expected = corpus.expected[index];
+			new SaxesParser({ xmlns: true }).write(fixture.xml).close();
+			const roots = parseDocument(fixture.xml, {
+				xmlMode: true,
+			}).children.filter(isTag);
+			expect(roots).toHaveLength(1);
+			expect(roots[0].name).toBe("fixture");
+			expect(roots[0].attribs).toEqual({ id: `item-list:${expected.tag}` });
+			const bodies = roots[0].children.filter(isTag);
+			expect(bodies).toHaveLength(1);
+			expect(bodies[0].name).toBe(`${expected.tag}_list`);
+			const rows = bodies[0].children.filter(isTag);
+			expect(rows.map((row) => row.name)).toEqual(
+				expected.rows.map(() => expected.tag),
+			);
+			for (const row of rows)
+				expect(row.children.filter(isTag).map((cell) => cell.name)).toEqual(
+					expected.columns,
+				);
+			expect(
+				rows.map((row) => row.children.filter(isTag).map(textContent)),
+			).toEqual(expected.rows);
+			expect(fixture.rowCount).toBe(rows.length);
+			expect(fixture.cellCount).toBe(
+				rows.reduce((sum, row) => sum + row.children.filter(isTag).length, 0),
+			);
+			expect(fixture.bytes).toBe(Buffer.byteLength(fixture.xml));
+		}
+		expect(set.totalRows).toBe(6);
+		expect(set.totalCells).toBe(42);
+		expect(set.totalBytes).toBe(
+			set.fixtures.reduce(
+				(sum, fixture) => sum + Buffer.byteLength(fixture.xml),
+				0,
+			),
 		);
-		expect(set.fixtures[0].rowCount).toBe(2);
-		expect(set.fixtures[0].cellCount).toBe(6);
-		expect(set.totalRows).toBe(2);
-		expect(set.totalCells).toBe(6);
+		expect(corpus).toEqual(before);
 	});
-
-	it("throws when the rows map is missing a table entry", () => {
-		const table = demoTable();
+	it("includes every defined cell when the stored row has no values", () => {
+		const table = wireTable("blank", [
+			{ name: "one", type: "text" },
+			{ name: "two", type: "decimal" },
+		]);
+		const result = buildLookupFixtures(
+			lookupWireNaming([table]),
+			new Map([[table.id, [wireRow(table, "empty", {})]]]),
+		);
+		expect(result.fixtures[0].xml).toBe(
+			'<fixture id="item-list:blank"><blank_list><blank><one/><two/></blank></blank_list></fixture>',
+		);
+		expect(result.totalCells).toBe(2);
+	});
+	it("refuses a snapshot missing its rows", () => {
+		const table = wireTable("blank", [{ name: "value", type: "text" }]);
 		expect(() =>
 			buildLookupFixtures(lookupWireNaming([table]), new Map()),
-		).toThrow(/has no rows entry/);
+		).toThrow(/no rows entry/);
 	});
 });
 
+// Synthetic measured summaries exercise only the pure budget decision. The
+// serialization test above and export boundary suite own measuring actual data.
 function fakeFixture(spec: {
 	tag: string;
 	rowCount?: number;
@@ -167,7 +105,7 @@ function fakeFixture(spec: {
 }): CompiledLookupFixture {
 	const fixtureId = lookupFixtureId(spec.tag);
 	return {
-		tableId: tableId(spec.tag),
+		tableId: lookupTableIdSchema.parse(wireUuid(spec.tag)),
 		tag: spec.tag,
 		fixtureId,
 		element: el("fixture", { id: fixtureId }),
@@ -188,14 +126,6 @@ function fakeSet(
 		totalBytes: fixtures.reduce((sum, f) => sum + f.bytes, 0),
 	};
 }
-
-describe("lookup fixture aggregate caps", () => {
-	it("pins the three published limits", () => {
-		expect(MAX_LOOKUP_FIXTURE_ROWS).toBe(10_000);
-		expect(MAX_LOOKUP_FIXTURE_CELLS).toBe(100_000);
-		expect(MAX_LOOKUP_FIXTURE_BYTES).toBe(16 * 1024 * 1024);
-	});
-});
 
 describe("lookupFixtureBudgetExcess", () => {
 	it.each([

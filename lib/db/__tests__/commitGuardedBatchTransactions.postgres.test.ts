@@ -35,6 +35,7 @@
 
 import { sql } from "kysely";
 import { describe, expect, it } from "vitest";
+import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { MAX_RUN_MINUTES } from "@/lib/db/constants";
@@ -48,6 +49,11 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import {
+	createLocation,
+	readOrganization,
+	updateLocation,
+} from "@/lib/organization/service";
 import { setupAppStateTestDb } from "./appStateTestDb";
 
 const {
@@ -89,7 +95,7 @@ const MEMBER = "user-member";
 const PROJECT = "project-1";
 const HOLDER_NONCE = "00000000-0000-4000-8000-000000000001";
 
-const h = setupAppStateTestDb("commit_guard_");
+const h = setupAppStateTestDb("commit_guard_", { poolMax: 2 });
 
 /** A minimal valid registration doc writing two case properties. */
 function minDoc(appName = "Test"): BlueprintDoc {
@@ -627,6 +633,178 @@ describe("commitGuardedBatch (Postgres)", () => {
 		});
 		expect(replay).toMatchObject({ seq: 1, deduped: true });
 		expect(await readStream(appId)).toHaveLength(1);
+	});
+
+	it("refuses an automation derived from old places after waiting behind a competing organization writer", async () => {
+		const doc = minDoc();
+		const levelUuid = testUuid("fence-region-level");
+		const automationUuid = testUuid("fence-location-automation");
+		doc.organizationLevels = {
+			[levelUuid]: {
+				uuid: levelUuid,
+				code: "region",
+				name: "Region",
+				caseFlow: {
+					workers: "assigned",
+					ownsCases: true,
+					descendantCases: { kind: "none" },
+				},
+				addressBook: { reach: "own-branch" },
+			},
+		};
+		doc.organizationLevelOrder = [levelUuid];
+		doc.automations = {
+			[automationUuid]: {
+				uuid: automationUuid,
+				kind: "case-update",
+				name: "Close selected patients",
+				caseType: "patient",
+				criteriaOperator: "all",
+				criteria: [],
+				setupOnlyCriteria: [],
+				updates: [],
+				closeCase: true,
+			},
+		};
+		doc.automationOrder = [automationUuid];
+		const appId = await seedApp(doc);
+		const scope = {
+			appId,
+			projectId: PROJECT,
+			actorUserId: OWNER,
+			role: "owner",
+		};
+		const created = await createLocation(scope, {
+			levelUuid,
+			parentId: null,
+			name: "North",
+			externalId: null,
+			latitude: null,
+			longitude: null,
+			values: {},
+		});
+		expect(created.revision).toBe("1");
+		const before = await loadApp(appId);
+		const batchId = crypto.randomUUID();
+		const mutations: Mutation[] = [
+			{
+				kind: "editAutomationItem",
+				automationUuid,
+				targetKind: "case-update",
+				edit: {
+					collection: "criterion",
+					operation: "add",
+					value: {
+						uuid: testUuid("fence-location-criterion"),
+						kind: "location",
+						locationUuid: created.location.id,
+						includeDescendants: false,
+					},
+				},
+			},
+		];
+		const request = {
+			appId,
+			expectedProjectId: PROJECT,
+			expectedOrganizationRevision: created.revision,
+			batchId,
+			mutations,
+			actorUserId: OWNER,
+			kind: "autosave" as const,
+		};
+		let commitSettled = false;
+		let commitOutcome: Promise<unknown> | undefined;
+		try {
+			// The actual place writer acquires the app's shared lock, then waits
+			// on this held organization row. Its app lock blocks the canonical
+			// automation writer until the place change and clock advance commit.
+			const changed = await whileBlocked(
+				h,
+				(pg) =>
+					pg.query(
+						"SELECT revision FROM app_organization_state WHERE app_id = $1 FOR UPDATE",
+						[appId],
+					),
+				() =>
+					updateLocation(
+						scope,
+						created.location.id,
+						{ name: "Northern region" },
+						created.revision,
+					),
+				async (writerSettled, pg) => {
+					expect(writerSettled).toBe(false);
+					const writers = await pg.query<{ pid: number }>(
+						"SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND pg_backend_pid() = ANY(pg_blocking_pids(pid))",
+					);
+					expect(writers.rows).toHaveLength(1);
+					const writerPid = writers.rows[0].pid;
+					commitOutcome = commitGuardedBatch(request).then(
+						(receipt) => {
+							commitSettled = true;
+							return receipt;
+						},
+						(error: unknown) => {
+							commitSettled = true;
+							return error;
+						},
+					);
+					await expect
+						.poll(async () => {
+							await pg.query("SELECT pg_stat_clear_snapshot()");
+							const waiting = await pg.query<{ count: number }>(
+								"SELECT count(*)::int AS count FROM pg_stat_activity WHERE datname = current_database() AND $1 = ANY(pg_blocking_pids(pid))",
+								[writerPid],
+							);
+							return waiting.rows[0].count;
+						})
+						.toBe(1);
+					expect(commitSettled).toBe(false);
+					const pending = await pg.query<{ seq: string; changes: string }>(
+						"SELECT mutation_seq::text AS seq, (SELECT count(*)::text FROM app_changes WHERE app_id = $1) AS changes FROM apps WHERE id = $1",
+						[appId],
+					);
+					expect(pending.rows).toEqual([{ seq: "0", changes: "0" }]);
+				},
+			);
+			expect(changed.revision).toBe("2");
+			const refused = await commitOutcome;
+			expect(refused).toBeInstanceOf(BlueprintCommitRejectedError);
+			expect(refused).toMatchObject({
+				message:
+					"This app's places changed while the automation was being saved. Retry the automation change so its CommCare HQ setup guide uses the current organization.",
+			});
+			expect((await loadApp(appId))?.blueprint).toEqual(before?.blueprint);
+			expect(await readSeq(appId)).toBe(0);
+			expect(await readStream(appId)).toEqual([]);
+			expect(await readOrganization(scope)).toMatchObject({
+				revision: "2",
+				locations: [{ id: created.location.id, name: "Northern region" }],
+			});
+
+			// The exact automation batch is valid against the refreshed clock.
+			// This distinguishes the fence refusal from malformed-fixture failure.
+			const committed = await commitGuardedBatch({
+				...request,
+				expectedOrganizationRevision: changed.revision,
+			});
+			expect(committed).toMatchObject({ seq: 1, deduped: false });
+			expect(
+				committed.committedDoc.automations?.[automationUuid].criteria,
+			).toEqual([
+				{
+					uuid: testUuid("fence-location-criterion"),
+					kind: "location",
+					locationUuid: created.location.id,
+					includeDescendants: false,
+				},
+			]);
+			expect(await readStream(appId)).toHaveLength(1);
+		} finally {
+			// whileBlocked releases its row lock and joins the organization write
+			// on every failure; the separately started canonical task is ours.
+			await commitOutcome;
+		}
 	});
 
 	it("rejects a reused batchId whose admitted content differs", async () => {

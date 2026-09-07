@@ -2,7 +2,7 @@
 import { Icon } from "@iconify/react/offline";
 import tablerCheck from "@iconify-icons/tabler/check";
 import { AnimatePresence, motion } from "motion/react";
-import { useRef, useState } from "react";
+import { useCallback, useLayoutEffect, useRef, useState } from "react";
 
 interface AskQuestionsInput {
 	header: string;
@@ -42,15 +42,17 @@ export function AskQuestionsCard({
 	const stateRef = useRef({ currentIndex, answers });
 	stateRef.current = { currentIndex, answers };
 
-	const isWaiting = state === "input-available";
-	const isComplete = state === "output-available";
+	const questions = input?.questions ?? [];
+	const answeredLocally =
+		questions.length > 0 && currentIndex >= questions.length;
+	const isWaiting = state === "input-available" && !answeredLocally;
+	const isComplete = state === "output-available" || answeredLocally;
 	/* A round whose turn failed before it was answered: the claw-back keeps
 	 * the failed turn's partial in the transcript and closes its dangling
 	 * tool calls as `output-error`, so this card renders as an ended round,
 	 * never as a skeleton forever loading. */
 	const isInterrupted = state === "output-error";
-	const displayAnswers = isComplete ? output || {} : answers;
-	const questions = input?.questions ?? [];
+	const displayAnswers = state === "output-available" ? output || {} : answers;
 	const isLoading = !isWaiting && !isComplete && !isInterrupted;
 
 	/**
@@ -66,34 +68,34 @@ export function AskQuestionsCard({
 
 	/** Apply an answer keyed by the current question index. Questions are
 	 * immutable after the SA emits them: index is a stable identity key. */
-	const applyAnswer = (answerText: string) => {
-		if (disabled) return;
-		const { answers: ans, currentIndex: ci } = stateRef.current;
-		const newAnswers = { ...ans, [String(ci)]: answerText };
-		setAnswers(newAnswers);
-		stateRef.current.answers = newAnswers;
-
-		const nextIdx = ci + 1;
-		if (nextIdx < questions.length) {
+	const applyAnswer = useCallback(
+		(answerText: string) => {
+			const { answers: ans, currentIndex: ci } = stateRef.current;
+			if (disabled || state !== "input-available" || ci >= questions.length)
+				return;
+			const newAnswers = { ...ans, [String(ci)]: answerText };
+			const nextIdx = ci + 1;
+			// Retire this question synchronously before publishing. A second activation
+			// may arrive before React commits the completed card.
+			stateRef.current = { answers: newAnswers, currentIndex: nextIdx };
+			setAnswers(newAnswers);
 			setCurrentIndex(nextIdx);
-			stateRef.current.currentIndex = nextIdx;
-		} else {
-			addToolOutput({ tool: "askQuestions", toolCallId, output: newAnswers });
-		}
-	};
+			if (nextIdx === questions.length) {
+				addToolOutput({ tool: "askQuestions", toolCallId, output: newAnswers });
+			}
+		},
+		[addToolOutput, disabled, questions.length, state, toolCallId],
+	);
 
-	// Register handler so ChatSidebar can route typed messages as question answers
-	if (pendingAnswerRef) {
-		if (isWaiting && !disabled) {
-			pendingAnswerRef.current = (text: string) => {
-				if (stateRef.current.currentIndex < questions.length) {
-					applyAnswer(`User Responded: ${text}`);
-				}
-			};
-		} else {
-			pendingAnswerRef.current = null;
-		}
-	}
+	// Only the committed, active card owns the composer's typed-answer route.
+	useLayoutEffect(() => {
+		if (!pendingAnswerRef || !isWaiting || disabled) return;
+		const handler = (text: string) => applyAnswer(`User Responded: ${text}`);
+		pendingAnswerRef.current = handler;
+		return () => {
+			if (pendingAnswerRef.current === handler) pendingAnswerRef.current = null;
+		};
+	}, [applyAnswer, disabled, isWaiting, pendingAnswerRef]);
 
 	return (
 		<div
@@ -198,7 +200,10 @@ export function AskQuestionsCard({
 														key={opt.label}
 														whileHover={{ scale: 1.01 }}
 														whileTap={{ scale: 0.99 }}
-														onClick={() => applyAnswer(opt.label)}
+														onClick={() => {
+															if (stateRef.current.currentIndex === i)
+																applyAnswer(opt.label);
+														}}
 														disabled={disabled}
 														className="w-full text-left px-3 py-2 rounded-lg border border-nova-border bg-nova-surface not-disabled:hover:border-nova-violet/40 not-disabled:hover:bg-nova-violet/5 transition-colors not-disabled:cursor-pointer disabled:opacity-60"
 													>

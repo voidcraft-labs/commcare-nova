@@ -34,7 +34,6 @@ import {
 	compensatePendingFormAttachmentInitiation,
 	createPendingFormAttachment,
 	FormAttachmentWriteRejectedError,
-	purgeExpiredFormAttachments,
 } from "@/lib/db/formAttachments";
 import { isCaptureFieldKind, uuidSchema } from "@/lib/domain";
 import {
@@ -46,11 +45,7 @@ import {
 	MAX_CAPTURE_BYTES,
 } from "@/lib/domain/captureFormats";
 import { log } from "@/lib/logger";
-import {
-	createSignedUploadUrl,
-	deleteAsset,
-	deleteAssetGeneration,
-} from "@/lib/storage/media";
+import { createSignedUploadUrl } from "@/lib/storage/media";
 
 const requestBodySchema = z
 	.object({
@@ -249,26 +244,6 @@ export async function POST(
 			}
 			throw signingError;
 		}
-
-		// Opportunistic row hygiene complements the scheduled worker. The BYTES
-		// also have an independent bucket lifecycle guarantee, so a skipped
-		// request sweep costs temporary table rows, never retention.
-		void purgeExpiredFormAttachments()
-			.then(async ({ objects }) => {
-				await Promise.allSettled(
-					objects.map((object) =>
-						object.objectGeneration === null
-							? deleteAsset(object.objectKey)
-							: deleteAssetGeneration(
-									object.objectKey,
-									object.objectGeneration,
-								),
-					),
-				);
-			})
-			.catch((err: unknown) => {
-				log.warn("[attachments] expired-row sweep failed", { err });
-			});
 
 		return NextResponse.json({
 			attachmentId,

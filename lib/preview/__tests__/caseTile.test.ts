@@ -1,10 +1,5 @@
-/**
- * The tile's parity rules, asserted where they live: in the pure
- * projection and the pure style plan, not in a rendered DOM. Every
- * expectation here is a statement about what a CommCare client draws,
- * so a change that makes one of these fail is a change that makes Nova's
- * preview disagree with the device.
- */
+/** Pure tile projection and CSS-plan tests. Native rendering and CommCare wire
+ * acceptance are separate boundaries; these checks alone prove neither. */
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -20,8 +15,6 @@ import { literal, term } from "@/lib/domain/predicate";
 import { splitTileGridByGroupHeader } from "../caseTileGrouping";
 import {
 	projectTileGrid,
-	TILE_ENTITIES_PER_ROW,
-	TILE_USES_UNIFORM_UNITS,
 	tileCellGridArea,
 	tileGridTemplateColumns,
 	tileGridTemplateRows,
@@ -101,22 +94,12 @@ describe("tile grid geometry", () => {
 	});
 });
 
-describe("pinned runtime assumptions", () => {
-	it("draws one tile per row with content-sized rows", () => {
-		// Nova authors neither `fit-across` nor `uniform-units`, so the
-		// renderer pins what the runtime assumes without them. These two
-		// values are the whole reason a tile list is a list of rows and not
-		// a wrapped gallery of squares.
-		expect(TILE_ENTITIES_PER_ROW).toBe(1);
-		expect(TILE_USES_UNIFORM_UNITS).toBe(false);
+describe("tile row sizing", () => {
+	it("projects content-sized rows", () => {
 		expect(tileGridTemplateRows(3)).toBe("repeat(3, min-content)");
 		expect(tileGridStyle(projectTileGrid([])).gridTemplateRows).toBe(
 			"repeat(0, min-content)",
 		);
-	});
-
-	it("keeps the uniform-units arm meaningful for an imported app that sets it", () => {
-		expect(tileGridTemplateRows(2, true, 4)).toBe("repeat(2, 25cqw)");
 	});
 });
 

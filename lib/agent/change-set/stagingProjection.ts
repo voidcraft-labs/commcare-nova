@@ -12,11 +12,10 @@
  *
  * The RESOLVER stays structural and generic (`handles.ts` — exact one-key
  * `{ handle }` objects anywhere, then the second parse through the original
- * tool schema decides legality). This classification is the REVIEWED
- * decision surface: a new identity family fails the projection source test
- * until someone classifies it here, and the executor-facing projected wire
- * schemas (a later unit) emit `uuid | { handle }` unions from exactly this
- * map.
+ * tool schema decides legality). TypeScript requires an explicit
+ * decision for each authorable identity family. The executor-facing wire
+ * schemas derive eligible reference unions from this map and require handles
+ * for creation slots.
  */
 
 import type { AuthorableIdentityFamily } from "@/lib/agent/identityPointerRegistry";
@@ -25,9 +24,8 @@ import type { StagedEntityKind } from "./schemas";
 export type StagingProjectionDecision = "handle-eligible" | "canonical-only";
 
 /**
- * The complete reviewed classification. Every member of
- * `AuthorableIdentityFamily` appears exactly once; the projection source
- * test proves the two unions stay in lockstep.
+ * The complete reviewed classification. The typed Record requires every member of
+ * `AuthorableIdentityFamily` to appear exactly once.
  */
 export const STAGING_PROJECTION_DECISIONS: Readonly<
 	Record<AuthorableIdentityFamily, StagingProjectionDecision>

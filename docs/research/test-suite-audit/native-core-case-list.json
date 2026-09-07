@@ -1,0 +1,29 @@
+{
+	"scope": "All3 methods passed. Integer descending, decimal ascending and name ties produce distinct orders as independently authored; original local/HQ artifacts execute.",
+	"junit": {
+		"name": "nova.compatibility.CaseListRuntimeTest",
+		"tests": "3",
+		"skipped": "0",
+		"failures": "0",
+		"errors": "0",
+		"timestamp": "2026-09-07T04:08:29",
+		"hostname": "DIM-A127",
+		"time": "0.304"
+	},
+	"methods": [
+		"nodesetsAndBrowseNavigationHaveReachableIndependentSemantics",
+		"typedSortUsesTheDisplayedCaseSourceAndHiddenDecimalThenNameTies",
+		"templatesResolveFormatsLocalesRelationsAndIndependentDetailOrder"
+	],
+	"junitSha256": "a5cdd9683b3585616aa3a58456a4cbe82f33e99dc8f8bc41546214c31ad26744",
+	"sourceHashes": {
+		"lib/commcare/__tests__/caseListEmissionFixture.ts": "a711368c33ffe18c84bbd6034de3f61e99b0f84ad3e2eb10c454b6264d57cc0d",
+		"lib/commcare/suite/case-list/__tests__/caseListEmission.test.ts": "77e635124c1c6bc4ab9f68fc48dfb52f0cf0c7d54e10b769ed2449a8dedd3b44",
+		"lib/commcare/suite/case-list/columns.ts": "f2e284c5d7caf592044020d7603d8eddc7eda4d6a0d18cc305a627295f246421",
+		"scripts/fixtures/hq/emit-case-list-evidence.ts": "284e1d42f55c51bb235a8aa5d26c684dcc8c0be5f7555083d89736a3efbca48b",
+		"scripts/fixtures/hq/case-list-emission-proof.py": "b4d295521cc5c32f220a1907461937fb5b1127c54dddf97e4db3be92b81efb85",
+		"scripts/fixtures/javarosa/CaseListRuntimeTest.java": "d8a0b3021a2c16e6db52e5ae51e535733476eac6d1b027fe78c3de89e8bd9261"
+	},
+	"reviewReport": "reviews/doc-suite-columns.json",
+	"limits": "Native Core execution with in-memory case storage. No Android rendering, resource install, network or server transaction execution."
+}

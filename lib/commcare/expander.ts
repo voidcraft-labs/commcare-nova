@@ -8,7 +8,8 @@ import type { RuntimeTarget } from "@/lib/commcare/runtimeTarget";
  * CCHQ's `/api/import_app/`, which wraps it as a CouchDB Application
  * document; the runtime suite.xml regenerates from that document on every
  * sync. The `.ccz` packaging (`./compiler::compileCcz`) consumes the same
- * shape but only for local diagnostics — it does not flow to CCHQ.
+ * shape to produce a downloadable on-device app; that archive does not flow
+ * through the HQ import API.
  *
  * Walks `doc.moduleOrder` → `doc.modules[mUuid]`, then
  * `doc.formOrder[mUuid]` → `doc.forms[fUuid]`. Each form becomes an
@@ -128,9 +129,8 @@ function toHqFormLink(
  * Every form gets a fresh HQ unique_id (hex) and xmlns (formdesigner
  * URI) generated on the fly; case types, case details, case list
  * columns, and `parent_select` wiring are derived from module metadata
- * + `doc.caseTypes`. Connect config is stripped from each form unless
- * the app-level `connectType` is set — preserves the "connect mode
- * stash" semantics the SA relies on.
+ * + `doc.caseTypes`. Connect content and app mode must agree at admission;
+ * the projection never hides dormant Connect configuration.
  *
  * `opts.assets` is the resolved media manifest. When present, the
  * emitted XForms gain media itext values, the module/form/case-list
@@ -146,9 +146,8 @@ export interface ExpandOptions {
 	readonly runtimeTarget?: RuntimeTarget;
 	assets?: AssetManifest;
 	/**
-	 * Lookup wire naming from the validated definitions snapshot. Present
-	 * only on the local-CCZ path — HQ JSON rejects lookup carriers at the
-	 * export boundary before expansion, so its expansion never needs it.
+	 * Lookup wire naming from the validated definitions snapshot. Every export
+	 * mode resolves the same identities; HQ modes also deliver the workbook.
 	 */
 	lookupNaming?: LookupWireNaming;
 	/**
@@ -187,8 +186,8 @@ export function expandDoc(
 	// Child case type map: child_case_type → parent module index. Derived
 	// from `case_types[].parent_type` + matching module case types. The
 	// expander uses this to activate `parent_select` on the child
-	// module so CommCare prompts for a parent case before creating the
-	// child. Case list columns never affect this — they're presentation.
+	// module so case-loading entries select the parent before the child.
+	// Registration creates its own case without loading catalog parents. Case list columns never affect this — they're presentation.
 	// `moduleOrder` and each `formOrder` array are the canonical display
 	// sequences. Every index this expander assigns (`mIdx`, menu/command order,
 	// form-link target `m{i}-f{j}`) addresses those arrays; the compiler walks
@@ -275,11 +274,8 @@ export function expandDoc(
 			}
 			const xmlns = `http://openrosa.org/formdesigner/${genShortId()}`;
 
-			// The resolved Connect config for this form, or `undefined` when
-			// there's nothing to emit. The map already encodes the "only when
-			// `connectType` is set" rule — off-mode the map is empty — so this
-			// lookup also enforces the connect-mode stash: per-form configs
-			// stashed across mode toggles never leak into a mode-off export.
+			// The admitted Connect config for this form. buildConnectSlugMap
+			// checks mode/config agreement and preserves authored identities.
 			const effectiveConnect = connectSlugs.get(formUuid);
 			const ownCaseDatum = selectedCaseSessionDatum(
 				doc,
@@ -399,8 +395,8 @@ export function expandDoc(
 		// always-on filter, and the `search_config` document
 		// (search-screen chrome + per-input prompts + AND-composed
 		// `_xpath_query`). The shared projection in `./hqJson/caseList`
-		// keeps drift between the suite-XML and HQ-JSON paths
-		// structurally impossible: both consume the same emitters.
+		// shares authoring projection with the local suite. Native HQ/Core
+		// proofs verify the resulting wire contracts independently.
 		//
 		// `hasCases` controls only WHETHER the projected case detail
 		// lands — survey-only modules and modules with no case type
@@ -522,7 +518,7 @@ export function expandDoc(
 
 		// Activate `parent_select` when this module's case type appears
 		// as a child elsewhere — CommCare walks up to the parent module
-		// to prompt for a parent case before creating/editing the child.
+		// to prompt for a parent case before selecting the existing child.
 		// Reading the parent's id from `moduleUniqueIds` (not from a
 		// sibling `modules[parentIdx]` entry that might not exist yet in
 		// the mid-map state) keeps this a single-pass derivation.

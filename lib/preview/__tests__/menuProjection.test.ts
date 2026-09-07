@@ -1,14 +1,15 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { emptyCaseListConfig, type Module } from "@/lib/domain";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { type BlueprintDoc, fieldSchema, type Module } from "@/lib/domain";
 import {
 	combineNavigationVisibility,
 	inheritedModuleVisibility,
-	type PreviewMenuSource,
 	previewCaseDescendantModuleUuids,
 	previewMenuCaseContext,
 	previewMenuModuleUuids,
 } from "../menuProjection";
+import { assertAdmittedPreviewDoc } from "./fixtures/admittedDoc";
 
 const ROOT = testUuid("root");
 const CHILD = testUuid("child");
@@ -26,52 +27,49 @@ function module(
 ): Module {
 	return {
 		uuid,
-		id: uuid,
+		id: `m_${uuid.replaceAll("-", "")}`,
 		name: uuid,
 		caseType,
+		caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
 		...(parentModuleUuid ? { parentModuleUuid } : {}),
 	};
 }
 
-function source(childCaseType = "household"): PreviewMenuSource {
-	return {
-		modules: {
-			[ROOT]: module(ROOT, "household"),
-			[CHILD]: module(CHILD, childCaseType, ROOT),
-			[OTHER_ROOT]: module(OTHER_ROOT, "visit"),
-		},
-		moduleOrder: [ROOT, CHILD, OTHER_ROOT],
-		forms: {
-			[ROOT_FORM]: {
-				uuid: ROOT_FORM,
-				id: "root_followup",
-				name: "Root follow-up",
-				type: "followup",
-			},
-			[CHILD_FORM]: {
-				uuid: CHILD_FORM,
-				id: "child_followup",
-				name: "Child follow-up",
-				type: "followup",
-			},
-			[OTHER_ROOT_FORM]: {
-				uuid: OTHER_ROOT_FORM,
-				id: "other_root_followup",
-				name: "Other root follow-up",
-				type: "followup",
-			},
-		},
-		formOrder: {
-			[ROOT]: [ROOT_FORM],
-			[CHILD]: [CHILD_FORM],
-			[OTHER_ROOT]: [OTHER_ROOT_FORM],
-		},
-		caseTypes: [
-			{ name: "household", properties: [] },
-			{ name: "person", parent_type: "household", properties: [] },
-			{ name: "visit", properties: [] },
-		],
-	};
+function source(
+	childCaseType = "household",
+): BlueprintDoc & { caseTypes: NonNullable<BlueprintDoc["caseTypes"]> } {
+	const caseTypes = [
+		{ name: "household", properties: [] },
+		{ name: "person", parent_type: "household", properties: [] },
+		{ name: "visit", properties: [] },
+		{ name: "clinic", properties: [] },
+	];
+	const doc = buildDoc({
+		caseTypes,
+		modules: (
+			[
+				[ROOT, "household", ROOT_FORM, undefined],
+				[CHILD, childCaseType, CHILD_FORM, ROOT],
+				[OTHER_ROOT, "visit", OTHER_ROOT_FORM, undefined],
+			] as const
+		).map(([uuid, caseType, formUuid]) => ({
+			uuid,
+			name: `Module ${uuid}`,
+			caseType,
+			caseListConfig: caseListConfig([{ field: "case_name", header: "Name" }]),
+			forms: [
+				{
+					uuid: formUuid,
+					name: "Follow-up",
+					type: "followup" as const,
+					fields: [f({ kind: "text", id: "notes" })],
+				},
+			],
+		})),
+	});
+	doc.modules[CHILD].parentModuleUuid = ROOT;
+	assertAdmittedPreviewDoc(doc);
+	return { ...doc, caseTypes };
 }
 
 describe("Preview menu projection", () => {
@@ -118,20 +116,28 @@ describe("Preview menu projection", () => {
 			cases: [{ caseId: "h1", caseName: "One" }],
 		};
 		const multiConfig = {
-			...emptyCaseListConfig(),
+			...caseListConfig([{ field: "case_name", header: "Name" }]),
 			selection: { kind: "multiple" as const, maximum: 3 },
 		};
 		const root = base.modules[ROOT];
 		const child = base.modules[CHILD];
 		if (!root || !child) throw new Error("fixture modules are missing");
+		const childConfig = {
+			...caseListConfig([{ field: "case_name", header: "Name" }]),
+			selection: multiConfig.selection,
+		};
 		const compatible = {
 			...base,
 			modules: {
 				...base.modules,
 				[ROOT]: { ...root, caseListConfig: multiConfig },
-				[CHILD]: { ...child, caseListConfig: multiConfig },
+				[CHILD]: {
+					...child,
+					caseListConfig: childConfig,
+				},
 			},
 		};
+		assertAdmittedPreviewDoc(compatible);
 		expect(
 			previewMenuCaseContext(compatible, CHILD, { [ROOT]: selection })
 				.selectedCase,
@@ -144,12 +150,13 @@ describe("Preview menu projection", () => {
 				[CHILD]: {
 					...child,
 					caseListConfig: {
-						...multiConfig,
+						...childConfig,
 						selection: { kind: "multiple" as const, maximum: 2 },
 					},
 				},
 			},
 		};
+		assertAdmittedPreviewDoc(tooSmall);
 		expect(
 			previewMenuCaseContext(tooSmall, CHILD, { [ROOT]: selection })
 				.selectedCase,
@@ -213,6 +220,7 @@ describe("Preview menu projection", () => {
 			cases: [{ caseId: "h1", caseName: "Household one" }],
 		};
 
+		assertAdmittedPreviewDoc(doc);
 		expect(
 			previewMenuCaseContext(doc, CHILD, { [OTHER_ROOT]: selected }),
 		).toEqual({
@@ -237,6 +245,12 @@ describe("Preview menu projection", () => {
 
 	it("skips a survey-only case-type module when choosing a parent selector", () => {
 		const base = source("person");
+		const surveyField = fieldSchema.parse({
+			uuid: testUuid("survey_notes"),
+			kind: "text",
+			id: "survey_notes",
+			label: { parts: [{ kind: "text", text: "Notes" }] },
+		});
 		const doc = {
 			...base,
 			modules: {
@@ -259,8 +273,12 @@ describe("Preview menu projection", () => {
 				...base.formOrder,
 				[SURVEY_ROOT]: [SURVEY_FORM],
 			},
+			fields: { ...base.fields, [surveyField.uuid]: surveyField },
+			fieldParent: { ...base.fieldParent, [surveyField.uuid]: SURVEY_FORM },
+			fieldOrder: { ...base.fieldOrder, [SURVEY_FORM]: [surveyField.uuid] },
 		};
 
+		assertAdmittedPreviewDoc(doc);
 		expect(previewMenuCaseContext(doc, CHILD, {})).toMatchObject({
 			requiredParentCase: {
 				caseType: "household",

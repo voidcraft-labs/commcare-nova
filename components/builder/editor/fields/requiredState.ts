@@ -1,8 +1,8 @@
 /**
  * requiredState: pure model for the `required` field's tri-state value.
  *
- * The `required` value encodes three lifecycle positions in one string,
- * sourced directly from CommCare's XForm contract:
+ * The editor projects the stored expression AST to text before deriving
+ * three lifecycle positions:
  *
  *   - `undefined`   → not required (toggle off)
  *   - `"true()"`    → always required (toggle on, no condition)
@@ -21,7 +21,7 @@
 
 import type { XPathExpression } from "@/lib/domain";
 
-/** CommCare sentinel: "required with no XPath condition", i.e. always required. */
+/** Printed expression used for the always-required state. */
 export const ALWAYS_REQUIRED = "true()";
 
 /** The sentinel in its stored shape: one verbatim text run. The slot

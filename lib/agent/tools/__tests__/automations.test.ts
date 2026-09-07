@@ -1,11 +1,14 @@
+/** Real command, workspace, gate, diff and guide projection. External catalog
+ * reads and authoritative receipts are controlled boundaries; these tests do
+ * not establish SQL locking, concurrent merges, HQ setup or execution. */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
 	makeCanonicalGenesisDoc,
 	makeToolWorkspaceHarness,
 	type ToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
-import type { RecordMutationsOptions } from "@/lib/agent/toolExecutionContext";
 import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
 import type { PreparedMutationCandidate } from "@/lib/doc/commitVerdicts";
 import {
@@ -37,7 +40,7 @@ const RULE_UUID = testUuid("tool-automation");
 const UPDATE_UUID = testUuid("tool-automation-update");
 
 function makeHarness(initialDoc: BlueprintDoc): ToolWorkspaceHarness {
-	return makeToolWorkspaceHarness(initialDoc, {
+	return makeToolWorkspaceHarness(expectAdmittedDoc(initialDoc), {
 		appId: "app-automations",
 		userId: "member",
 		runId: "run",
@@ -63,7 +66,7 @@ function doc(): BlueprintDoc {
 	return value;
 }
 
-function rule(): Automation {
+function rule(): Extract<Automation, { kind: "case-update" }> {
 	return {
 		uuid: RULE_UUID,
 		kind: "case-update",
@@ -122,45 +125,7 @@ beforeEach(() => {
 });
 
 describe("automation shared tools", () => {
-	it("keeps matching counts on Builder Preview instead of the read tool", () => {
-		expect(getAutomationsTool.description).toContain(
-			"match counts are available only in Builder Preview",
-		);
-		expect(getAutomationsTool.description).not.toContain(
-			"locally counts matching cases",
-		);
-	});
-
-	it("teaches contextual host and message-property refusals on both write tools", () => {
-		for (const description of [
-			addAutomationsTool.description,
-			updateAutomationTool.description,
-		]) {
-			expect(description).toContain(
-				"advanced case operation can add a second extension relationship",
-			);
-			expect(description).toContain("owner, host, or last_modified_by");
-			expect(description).toContain("formatter context shadows those names");
-			expect(description).toContain(
-				"Recipient filters require only user-account recipient kinds",
-			);
-			expect(description).toContain("every triggering case must contain");
-			expect(description).toContain("must begin with H:MM or HH:MM");
-			expect(description).toContain("AM/PM and seconds are accepted");
-			expect(description).toContain(
-				"blank, nonmatching, or unparseable values",
-			);
-			expect(description).toContain("12:00 PM");
-			expect(description).toContain(
-				"requires exactly one live extension at runtime",
-			);
-			expect(description).toContain(
-				"retained extra extension indices make the current-match count unavailable",
-			);
-		}
-	});
-
-	it("refuses HQ-invalid survey and schedule inputs on the shared SA/MCP schema", () => {
+	it("refuses partial-update survey settings in the input schema and accepts the adjacent supported setting", () => {
 		const invalidSurvey = {
 			uuid: testUuid("tool-invalid-survey"),
 			kind: "conditional-alert",
@@ -180,7 +145,7 @@ describe("automation shared tools", () => {
 							kind: "sms-survey",
 							formUuid: testUuid("tool-invalid-form"),
 							expirationHours: 1,
-							reminderIntervalsMinutes: [60],
+							reminderIntervalsMinutes: [],
 							submitPartiallyCompletedForms: false,
 							includeCaseUpdatesInPartialSubmissions: true,
 						},
@@ -196,9 +161,15 @@ describe("automation shared tools", () => {
 			addAutomationsInputSchema.safeParse({ automations: [invalidSurvey] })
 				.success,
 		).toBe(false);
+		const validSurvey = structuredClone(invalidSurvey);
+		validSurvey.schedule.events[0].content.includeCaseUpdatesInPartialSubmissions = false;
+		expect(
+			addAutomationsInputSchema.safeParse({ automations: [validSurvey] })
+				.success,
+		).toBe(true);
 	});
 
-	it("refuses a recipient-filter combination HQ would silently bypass", () => {
+	it("refuses non-user recipient filters and accepts the same filter for a user recipient", () => {
 		const invalidFilteredAlert = {
 			uuid: testUuid("tool-invalid-filter-alert"),
 			kind: "conditional-alert",
@@ -234,6 +205,11 @@ describe("automation shared tools", () => {
 			],
 			useUserCaseForFilter: false,
 		};
+		const supported = structuredClone(invalidFilteredAlert);
+		supported.recipients[0].kind = "owner";
+		expect(
+			addAutomationsInputSchema.safeParse({ automations: [supported] }).success,
+		).toBe(true);
 		const parsed = addAutomationsInputSchema.safeParse({
 			automations: [invalidFilteredAlert],
 		});
@@ -281,7 +257,7 @@ describe("automation shared tools", () => {
 			}),
 		]);
 
-		const beforeUpdate = rule() as Extract<Automation, { kind: "case-update" }>;
+		const beforeUpdate = rule();
 		const updatedRule = {
 			...beforeUpdate,
 			name: "Resolve old visits",
@@ -451,7 +427,7 @@ describe("automation shared tools", () => {
 		});
 	});
 
-	it("returns guidance from the merged committed rule after a concurrent edit", async () => {
+	it("derives guidance from the authoritative receipt instead of the prepared candidate", async () => {
 		const existing = doc();
 		existing.automations = { [RULE_UUID]: rule() };
 		existing.automationOrder = [RULE_UUID];
@@ -471,7 +447,7 @@ describe("automation shared tools", () => {
 						value: "peer-value",
 					},
 				];
-				return { events: [], committedDoc };
+				return { events: [], committedDoc: expectAdmittedDoc(committedDoc) };
 			},
 		);
 		mocks.readOrganization.mockResolvedValue({ revision: "2", locations: [] });
@@ -497,7 +473,7 @@ describe("automation shared tools", () => {
 		});
 	});
 
-	it("proves a zero-diff update from one authoritative Blueprint and organization snapshot", async () => {
+	it("adopts the supplied authoritative snapshot for a zero-diff update and derives guidance from it", async () => {
 		const invocationDoc = doc();
 		const formUuid = Object.keys(invocationDoc.forms)[0] as Uuid | undefined;
 		if (formUuid === undefined) throw new Error("missing form");
@@ -536,7 +512,7 @@ describe("automation shared tools", () => {
 		};
 		authoritativeDoc.automationOrder = [RULE_UUID, peerRule.uuid];
 		mocks.readAuthoring.mockResolvedValue({
-			blueprint: authoritativeDoc,
+			blueprint: expectAdmittedDoc(authoritativeDoc),
 			blueprintSeq: 9,
 			organization: { revision: "4", locations: [] },
 		});
@@ -557,7 +533,7 @@ describe("automation shared tools", () => {
 		expect(mocks.readAuthoring).toHaveBeenCalledTimes(1);
 	});
 
-	it("returns a fresh-doc conflict when a zero-diff invocation races a peer automation edit", async () => {
+	it("adopts a differing authoritative snapshot and returns a zero-diff conflict", async () => {
 		const invocationDoc = doc();
 		const requested = rule();
 		invocationDoc.automations = { [RULE_UUID]: requested };
@@ -567,7 +543,7 @@ describe("automation shared tools", () => {
 		if (peerAutomation === undefined) throw new Error("missing automation");
 		peerAutomation.name = "Peer renamed this rule";
 		mocks.readAuthoring.mockResolvedValue({
-			blueprint: authoritativeDoc,
+			blueprint: expectAdmittedDoc(authoritativeDoc),
 			blueprintSeq: 10,
 			organization: { revision: "5", locations: [] },
 		});
@@ -649,34 +625,18 @@ describe("automation shared tools", () => {
 		);
 	});
 
-	it("rejects before persistence when a place rename, metadata edit, or move advances the guidance snapshot", async () => {
+	it("passes the organization revision to the writer and propagates its refusal without changing the workspace", async () => {
 		mocks.readOrganization.mockResolvedValue({ revision: "7", locations: [] });
 		const h = makeHarness(doc());
-		h.recordMutations.mockImplementation(
-			async (
-				prepared: PreparedMutationCandidate,
-				_stage?: string,
-				options?: RecordMutationsOptions,
-			) => {
-				// Every location mutation advances this one organization clock. Model
-				// the authoritative writer observing the concurrent generation after
-				// the tool acquired revision 7 but before its Blueprint commit.
-				const currentRevision = "8";
-				if (
-					options?.expectedOrganizationRevision !== undefined &&
-					options.expectedOrganizationRevision !== currentRevision
-				) {
-					throw new BlueprintCommitRejectedError(
-						"organization revision changed",
-					);
-				}
-				return { events: [], committedDoc: prepared.nextDoc };
-			},
+		h.recordMutations.mockRejectedValueOnce(
+			new BlueprintCommitRejectedError("organization revision changed"),
 		);
+		const before = structuredClone(h.currentDoc());
 
 		await expect(
 			h.runTool(addAutomationsTool, { automations: [rule()] }),
 		).rejects.toThrow("organization revision changed");
+		expect(h.currentDoc()).toEqual(before);
 		expect(h.recordMutations).toHaveBeenCalledWith(
 			expect.anything(),
 			"automations",

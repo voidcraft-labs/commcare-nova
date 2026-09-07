@@ -129,6 +129,7 @@ export const configureCaseListInputSchema = z
 		if (
 			input.columns === undefined &&
 			input.searchInputs === undefined &&
+			input.searchFirst === undefined &&
 			!("filter" in input) &&
 			displaySlots.length === 0 &&
 			input.resultsColumnOrder === undefined &&
@@ -138,7 +139,7 @@ export const configureCaseListInputSchema = z
 			ctx.addIssue({
 				code: "custom",
 				message:
-					"Configure at least one case-list resource: columns, search inputs, filter, search display, or an order.",
+					"Configure at least one case-list resource: columns, search inputs, filter, search display, Search first, or an order.",
 			});
 		}
 	});
@@ -388,6 +389,13 @@ export const configureCaseListTool = {
 					: []),
 				...(hasCompleteSearchDisplay(input)
 					? ["composed the search screen"]
+					: []),
+				...(input.searchFirst !== undefined
+					? [
+							input.searchFirst === true
+								? "set the module to open on Search"
+								: "set the module to browse before Search",
+						]
 					: []),
 				...(input.resultsColumnOrder !== undefined ? ["arranged Results"] : []),
 				...(input.detailsColumnOrder !== undefined ? ["arranged Details"] : []),

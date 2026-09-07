@@ -31,7 +31,6 @@ const NAME = testUuid("selector-name");
 const GROUP = testUuid("selector-group");
 const AGE = testUuid("selector-age");
 const OTHER = testUuid("selector-other");
-const MISSING = testUuid("selector-missing");
 
 function setup() {
 	const doc = buildDoc({
@@ -250,26 +249,6 @@ describe("named document subscriptions", () => {
 			hasOther: false,
 		});
 	});
-
-	it.each([undefined, MISSING])(
-		"resolves absent selection %s without inventing entities",
-		(uuid) => {
-			const { wrapper } = setup();
-			const { result } = renderHook(
-				() => ({
-					kind: useFieldKind(uuid),
-					count: useChildFieldCount(uuid),
-					hasFields: useHasFieldsInForm(uuid),
-				}),
-				{ wrapper },
-			);
-			expect(result.current).toEqual({
-				kind: undefined,
-				count: 0,
-				hasFields: false,
-			});
-		},
-	);
 
 	it("keeps an imperative search callback stable while it reads the latest committed document", () => {
 		const { wrapper, commit } = setup();

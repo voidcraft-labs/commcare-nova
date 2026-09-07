@@ -1,10 +1,15 @@
+import { NextRequest } from "next/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { requireSession } from "@/lib/auth-utils";
 import { probeHqProjectSpaceCompatibility } from "@/lib/commcare/client";
 import { projectSpaceCompatibilityProbePlan } from "@/lib/commcare/projectSpaceCompatibility";
 import { resolveAppAccess } from "@/lib/db/appAccess";
 import { getCredentialsForUpload } from "@/lib/db/settings";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { blueprintDocSchema } from "@/lib/domain";
 import { projectSpaceCompatibilityForTarget } from "@/lib/publish/projectSpaceCompatibility";
 import { POST } from "../route";
 
@@ -17,25 +22,39 @@ vi.mock("@/lib/commcare/client", async (importOriginal) => ({
 }));
 
 function request(body: unknown) {
-	return {
-		headers: new Headers(),
-		json: async () => body,
-		arrayBuffer: async () =>
-			new TextEncoder().encode(JSON.stringify(body)).buffer as ArrayBuffer,
-	} as unknown as Parameters<typeof POST>[0];
+	return new NextRequest("http://localhost/api/test", {
+		method: "POST",
+		headers: { "content-type": "application/json" },
+		body: JSON.stringify(body),
+	});
 }
 
 function caseSearchDoc() {
-	const { fieldParent: _fieldParent, ...persisted } = buildDoc({
+	const doc = buildDoc({
 		appId: "app-1",
+		caseTypes: [{ name: "patient", properties: [] }],
 		modules: [
 			{
 				name: "Patients",
 				caseType: "patient",
 				caseSearchConfig: {},
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Patient" },
+				]),
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [f({ id: "note", kind: "text" })],
+					},
+				],
 			},
 		],
 	});
+	const persisted = toPersistableDoc(doc);
+	blueprintDocSchema.parse(persisted);
+	const verdict = mutationCommitVerdict(doc, [], LOOKUP_CONTEXT_UNAVAILABLE);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
 	return persisted;
 }
 

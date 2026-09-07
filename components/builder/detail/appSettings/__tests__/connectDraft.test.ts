@@ -8,20 +8,17 @@
  * React: mounts nothing.
  */
 import { describe, expect, it } from "vitest";
-import { xp } from "@/lib/__tests__/docHelpers";
-import {
-	DEFAULT_ASSESSMENT_USER_SCORE,
-	DEFAULT_DELIVER_ENTITY_ID,
-	DEFAULT_DELIVER_ENTITY_NAME,
-} from "@/lib/doc/connectConfig";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import { parseXPathForForm, printXPathInDoc } from "@/lib/doc/expressionText";
 import type { ConnectConfig } from "@/lib/domain";
+import { proseText } from "@/lib/domain/prose";
 import {
 	configToDraft,
-	DEFAULT_LEARN_TIME_ESTIMATE_HOURS,
 	draftToConfig,
 	EMPTY_DRAFT,
 	parseTimeEstimate,
-} from "../ConnectEnableDialog";
+} from "../connectDraft";
 
 /** A print/parse pair that must never run: proves a config with no XPath
  *  never touches the expression boundary. */
@@ -31,14 +28,41 @@ const noExpr = (): never => {
 	);
 };
 const derivedId = (kind: string) => `derived_${kind}`;
+const doc = buildDoc({
+	appName: "Connect draft",
+	modules: [
+		{
+			name: "Forms",
+			forms: [
+				{
+					name: "Visit",
+					type: "survey",
+					fields: ["score", "client_id", "client_name", "quiz_total"].map(
+						(id) => ({ kind: "text" as const, id, label: proseText(id) }),
+					),
+				},
+			],
+		},
+	],
+});
+assertAdmittedDoc(doc);
+const formUuid = doc.formOrder[doc.moduleOrder[0]][0];
+const parse = (text: string) => parseXPathForForm(doc, formUuid, text);
+const print = (expression: Parameters<typeof printXPathInDoc>[1]) =>
+	printXPathInDoc(doc, expression);
 
 describe("Connect draft round-trip", () => {
 	it("uses positive whole hours with a one-hour new-module default", () => {
-		expect(DEFAULT_LEARN_TIME_ESTIMATE_HOURS).toBe(1);
 		expect(EMPTY_DRAFT.learnTimeEstimate).toBe("1");
 		expect(parseTimeEstimate("1")).toBe(1);
 		expect(parseTimeEstimate("1.5")).toBeNull();
 		expect(parseTimeEstimate("0")).toBeNull();
+	});
+
+	it("refuses a whole-hour buffer beyond the persistable integer range before finalization", () => {
+		expect(parseTimeEstimate("9007199254740992")).toBeNull();
+		expect(parseTimeEstimate("1e100")).toBeNull();
+		expect(parseTimeEstimate("9007199254740991")).toBe(9007199254740991);
 	});
 
 	it("preserves ids + core content for a config with no XPath", () => {
@@ -59,25 +83,25 @@ describe("Connect draft round-trip", () => {
 			derivedId,
 		);
 
-		expect(round).toEqual(config);
+		expect(round).toStrictEqual(config);
 	});
 
 	it("prints an existing user_score into its buffer and parses it back", () => {
-		const score = xp("#form/score");
+		const score = parse("#form/score");
 		const config: ConnectConfig = {
 			assessment: { id: "quiz", user_score: score },
 		};
 
-		const draft = configToDraft(config, () => "#form/score");
+		const draft = configToDraft(config, print);
 		expect(draft.userScoreText).toBe("#form/score");
 
-		const round = draftToConfig(draft, "learn", () => score, derivedId);
-		expect(round.assessment).toEqual({ id: "quiz", user_score: score });
+		const round = draftToConfig(draft, "learn", parse, derivedId);
+		expect(round.assessment).toStrictEqual({ id: "quiz", user_score: score });
 	});
 
 	it("round-trips deliver ids and the entity_id / entity_name buffers", () => {
-		const entityId = xp("#form/client_id");
-		const entityName = xp("#form/client_name");
+		const entityId = parse("#form/client_id");
+		const entityName = parse("#form/client_name");
 		const config: ConnectConfig = {
 			deliver_unit: {
 				id: "home_visit",
@@ -88,25 +112,18 @@ describe("Connect draft round-trip", () => {
 			task: { id: "followup", name: "Follow up", description: "Revisit" },
 		};
 
-		const draft = configToDraft(config, (e) =>
-			e === entityId ? "#form/client_id" : "#form/client_name",
-		);
+		const draft = configToDraft(config, print);
 		expect(draft.entityIdText).toBe("#form/client_id");
 		expect(draft.entityNameText).toBe("#form/client_name");
 
-		const round = draftToConfig(
-			draft,
-			"deliver",
-			(t) => (t === "#form/client_id" ? entityId : entityName),
-			derivedId,
-		);
-		expect(round).toEqual(config);
+		const round = draftToConfig(draft, "deliver", parse, derivedId);
+		expect(round).toStrictEqual(config);
 	});
 
 	it("assigns a blank draft id before constructing the final config", () => {
 		const draft = { ...EMPTY_DRAFT, deliverOn: true, deliverName: "New Visit" };
 		const round = draftToConfig(draft, "deliver", noExpr, derivedId);
-		expect(round.deliver_unit).toEqual({
+		expect(round.deliver_unit).toStrictEqual({
 			id: "derived_deliver_unit",
 			name: "New Visit",
 		});
@@ -132,29 +149,29 @@ describe("Connect draft round-trip", () => {
 			{ deliver_unit: { id: "v", name: "Visit" } },
 			noExpr,
 		);
-		expect(draft.entityIdText).toBe(DEFAULT_DELIVER_ENTITY_ID);
-		expect(draft.entityNameText).toBe(DEFAULT_DELIVER_ENTITY_NAME);
+		expect(draft.entityIdText).toBe("concat(#user/username, '-', today())");
+		expect(draft.entityNameText).toBe("#user/username");
 
 		const assessment = configToDraft({ assessment: { id: "q" } }, noExpr);
-		expect(assessment.userScoreText).toBe(DEFAULT_ASSESSMENT_USER_SCORE);
+		expect(assessment.userScoreText).toBe("100");
 
 		expect(
 			draftToConfig(draft, "deliver", noExpr, derivedId).deliver_unit,
-		).toEqual({
+		).toStrictEqual({
 			id: "v",
 			name: "Visit",
 		});
 	});
 
 	it("stores an XPath buffer the user changed away from the default", () => {
-		const override = xp("#form/quiz_total");
+		const override = parse("#form/quiz_total");
 		const draft = {
 			...EMPTY_DRAFT,
 			assessmentOn: true,
 			assessmentId: "q",
 			userScoreText: "#form/quiz_total",
 		};
-		const round = draftToConfig(draft, "learn", () => override, derivedId);
-		expect(round.assessment).toEqual({ id: "q", user_score: override });
+		const round = draftToConfig(draft, "learn", parse, derivedId);
+		expect(round.assessment).toStrictEqual({ id: "q", user_score: override });
 	});
 });

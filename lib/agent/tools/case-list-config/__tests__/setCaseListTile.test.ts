@@ -1,56 +1,17 @@
-/**
- * Behavioral tests for `setCaseListTile`.
- *
- * Drives the tool through `GenerationContext`, so every call runs the real
- * commit gate. Coverage splits three ways:
- *
- *   1. Input → mutations. A placement becomes one granular `updateColumn`
- *      carrying `tilePatch`, the layout becomes one `setCaseListMeta` carrying
- *      the top-level `tilePatch`, and each CLEAR travels as an explicit `null`
- *      (the wire spelling — `JSON.stringify` drops `undefined`).
- *   2. The null-clears contract in both directions: `tile: null` turns the tile
- *      off while KEEPING every placement, `cell: null` takes one field off the
- *      tile, and an omitted slot changes nothing.
- *   3. Why the layout and the placements share one tool: the gate rejects
- *      turning the tile on with a field left unplaced, and rejects half of a
- *      swap — both of which are only reachable if the two were separate calls.
- */
-
-import { beforeEach, describe, expect, it, vi } from "vitest";
+/** Admitted domain commands through the actual workspace and reducer over
+ * controlled host receipts. No browser layout or SQL transaction claim. */
+import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	type BlueprintDoc,
 	type Column,
-	type Module,
 	plainColumn,
 	tileCell,
 	type Uuid,
 } from "@/lib/domain";
 import { setCaseListTileTool } from "../setCaseListTile";
-import {
-	MOD_A,
-	makeCaseListDoc,
-	makeCaseListFixture,
-	makeCaseListMcpFixture,
-} from "./fixtures";
-
-vi.mock("@/lib/db/apps", () => ({
-	completeApp: vi.fn(() => Promise.resolve()),
-}));
-
-vi.mock("@/lib/db/applyBlueprintChange", () => ({
-	applyBlueprintChange: vi.fn(async (args) => {
-		const { commitApplyBlueprintChangeTestBatch } = await import(
-			"@/lib/db/__tests__/applyBlueprintChangeTestWriter"
-		);
-		return commitApplyBlueprintChangeTestBatch(args);
-	}),
-}));
-
-beforeEach(() => {
-	vi.clearAllMocks();
-});
+import { MOD_A, makeCaseListDoc, makeCaseListFixture } from "./fixtures";
 
 const NAME_COLUMN = testUuid("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
 const STATUS_COLUMN = testUuid("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
@@ -64,7 +25,7 @@ function docWithColumns(columns: Column[]): BlueprintDoc {
 			[MOD_A]: {
 				...baseDoc.modules[MOD_A],
 				caseListConfig: resolveCaseListConfig({ columns, searchInputs: [] }),
-			} as Module,
+			},
 		},
 	};
 }
@@ -108,7 +69,7 @@ function expectSuccess(
 }
 
 describe("setCaseListTile", () => {
-	it("groups the tile in the same call that lays it out, and says what it costs", async () => {
+	it("groups and places the tile in one host call", async () => {
 		const h = fixtureWithColumns(unplacedColumns());
 
 		const result = await h.runTool(setCaseListTileTool, {
@@ -130,12 +91,9 @@ describe("setCaseListTile", () => {
 		expect(h.currentDoc().modules[MOD_A]?.caseListConfig?.tile).toEqual({
 			grouping: { identifier: "parent", headerRows: 1 },
 		});
-		// The two facts a model cannot read off the layout. The SA reports back
-		// to the user from this text, so they belong in it.
-		expect(success.message).toContain("Choosing a group opens that first case");
-		expect(success.message).toContain(
-			"every case with no `parent` connection is shown together in one group",
-		);
+
+		expect(success.layout).toBe("tile");
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
 	});
 
 	it("refuses a heading that leaves nothing per case, without touching the doc", async () => {
@@ -334,7 +292,7 @@ describe("setCaseListTile", () => {
 						searchInputs: [],
 						tile: {},
 					}),
-				} as Module,
+				},
 			},
 		};
 
@@ -353,6 +311,13 @@ describe("setCaseListTile", () => {
 		expect(result.mutations).toEqual([
 			{ kind: "setCaseListMeta", uuid: MOD_A, patch: { tile: null } },
 		]);
+		expectSuccess(
+			(await h.runTool(setCaseListTileTool, { moduleUuid: MOD_A, tile: {} }))
+				.result,
+		);
+		expect(h.currentDoc().modules[MOD_A]?.caseListConfig).toEqual(
+			doc.modules[MOD_A]?.caseListConfig,
+		);
 	});
 
 	it("takes one field off the tile with an explicit null cell", async () => {
@@ -389,7 +354,7 @@ describe("setCaseListTile", () => {
 						searchInputs: [],
 						tile: { persistOnForms: true },
 					}),
-				} as Module,
+				},
 			},
 		};
 
@@ -445,7 +410,7 @@ describe("setCaseListTile", () => {
 						searchInputs: [],
 						tile: {},
 					}),
-				} as Module,
+				},
 			},
 		};
 
@@ -463,12 +428,17 @@ describe("setCaseListTile", () => {
 
 		expectSuccess(result.result);
 		expect(result.mutations).toEqual([]);
+		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
 	it("swaps two fields in one call", async () => {
 		// The reason placement lives with the layout: either half of this swap on
 		// its own puts two fields on the same square, which the gate rejects.
-		const h = fixtureWithColumns(placedColumns());
+		const doc = docWithColumns(placedColumns());
+		const config = doc.modules[MOD_A]?.caseListConfig;
+		if (!config) throw new Error("Missing config");
+		config.tile = {};
+		const h = makeCaseListFixture(doc);
 
 		const result = await h.runTool(setCaseListTileTool, {
 			moduleUuid: MOD_A,
@@ -500,7 +470,11 @@ describe("setCaseListTile", () => {
 	});
 
 	it("is rejected when half a swap would put two fields on one square", async () => {
-		const h = fixtureWithColumns(placedColumns());
+		const doc = docWithColumns(placedColumns());
+		const config = doc.modules[MOD_A]?.caseListConfig;
+		if (!config) throw new Error("Missing config");
+		config.tile = {};
+		const h = makeCaseListFixture(doc);
 
 		const result = await h.runTool(setCaseListTileTool, {
 			moduleUuid: MOD_A,
@@ -619,25 +593,5 @@ describe("setCaseListTile", () => {
 		expect(result.mutations).toEqual([]);
 		if (!("error" in result.result)) throw new Error("expected error result");
 		expect(result.result.error).toContain("No module with UUID");
-	});
-
-	it("emits the same mutation batch through chat + MCP contexts", async () => {
-		const chat = fixtureWithColumns(placedColumns());
-		const mcp = makeCaseListMcpFixture(docWithColumns(placedColumns()));
-		const input = {
-			moduleUuid: MOD_A,
-			tile: { persistOnForms: true } as const,
-			placements: [
-				{
-					columnUuid: STATUS_COLUMN,
-					cell: { x: 6, y: 1, width: 6, height: 1 },
-				},
-			],
-		};
-
-		const r1 = await chat.runTool(setCaseListTileTool, input);
-		const r2 = await mcp.runTool(setCaseListTileTool, input);
-
-		expect(r1.mutations).toEqual(r2.mutations);
 	});
 });

@@ -101,6 +101,15 @@ export function OptionalMarkdownRow({
 	onCommit,
 }: OptionalMarkdownRowProps) {
 	const inputId = useId();
+	const labelId = `${inputId}-label`;
+	const blurFrameRef = useRef<number | undefined>(undefined);
+	useEffect(
+		() => () => {
+			if (blurFrameRef.current !== undefined)
+				cancelAnimationFrame(blurFrameRef.current);
+		},
+		[],
+	);
 	const rowRef = useRef<HTMLDivElement>(null);
 
 	/* Fresh-value refs: the blur handler and keyboard extension are
@@ -160,6 +169,9 @@ export function OptionalMarkdownRow({
 				 * height live on it so a click anywhere in the box focuses
 				 * the editor. `id` receives the row label via htmlFor. */
 				id: inputId,
+				role: "textbox",
+				"aria-labelledby": labelId,
+				"aria-multiline": "true",
 				class: "outline-none px-3 py-2.5 min-h-18 text-[14px]",
 				"data-1p-ignore": "",
 				autocomplete: "off",
@@ -170,7 +182,11 @@ export function OptionalMarkdownRow({
 			 * into the row's own toolbar, or a toolbar popover portaled to
 			 * body (tagged [data-inline-toolbar] by the tiptap-ui
 			 * primitives): is a transient blur, not a commit. */
-			requestAnimationFrame(() => {
+			if (blurFrameRef.current !== undefined)
+				cancelAnimationFrame(blurFrameRef.current);
+			blurFrameRef.current = requestAnimationFrame(() => {
+				blurFrameRef.current = undefined;
+				if (e.isDestroyed) return;
 				const active = document.activeElement;
 				if (rowRef.current?.contains(active) === true) return;
 				if (active?.closest("[data-inline-toolbar]")) return;
@@ -194,6 +210,7 @@ export function OptionalMarkdownRow({
 	return (
 		<div ref={rowRef} className="flex flex-col gap-1.5">
 			<label
+				id={labelId}
 				htmlFor={inputId}
 				className="text-[13px] font-medium leading-5 text-nova-text-secondary"
 			>

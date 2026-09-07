@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import { createModuleTool } from "../createModule";
 import { getModuleTool } from "../getModule";
@@ -23,8 +24,8 @@ function rootDoc() {
 }
 
 describe("module hierarchy shared tools", () => {
-	it("creates a child atomically and returns parent and child identities", async () => {
-		const doc = rootDoc();
+	it("creates one complete child batch and reads back parent and child identities", async () => {
+		const doc = expectAdmittedDoc(rootDoc());
 		const parentModuleUuid = doc.moduleOrder[0];
 		if (parentModuleUuid === undefined)
 			throw new Error("parent fixture missing");
@@ -49,6 +50,8 @@ describe("module hierarchy shared tools", () => {
 		if ("error" in created.result) throw new Error(created.result.error);
 		expect(created.result.parentModuleUuid).toBe(parentModuleUuid);
 		expect(created.result.childModuleUuids).toEqual([]);
+		expect(harness.recordMutations).toHaveBeenCalledTimes(1);
+		expectAdmittedDoc(harness.currentDoc());
 
 		const parent = await harness.runTool(getModuleTool, {
 			moduleUuid: parentModuleUuid,

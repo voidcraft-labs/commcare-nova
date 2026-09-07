@@ -11,12 +11,14 @@
 import { type RefObject, useEffect, useId, useRef, useState } from "react";
 import { Button } from "@/components/shadcn/button";
 import { Textarea } from "@/components/shadcn/textarea";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import {
 	usePersonas,
 	useUserProperties,
 	useUserTypes,
 } from "@/lib/doc/hooks/useUserCollections";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import { asUuid } from "@/lib/doc/types";
 import { ownRecordValue, type UserType } from "@/lib/domain";
 import { useCanEdit } from "@/lib/session/hooks";
@@ -31,6 +33,8 @@ export function RolesSubsection() {
 	const properties = useUserProperties();
 	const personas = usePersonas();
 	const canEdit = useCanEdit();
+	const lookupCommitState = useLookupCommitState();
+	const canWrite = builderWriteAdmission({ canEdit, lookupCommitState }).ok;
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const [openUuid, setOpenUuid] = useState<string | undefined>(undefined);
@@ -54,6 +58,7 @@ export function RolesSubsection() {
 			addLabel="Add role"
 			onAdd={add}
 			canEdit={canEdit}
+			addDisabled={!canWrite}
 			addButtonRef={addButtonRef}
 		>
 			{roles.length === 0 ? (
@@ -110,6 +115,8 @@ function RoleRow({
 	returnFocusRef: RefObject<HTMLButtonElement | null>;
 }) {
 	const canEdit = useCanEdit();
+	const lookupCommitState = useLookupCommitState();
+	const canWrite = builderWriteAdmission({ canEdit, lookupCommitState }).ok;
 	const sessionApi = useBuilderSessionApi();
 	const mutations = useBlueprintMutations();
 	const nameId = useId();
@@ -162,7 +169,7 @@ function RoleRow({
 						inputRef={nameRef}
 						id={nameId}
 						value={role.name}
-						disabled={!canEdit}
+						disabled={!canWrite}
 						validate={(value) =>
 							value === "" ? "Enter a name for this role." : undefined
 						}
@@ -190,7 +197,7 @@ function RoleRow({
 					<Textarea
 						id={descriptionId}
 						value={role.description ?? ""}
-						disabled={!canEdit}
+						disabled={!canWrite}
 						autoComplete="off"
 						data-1p-ignore
 						rows={2}
@@ -219,7 +226,7 @@ function RoleRow({
 								key={property.uuid}
 								property={property}
 								value={ownRecordValue(role.values, property.uuid)}
-								disabled={!canEdit}
+								disabled={!canWrite}
 								onChange={(next) => setValue(property.uuid, next)}
 							/>
 						))
@@ -252,6 +259,7 @@ function RoleRow({
 								<Button
 									type="button"
 									variant="destructive"
+									disabled={!canWrite}
 									onClick={() => {
 										if (!sessionApi.getState().canEdit) return;
 										const outcome = mutations.inline.removeUserType(role.uuid);
@@ -278,6 +286,7 @@ function RoleRow({
 							ref={triggerRef}
 							type="button"
 							variant="ghost-destructive"
+							disabled={!canWrite}
 							onClick={() => setConfirmingRemove(true)}
 							className="self-start"
 						>

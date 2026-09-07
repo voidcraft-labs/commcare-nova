@@ -1,255 +1,156 @@
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-/**
- * Tests for `matchModeWhitespaceInValue`. CCHQ's CSQL evaluator
- * OR-tokenizes whitespace-bearing values for `fuzzy` and `phonetic`
- * matches; the rule rejects authored multi-word values for those
- * two modes only.
- */
-
+// Nova's whitespace diagnostics on CSQL-backed advanced search predicates.
+// This suite does not run HQ/Elasticsearch. Accepted neighbors also pass the
+// complete document admission gate, so a silent unrelated rule cannot stand
+// in for executable authoring support.
 import { describe, expect, it } from "vitest";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { plainColumn } from "@/lib/domain";
+import { testUuid } from "@/__tests__/helpers/uuid";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import { advancedSearchInputDef, proseText } from "@/lib/domain";
 import {
 	literal,
 	match,
 	multiSelectAll,
 	multiSelectAny,
+	type Predicate,
 	prop,
 } from "@/lib/domain/predicate";
-import { runValidation } from "../../../runner";
+import {
+	admittedCaseListDoc,
+	findings,
+	withSearchInputs,
+} from "./caseListRuleFixture";
 
-const CODE = "CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE" as const;
-
-const standardForm = {
-	name: "Reg",
-	type: "registration" as const,
-	fields: [
-		f({
-			kind: "text" as const,
-			id: "case_name",
-			label: "Name",
-			caseWrite: { caseType: "patient", property: "case_name" },
+const CODE = "CASE_LIST_MATCH_MODE_TOKENIZES_WHITESPACE";
+function candidate(predicate: Predicate) {
+	return withSearchInputs(
+		admittedCaseListDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "tags",
+							label: proseText("Tags"),
+							data_type: "multi_select",
+							options: [
+								{ value: "Alice", label: proseText("Alice") },
+								{ value: "Bob", label: proseText("Bob") },
+							],
+						},
+					],
+				},
+			],
 		}),
-	],
-};
-
-const standardCaseTypes = [
-	{
-		name: "patient",
-		properties: [
-			{ name: "case_name", label: "Name", data_type: "text" as const },
+		[
+			advancedSearchInputDef(
+				testUuid("whitespace-search"),
+				"search",
+				"Search",
+				"text",
+				predicate,
+			),
 		],
-	},
-];
+	);
+}
 
 describe("matchModeWhitespaceInValue", () => {
-	it("fires for fuzzy match against a multi-word literal", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						filter: match(prop("patient", "case_name"), "Alice Smith", "fuzzy"),
-						searchInputs: [],
-					},
-					forms: [standardForm],
+	it.each([
+		["fuzzy", "Alice Smith"],
+		["phonetic", "John  Doe"],
+		["fuzzy", "Alice\tSmith"],
+		["phonetic", "Alice\nSmith"],
+	] as const)(
+		"refuses %s value %j on its actual CSQL carrier",
+		(mode, value) => {
+			const hits = findings(
+				candidate(match(prop("patient", "case_name"), value, mode)),
+			);
+			expect(hits).toHaveLength(1);
+			expect(hits[0]).toMatchObject({
+				code: CODE,
+				details: {
+					mode,
+					value,
+					slot: "caseListConfig.searchInputs[0].predicate",
 				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
+			});
+		},
+	);
+	it.each(["fuzzy", "phonetic"] as const)(
+		"admits a single token for %s",
+		(mode) => {
+			expectAdmittedDoc(
+				candidate(match(prop("patient", "case_name"), "Alice", mode)),
+			);
+		},
+	);
+	it("admits a multiword starts-with literal", () => {
+		expectAdmittedDoc(
+			candidate(
+				match(prop("patient", "case_name"), "Alice Smith", "starts-with"),
+			),
 		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain('"Alice Smith"');
-		expect(hits[0].message).toContain("fuzzy");
-		expect(hits[0].message).toContain("OR");
 	});
-
-	it("fires for phonetic match against a multi-word literal", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						filter: match(
-							prop("patient", "case_name"),
-							"John  Doe",
-							"phonetic",
-						),
-						searchInputs: [],
-					},
-					forms: [standardForm],
+	it.each([multiSelectAny, multiSelectAll])(
+		"refuses multiword membership values",
+		(membership) => {
+			const hits = findings(
+				candidate(
+					membership(
+						prop("patient", "tags"),
+						literal("Alice Smith"),
+						literal("Bob"),
+					),
+				),
+			);
+			expect(hits).toHaveLength(1);
+			expect(hits[0]).toMatchObject({
+				code: CODE,
+				details: {
+					operator: "multi-select-contains",
+					value: "Alice Smith",
+					property: "tags",
 				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
+			});
+			expectAdmittedDoc(
+				candidate(
+					membership(prop("patient", "tags"), literal("Alice"), literal("Bob")),
+				),
+			);
+		},
+	);
+	it("attributes each whitespace repair across filter, advanced input and search button", () => {
+		const predicate = match(
+			prop("patient", "case_name"),
+			"Alice Smith",
+			"fuzzy",
 		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain("phonetic");
-	});
-
-	it("is silent for fuzzy match against a single-word literal", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						filter: match(prop("patient", "case_name"), "Alice", "fuzzy"),
-						searchInputs: [],
-					},
-					forms: [standardForm],
+		const doc = candidate(predicate);
+		const uuid = doc.moduleOrder[0];
+		const module = doc.modules[uuid];
+		if (!module.caseListConfig)
+			throw new Error("Missing fixture configuration");
+		const value = {
+			...doc,
+			modules: {
+				...doc.modules,
+				[uuid]: {
+					...module,
+					caseListConfig: { ...module.caseListConfig, filter: predicate },
+					caseSearchConfig: { searchButtonDisplayCondition: predicate },
 				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
-	});
-
-	it("is silent for starts-with against multi-word literal (CCHQ prefix-matches the whole string)", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						filter: match(
-							prop("patient", "case_name"),
-							"Alice Smith",
-							"starts-with",
-						),
-						searchInputs: [],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
-	});
-
-	// ── multi-select-contains coverage ──────────────────────────────
-	//
-	// CCHQ's `selected` and `selected-any` are the SAME runtime
-	// function (verified at
-	// `commcare-hq/.../case_search/xpath_functions/__init__.py`:
-	// `'selected': selected_any`). Both tokenize their value argument
-	// through ES's `match` query. A `multi-select-contains` value
-	// like "Alice Smith" silently OR-tokenizes downstream.
-
-	it("fires for multi-select-contains any with a multi-word value", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						filter: multiSelectAny(
-							prop("patient", "case_name"),
-							literal("Alice Smith"),
-							literal("Bob"),
-						),
-						searchInputs: [],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-		expect(hits[0].message).toContain('"Alice Smith"');
-		expect(hits[0].message).toContain("multi-select-contains");
-	});
-
-	it("fires for multi-select-contains all with a multi-word value", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						filter: multiSelectAll(
-							prop("patient", "case_name"),
-							literal("Big Apple"),
-						),
-						searchInputs: [],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(1);
-	});
-
-	it("is silent for multi-select-contains with single-token values", () => {
-		const doc = buildDoc({
-			appName: "T",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [plainColumn(testUuid("c-1"), "case_name", "Name")],
-						listColumnOrder: [testUuid("c-1")],
-						detailColumnOrder: [testUuid("c-1")],
-						filter: multiSelectAny(
-							prop("patient", "case_name"),
-							literal("Alice"),
-							literal("Bob"),
-						),
-						searchInputs: [],
-					},
-					forms: [standardForm],
-				},
-			],
-			caseTypes: standardCaseTypes,
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CODE,
-		);
-		expect(hits).toHaveLength(0);
+			},
+		};
+		// Fuzzy on the filter/button also has a separate device portability error;
+		// this candidate tests attribution, and does not claim admission there.
+		expect(
+			findings(value)
+				.filter((finding) => finding.code === CODE)
+				.map((finding) => finding.details?.slot),
+		).toEqual([
+			"caseListConfig.filter",
+			"caseListConfig.searchInputs[0].predicate",
+			"caseSearchConfig.searchButtonDisplayCondition",
+		]);
 	});
 });

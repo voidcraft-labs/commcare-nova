@@ -93,6 +93,7 @@ import {
 	canonicalizeRelationPath,
 	type RelationEvaluationScopeContext,
 } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+import { resolveNumericExpressionType } from "@/lib/domain/predicate/numericType";
 import { inferStructuralTemporalType } from "@/lib/domain/predicate/temporalType";
 import type {
 	Predicate,
@@ -281,14 +282,58 @@ export function emitOnDeviceExpression(
 			// CCHQ value function at the `double` entry on
 			// `commcare-hq/corehq/apps/case_search/xpath_functions/__init__.py::XPATH_VALUE_FUNCTIONS`.
 			return `double(${emitOnDeviceExpression(expr.value, root, relationContext, anchor, termContext)})`;
-		case "arith":
+		case "arith": {
 			// Paren-wrapping is unconditional so a recursive composition
 			// stays parse-stable without a precedence walker. The cost
 			// is one redundant pair of parens at the outermost level when
 			// the expression is the top of a value slot; that's a worth-
 			// while trade-off against tracking arithmetic precedence
 			// across the recursive walk.
-			return `(${emitOnDeviceExpression(expr.left, root, relationContext, anchor, termContext)} ${ARITH_OPS[expr.op]} ${emitOnDeviceExpression(expr.right, root, relationContext, anchor, termContext)})`;
+			const left = emitOnDeviceExpression(
+				expr.left,
+				root,
+				relationContext,
+				anchor,
+				termContext,
+			);
+			const right = emitOnDeviceExpression(
+				expr.right,
+				root,
+				relationContext,
+				anchor,
+				termContext,
+			);
+			if (expr.op === "div") {
+				const lookupTables =
+					relationContext.lookupTables ??
+					new Map(
+						termContext.lookup?.naming.tables.map((table) => [
+							table.tableId,
+							new Map(
+								table.columns.map((column) => [column.id, column.dataType]),
+							),
+						]),
+					);
+				const rowTableId = termContext.lookup?.rowScope?.tableId;
+				const columns =
+					rowTableId === undefined ? undefined : lookupTables.get(rowTableId);
+				const type = resolveNumericExpressionType(expr, {
+					...relationContext,
+					caseTypes: [...(relationContext.caseTypes ?? [])],
+					knownInputs: [...(relationContext.knownInputs ?? [])],
+					lookupTables,
+					...(rowTableId !== undefined &&
+						columns !== undefined && {
+							tableScope: { tableId: rowTableId, columns },
+						}),
+				});
+				// Removing the signed remainder truncates toward zero, including
+				// negative operands, without Core's 32-bit int() conversion.
+				if (type === "int")
+					return `if(${right} = 0, (${left} div ${right}), ((${left} - (${left} mod ${right})) div ${right}))`;
+			}
+			return `(${left} ${ARITH_OPS[expr.op]} ${right})`;
+		}
 		case "concat":
 			// XPath 1.0 standard `concat(...)` is variadic; the schema
 			// guarantees at least one part.

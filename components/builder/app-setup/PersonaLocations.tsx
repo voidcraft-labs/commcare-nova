@@ -19,8 +19,10 @@ import tablerX from "@iconify-icons/tabler/x";
 import { useEffect, useMemo, useState } from "react";
 import { LocationChoiceSelect } from "@/components/builder/LocationChoiceSelect";
 import { Button } from "@/components/shadcn/button";
+import { builderWriteAdmission } from "@/lib/doc/builderWriteAdmission";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { useOrganizationRuleInputs } from "@/lib/doc/hooks/useOrganizationCollections";
+import { useLookupCommitState } from "@/lib/doc/lookupCommitContext";
 import type { Persona } from "@/lib/domain";
 import { locationChoiceLabel } from "@/lib/organization/locationLabels";
 import { personaAssignmentIssue } from "@/lib/organization/ownerTargetVerdicts";
@@ -53,6 +55,8 @@ export function PersonaLocations({
 	reload?: () => void;
 }) {
 	const canEdit = useCanEdit();
+	const lookupCommitState = useLookupCommitState();
+	const canWrite = builderWriteAdmission({ canEdit, lookupCommitState }).ok;
 	const mutations = useBlueprintMutations();
 	const doc = useOrganizationRuleInputs();
 	const [requestedPage, setRequestedPage] = useState(0);
@@ -91,6 +95,7 @@ export function PersonaLocations({
 	} = useMemo(() => personaLocationEditor(inputs), [inputs]);
 	const rowFocus = useRemovedRowFocus(assigned.length);
 	const changeAssignment = (change: PersonaLocationChange) => {
+		if (!canWrite) return;
 		const planned = planPersonaLocationChange(inputs, change);
 		if (planned === undefined) return;
 		if (planned.removedIndex !== undefined)
@@ -183,6 +188,7 @@ export function PersonaLocations({
 														<Button
 															type="button"
 															variant="ghost"
+															disabled={!canWrite}
 															className="shrink-0"
 															onClick={() => {
 																changeAssignment({ kind: "main", id });
@@ -202,7 +208,7 @@ export function PersonaLocations({
 																: removalIssueId
 														}
 														className="shrink-0"
-														disabled={removalIssue !== undefined}
+														disabled={!canWrite || removalIssue !== undefined}
 														onClick={() => {
 															changeAssignment({ kind: "remove", id });
 														}}
@@ -271,6 +277,7 @@ export function PersonaLocations({
 
 					{canEdit && authoritative && available.length > 0 && (
 						<LocationChoiceSelect
+							disabled={!canWrite}
 							locations={available}
 							value=""
 							onValueChange={(value) => {

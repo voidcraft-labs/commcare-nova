@@ -17,9 +17,6 @@ import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
 	count,
-	eq,
-	exists,
-	expressionReadsRelatedCaseData,
 	literal,
 	predicateReadsRelatedCaseData,
 	prop,
@@ -33,6 +30,7 @@ import { firstConditionSeed } from "../conditionSeed";
 import {
 	type CaseDataScope,
 	caseDataInScope,
+	caseDataScopeAdmission,
 	NEVER_MATCH_UNAVAILABLE_REASON,
 	neverMatchInScope,
 	type PredicateEditContext,
@@ -46,13 +44,13 @@ const MOTHER: CaseType = {
 	properties: [
 		{ name: "status", label: proseText("Status"), data_type: "text" },
 	],
-} as CaseType;
+};
 const CHILD: CaseType = {
 	name: "child",
 	parent_type: "mother",
 	properties: [{ name: "age", label: proseText("Age"), data_type: "int" }],
-} as CaseType;
-const EMPTY: CaseType = { name: "empty", properties: [] } as CaseType;
+};
+const EMPTY: CaseType = { name: "empty", properties: [] };
 
 function ctx(
 	caseDataScope: CaseDataScope,
@@ -110,12 +108,12 @@ describe("offered predicate kinds", () => {
 		).toBeUndefined();
 		// The ordinary per-case scope still falls back to a relation seed
 		// when it has one, so the change is scoped to the new axis.
-		const related: CaseType = { name: "empty", properties: [] } as CaseType;
+		const related: CaseType = { name: "empty", properties: [] };
 		const child: CaseType = {
 			name: "kid",
 			parent_type: "empty",
 			properties: [],
-		} as CaseType;
+		};
 		expect(
 			firstConditionSeed(ctx("per-case", [related, child], "empty")),
 		).toBeDefined();
@@ -128,37 +126,33 @@ describe("offered predicate kinds", () => {
 	});
 });
 
-describe("related-read walkers", () => {
-	it("sees every spelling of reaching past the current case", () => {
-		expect(
-			predicateReadsRelatedCaseData(
-				eq(
-					term(prop("mother", "status", ancestorPath(relationStep("parent")))),
-					term(literal("open")),
-				),
-			),
-		).toBe(true);
-		expect(
-			predicateReadsRelatedCaseData(exists(subcasePath("parent", "child"))),
-		).toBe(true);
-		expect(
-			expressionReadsRelatedCaseData(count(subcasePath("parent", "child"))),
-		).toBe(true);
-	});
-
-	it("leaves the current case's own reads alone", () => {
-		expect(
-			predicateReadsRelatedCaseData(
-				eq(term(prop("mother", "status")), term(literal("open"))),
-			),
-		).toBe(false);
-		expect(
-			predicateReadsRelatedCaseData(
-				eq(term(prop("mother", "status", selfPath())), term(literal("open"))),
-			),
-		).toBe(false);
-		expect(expressionReadsRelatedCaseData(term(prop("mother", "status")))).toBe(
-			false,
+describe("scope admission at the editor boundary", () => {
+	it("refuses related counts and property reads for the selected case but permits own reads", () => {
+		const related = term(
+			prop("child", "status", ancestorPath(relationStep("parent"))),
+		);
+		const countChildren = count(subcasePath("parent", "child"));
+		for (const value of [related, countChildren]) {
+			expect(caseDataScopeAdmission("selected-case", value)).toMatchObject({
+				admitted: false,
+			});
+			expect(caseDataScopeAdmission("per-case", value)).toEqual({
+				admitted: true,
+			});
+		}
+		for (const value of [
+			term(prop("mother", "status")),
+			term(prop("mother", "status", selfPath())),
+		]) {
+			expect(caseDataScopeAdmission("selected-case", value)).toEqual({
+				admitted: true,
+			});
+			expect(caseDataScopeAdmission("global", value)).toMatchObject({
+				admitted: false,
+			});
+		}
+		expect(caseDataScopeAdmission("global", term(literal("constant")))).toEqual(
+			{ admitted: true },
 		);
 	});
 });

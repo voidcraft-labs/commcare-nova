@@ -5,10 +5,6 @@
  * carrying module into a canonical tool workspace. The fixture exposes
  * the resulting `{ doc, runTool, ... }` bundle so per-test bodies focus
  * on the tool's behavior rather than test-harness wiring.
- *
- * `makeCaseSearchMcpFixture` produces the parallel `McpContext`-hosted
- * shape for cross-surface tests asserting the same input produces the
- * same mutation batch on both surfaces.
  */
 
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -16,12 +12,9 @@ import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Module } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
-	type MakeMcpTestContextHandles,
-	makeMcpTestContext,
-	makeToolWorkspaceHarness,
-	type ToolWorkspaceHarness,
-} from "../../../__tests__/fixtures";
-import { CanonicalMutationWorkspace } from "../../../workspace/canonicalWorkspace";
+	type CaseListFixture,
+	makeCaseListFixture,
+} from "../../case-list-config/__tests__/fixtures";
 
 /* Stable uuid constant — imported by per-tool tests so each
  * assertion can reference the module by uuid against the post-
@@ -89,56 +82,10 @@ export function makeCaseSearchDoc(): BlueprintDoc {
 	};
 }
 
-/** Bundle of the starting doc + a canonical workspace over a lightweight stub
- *  host for the per-tool tests (its `recordMutations` echoes the prepared
- *  candidate's doc as the committed doc; no Postgres, no guarded writer). */
-export interface CaseSearchFixture extends ToolWorkspaceHarness {
-	doc: BlueprintDoc;
-}
-
-/** Bundle of the starting doc + a canonical workspace hosted by the MCP
- *  `McpContext`, for cross-surface assertions. */
-export interface CaseSearchMcpFixture extends MakeMcpTestContextHandles {
-	doc: BlueprintDoc;
-	workspace: CanonicalMutationWorkspace;
-	runTool: ToolWorkspaceHarness["runTool"];
-	currentDoc(): BlueprintDoc;
-}
-
-/**
- * Build a `{ doc, runTool, ... }` bundle for the chat surface — the
- * common shape every per-tool test boots from. A test that needs a
- * different starting document passes it in, so the workspace owns the
- * exact doc the tool will read.
- */
+/** Actual input/document admission and canonical workspace, with a controlled
+ * commit receipt. Persistence and native MCP transport belong to their suites. */
 export function makeCaseSearchFixture(
 	doc: BlueprintDoc = makeCaseSearchDoc(),
-): CaseSearchFixture {
-	return { ...makeToolWorkspaceHarness(doc), doc };
-}
-
-/**
- * Build a `{ doc, runTool, ... }` bundle for the MCP surface — used in
- * cross-surface parity tests that assert the same input produces
- * structurally-identical mutation batches.
- */
-export function makeCaseSearchMcpFixture(
-	doc: BlueprintDoc = makeCaseSearchDoc(),
-): CaseSearchMcpFixture {
-	const handles = makeMcpTestContext({ initialDoc: doc });
-	const workspace = new CanonicalMutationWorkspace({
-		host: handles.ctx,
-		initialDoc: doc,
-	});
-	return {
-		...handles,
-		doc,
-		workspace,
-		runTool: (tool, input) =>
-			workspace.invoke({
-				toolName: "test-tool",
-				execute: (ctx) => tool.execute(input as never, ctx),
-			}),
-		currentDoc: () => workspace.currentSnapshot().doc,
-	};
+): CaseListFixture {
+	return makeCaseListFixture(doc);
 }

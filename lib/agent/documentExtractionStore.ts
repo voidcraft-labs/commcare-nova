@@ -56,7 +56,6 @@ import {
 	EXTRACT_MAX_BYTES,
 	extractDocument,
 } from "./documentExtraction";
-import { normalizeExtractText } from "./extractNormalization";
 
 /**
  * An `extracting` record older than this is presumed dead — a job whose process
@@ -130,23 +129,19 @@ export function decideExtractAction(
 	return "extract-now";
 }
 
-/** Build the `ready` result from already-fetched extract text. Repairs a
- *  double-escaped extract on the way out (`normalizeExtractText` — a no-op on a
- *  clean one), so an extract stored before that repair existed is fixed for the SA
- *  read path with no re-extraction. `charCount` is the repaired text's own length
- *  (authoritative — the same bytes the SA receives). */
+/** Preserve stored extraction text exactly; JSON decoding happened at the
+ * provider boundary. `charCount` describes these same returned bytes as text. */
 function readyResult(
 	text: string,
 	truncated: boolean,
 	version: number,
 ): StoredExtractResult {
-	const extract = normalizeExtractText(text);
 	return {
 		status: "ready",
-		text: extract,
+		text,
 		version,
 		truncated,
-		charCount: extract.length,
+		charCount: text.length,
 	};
 }
 

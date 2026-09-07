@@ -8,16 +8,20 @@
  * creating the store directly, so the test respects the store-boundary
  * rule enforced by Biome's `noRestrictedImports`.
  *
- * Fixtures are built in the normalized `BlueprintDoc` shape directly.
+ * Fixtures are normalized, schema-admitted survey documents. These checks
+ * exercise subscriptions and memoization only; native browser tests own rendering.
  */
 
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { useBlueprintDocApi } from "@/lib/doc/hooks/useBlueprintDoc";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import type { Uuid } from "@/lib/doc/types";
+import { blueprintDocSchema } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { EMPTY_COLLAPSE, useFormRows } from "../useFormRows";
 
@@ -28,31 +32,28 @@ const FORM_UUID = testUuid("form-1-0000-0000-0000-000000000001");
 const Q_A = testUuid("qst-a-0000-0000-0000-000000000001");
 const Q_B = testUuid("qst-b-0000-0000-0000-000000000002");
 
-const TEST_DOC: BlueprintDoc = {
+const TEST_DOC = buildDoc({
 	appId: "app-rows",
-	appName: "Rows Test",
-	connectType: null,
-	caseTypes: null,
-	modules: {
-		[MODULE_UUID]: { uuid: MODULE_UUID, id: "m", name: "M" },
-	},
-	forms: {
-		[FORM_UUID]: {
-			uuid: FORM_UUID,
-			id: "f",
-			name: "F",
-			type: "registration",
+	appName: "Rows test",
+	modules: [
+		{
+			uuid: MODULE_UUID,
+			name: "Visits",
+			forms: [
+				{
+					uuid: FORM_UUID,
+					name: "Visit",
+					type: "survey",
+					fields: [
+						f({ uuid: Q_A, id: "a", kind: "text", label: proseText("A") }),
+						f({ uuid: Q_B, id: "b", kind: "text", label: proseText("B") }),
+					],
+				},
+			],
 		},
-	},
-	fields: {
-		[Q_A]: { uuid: Q_A, id: "a", kind: "text", label: proseText("A") },
-		[Q_B]: { uuid: Q_B, id: "b", kind: "text", label: proseText("B") },
-	},
-	moduleOrder: [MODULE_UUID],
-	formOrder: { [MODULE_UUID]: [FORM_UUID] },
-	fieldOrder: { [FORM_UUID]: [Q_A, Q_B] },
-	fieldParent: {},
-};
+	],
+});
+blueprintDocSchema.parse(toPersistableDoc(TEST_DOC));
 
 function wrapper({ children }: { children: ReactNode }) {
 	return (
@@ -65,25 +66,25 @@ function wrapper({ children }: { children: ReactNode }) {
 // ── Tests ──────────────────────────────────────────────────────────────
 
 describe("useFormRows", () => {
-	it("returns live rows that reflect the doc state", () => {
+	it("keeps the row projection stable across unrelated document edits", () => {
 		const { result } = renderHook(
-			() =>
-				useFormRows({
+			() => ({
+				rows: useFormRows({
 					formUuid: FORM_UUID,
 					includeInsertionPoints: true,
 					collapsed: EMPTY_COLLAPSE,
 				}),
+				storeApi: useBlueprintDocApi(),
+			}),
 			{ wrapper },
 		);
-		const kinds = result.current.map((r) => r.kind);
-		// ins(0), q(a), ins(1), q(b), ins(2)
-		expect(kinds).toEqual([
-			"insertion",
-			"field",
-			"insertion",
-			"field",
-			"insertion",
-		]);
+		const before = result.current.rows;
+		act(() => {
+			result.current.storeApi
+				.getState()
+				.applyMany([{ kind: "setAppName", name: "Renamed" }]);
+		});
+		expect(result.current.rows).toBe(before);
 	});
 
 	it("updates when fields are added to the form", () => {

@@ -93,7 +93,11 @@ valid direct Builder or MCP edit.
   concrete inputs and outcomes, structurally empty or disabled workflow shells,
   unresolved writes or outcomes, blocking open questions tied to included
   construction, and promises that Nova creates or uploads media. The authored
-  `blocking` flag is the construction gate: a non-blocking question beside
+  `blocking` flag is the construction gate for every current-contract question,
+  including questions about app prerequisites, decisions, or assumptions. Graph
+  admission includes all declared workflows and resolves question targets;
+  removing an excluded workflow also removes or resolves its blocking questions.
+  A non-blocking question beside
   concrete design — the spelling for a decision the user delegated or a
   production-hardening note — is a recorded caveat that never forces a user
   pause, and the concreteness checks still reject design that is not actually
@@ -424,7 +428,16 @@ decision or assumption, removes the question or marks it non-blocking — and a
 delegating answer such as "use sensible defaults" makes the concrete choice
 the model's to bake in.
 
+Semantic tool replay retains its persisted call identity after eager forward
+references become known or declared. A changed binding batch may replay only
+when the stored operation envelope is identical and every supplied binding is
+already proven in the session ledger; replay adds no workspace steps or handles.
+
 `designAgent.ts` owns the one stable agent grammar and compaction preparation.
+A retained state packet suppresses fresh derivation only when its durable append
+key proves a server `state:` or `compaction-state:` write after the newest provider
+checkpoint. User text, including a copied state heading or an old server packet,
+cannot establish that origin. The packet commits before the next provider call.
 The ordinary history and every complete step response append to
 `design_model_context_items` atomically with its usage-bearing
 `design_model_steps` completion event; the step ledger brackets provider calls

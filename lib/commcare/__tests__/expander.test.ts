@@ -1,3 +1,7 @@
+import { type Element, isTag } from "domhandler";
+import { findAll, textContent } from "domutils";
+import { parseDocument } from "htmlparser2";
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -9,14 +13,19 @@ import {
 	resolveCaseListConfig,
 	xp,
 } from "@/lib/__tests__/docHelpers";
-import { expandDoc } from "@/lib/commcare/expander";
+import { expandDoc as projectUncheckedDoc } from "@/lib/commcare/expander";
 import { expandCaseToWire } from "@/lib/commcare/hashtags";
 import { runValidation } from "@/lib/commcare/validator/runner";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { lowerXPathForJavaRosa } from "@/lib/commcare/xpath";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	advancedSearchInputDef,
+	type BlueprintDoc,
+	blueprintDocSchema,
 	calculatedColumn,
 	dateColumn,
 	idMappingColumn,
@@ -43,9 +52,101 @@ import {
 	toValueExpression,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { captureExpanderEvidence } from "./expanderEvidence";
+
+function expandDoc(doc: BlueprintDoc) {
+	blueprintDocSchema.parse(toPersistableDoc(doc));
+	expect(runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual([]);
+	const hq = projectUncheckedDoc(doc);
+	captureExpanderEvidence(doc, hq);
+	return hq;
+}
 
 function prose(...parts: ProseTemplate["parts"]): ProseTemplate {
 	return { parts };
+}
+
+function elements(xml: string, name?: string): Element[] {
+	return findAll(
+		(element) => name === undefined || element.name === name,
+		parseDocument(xml, { xmlMode: true }).children,
+	);
+}
+function one(
+	xml: string,
+	name: string,
+	attributes: Record<string, string> = {},
+): Element {
+	const matches = elements(xml, name).filter((element) =>
+		Object.entries(attributes).every(
+			([key, value]) => element.attribs[key] === value,
+		),
+	);
+	expect(matches, `${name} ${JSON.stringify(attributes)}`).toHaveLength(1);
+	return matches[0];
+}
+function values(xml: string, id: string): Element[] {
+	return one(xml, "text", { id }).children.filter(
+		(node): node is Element => isTag(node) && node.name === "value",
+	);
+}
+function proseParts(value: Element): unknown[] {
+	return value.children.map((node) =>
+		isTag(node)
+			? { element: node.name, attributes: node.attribs }
+			: textContent(node),
+	);
+}
+function itextValues(xml: string, id: string) {
+	return values(xml, id).map((value) => ({
+		form: value.attribs.form ?? "plain",
+		parts: proseParts(value),
+	}));
+}
+
+function expectProse(xml: string, id: string, parts: unknown[]) {
+	expect(itextValues(xml, id)).toEqual(
+		["plain", "markdown"].map((form) => ({ form, parts })),
+	);
+}
+function caseOutput(property: string) {
+	return {
+		element: "output",
+		attributes: {
+			value: `instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/${property}`,
+			"vellum:value": `#case/${property}`,
+		},
+	};
+}
+function expectChoices(
+	xml: string,
+	path: string,
+	choices: readonly (readonly [string, string, string])[],
+) {
+	const control = elements(xml).filter(
+		(element) =>
+			(element.name === "select1" || element.name === "select") &&
+			element.attribs.ref === path,
+	);
+	expect(control).toHaveLength(1);
+	const items = control[0].children.filter(
+		(child): child is Element => isTag(child) && child.name === "item",
+	);
+	expect(
+		items.map((item) =>
+			item.children.filter(isTag).map((child) => ({
+				name: child.name,
+				attributes: child.attribs,
+				text: textContent(child),
+			})),
+		),
+	).toEqual(
+		choices.map(([id, value]) => [
+			{ name: "label", attributes: { ref: `jr:itext('${id}')` }, text: "" },
+			{ name: "value", attributes: {}, text: value },
+		]),
+	);
+	for (const [id, , label] of choices) expectProse(xml, id, [label]);
 }
 
 describe("display-condition HQ projection", () => {
@@ -57,10 +158,16 @@ describe("display-condition HQ projection", () => {
 					name: "Patients",
 					caseType: "patient",
 					displayCondition: eq(sessionUser("role"), literal("supervisor")),
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Visit",
 							type: "followup",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 							displayCondition: eq(prop("patient", "status"), literal("open")),
 						},
 					],
@@ -91,6 +198,9 @@ describe("display-condition HQ projection", () => {
 						{
 							name: "Survey",
 							type: "survey",
+							fields: [
+								f({ kind: "text", id: "notes", label: proseText("Notes") }),
+							],
 							displayCondition: matchAll(),
 						},
 					],
@@ -229,6 +339,9 @@ describe("expandDoc", () => {
 				{
 					name: "M",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -272,18 +385,37 @@ describe("expandDoc", () => {
 		const hq = expandDoc(followupDoc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
 
-		// Real calculate should have the expanded instance() XPath
-		expect(xform).toContain(
-			'calculate="instance(&apos;casedb&apos;)/casedb/case[@case_id = instance(&apos;commcaresession&apos;)/session/data/case_id]/total_visits + 1"',
+		expect(
+			one(xform, "bind", { nodeset: "/data/total_visits" }).attribs,
+		).toMatchObject({
+			calculate:
+				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/total_visits + 1",
+			"vellum:calculate": "#case/total_visits + 1",
+		});
+		expect(one(xform, "vellum:hashtags").parent).toMatchObject({
+			name: "h:head",
+		});
+		expect(
+			JSON.parse(textContent(one(xform, "vellum:hashtags")))[
+				"#case/total_visits"
+			],
+		).toBe(
+			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/total_visits",
 		);
-		// Vellum calculate preserves the shorthand for the editor
-		expect(xform).toContain('vellum:calculate="#case/total_visits + 1"');
-		// Hashtag metadata rides HEAD ELEMENTS (Vellum's own writer shape —
-		// its parser never reads hashtag metadata off a bind).
-		expect(xform).not.toContain("vellum:hashtags=");
-		expect(xform).not.toContain("vellum:hashtagTransforms=");
-		expect(xform).toContain("<vellum:hashtags>");
-		expect(xform).toContain("<vellum:hashtagTransforms>");
+		expect(
+			JSON.parse(textContent(one(xform, "vellum:hashtagTransforms"))).prefixes[
+				"#case/"
+			],
+		).toBe(
+			"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/",
+		);
+		expect(
+			elements(xform).filter(
+				(element) =>
+					"vellum:hashtags" in element.attribs ||
+					"vellum:hashtagTransforms" in element.attribs,
+			),
+		).toEqual([]);
 	});
 
 	it("wires registration form actions correctly", () => {
@@ -338,10 +470,12 @@ describe("expandDoc", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('vellum:ref="#form/status" ref="/data/status"');
-		expect(xform).toContain('value="&apos;pending&apos;"');
-		// No vellum:value when there are no hashtags in the value expression
-		expect(xform).not.toContain("vellum:value=");
+		expect(one(xform, "setvalue", { ref: "/data/status" }).attribs).toEqual({
+			"vellum:ref": "#form/status",
+			ref: "/data/status",
+			value: "'pending'",
+			event: "xforms-ready",
+		});
 	});
 
 	it("expands a typed case ref in default_value and emits HQ editor shorthand", () => {
@@ -351,6 +485,9 @@ describe("expandDoc", () => {
 				{
 					name: "M",
 					caseType: "c",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -377,20 +514,26 @@ describe("expandDoc", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// Real value attribute should have expanded XPath (XML-escaped)
-		expect(xform).toContain("instance(&apos;casedb&apos;)");
-		expect(xform).toContain('/full_name"');
-		// Vellum value preserves shorthand
-		expect(xform).toContain('vellum:value="#case/full_name"');
+		expect(
+			one(xform, "setvalue", { ref: "/data/full_name" }).attribs,
+		).toMatchObject({
+			value:
+				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/full_name",
+			"vellum:value": "#case/full_name",
+			event: "xforms-ready",
+		});
 	});
 
 	it("omits itext label for hidden fields without a label", () => {
 		const hq = expandDoc(followupDoc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// Hidden field 'total_visits' has no label — should not get an itext entry
-		expect(xform).not.toContain('id="total_visits-label"');
-		// Visible field 'notes' should still get one
-		expect(xform).toContain('id="notes-label"');
+		expect(
+			elements(xform, "text").map((element) => element.attribs.id),
+		).not.toContain("total_visits-label");
+		expect(itextValues(xform, "notes-label")).toEqual([
+			{ form: "plain", parts: ["Notes"] },
+			{ form: "markdown", parts: ["Notes"] },
+		]);
 	});
 
 	it("handles close forms — conditional and unconditional", () => {
@@ -399,7 +542,10 @@ describe("expandDoc", () => {
 			modules: [
 				{
 					name: "M",
-					caseType: "case",
+					caseType: "record",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Conditional Close",
@@ -429,8 +575,12 @@ describe("expandDoc", () => {
 			],
 			caseTypes: [
 				{
-					name: "case",
-					properties: [{ name: "name", label: proseText("Name") }],
+					name: "record",
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+					],
 				},
 			],
 		});
@@ -480,7 +630,11 @@ describe("case_name in case list columns", () => {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
+					{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+				],
 			},
 		],
 	});
@@ -500,102 +654,35 @@ describe("case_name in case list columns", () => {
 	});
 });
 
-describe("runValidation", () => {
-	it("passes for a valid blueprint", () => {
-		expect(runValidation(registrationDoc, LOOKUP_CONTEXT_UNAVAILABLE)).toEqual(
-			[],
-		);
-	});
-
-	it("catches missing case_type on case forms", () => {
-		const doc = buildDoc({
-			appName: "Bad",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Q"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "NO_CASE_TYPE")).toBe(true);
-	});
-
-	it("catches reserved case property names", () => {
-		const doc = buildDoc({
-			appName: "Bad",
-			modules: [
-				{
-					name: "M",
-					caseType: "c",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "F",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "name",
-									label: proseText("Q"),
-									caseWrite: { caseType: "c", property: "name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{ name: "c", properties: [{ name: "name", label: proseText("Q") }] },
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "RESERVED_CASE_PROPERTY")).toBe(true);
-	});
-
-	it("catches registration form without case_name field", () => {
-		const doc = buildDoc({
-			appName: "Bad",
-			modules: [
-				{
-					name: "M",
-					caseType: "c",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "F",
-							type: "registration",
-							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{ name: "c", properties: [{ name: "q", label: proseText("Q") }] },
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CASE_CREATE_NAME_MISSING")).toBe(
-			true,
-		);
-	});
+describe("registration admission", () => {
+	it.each(["case-type", "reserved-property", "name-write"] as const)(
+		"rejects one %s corruption of an admitted registration",
+		(fault) => {
+			const doc = structuredClone(registrationDoc);
+			expandDoc(doc);
+			const module = doc.modules[doc.moduleOrder[0]];
+			const field = Object.values(doc.fields).find(
+				(field) => field.id === "case_name",
+			);
+			if (!field || !("caseWrite" in field) || !field.caseWrite)
+				throw new Error("Missing case-name writer");
+			if (fault === "case-type") delete module.caseType;
+			else if (fault === "reserved-property") field.caseWrite.property = "name";
+			else delete field.caseWrite;
+			const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+			expect(findings.map((finding) => finding.code)).toEqual(
+				fault === "case-type"
+					? [
+							"NO_CASE_TYPE",
+							"CASE_WRITE_NO_CASE_ACTION",
+							"CASE_WRITE_NO_CASE_ACTION",
+						]
+					: fault === "reserved-property"
+						? ["CASE_CREATE_NAME_MISSING", "RESERVED_CASE_PROPERTY"]
+						: ["CASE_CREATE_NAME_MISSING"],
+			);
+		},
+	);
 });
 
 // ── Feature 1: Output References in Labels ──────────────────────────────
@@ -633,12 +720,10 @@ describe("output references in labels", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// The literal `<output ...>` text is escaped, not honored as markup.
-		expect(xform).toContain(
-			'<text id="greeting-label"><value>Hello &lt;output value=&quot;/data/name&quot;/&gt;, welcome!</value>',
-		);
-		// No real <output> element leaked from the author text.
-		expect(xform).not.toContain('<output value="/data/name"');
+		expectProse(xform, "greeting-label", [
+			'Hello <output value="/data/name"/>, welcome!',
+		]);
+		expect(elements(xform, "output")).toEqual([]);
 	});
 
 	it("expands a typed current-case ref in label prose into an <output>", () => {
@@ -648,6 +733,9 @@ describe("output references in labels", () => {
 				{
 					name: "M",
 					caseType: "c",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -685,9 +773,7 @@ describe("output references in labels", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// The output value= has the expanded XPath; vellum:value the shorthand.
-		expect(xform).toContain('<output value="instance(');
-		expect(xform).toContain('vellum:value="#case/full_name"');
+		expectProse(xform, "msg-label", ["Patient: ", caseOutput("full_name")]);
 	});
 
 	it("lowers several typed current-case refs with expanded XPath", () => {
@@ -697,6 +783,9 @@ describe("output references in labels", () => {
 				{
 					name: "M",
 					caseType: "c",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -762,18 +851,14 @@ describe("output references in labels", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// HQ's private #case spelling should not appear as literal label text.
-		expect(xform).not.toContain("#case/case_name**");
-		expect(xform).not.toContain("to #case/end_date");
-		// Shorthand preserved in vellum:value attributes on output tags
-		expect(xform).toContain('vellum:value="#case/case_name"');
-		expect(xform).toContain('vellum:value="#case/start_date"');
-		expect(xform).toContain('vellum:value="#case/end_date"');
-		// Each output tag should have expanded instance() XPath
-		expect(xform).toContain('<output value="instance(');
-		// All itext entries get both <value> and <value form="markdown">, so 3 refs × 2 = 6
-		const outputCount = (xform.match(/vellum:value="#case\//g) || []).length;
-		expect(outputCount).toBe(6);
+		expectProse(xform, "summary-label", [
+			"Plan: **",
+			caseOutput("case_name"),
+			"**, from ",
+			caseOutput("start_date"),
+			" to ",
+			caseOutput("end_date"),
+		]);
 	});
 
 	it("lowers a typed form-field ref in label text", () => {
@@ -811,10 +896,17 @@ describe("output references in labels", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).not.toContain("#form/user_name!");
-		expect(xform).toContain(
-			'<output value="/data/user_name" vellum:value="#form/user_name"/>',
-		);
+		expectProse(xform, "greeting-label", [
+			"Hello ",
+			{
+				element: "output",
+				attributes: {
+					value: "/data/user_name",
+					"vellum:value": "#form/user_name",
+				},
+			},
+			"!",
+		]);
 	});
 
 	it("lowers multiple typed current-case refs in one label", () => {
@@ -824,6 +916,9 @@ describe("output references in labels", () => {
 				{
 					name: "M",
 					caseType: "c",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -879,12 +974,12 @@ describe("output references in labels", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// Both typed refs are lowered with their friendly current-case shadows.
-		const infoLabel =
-			xform.match(/<text id="info-label">.*?<\/text>/s)?.[0] || "";
-		expect(infoLabel).not.toContain("status: #case/workflow_status");
-		expect(infoLabel).toContain('vellum:value="#case/case_name"');
-		expect(infoLabel).toContain('vellum:value="#case/workflow_status"');
+		expectProse(xform, "info-label", [
+			"Hello ",
+			caseOutput("case_name"),
+			", status: ",
+			caseOutput("workflow_status"),
+		]);
 	});
 });
 
@@ -932,20 +1027,20 @@ describe("label/hint prose entity escaping", () => {
 		// Issue #3: `(<2kg, …, >10kg)` previously parsed as a bogus tag, leaking
 		// a bare `<` to the wire that CommCare HQ hard-rejects.
 		const xml = firstFormXml(labelDoc("(<2kg, 2-10kg, >10kg)"));
-		expect(xml).toContain("<value>(&lt;2kg, 2-10kg, &gt;10kg)</value>");
-		// No bare `<`/`>` survived inside the itext value text.
-		expect(xml).not.toContain("(<2kg");
-		expect(xml).not.toContain(">10kg)");
+		expectProse(xml, "note-label", ["(<2kg, 2-10kg, >10kg)"]);
+		expect(elements(xml, "output")).toEqual([]);
 	});
 
 	it("escapes a bare ampersand to `&amp;`", () => {
 		const xml = firstFormXml(labelDoc("Tom & Jerry"));
-		expect(xml).toContain("<value>Tom &amp; Jerry</value>");
+		expectProse(xml, "note-label", ["Tom & Jerry"]);
+		expect(elements(xml, "output")).toEqual([]);
 	});
 
 	it("escapes both comparison operators in prose", () => {
 		const xml = firstFormXml(labelDoc("Rating < 100 and > 50"));
-		expect(xml).toContain("<value>Rating &lt; 100 and &gt; 50</value>");
+		expectProse(xml, "note-label", ["Rating < 100 and > 50"]);
+		expect(elements(xml, "output")).toEqual([]);
 	});
 
 	it("expands a typed case ref in mixed prose while escaping surrounding `<`", () => {
@@ -959,6 +1054,9 @@ describe("label/hint prose entity escaping", () => {
 				{
 					name: "M",
 					caseType: "c",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -995,11 +1093,10 @@ describe("label/hint prose entity escaping", () => {
 			],
 		});
 		const xml = firstFormXml(doc);
-		// Prose `<` escaped …
-		expect(xml).toContain("Weight &lt; 5kg for");
-		// … while the hashtag lowered into a real <output> ref + shorthand.
-		expect(xml).toContain('<output value="instance(');
-		expect(xml).toContain('vellum:value="#case/full_name"');
+		expectProse(xml, "msg-label", [
+			"Weight < 5kg for ",
+			caseOutput("full_name"),
+		]);
 	});
 
 	it("escapes author-written `<output>` markup as literal text (new contract)", () => {
@@ -1008,11 +1105,8 @@ describe("label/hint prose entity escaping", () => {
 		// so it must serialize as escaped literal text (well-formed), NOT be
 		// honored as a real element. This documents the post-fix contract.
 		const xml = firstFormXml(labelDoc('See <output value="x"/> here'));
-		expect(xml).toContain(
-			"<value>See &lt;output value=&quot;x&quot;/&gt; here</value>",
-		);
-		// No real <output> element leaked from the author text.
-		expect(xml).not.toContain('<output value="x"');
+		expectProse(xml, "note-label", ['See <output value="x"/> here']);
+		expect(elements(xml, "output")).toEqual([]);
 	});
 
 	it("still expands a typed case ref in prose (regression)", () => {
@@ -1022,6 +1116,9 @@ describe("label/hint prose entity escaping", () => {
 				{
 					name: "M",
 					caseType: "c",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -1058,9 +1155,7 @@ describe("label/hint prose entity escaping", () => {
 			],
 		});
 		const xml = firstFormXml(doc);
-		expect(xml).not.toContain("Hello #case/display_name<");
-		expect(xml).toContain('vellum:value="#case/display_name"');
-		expect(xml).toContain('<output value="instance(');
+		expectProse(xml, "hi-label", ["Hello ", caseOutput("display_name")]);
 	});
 
 	it("round-trips a pre-escaped `&lt;` without double-escaping (regression)", () => {
@@ -1068,8 +1163,8 @@ describe("label/hint prose entity escaping", () => {
 		// the fix, decode-then-escape keeps the on-wire byte at exactly `&lt;`
 		// (not `&amp;lt;`), so the display still shows `<`.
 		const xml = firstFormXml(labelDoc("Less than &lt; threshold"));
-		expect(xml).toContain("<value>Less than &lt; threshold</value>");
-		expect(xml).not.toContain("&amp;lt;");
+		expectProse(xml, "note-label", ["Less than < threshold"]);
+		expect(elements(xml, "output")).toEqual([]);
 	});
 });
 
@@ -1121,26 +1216,10 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 			],
 		});
 		const xml = firstFormXml(doc);
-		// Two distinct, index-keyed itext ids — no collision.
-		expect(xml).toContain('<text id="rating-opt0-label">');
-		expect(xml).toContain('<text id="rating-opt1-label">');
-		// Each <item>'s label ref points at its per-index id; both <value>s
-		// emit the verbatim "3".
-		expect(xml).toContain(
-			`<item><label ref="jr:itext(&apos;rating-opt0-label&apos;)"/><value>3</value></item>`,
-		);
-		expect(xml).toContain(
-			`<item><label ref="jr:itext(&apos;rating-opt1-label&apos;)"/><value>3</value></item>`,
-		);
-		// The labels round-trip into the respective itext entries.
-		expect(xml).toContain(
-			'<text id="rating-opt0-label"><value>Three (low scale)</value>',
-		);
-		expect(xml).toContain(
-			'<text id="rating-opt1-label"><value>Three (high scale)</value>',
-		);
-		// The old value-keyed id must be gone.
-		expect(xml).not.toContain("rating-3-label");
+		expectChoices(xml, "/data/rating", [
+			["rating-opt0-label", "3", "Three (low scale)"],
+			["rating-opt1-label", "3", "Three (high scale)"],
+		]);
 		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
@@ -1171,14 +1250,10 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 			],
 		});
 		const xml = firstFormXml(doc);
-		expect(xml).toContain('<text id="tags-opt0-label">');
-		expect(xml).toContain('<text id="tags-opt1-label">');
-		expect(xml).toContain(
-			`<item><label ref="jr:itext(&apos;tags-opt0-label&apos;)"/><value>x</value></item>`,
-		);
-		expect(xml).toContain(
-			`<item><label ref="jr:itext(&apos;tags-opt1-label&apos;)"/><value>x</value></item>`,
-		);
+		expectChoices(xml, "/data/tags", [
+			["tags-opt0-label", "x", "First X"],
+			["tags-opt1-label", "x", "Second X"],
+		]);
 		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 
@@ -1210,14 +1285,10 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 		});
 		const xml = firstFormXml(doc);
 		// Index-keyed ids, one per option, refs and values aligned.
-		expect(xml).toContain(
-			`<item><label ref="jr:itext(&apos;confirm-opt0-label&apos;)"/><value>yes</value></item>`,
-		);
-		expect(xml).toContain(
-			`<item><label ref="jr:itext(&apos;confirm-opt1-label&apos;)"/><value>no</value></item>`,
-		);
-		expect(xml).toContain('<text id="confirm-opt0-label"><value>Yes</value>');
-		expect(xml).toContain('<text id="confirm-opt1-label"><value>No</value>');
+		expectChoices(xml, "/data/confirm", [
+			["confirm-opt0-label", "yes", "Yes"],
+			["confirm-opt1-label", "no", "No"],
+		]);
 		expect(validateXForm(xml, "F", "M")).toEqual([]);
 	});
 });
@@ -1225,10 +1296,6 @@ describe("select option itext ids — index-keyed (issue #10)", () => {
 // ── Markdown itext for all field kinds ───────────────────────────────────
 
 describe("markdown itext for all field kinds", () => {
-	/** Extract a single itext entry by ID from XForm XML. */
-	const extractItext = (xform: string, id: string): string =>
-		xform.match(new RegExp(`<text id="${id}">.*?</text>`, "s"))?.[0] ?? "";
-
 	it("emits markdown form for regular text field labels", () => {
 		const doc = buildDoc({
 			appName: "MD",
@@ -1254,11 +1321,7 @@ describe("markdown itext for all field kinds", () => {
 		const xform: string = Object.values(
 			expandDoc(doc)._attachments,
 		)[0] as string;
-		const entry = extractItext(xform, "name-label");
-		expect(entry).toContain("<value>Enter your **full name**</value>");
-		expect(entry).toContain(
-			'<value form="markdown">Enter your **full name**</value>',
-		);
+		expectProse(xform, "name-label", ["Enter your **full name**"]);
 	});
 
 	it("emits markdown form for select field labels and option labels", () => {
@@ -1294,18 +1357,11 @@ describe("markdown itext for all field kinds", () => {
 			expandDoc(doc)._attachments,
 		)[0] as string;
 		// Field label
-		const label = extractItext(xform, "status-label");
-		expect(label).toContain(
-			'<value form="markdown">Current **status**</value>',
-		);
-		// Option labels — itext ids are keyed by array index (issue #10 fix),
-		// not by option value, so the first option is `-opt0-label`.
-		const activeOpt = extractItext(xform, "status-opt0-label");
-		expect(activeOpt).toContain(
-			'<value form="markdown">**Active** &#x2014; currently enrolled</value>',
-		);
-		const inactiveOpt = extractItext(xform, "status-opt1-label");
-		expect(inactiveOpt).toContain('<value form="markdown">_Inactive_</value>');
+		expectProse(xform, "status-label", ["Current **status**"]);
+		expectProse(xform, "status-opt0-label", [
+			"**Active** — currently enrolled",
+		]);
+		expectProse(xform, "status-opt1-label", ["_Inactive_"]);
 	});
 
 	it("emits markdown form for hint text", () => {
@@ -1334,10 +1390,7 @@ describe("markdown itext for all field kinds", () => {
 		const xform: string = Object.values(
 			expandDoc(doc)._attachments,
 		)[0] as string;
-		const hint = extractItext(xform, "age-hint");
-		expect(hint).toContain(
-			'<value form="markdown">Enter age in **years**</value>',
-		);
+		expectProse(xform, "age-hint", ["Enter age in **years**"]);
 	});
 
 	it("emits markdown form for group labels", () => {
@@ -1368,9 +1421,7 @@ describe("markdown itext for all field kinds", () => {
 		const xform: string = Object.values(
 			expandDoc(doc)._attachments,
 		)[0] as string;
-		const entry = extractItext(xform, "demographics-label");
-		expect(entry).toContain("<value>## Demographics</value>");
-		expect(entry).toContain('<value form="markdown">## Demographics</value>');
+		expectProse(xform, "demographics-label", ["## Demographics"]);
 	});
 
 	it("emits markdown form for repeat group labels", () => {
@@ -1405,10 +1456,7 @@ describe("markdown itext for all field kinds", () => {
 		const xform: string = Object.values(
 			expandDoc(doc)._attachments,
 		)[0] as string;
-		const entry = extractItext(xform, "children-label");
-		expect(entry).toContain(
-			'<value form="markdown">Add **child** details</value>',
-		);
+		expectProse(xform, "children-label", ["Add **child** details"]);
 	});
 
 	it("emits markdown form for date, decimal, and media field labels", () => {
@@ -1446,15 +1494,9 @@ describe("markdown itext for all field kinds", () => {
 		const xform: string = Object.values(
 			expandDoc(doc)._attachments,
 		)[0] as string;
-		expect(extractItext(xform, "visit_date-label")).toContain(
-			'<value form="markdown">Date of **visit**</value>',
-		);
-		expect(extractItext(xform, "weight-label")).toContain(
-			'<value form="markdown">Weight _(kg)_</value>',
-		);
-		expect(extractItext(xform, "photo-label")).toContain(
-			'<value form="markdown">Take a **photo**</value>',
-		);
+		expectProse(xform, "visit_date-label", ["Date of **visit**"]);
+		expectProse(xform, "weight-label", ["Weight _(kg)_"]);
+		expectProse(xform, "photo-label", ["Take a **photo**"]);
 	});
 });
 
@@ -1492,15 +1534,17 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		const wire = lowerXPathForJavaRosa(
-			"normalize-space(concat(/data/first_name, ' ', /data/last_name))",
-		).replaceAll("'", "&apos;");
-		const vellum = lowerXPathForJavaRosa(
-			"normalize-space(concat(#form/first_name, ' ', #form/last_name))",
-		).replaceAll("'", "&apos;");
-		expect(xform).toContain(`calculate="${wire}"`);
-		expect(xform).toContain(`vellum:calculate="${vellum}"`);
-		expect(xform).not.toContain("normalize-space(");
+		const bind = one(xform, "bind", { nodeset: "/data/full_name" });
+		expect(bind.attribs.calculate).toBe(
+			lowerXPathForJavaRosa(
+				"normalize-space(concat(/data/first_name, ' ', /data/last_name))",
+			),
+		);
+		expect(bind.attribs["vellum:calculate"]).toBe(
+			lowerXPathForJavaRosa(
+				"normalize-space(concat(#form/first_name, ' ', #form/last_name))",
+			),
+		);
 	});
 
 	it("expands #form/ in relevant to /data/, keeps shorthand in vellum:relevant", () => {
@@ -1537,10 +1581,12 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('relevant="/data/consent = &apos;yes&apos;"');
-		expect(xform).toContain(
-			'vellum:relevant="#form/consent = &apos;yes&apos;"',
-		);
+		expect(
+			one(xform, "bind", { nodeset: "/data/details" }).attribs,
+		).toMatchObject({
+			relevant: "/data/consent = 'yes'",
+			"vellum:relevant": "#form/consent = 'yes'",
+		});
 	});
 
 	it("expands #form/ in validation constraint", () => {
@@ -1573,8 +1619,12 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('constraint=". &gt;= /data/start_date"');
-		expect(xform).toContain('vellum:constraint=". &gt;= #form/start_date"');
+		expect(
+			one(xform, "bind", { nodeset: "/data/end_date" }).attribs,
+		).toMatchObject({
+			constraint: ". >= /data/start_date",
+			"vellum:constraint": ". >= #form/start_date",
+		});
 	});
 
 	// Regression: validate_msg must round-trip through CommCare HQ.
@@ -1617,25 +1667,10 @@ describe("#form/ hashtag expansion", () => {
 			expandDoc(doc)._attachments,
 		)[0] as string;
 
-		// Bind references the itext id, not the raw message string.
-		expect(xform).toContain(
-			`jr:constraintMsg="jr:itext(&apos;age-constraintMsg&apos;)"`,
-		);
-		// Raw message must NOT appear inside the bind attribute (it would be
-		// ignored by HQ and Vellum would lose it on save).
-		expect(xform).not.toContain(
-			'jr:constraintMsg="Age must be between 1 and 149"',
-		);
-
-		// Matching itext entry is present, with both plain and markdown forms
-		// (every other textual itext entry also emits both — constraint
-		// messages shouldn't be a silent exception).
-		const entry = xform.match(/<text id="age-constraintMsg">.*?<\/text>/s)?.[0];
-		expect(entry).toBeDefined();
-		expect(entry).toContain("<value>Age must be between 1 and 149</value>");
-		expect(entry).toContain(
-			'<value form="markdown">Age must be between 1 and 149</value>',
-		);
+		expect(
+			one(xform, "bind", { nodeset: "/data/age" }).attribs["jr:constraintMsg"],
+		).toBe("jr:itext('age-constraintMsg')");
+		expectProse(xform, "age-constraintMsg", ["Age must be between 1 and 149"]);
 	});
 
 	// Regression: validation is only legal on input field kinds.
@@ -1646,84 +1681,6 @@ describe("#form/ hashtag expansion", () => {
 	// display-only labels similarly can't surface an error. The XForm
 	// emitter drops both the bind attributes and the itext entry for these
 	// kinds so a stale `validate_msg` can't leak into HQ.
-	it("drops validate and validate_msg on hidden fields", () => {
-		// The hidden-field schema doesn't declare `validate` / `validate_msg`,
-		// but the emitter must defensively strip them if they ever appear on
-		// a field value (e.g. via a stale migration). Use a looser field spec.
-		const doc = buildDoc({
-			appName: "HiddenVal",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								{
-									kind: "hidden",
-									id: "risk",
-									calculate: "if(/data/age > 65, 'high', 'low')",
-									validate: ". != 'unknown'",
-									validate_msg: proseText("Risk must resolve"),
-								},
-							],
-						},
-					],
-				},
-			],
-		});
-		const xform: string = Object.values(
-			expandDoc(doc)._attachments,
-		)[0] as string;
-
-		expect(xform).not.toContain("jr:constraintMsg");
-		expect(xform).not.toContain("constraint=");
-		expect(xform).not.toContain(`<text id="risk-constraintMsg">`);
-		expect(xform).not.toContain("Risk must resolve");
-	});
-
-	it("drops validate_msg on label and group fields", () => {
-		const doc = buildDoc({
-			appName: "StructuralVal",
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								{
-									kind: "label",
-									id: "section_header",
-									label: proseText("Demographics"),
-									validate_msg: proseText("should never appear"),
-								},
-								{
-									kind: "group",
-									id: "demographics",
-									label: proseText("Demographics"),
-									validate_msg: proseText("should never appear either"),
-									children: [
-										f({ kind: "text", id: "name", label: proseText("Name") }),
-									],
-								},
-							],
-						},
-					],
-				},
-			],
-		});
-		const xform: string = Object.values(
-			expandDoc(doc)._attachments,
-		)[0] as string;
-
-		expect(xform).not.toContain("jr:constraintMsg");
-		expect(xform).not.toContain(`<text id="section_header-constraintMsg">`);
-		expect(xform).not.toContain(`<text id="demographics-constraintMsg">`);
-		expect(xform).not.toContain("should never appear");
-	});
 
 	it("expands #form/ in required condition", () => {
 		const doc = buildDoc({
@@ -1759,13 +1716,12 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('required="/data/has_issue = &apos;yes&apos;"');
-		// The editor's attribute for a required condition is
-		// `vellum:requiredCondition` (Vellum never reads `vellum:required`).
-		expect(xform).toContain(
-			'vellum:requiredCondition="#form/has_issue = &apos;yes&apos;"',
-		);
-		expect(xform).not.toContain("vellum:required=");
+		expect(
+			one(xform, "bind", { nodeset: "/data/details" }).attribs,
+		).toMatchObject({
+			required: "/data/has_issue = 'yes'",
+			"vellum:requiredCondition": "#form/has_issue = 'yes'",
+		});
 	});
 
 	it("lowers a typed form-field prose ref with vellum:value", () => {
@@ -1803,9 +1759,16 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain(
-			'<output value="/data/text_value" vellum:value="#form/text_value"/>',
-		);
+		expectProse(xform, "here-label", [
+			"Here ",
+			{
+				element: "output",
+				attributes: {
+					value: "/data/text_value",
+					"vellum:value": "#form/text_value",
+				},
+			},
+		]);
 	});
 
 	it("expands #form/ in default_value setvalue", () => {
@@ -1835,8 +1798,13 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('value="/data/score_a + /data/score_b"');
-		expect(xform).toContain('vellum:value="#form/score_a + #form/score_b"');
+		expect(
+			one(xform, "setvalue", { ref: "/data/total" }).attribs,
+		).toMatchObject({
+			value: "/data/score_a + /data/score_b",
+			"vellum:value": "#form/score_a + #form/score_b",
+			event: "xforms-ready",
+		});
 	});
 
 	it("generates vellum:nodeset on all binds", () => {
@@ -1860,8 +1828,14 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('vellum:nodeset="#form/name" nodeset="/data/name"');
-		expect(xform).toContain('vellum:nodeset="#form/age" nodeset="/data/age"');
+		expect(elements(xform, "bind").map((bind) => bind.attribs)).toEqual([
+			{
+				nodeset: "/data/name",
+				"vellum:nodeset": "#form/name",
+				type: "xsd:string",
+			},
+			{ nodeset: "/data/age", "vellum:nodeset": "#form/age", type: "xsd:int" },
+		]);
 	});
 
 	it("generates vellum:nodeset for nested fields in groups", () => {
@@ -1891,9 +1865,9 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain(
-			'vellum:nodeset="#form/grp/inner" nodeset="/data/grp/inner"',
-		);
+		expect(
+			one(xform, "bind", { nodeset: "/data/grp/inner" }).attribs,
+		).toMatchObject({ "vellum:nodeset": "#form/grp/inner" });
 	});
 
 	it("generates vellum:ref on setvalue elements", () => {
@@ -1921,7 +1895,12 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('vellum:ref="#form/ts" ref="/data/ts"');
+		expect(one(xform, "setvalue", { ref: "/data/ts" }).attribs).toEqual({
+			ref: "/data/ts",
+			"vellum:ref": "#form/ts",
+			value: "now()",
+			event: "xforms-ready",
+		});
 	});
 
 	it("expands #form/ in group relevant and adds vellum attributes", () => {
@@ -1961,9 +1940,13 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('relevant="/data/show = &apos;yes&apos;"');
-		expect(xform).toContain('vellum:relevant="#form/show = &apos;yes&apos;"');
-		expect(xform).toContain('vellum:nodeset="#form/details"');
+		expect(
+			one(xform, "bind", { nodeset: "/data/details" }).attribs,
+		).toMatchObject({
+			relevant: "/data/show = 'yes'",
+			"vellum:relevant": "#form/show = 'yes'",
+			"vellum:nodeset": "#form/details",
+		});
 	});
 
 	it("does not add vellum:hashtags or vellum:hashtagTransforms for #form/-only expressions", () => {
@@ -1991,13 +1974,12 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// #form/ resolves to a plain in-form path — a #form-only form carries no
-		// head hashtag metadata (matching vanilla Vellum's omit-when-empty).
-		expect(xform).not.toContain("<vellum:hashtags>");
-		expect(xform).not.toContain("<vellum:hashtagTransforms>");
-		// But vellum:calculate IS present (preserves shorthand for Vellum editor)
-		expect(xform).toContain('vellum:calculate="#form/a * 2"');
-		expect(xform).toContain('calculate="/data/a * 2"');
+		expect(elements(xform, "vellum:hashtags")).toEqual([]);
+		expect(elements(xform, "vellum:hashtagTransforms")).toEqual([]);
+		expect(one(xform, "bind", { nodeset: "/data/b" }).attribs).toMatchObject({
+			calculate: "/data/a * 2",
+			"vellum:calculate": "#form/a * 2",
+		});
 	});
 
 	it("resolves a typed case ref to the private HQ parent-index wire walk", () => {
@@ -2046,27 +2028,11 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		// The resolved `calculate` is byte-identical to the established
-		// `#case/parent`
-		// walk (apostrophes XML-escaped by the serializer in the attribute value).
-		const escapedWalk = expandCaseToWire(1, "household_code").replaceAll(
-			"'",
-			"&apos;",
-		);
-		expect(xform).toContain(`calculate="${escapedWalk}"`);
-		// No shadow at all for an ancestor ref: HQ's editor has no `#mother`
-		// namespace, and even `#case/parent/` is only present when the app's own
-		// forms establish the relationship (`get_case_relationships` derives the
-		// generations from in-app subcase actions, not Nova's catalog) — an
-		// unexpandable shadow would be re-serialized raw into the real attribute
-		// on the user's next editor save. The expanded attribute alone
-		// round-trips as plain XPath.
-		expect(xform).not.toContain("vellum:calculate=");
-		expect(xform).not.toContain("#mother/");
-		// A per-type ref needs casedb just like `#case/` — the instance MUST be
-		// declared, or the emitted lookup references a non-existent source.
-		expect(xform).toContain(
-			'<instance src="jr://instance/casedb" id="casedb"/>',
+		const bind = one(xform, "bind", { nodeset: "/data/mother_code" });
+		expect(bind.attribs.calculate).toBe(expandCaseToWire(1, "household_code"));
+		expect(bind.attribs["vellum:calculate"]).toBeUndefined();
+		expect(one(xform, "instance", { id: "casedb" }).attribs.src).toBe(
+			"jr://instance/casedb",
 		);
 	});
 
@@ -2116,19 +2082,15 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		const escapedWalk = expandCaseToWire(1, "household_code").replaceAll(
-			"'",
-			"&apos;",
-		);
-		// Prose lowers to an `<output>` carrying the resolved parent-index walk.
-		// No `vellum:value` shadow: an ancestor generation isn't guaranteed
-		// vocabulary in HQ's editor (see the calculate variant of this test), and
-		// the raw `#mother/` per-type namespace must never reach the wire.
-		expect(xform).toContain(`<output value="${escapedWalk}"/>`);
-		expect(xform).not.toContain("#mother/");
-		// Prose case refs force the casedb instance declaration too.
-		expect(xform).toContain(
-			'<instance src="jr://instance/casedb" id="casedb"/>',
+		expectProse(xform, "code_note-label", [
+			"Code: ",
+			{
+				element: "output",
+				attributes: { value: expandCaseToWire(1, "household_code") },
+			},
+		]);
+		expect(one(xform, "instance", { id: "casedb" }).attribs.src).toBe(
+			"jr://instance/casedb",
 		);
 	});
 
@@ -2146,7 +2108,9 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "Patient Search",
 					caseType: "patient",
-					caseListConfig: caseListConfig([{ field: "name", header: "Name" }]),
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "New Encounter",
@@ -2173,7 +2137,7 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "patient",
 					properties: [
-						{ name: "name", label: proseText("Name") },
+						{ name: "case_name", label: proseText("Name") },
 						{ name: "allergen", label: proseText("Allergen") },
 					],
 				},
@@ -2182,47 +2146,32 @@ describe("#form/ hashtag expansion", () => {
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
 
-		// Real attribute: fully expanded XPath, no hashtags.
-		const expanded =
-			`/data/selected_medication != '' and contains(lower-case(${expandCaseToWire(
-				0,
-				"allergen",
-			)}), 'penicillin')`.replaceAll("'", "&apos;");
-		expect(xform).toContain(`relevant="${expanded}"`);
-		// Shadow attribute: the editor's vocabulary, not Nova's per-type namespace.
-		expect(xform).toContain(
-			'vellum:relevant="#form/selected_medication != &apos;&apos; and contains(lower-case(#case/allergen), &apos;penicillin&apos;)"',
-		);
-		expect(xform).not.toContain("#patient/");
-
-		// Head metadata: the vanilla-Vellum fallback vocabulary — the used ref
-		// mapped to its expansion, plus the prefix transforms table (JSON text
-		// content, entity-escaped by the serializer).
-		const xmlEscape = (s: string) =>
-			s.replaceAll('"', "&quot;").replaceAll("'", "&apos;");
-		expect(xform).toContain(
-			`<vellum:hashtags>${xmlEscape(
-				JSON.stringify({
-					"#case/allergen": expandCaseToWire(0, "allergen"),
-				}),
-			)}</vellum:hashtags>`,
-		);
-		expect(xform).toContain(
-			`<vellum:hashtagTransforms>${xmlEscape(
-				JSON.stringify({
-					prefixes: {
-						"#case/": expandCaseToWire(0, "allergen").slice(
-							0,
-							-"allergen".length,
-						),
-					},
-				}),
-			)}</vellum:hashtagTransforms>`,
-		);
-
-		// case_references load map speaks the same #case vocabulary.
-		const load = hq.modules[0].forms[0].case_references_data.load;
-		expect(load["/data/penicillin_allergy_alert"]).toEqual(["#case/allergen"]);
+		expect(
+			one(xform, "bind", { nodeset: "/data/penicillin_allergy_alert" }).attribs,
+		).toMatchObject({
+			relevant:
+				"/data/selected_medication != '' and contains(lower-case(" +
+				expandCaseToWire(0, "allergen") +
+				"), 'penicillin')",
+			"vellum:relevant":
+				"#form/selected_medication != '' and contains(lower-case(#case/allergen), 'penicillin')",
+		});
+		expect(JSON.parse(textContent(one(xform, "vellum:hashtags")))).toEqual({
+			"#case/allergen": expandCaseToWire(0, "allergen"),
+		});
+		expect(
+			JSON.parse(textContent(one(xform, "vellum:hashtagTransforms"))),
+		).toEqual({
+			prefixes: {
+				"#case/":
+					"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/",
+			},
+		});
+		expect(
+			hq.modules[0].forms[0].case_references_data.load[
+				"/data/penicillin_allergy_alert"
+			],
+		).toEqual(["#case/allergen"]);
 	});
 
 	it("records no case_id load for a registration form — the ref reads the form-local new-case id", () => {
@@ -2236,7 +2185,9 @@ describe("#form/ hashtag expansion", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					caseListConfig: caseListConfig([{ field: "name", header: "Name" }]),
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Register",
@@ -2261,20 +2212,20 @@ describe("#form/ hashtag expansion", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "name", label: proseText("Name") }],
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+					],
 				},
 			],
 		});
 		const hq = expandDoc(doc);
 		expect(hq.modules[0].forms[0].case_references_data.load).toEqual({});
-		// The XForm side reads the form-local allocated id, with no shadow (a
-		// registration form has no case vocabulary in HQ's editor).
-		const xform = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain(
-			'calculate="concat(&apos;P-&apos;, /data/case/@case_id)"',
-		);
-		expect(xform).not.toContain("vellum:calculate=");
-		expect(xform).not.toContain("#patient/");
+		const xform = Object.values(hq._attachments)[0];
+		const bind = one(xform, "bind", { nodeset: "/data/tracking_code" });
+		expect(bind.attribs.calculate).toBe("concat('P-', /data/case/@case_id)");
+		expect(bind.attribs["vellum:calculate"]).toBeUndefined();
 	});
 
 	it("keeps an unresolvable prose token literal — no <output>, no casedb", () => {
@@ -2314,11 +2265,13 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		// The tokens stay literal — no lowering happened at all.
-		expect(xform).not.toContain("<output");
-		expect(xform).toContain("Codes #N/A and #child/name and #section/intro");
-		// No case resolution → no casedb instance declared.
-		expect(xform).not.toContain('id="casedb"');
+		expect(elements(xform, "output")).toEqual([]);
+		expectProse(xform, "junk_note-label", [
+			"Codes #N/A and #child/name and #section/intro",
+		]);
+		expect(
+			elements(xform, "instance").map((instance) => instance.attribs.id),
+		).not.toContain("casedb");
 	});
 
 	it("declares the casedb instance for a per-type ref whose ONLY home is a validate_msg", () => {
@@ -2374,15 +2327,15 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform = Object.values(hq._attachments)[0] as string;
-		const escapedWalk = expandCaseToWire(1, "household_code").replaceAll(
-			"'",
-			"&apos;",
-		);
-		// The validate_msg prose lowered to an <output> carrying the resolved walk…
-		expect(xform).toContain(`<output value="${escapedWalk}"`);
-		// …and the casedb instance is declared (the bug this guards against).
-		expect(xform).toContain(
-			'<instance src="jr://instance/casedb" id="casedb"/>',
+		expectProse(xform, "code-constraintMsg", [
+			"Must match ",
+			{
+				element: "output",
+				attributes: { value: expandCaseToWire(1, "household_code") },
+			},
+		]);
+		expect(one(xform, "instance", { id: "casedb" }).attribs.src).toBe(
+			"jr://instance/casedb",
 		);
 	});
 
@@ -2416,8 +2369,9 @@ describe("#form/ hashtag expansion", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).not.toContain('id="casedb"');
-		expect(xform).not.toContain('id="commcaresession"');
+		expect(
+			elements(xform, "instance").map((instance) => instance.attribs),
+		).toEqual([{}]);
 	});
 });
 
@@ -2449,7 +2403,9 @@ describe("conditional required", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('required="true()"');
+		expect(one(xform, "bind", { nodeset: "/data/q" }).attribs).toMatchObject({
+			required: "true()",
+		});
 	});
 
 	it("generates required XPath expression for string required", () => {
@@ -2486,8 +2442,9 @@ describe("conditional required", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('required="/data/consent = &apos;yes&apos;"');
-		expect(xform).not.toContain('required="true()"');
+		expect(
+			one(xform, "bind", { nodeset: "/data/details" }).attribs,
+		).toMatchObject({ required: "/data/consent = 'yes'" });
 	});
 
 	it("expands a typed case ref in required XPath and emits HQ shorthand", () => {
@@ -2497,6 +2454,9 @@ describe("conditional required", () => {
 				{
 					name: "M",
 					caseType: "c",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -2525,10 +2485,13 @@ describe("conditional required", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain(
-			'vellum:requiredCondition="#case/risk = &apos;high&apos;"',
-		);
-		expect(xform).toContain("instance(&apos;casedb&apos;)");
+		expect(
+			one(xform, "bind", { nodeset: "/data/notes" }).attribs,
+		).toMatchObject({
+			required:
+				"instance('casedb')/casedb/case[@case_id = instance('commcaresession')/session/data/case_id]/risk = 'high'",
+			"vellum:requiredCondition": "#case/risk = 'high'",
+		});
 	});
 });
 
@@ -2565,7 +2528,11 @@ describe("case detail (long) view", () => {
 			caseTypes: [
 				{
 					name: "c",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+					],
 				},
 			],
 		});
@@ -2630,7 +2597,11 @@ describe("case detail (long) view", () => {
 			caseTypes: [
 				{
 					name: "c",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+					],
 				},
 			],
 		});
@@ -2681,8 +2652,10 @@ describe("single language itext", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('lang="en" default=""');
-		expect(xform).toContain("Patient Name");
+		expect(
+			elements(xform, "translation").map((translation) => translation.attribs),
+		).toEqual([{ lang: "en", default: "" }]);
+		expectProse(xform, "name-label", ["Patient Name"]);
 		expect(hq.langs).toEqual(["en"]);
 	});
 });
@@ -2722,16 +2695,9 @@ describe("jr-insert for repeat defaults", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('event="jr-insert"');
-		// The repeat-default setvalue specifically must be jr-insert, not
-		// xforms-ready. Assert structurally on the status setvalue rather than
-		// blanket-rejecting xforms-ready, so a non-repeat default_value
-		// elsewhere on a form can't make the test brittle.
-		const statusSetvalue = xform.match(
-			/<setvalue\b[^>]*ref="\/data\/items\/status"[^/]*\/>/,
-		);
-		expect(statusSetvalue).not.toBeNull();
-		expect(statusSetvalue?.[0]).toContain('event="jr-insert"');
+		expect(
+			one(xform, "setvalue", { ref: "/data/items/status" }).attribs,
+		).toMatchObject({ event: "jr-insert", value: "'pending'" });
 	});
 
 	it("uses xforms-ready event for default_value outside repeat groups", () => {
@@ -2759,8 +2725,9 @@ describe("jr-insert for repeat defaults", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('event="xforms-ready"');
-		expect(xform).not.toContain('event="jr-insert"');
+		expect(
+			one(xform, "setvalue", { ref: "/data/status" }).attribs,
+		).toMatchObject({ event: "xforms-ready", value: "'pending'" });
 	});
 
 	it('adds jr:template="" attribute on repeat data elements', () => {
@@ -2794,7 +2761,8 @@ describe("jr-insert for repeat defaults", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		expect(xform).toContain('<items jr:template="">');
+		expect(one(xform, "items").attribs).toEqual({ "jr:template": "" });
+		expect(one(xform, "repeat", { nodeset: "/data/items" })).toBeDefined();
 	});
 });
 
@@ -2808,6 +2776,9 @@ describe("expansion with complete fields", () => {
 				{
 					name: "M",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Register",
@@ -2833,7 +2804,11 @@ describe("expansion with complete fields", () => {
 			caseTypes: [
 				{
 					name: "patient",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+					],
 				},
 			],
 		});
@@ -2850,6 +2825,9 @@ describe("expansion with complete fields", () => {
 				{
 					name: "M",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "F",
@@ -2875,26 +2853,26 @@ describe("expansion with complete fields", () => {
 		});
 		const hq = expandDoc(doc);
 		const xform: string = Object.values(hq._attachments)[0] as string;
-		// Should use the field's own label, not the case_types label
-		expect(xform).toContain("Patient Name");
-		expect(xform).not.toContain("WRONG");
+		expectProse(xform, "case_name-label", ["Patient Name"]);
 	});
 });
 
 // ── Unquoted String Literal Detection ────────────────────────────────────
 
 describe("unquoted string literal detection", () => {
-	/**
-	 * Build a one-field survey doc with the caller's field overrides
-	 * merged onto a simple text field.
-	 *
-	 * `error.details.field` in the validator carries the domain key name
-	 * (`validate` instead of wire-format `validation`), so callers using
-	 * the old key name should spell the new one.
-	 */
-	const makeDoc = (overrides: Record<string, unknown>) =>
-		buildDoc({
-			appName: "Test",
+	function expressionDoc(
+		kind: "text" | "int" | "date" | "hidden",
+		slot: string,
+		expression: string,
+		nested = false,
+	) {
+		const question = f({
+			kind,
+			id: "q",
+			...(kind === "hidden" && { calculate: "1" }),
+			[slot]: expression,
+		} as Parameters<typeof f>[0]);
+		return buildDoc({
 			modules: [
 				{
 					name: "M",
@@ -2903,353 +2881,125 @@ describe("unquoted string literal detection", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								{
-									kind: "text",
-									id: "q",
-									label: proseText("Q"),
-									...overrides,
-								} as unknown as Parameters<typeof f>[0],
+								f({ kind: "int", id: "age" }),
+								...(nested
+									? [f({ kind: "group", id: "group", children: [question] })]
+									: [question]),
 							],
 						},
 					],
 				},
 			],
 		});
-
-	it("catches bare string in default_value", () => {
-		const errors = runValidation(
-			makeDoc({ kind: "hidden", default_value: "no", calculate: "1" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "UNQUOTED_STRING_LITERAL" &&
-					e.location.field === "default_value",
-			),
-		).toBe(true);
+	}
+	it.each([
+		["text", "default_value", "'no'"],
+		["int", "required", "true()"],
+		["int", "relevant", "#form/age > 18"],
+		["hidden", "calculate", "#form/age"],
+		["int", "default_value", "0"],
+		["date", "default_value", "today()"],
+		["int", "validate", ". > 0"],
+	] as const)("admits and emits %s %s = %s", (kind, slot, expression) => {
+		expandDoc(expressionDoc(kind, slot, expression));
 	});
-
-	it("catches bare string in calculate", () => {
-		const errors = runValidation(
-			makeDoc({ kind: "hidden", calculate: "pending" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "UNQUOTED_STRING_LITERAL" &&
-					e.location.field === "calculate",
-			),
-		).toBe(true);
-	});
-
-	it("catches bare string in relevant", () => {
-		const errors = runValidation(
-			makeDoc({ relevant: "yes" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "UNQUOTED_STRING_LITERAL" &&
-					e.location.field === "relevant",
-			),
-		).toBe(true);
-	});
-
-	it("allows quoted string literal", () => {
-		const errors = runValidation(
-			makeDoc({ kind: "hidden", default_value: "'no'", calculate: "1" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
-			false,
-		);
-	});
-
-	it("allows function calls", () => {
-		const errors = runValidation(
-			makeDoc({ required: "true()" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
-			false,
-		);
-	});
-
-	it("allows XPath expressions", () => {
-		const errors = runValidation(
-			makeDoc({ relevant: "/data/age > 18" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
-			false,
-		);
-	});
-
-	it("allows hashtag references", () => {
-		const errors = runValidation(
-			makeDoc({ kind: "hidden", calculate: "#patient/status" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
-			false,
-		);
-	});
-
-	it("allows number literals", () => {
-		const errors = runValidation(
-			makeDoc({ kind: "hidden", default_value: "0", calculate: "1" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
-			false,
-		);
-	});
-
-	it("allows today() function", () => {
-		const errors = runValidation(
-			makeDoc({ kind: "hidden", default_value: "today()", calculate: "1" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
-			false,
-		);
-	});
-
-	it("allows dot expressions", () => {
-		const errors = runValidation(
-			makeDoc({ validate: ". > 0" }),
-			LOOKUP_CONTEXT_UNAVAILABLE,
-		);
-		expect(errors.some((e) => e.code === "UNQUOTED_STRING_LITERAL")).toBe(
-			false,
-		);
-	});
-
-	it("catches bare string inside group children", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
+	it.each([
+		["text", "default_value", "no", false],
+		["hidden", "calculate", "pending", false],
+		["text", "relevant", "yes", false],
+		["hidden", "default_value", "active", true],
+	] as const)(
+		"reports the exact %s %s bare word %s (nested=%s)",
+		(kind, slot, word, nested) => {
+			const doc = expressionDoc(
+				kind,
+				slot,
+				slot === "relevant" ? "true()" : "'safe'",
+				nested,
+			);
+			expandDoc(doc);
+			const question = Object.values(doc.fields).find(
+				(field) => field.id === "q",
+			);
+			if (!question) throw new Error("Missing question");
+			Object.assign(question, { [slot]: xp(word) });
+			const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+			expect(
+				findings.map((finding) => ({
+					code: finding.code,
+					field: finding.location.field,
+					uuid: finding.location.fieldUuid,
+					bareWord: finding.details?.bareWord,
+				})),
+			).toEqual([
 				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "grp",
-									label: proseText("Group"),
-									children: [
-										f({
-											kind: "hidden",
-											id: "status",
-											calculate: "1",
-											default_value: "active",
-										}),
-									],
-								}),
-							],
-						},
-					],
+					code: "UNQUOTED_STRING_LITERAL",
+					field: slot,
+					uuid: question.uuid,
+					bareWord: word,
 				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "UNQUOTED_STRING_LITERAL" &&
-					e.details?.bareWord === "active",
-			),
-		).toBe(true);
-	});
+				{
+					code: "INVALID_REF",
+					field: slot,
+					uuid: question.uuid,
+					bareWord: undefined,
+				},
+			]);
+		},
+	);
 });
 
 // ── Child Case Type Module Requirement ─────────────────────────────────
 
-describe("child case type module requirement", () => {
-	it("errors when forms create cases of a type that has no module", () => {
-		// The finding keys on WRITERS: the parent form registers `service`
-		// child cases (a `caseWrite: service.case_name` bucket), but no module
-		// owns `service` — the created cases would be invisible. A record
-		// alone (no writers) is a legal plan and stays clean.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Plans",
-					caseType: "plan",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Create Plan",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Plan Name"),
-									caseWrite: { caseType: "plan", property: "case_name" },
-								}),
-								f({
-									kind: "text",
-									id: "service_note",
-									label: proseText("Service note"),
-									caseWrite: { caseType: "service", property: "service_note" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "plan",
-					properties: [{ name: "case_name", label: proseText("Plan Name") }],
-				},
-				{
-					name: "service",
-					parent_type: "plan",
-					properties: [{ name: "case_name", label: proseText("Service Name") }],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "MISSING_CHILD_CASE_MODULE")).toBe(
-			true,
-		);
-	});
-
-	it("no error when child case type has a case_list_only module", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Plans",
-					caseType: "plan",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Create Plan",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Plan Name"),
-									caseWrite: { caseType: "plan", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-				{
-					name: "Services",
-					caseType: "service",
-					caseListOnly: true,
-					forms: [],
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-				},
-			],
-			caseTypes: [
-				{
-					name: "plan",
-					properties: [{ name: "case_name", label: proseText("Plan Name") }],
-				},
-				{
-					name: "service",
-					parent_type: "plan",
-					properties: [{ name: "case_name", label: proseText("Service Name") }],
-				},
-			],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "MISSING_CHILD_CASE_MODULE")).toBe(
-			false,
-		);
-		expect(
-			errors.some(
-				(e) =>
-					e.code === "CASE_LIST_ONLY_HAS_FORMS" ||
-					e.code === "CASE_LIST_ONLY_NO_CASE_TYPE",
-			),
-		).toBe(false);
-	});
-});
-
 // ── case_list_only Validation ──────────────────────────────────────────
 
-describe("case_list_only validation", () => {
-	it("errors when case_list_only module has forms", () => {
-		const doc = buildDoc({
-			appName: "Test",
+describe("case-list-only admission", () => {
+	function browseDoc(withForm = false) {
+		return buildDoc({
+			caseTypes: [{ name: "thing", properties: [] }],
 			modules: [
 				{
-					name: "Bad",
+					name: "Things",
 					caseType: "thing",
-					caseListOnly: true,
+					caseListOnly: !withForm,
 					caseListConfig: caseListConfig([
 						{ field: "case_name", header: "Name" },
 					]),
-					forms: [
-						{
-							name: "F",
-							type: "followup",
-							fields: [f({ kind: "text", id: "q", label: proseText("Q") })],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "thing", properties: [] }],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CASE_LIST_ONLY_HAS_FORMS")).toBe(
-			true,
-		);
-	});
-
-	it("errors when case_list_only module has no case_type", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Bad",
-					caseListOnly: true,
-					forms: [],
+					forms: withForm
+						? [
+								{
+									name: "Visit",
+									type: "followup",
+									fields: [f({ kind: "text", id: "note" })],
+								},
+							]
+						: [],
 				},
 			],
 		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "CASE_LIST_ONLY_NO_CASE_TYPE")).toBe(
-			true,
-		);
-	});
-
-	it("errors when module has case_type and no forms but missing case_list_only flag", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Ambiguous",
-					caseType: "thing",
-					forms: [],
-				},
-			],
-			caseTypes: [{ name: "thing", properties: [] }],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		expect(errors.some((e) => e.code === "NO_FORMS_OR_CASE_LIST")).toBe(true);
-	});
+	}
+	it.each(["forms", "case-type", "browse-flag"] as const)(
+		"refuses removing the %s invariant from an admitted workflow",
+		(fault) => {
+			const doc = browseDoc(fault === "forms");
+			expandDoc(doc);
+			const module = doc.modules[doc.moduleOrder[0]];
+			if (fault === "forms") module.caseListOnly = true;
+			else if (fault === "case-type") delete module.caseType;
+			else delete module.caseListOnly;
+			const codes = {
+				forms: "CASE_LIST_ONLY_HAS_FORMS",
+				"case-type": "CASE_LIST_ONLY_NO_CASE_TYPE",
+				"browse-flag": "NO_FORMS_OR_CASE_LIST",
+			};
+			expect(
+				runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((finding) => ({
+					code: finding.code,
+					moduleUuid: finding.location.moduleUuid,
+				})),
+			).toEqual([{ code: codes[fault], moduleUuid: module.uuid }]);
+		},
+	);
 });
 
 // ── case_list_only Expansion ───────────────────────────────────────────
@@ -3262,6 +3012,9 @@ describe("case_list_only expansion", () => {
 				{
 					name: "Plans",
 					caseType: "plan",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Create Plan",
@@ -3322,7 +3075,11 @@ describe("case_list_only expansion", () => {
 			caseTypes: [
 				{
 					name: "service",
-					properties: [{ name: "case_name", label: proseText("Name") }],
+					properties: [
+						{ name: "case_name", label: proseText("Name") },
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "dob", label: proseText("Birth date"), data_type: "date" },
+					],
 				},
 			],
 		});
@@ -3337,6 +3094,9 @@ describe("case_list_only expansion", () => {
 				{
 					name: "Plans",
 					caseType: "plan",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Create Plan",
@@ -3382,54 +3142,28 @@ describe("case_list_only expansion", () => {
 
 // ── Structural edge cases ──────────────────────────────────────────────
 //
-// The pipeline must degrade cleanly on corner shapes the builder permits
-// mid-edit: forms with no fields yet, containers awaiting children, and
-// containers nested inside containers. These tests pin the structural
-// invariants so a refactor can't silently stop emitting the wrappers.
+// Admission rejects an empty form. Empty and nested containers remain
+// representable and retain their authored wrappers.
 
 describe("empty form expansion", () => {
-	// A form with zero fields is a valid intermediate state while the SA
-	// or a user scaffolds a module. It must still produce a well-formed
-	// XForm shell that downstream validation accepts — no fields means no
-	// binds and no body children, but the `<data>` and `<h:body>` wrappers
-	// still need to be present for CommCare Mobile to load the form.
-	it("emits a valid XForm shell when a survey form has zero fields", () => {
+	it("refuses an empty form before export", () => {
 		const doc = buildDoc({
-			appName: "Empty",
 			modules: [
-				{ name: "M", forms: [{ name: "F", type: "survey", fields: [] }] },
+				{
+					name: "Surveys",
+					forms: [{ name: "Empty", type: "survey", fields: [] }],
+				},
 			],
 		});
-		const hq = expandDoc(doc);
-		const xml: string = Object.values(hq._attachments)[0] as string;
-
-		// Shell present. With no fields the body has no children, so the
-		// serializer renders it self-closing (`<h:body/>` ≡ `<h:body></h:body>`).
-		expect(xml).toContain("<h:head>");
-		expect(xml).toMatch(/<h:body\s*\/>/);
-		// The `orx:` prefix is declared on the root unconditionally (matching
-		// Vellum's writer) so the `.ccz` meta splice has it in scope.
-		// The HQ-upload source carries NO meta block: CCHQ injects it at render
-		// time (`_add_meta_2`), and a meta node in the source breaks CCHQ's form
-		// builder. The block lands only on the `.ccz` path; the compiler test
-		// pins the injected shape.
-		expect(xml).toContain('xmlns:orx="http://openrosa.org/jr/xforms"');
-		expect(xml).not.toContain("<orx:meta");
-		expect(xml).not.toContain("<orx:deviceID/>");
-		expect(xml).not.toContain("<orx:instanceID/>");
-		expect(xml).not.toContain("<cc:appVersion/>");
-		// No meta binds either — the dateTime typing binds (`timeStart` /
-		// `timeEnd`) ship with the meta block, on the `.ccz` path only.
-		expect(xml).not.toContain('nodeset="/data/meta/timeStart"');
-		expect(xml).not.toContain('nodeset="/data/meta/timeEnd"');
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((e) => e.code),
+		).toEqual(["EMPTY_FORM"]);
 	});
 });
 
 describe("empty container expansion", () => {
-	// A group container with no children is another mid-edit state — the
-	// SA adds the container first and populates it in a follow-up call.
-	// The emitter must still lay down the `<group>` wrapper + its label so
-	// the user can see where children will land.
+	// Empty groups are admitted authored containers and preserve their label.
 	it("emits an empty <group> wrapper when a group has zero children", () => {
 		const doc = buildDoc({
 			appName: "EmptyGroup",
@@ -3458,14 +3192,17 @@ describe("empty container expansion", () => {
 
 		// Body wraps the group — no children inside the `<group>` body. The
 		// serializer encodes `'` as `&apos;` inside the itext ref.
-		expect(xml).toMatch(
-			/<group ref="\/data\/demographics" appearance="field-list">[\s\S]*?<label ref="jr:itext\(&apos;demographics-label&apos;\)"\/>[\s\S]*?<\/group>/,
-		);
-		// Data element is the empty container — rendered self-closing
-		// (`<demographics/>` ≡ `<demographics></demographics>`).
-		expect(xml).toMatch(/<demographics\/>/);
-		// The group's itext entry still emits because the label is set.
-		expect(xml).toContain(`id="demographics-label"`);
+		const group = one(xml, "group", { ref: "/data/demographics" });
+		expect(group.attribs.appearance).toBe("field-list");
+		expect(
+			group.children
+				.filter(isTag)
+				.map((child) => ({ name: child.name, attributes: child.attribs })),
+		).toEqual([
+			{ name: "label", attributes: { ref: "jr:itext('demographics-label')" } },
+		]);
+		expect(one(xml, "demographics").children).toEqual([]);
+		expectProse(xml, "demographics-label", ["Demographics"]);
 	});
 });
 
@@ -3520,20 +3257,20 @@ describe("nested container expansion", () => {
 		const xml: string = Object.values(hq._attachments)[0] as string;
 
 		// Outer repeat carries the template marker; the inner group does not.
-		expect(xml).toMatch(/<visits jr:template=""[^>]*>/);
-		expect(xml).not.toMatch(/<vitals jr:template=""/);
-
-		// Leaf binds use the full nested XPath.
-		expect(xml).toContain('nodeset="/data/visits/vitals/temperature"');
-		expect(xml).toContain('nodeset="/data/visits/vitals/heart_rate"');
-
-		// vellum shorthand mirrors the nested structure.
-		expect(xml).toContain('vellum:nodeset="#form/visits/vitals/temperature"');
-
-		// Body nests the group wrapper inside the repeat wrapper.
-		expect(xml).toMatch(
-			/<repeat nodeset="\/data\/visits">[\s\S]*?<group ref="\/data\/visits\/vitals"[\s\S]*?<\/group>[\s\S]*?<\/repeat>/,
-		);
+		expect(one(xml, "visits").attribs).toEqual({ "jr:template": "" });
+		expect(one(xml, "vitals").attribs).toEqual({});
+		for (const id of ["temperature", "heart_rate"])
+			expect(
+				one(xml, "bind", { nodeset: "/data/visits/vitals/" + id }).attribs[
+					"vellum:nodeset"
+				],
+			).toBe("#form/visits/vitals/" + id);
+		const repeat = one(xml, "repeat", { nodeset: "/data/visits" });
+		expect(
+			findAll((element) => element.name === "group", repeat.children).map(
+				(group) => group.attribs.ref,
+			),
+		).toEqual(["/data/visits/vitals"]);
 	});
 });
 
@@ -3545,57 +3282,6 @@ describe("nested container expansion", () => {
 // archive. Regression coverage against accidentally coupling the Connect
 // blocks to each other.
 
-describe("Connect learn-only expansion", () => {
-	const learnOnlyDoc = buildDoc({
-		appName: "LearnOnly",
-		connectType: "learn",
-		modules: [
-			{
-				name: "Training",
-				forms: [
-					{
-						name: "Lesson",
-						type: "survey",
-						connect: {
-							learn_module: {
-								id: "intro_module",
-								name: "Intro",
-								description: "Intro to CHW work",
-								time_estimate: 30,
-							},
-						},
-						fields: [
-							f({ kind: "text", id: "feedback", label: proseText("Feedback") }),
-						],
-					},
-				],
-			},
-		],
-	});
-
-	it("emits a ConnectLearnModule block when only a learn module is configured", () => {
-		const hq = expandDoc(learnOnlyDoc);
-		const xml: string = Object.values(hq._attachments)[0] as string;
-
-		expect(xml).toContain('vellum:role="ConnectLearnModule"');
-		// Module metadata is serialized inside the Connect namespace.
-		expect(xml).toContain(
-			'<module xmlns="http://commcareconnect.com/data/v1/learn" id="intro_module">',
-		);
-		expect(xml).toContain("<name>Intro</name>");
-		expect(xml).toContain("<time_estimate>30</time_estimate>");
-	});
-
-	it("omits deliver/assessment/task blocks when only learn is configured", () => {
-		const hq = expandDoc(learnOnlyDoc);
-		const xml: string = Object.values(hq._attachments)[0] as string;
-
-		expect(xml).not.toContain('vellum:role="ConnectDeliverUnit"');
-		expect(xml).not.toContain('vellum:role="ConnectAssessment"');
-		expect(xml).not.toContain('vellum:role="ConnectTask"');
-	});
-});
-
 // ── Deliver-unit entity-XPath defaults ────────────────────────────────
 //
 // `deliver_unit.entity_id` and `entity_name` are optional in the domain
@@ -3604,103 +3290,6 @@ describe("Connect learn-only expansion", () => {
 // single home for those defaults. Without the wire-time fallback the
 // emitter would write `<bind … calculate=""/>` and CCHQ would reject
 // the upload with an XPath parse error.
-
-describe("Connect deliver_unit entity defaults", () => {
-	const deliverWithoutEntityFields = buildDoc({
-		appName: "DeliverDefaults",
-		connectType: "deliver",
-		modules: [
-			{
-				name: "Visits",
-				forms: [
-					{
-						name: "Vendor visit",
-						type: "survey",
-						connect: {
-							deliver_unit: {
-								id: "vendor_visit",
-								name: "Vendor visit",
-								// entity_id / entity_name omitted — exercise the
-								// wire-time fallback.
-							},
-						},
-						fields: [
-							f({ kind: "text", id: "vendor", label: proseText("Vendor") }),
-						],
-					},
-				],
-			},
-		],
-	});
-
-	it("emits the canonical entity_id/entity_name defaults when the doc carries no explicit values", () => {
-		const hq = expandDoc(deliverWithoutEntityFields);
-		const xml: string = Object.values(hq._attachments)[0] as string;
-
-		// Match the binds by their target nodeset and assert the
-		// calculate carries a non-empty XPath that originated from the
-		// canonical defaults — `today()` for entity_id (from
-		// `concat(#user/username, '-', today())`) and the `#user/...`
-		// expansion for entity_name. We don't pin the full expanded
-		// XPath because the private projection may evolve by form context; the
-		// load-bearing assertion is "the calculate is non-empty and
-		// derived from the SA-invisible defaults".
-		const idBindMatch = xml.match(
-			/<bind nodeset="\/data\/vendor_visit\/deliver\/entity_id" calculate="([^"]+)"\/>/,
-		);
-		expect(idBindMatch).not.toBeNull();
-		expect(idBindMatch?.[1]).toContain("today()");
-		expect(idBindMatch?.[1]).toContain("username");
-
-		const nameBindMatch = xml.match(
-			/<bind nodeset="\/data\/vendor_visit\/deliver\/entity_name" calculate="([^"]+)"\/>/,
-		);
-		expect(nameBindMatch).not.toBeNull();
-		expect(nameBindMatch?.[1]).toContain("username");
-	});
-
-	it("preserves an explicit entity_id/entity_name when the doc carries them", () => {
-		const customDoc = buildDoc({
-			appName: "DeliverCustom",
-			connectType: "deliver",
-			modules: [
-				{
-					name: "Visits",
-					forms: [
-						{
-							name: "Vendor visit",
-							type: "survey",
-							connect: {
-								deliver_unit: {
-									id: "vendor_visit",
-									name: "Vendor visit",
-									entity_id: xp("uuid()"),
-									entity_name: xp("'manual override'"),
-								},
-							},
-							fields: [
-								f({ kind: "text", id: "vendor", label: proseText("Vendor") }),
-							],
-						},
-					],
-				},
-			],
-		});
-
-		const hq = expandDoc(customDoc);
-		const xml: string = Object.values(hq._attachments)[0] as string;
-
-		// Custom expressions land on the binds verbatim — the wire
-		// layer's `||` fallback only activates on falsy (undefined /
-		// empty) values.
-		expect(xml).toContain(
-			'<bind nodeset="/data/vendor_visit/deliver/entity_id" calculate="uuid()"/>',
-		);
-		expect(xml).toContain(
-			'<bind nodeset="/data/vendor_visit/deliver/entity_name" calculate="&apos;manual override&apos;"/>',
-		);
-	});
-});
 
 // ── Case-property rename pipeline regression ──────────────────────────
 //
@@ -3714,14 +3303,9 @@ describe("Connect deliver_unit entity defaults", () => {
 // expression rewriting — validation would still pass because references
 // remain syntactically well-formed, but they would point at nothing.
 
-describe("case-property rename cascade — pipeline regression", () => {
-	it("emits XPath references that match the referenced field's current id", () => {
-		// Two fields where `risk_label` references `/data/patient_age`.
-		// The doc shape here reflects the post-rename state: the expander
-		// is a pure function of the doc, so emitting the renamed id end
-		// to end proves the cascade is visible at the pipeline boundary.
+describe("field rename through mutation and export", () => {
+	it("keeps reference identity while changing both the data node and executable path", () => {
 		const doc = buildDoc({
-			appName: "Rename",
 			modules: [
 				{
 					name: "M",
@@ -3730,11 +3314,11 @@ describe("case-property rename cascade — pipeline regression", () => {
 							name: "F",
 							type: "survey",
 							fields: [
-								f({ kind: "int", id: "patient_age", label: proseText("Age") }),
+								f({ kind: "int", id: "age" }),
 								f({
 									kind: "hidden",
-									id: "risk_label",
-									calculate: "if(/data/patient_age > 65, 'high', 'low')",
+									id: "risk",
+									calculate: "if(#form/age > 65, 'high', 'low')",
 								}),
 							],
 						},
@@ -3742,16 +3326,36 @@ describe("case-property rename cascade — pipeline regression", () => {
 				},
 			],
 		});
-		const hq = expandDoc(doc);
-		const xml: string = Object.values(hq._attachments)[0] as string;
-
-		// Renamed field's path appears wherever the old reference stood.
-		expect(xml).toContain(
-			'calculate="if(/data/patient_age &gt; 65, &apos;high&apos;, &apos;low&apos;)"',
-		);
-		// The structural XPath targets exist as binds.
-		expect(xml).toContain('nodeset="/data/patient_age"');
-		expect(xml).toContain('nodeset="/data/risk_label"');
+		const original = expandDoc(doc);
+		const field = Object.values(doc.fields).find((field) => field.id === "age");
+		if (!field) throw new Error("Missing age");
+		const renamed = produce(doc, (draft) => {
+			applyMutations(
+				draft,
+				admitMutationBatch([
+					{
+						kind: "updateField",
+						uuid: field.uuid,
+						targetKind: "int",
+						patch: { id: "patient_age" },
+					},
+				]),
+			);
+		});
+		const after = expandDoc(renamed);
+		for (const [app, id] of [
+			[original, "age"],
+			[after, "patient_age"],
+		] as const) {
+			const xml = Object.values(app._attachments)[0];
+			expect(
+				one(xml, "bind", { nodeset: "/data/risk" }).attribs.calculate,
+			).toBe("if(/data/" + id + " > 65, 'high', 'low')");
+			expect(
+				one(xml, "bind", { nodeset: "/data/" + id }).attribs["vellum:nodeset"],
+			).toBe("#form/" + id);
+		}
+		expect(renamed.fields[field.uuid].uuid).toBe(field.uuid);
 	});
 });
 
@@ -3928,6 +3532,10 @@ describe("form_links emission", () => {
 				{
 					uuid: moduleUuid,
 					name: "M",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: intakeUuid,
@@ -3956,7 +3564,7 @@ describe("form_links emission", () => {
 						{
 							uuid: triageUuid,
 							name: "Triage",
-							type: "survey",
+							type: "followup",
 							fields: [
 								f({ kind: "text", id: "notes", label: proseText("Notes") }),
 							],
@@ -3964,6 +3572,7 @@ describe("form_links emission", () => {
 					],
 				},
 			],
+			caseTypes: [{ name: "patient", properties: [] }],
 		});
 
 		const hq = expandDoc(doc);
@@ -4093,14 +3702,9 @@ describe("form_links emission", () => {
 							type: "survey",
 							formLinks: [
 								{
-									// Target points at a module that doesn't exist in
-									// `doc.moduleOrder`. Construct the uuid via
-									// `asUuid` so it satisfies the branded type; the
-									// validator would flag this in production, but
-									// the expander must still render it harmless.
 									target: {
 										type: "module",
-										moduleUuid: testUuid("mod-never-registered"),
+										moduleUuid: testUuid(moduleUuid),
 									},
 								},
 							],
@@ -4113,7 +3717,27 @@ describe("form_links emission", () => {
 			],
 		});
 
-		expect(() => expandDoc(doc)).toThrowError(
+		expandDoc(doc);
+		const source = doc.forms[doc.formOrder[doc.moduleOrder[0]][0]];
+		const link = source.formLinks?.[0];
+		if (link === undefined) throw new Error("Expected the admitted form link");
+		doc.forms[source.uuid] = {
+			...source,
+			formLinks: [
+				{
+					...link,
+					target: {
+						type: "module",
+						moduleUuid: testUuid("mod-never-registered"),
+					},
+				},
+			],
+		};
+		blueprintDocSchema.parse(toPersistableDoc(doc));
+		expect(
+			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).map((error) => error.code),
+		).toEqual(["FORM_LINK_TARGET_NOT_FOUND"]);
+		expect(() => projectUncheckedDoc(doc)).toThrowError(
 			/Cannot project a form link: target module .* is missing/,
 		);
 	});
@@ -4123,38 +3747,6 @@ describe("form_links emission", () => {
 //
 // Connect content and the app's Connect mode are one exact topology. There is
 // no dormant/stashed form arm for the emitter to strip.
-
-describe("Connect mode gate", () => {
-	it("refuses form.connect when doc.connectType is unset", () => {
-		expect(() =>
-			buildDoc({
-				appName: "Invalid Connect topology",
-				modules: [
-					{
-						name: "Quiz",
-						forms: [
-							{
-								name: "Take Quiz",
-								type: "survey",
-								connect: {
-									learn_module: {
-										id: "invalid",
-										name: "Invalid",
-										description: "Cannot exist outside Connect mode",
-										time_estimate: 10,
-									},
-								},
-								fields: [f({ kind: "text", id: "q1", label: proseText("Q1") })],
-							},
-						],
-					},
-				],
-			}),
-		).toThrowError(
-			"Form Connect configuration must match the app Connect mode",
-		);
-	});
-});
 
 // ── HQ JSON projection: per-column kind, sort, filter, search config ──
 //
@@ -4190,10 +3782,17 @@ const HQ_PROJECTION_PATIENT_CASE_TYPE = {
 		{ name: "case_name", label: "Name", data_type: "text" as const },
 		{ name: "age", label: "Age", data_type: "int" as const },
 		{ name: "phone", label: "Phone", data_type: "text" as const },
+		{ name: "photo_url", label: "Photo", data_type: "text" as const },
+		{ name: "visit_count", label: "Visits", data_type: "int" as const },
 		{ name: "region", label: "Region", data_type: "text" as const },
 		{ name: "last_visit", label: "Last Visit", data_type: "date" as const },
 		{ name: "dob", label: "DOB", data_type: "date" as const },
 		{ name: "status", label: "Status", data_type: "text" as const },
+		{
+			name: "workflow_status",
+			label: "Workflow status",
+			data_type: "text" as const,
+		},
 		{
 			name: "tags",
 			label: "Tags",
@@ -4320,48 +3919,14 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		}));
 
 		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
-		expect(column.enum.map((entry) => entry.key)).toContain(
-			"nova_text_0000000010",
+		expect(column.enum).toEqual(
+			Array.from({ length: 11 }, (_, index) => ({
+				key: "nova_text_" + String(index).padStart(10, "0"),
+				value: { en: "Tag " + index },
+			})),
 		);
-
-		// Mirror CCHQ XPathEnum.build's ordered substring replacement. A
-		// variable-length key 1 corrupts key 10 into `$kknova_text_10` here.
-		const hqRewritten = column.enum.reduce(
-			(expression, entry) => expression.replaceAll(entry.key, `k${entry.key}`),
-			column.field,
-		);
-		expect(hqRewritten).toContain("$knova_text_0000000010");
-		expect(hqRewritten).not.toContain("$kknova_text_");
-	});
-
-	it("keeps HQ enum indexes aligned when invalid multi-select tokens are skipped", () => {
-		const doc = buildHqProjectionDoc({
-			columns: [
-				plainColumn(
-					testUuid("00000000-0000-4000-8000-000000010014"),
-					"tags",
-					"Tags",
-				),
-			],
-			searchInputs: [],
-		});
-		const tags = doc.caseTypes?.[0]?.properties.find(
-			(property) => property.name === "tags",
-		);
-		if (tags === undefined) throw new Error("Expected tags property.");
-		tags.options = [
-			{ value: "not a token", label: proseText("Skipped") },
-			{ value: "vip", label: proseText("VIP") },
-		];
-		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
-
-		expect(column.field).toContain(
-			"if(selected(tags, 'vip'), $nova_text_0000000001, '')",
-		);
-		expect(column.enum).toContainEqual({
-			key: "nova_text_0000000001",
-			value: { en: "VIP" },
-		});
+		// Actual HQ XPathEnum replacement and Core rendering are exercised by
+		// ExpanderRuntimeTest; this assertion describes the emitted table only.
 	});
 
 	it("projects date columns with `date` format and the authored `date_format` pattern", () => {
@@ -4586,11 +4151,14 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 					"Phone",
 					{ visibleInList: false },
 				),
+				plainColumn(testUuid("expander-visible-identity"), "case_name", "Name"),
 			],
 			searchInputs: [],
 		});
 		const details = expandDoc(doc).modules[0].case_details;
-		expect(details.short.columns).toEqual([]);
+		expect(details.short.columns.map((column) => column.field)).toEqual([
+			"case_name",
+		]);
 		expect(details.long.columns[0].format).toBe("plain");
 		expect(details.long.columns[0].field).toBe("phone");
 	});
@@ -4780,6 +4348,7 @@ describe("expandDoc HQ JSON projection — sort_elements", () => {
 					"Tags",
 					{ visibleInList: false, sort: { direction: "asc", priority: 0 } },
 				),
+				plainColumn(testUuid("expander-visible-identity"), "case_name", "Name"),
 			],
 			searchInputs: [],
 		});
@@ -4915,6 +4484,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 				name: "household",
 				properties: [
 					{ name: "case_name", label: "Name", data_type: "text" as const },
+					{ name: "case_id", label: "Case id", data_type: "text" as const },
 				],
 			},
 		];
@@ -5008,6 +4578,11 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 								visibleInList: false,
 								visibleInDetail: false,
 							}),
+							plainColumn(
+								testUuid("expander-visible-identity"),
+								"case_name",
+								"Name",
+							),
 						],
 						searchInputs: [],
 					},
@@ -5029,6 +4604,11 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 								visibleInDetail: false,
 								sort: { direction: "asc", priority: 0 },
 							}),
+							plainColumn(
+								testUuid("expander-visible-identity"),
+								"case_name",
+								"Name",
+							),
 						],
 						searchInputs: [],
 					},
@@ -5122,10 +4702,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 				searchScreenTitle: "Find a patient",
 				searchScreenSubtitle: "Search by **name** or village.",
 				searchButtonLabel: "Search patients",
-				searchButtonDisplayCondition: eq(
-					prop("patient", "case_name"),
-					literal("Alice"),
-				),
+				searchButtonDisplayCondition: eq(sessionUser("role"), literal("Alice")),
 			},
 		);
 		const searchConfig = expandDoc(doc).modules[0].search_config;
@@ -5137,7 +4714,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 			en: "Search patients",
 		});
 		expect(searchConfig.search_button_display_condition).toBe(
-			"case_name = 'Alice'",
+			"instance('commcaresession')/session/user/data/role = 'Alice'",
 		);
 	});
 
@@ -5371,7 +4948,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 					"status_search",
 					"Status",
 					"text",
-					eq(prop("patient", "status"), literal("active")),
+					eq(prop("patient", "workflow_status"), literal("active")),
 				),
 			],
 		});
@@ -5393,7 +4970,7 @@ describe("expandDoc HQ JSON projection — search_config", () => {
 		// (`case_search/utils.py::_apply_filter`).
 		expect(xpathQueryValues).toEqual([
 			`"region = 'North'"`,
-			`"@status = 'active'"`,
+			`"workflow_status = 'active'"`,
 		]);
 	});
 

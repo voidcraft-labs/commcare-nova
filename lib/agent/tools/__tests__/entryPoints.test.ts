@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
 import { proseText } from "@/lib/domain/prose";
+import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
 import { makeToolWorkspaceHarness } from "../../__tests__/fixtures";
 import {
 	addEntryPointInputSchema,
@@ -45,7 +46,7 @@ function fixture() {
 
 describe("shared entry-point authoring tools", () => {
 	it("creates, reads, edits, clears, and removes one UUID-owned point through the workspace", async () => {
-		const h = makeToolWorkspaceHarness(fixture());
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(fixture()));
 		const added = await h.runTool(addEntryPointTool, {
 			target,
 			entryPointUuid,
@@ -93,14 +94,17 @@ describe("shared entry-point authoring tools", () => {
 	});
 
 	it("refuses unsupported targets, collisions, and stale identities without persisting", async () => {
-		const h = makeToolWorkspaceHarness(fixture());
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(fixture()));
+		const initial = structuredClone(h.currentDoc());
 		const invalid = await h.runTool(addEntryPointTool, {
 			target: { kind: "module", moduleUuid },
 			ignoreDisplayConditions: true,
 		});
 		expect(invalid.result).toHaveProperty("error");
 		expect(h.recordMutations).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(initial);
 		await h.runTool(addEntryPointTool, { target, entryPointUuid, id: "visit" });
+		const beforeRefusals = structuredClone(h.currentDoc());
 		const collision = await h.runTool(addEntryPointTool, {
 			target: { kind: "module", moduleUuid },
 			id: "visit",
@@ -112,6 +116,7 @@ describe("shared entry-point authoring tools", () => {
 		});
 		expect(stale.result).toHaveProperty("error");
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		expect(h.currentDoc()).toEqual(beforeRefusals);
 	});
 
 	it("rejects aliases, private runtime arguments and empty edit patches at the schema", () => {

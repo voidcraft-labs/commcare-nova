@@ -20,6 +20,10 @@
  */
 "use client";
 import { useCallback, useMemo, useState } from "react";
+import {
+	type EntryActivationState,
+	reduceEntryActivation,
+} from "./entryActivationModel";
 
 /** The three editor sections that can each independently hold an activation. */
 export type EditorSectionName = "data" | "logic" | "ui";
@@ -40,19 +44,26 @@ export function useEntryActivation(
 	// UUIDs are RFC 4122 (hex + hyphens only) so `:` is a safe delimiter:
 	// no uuid can embed a colon that would alias a different (uuid, section) pair.
 	const scope = `${fieldUuid}:${section}`;
-	const [state, setState] = useState<{ scope: string; key: string } | null>(
-		null,
-	);
+	const [state, setState] = useState<EntryActivationState>({
+		scope,
+		key: null,
+	});
+	const scoped = reduceEntryActivation(state, { type: "scope", scope });
+	if (scoped !== state) setState(scoped);
 
-	const pending = useCallback(
-		(key: string) => state?.scope === scope && state.key === key,
-		[state, scope],
-	);
+	const pending = useCallback((key: string) => scoped.key === key, [scoped]);
 	const activate = useCallback(
-		(key: string) => setState({ scope, key }),
+		(key: string) =>
+			setState((current) =>
+				reduceEntryActivation(current, { type: "activate", scope, key }),
+			),
 		[scope],
 	);
-	const clear = useCallback(() => setState(null), []);
+	const clear = useCallback(
+		() =>
+			setState((current) => reduceEntryActivation(current, { type: "clear" })),
+		[],
+	);
 
 	// Stabilize the returned object so memoized consumers (React.memo / spread
 	// onto props) don't rerender when only the `pending` closure identity

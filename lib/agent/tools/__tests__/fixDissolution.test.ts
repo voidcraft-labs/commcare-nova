@@ -1,43 +1,18 @@
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { proseText } from "@/lib/domain/prose";
-/**
- * Fix-registry dissolution proofs — one test per entry of the RETIRED
- * `FIX_REGISTRY` (deleted with the validate-fix loop), each showing the
- * guarded construction path cannot PRODUCE the condition that fix
- * existed to repair. These per-entry pins are what the deletion stands
- * on (alongside the sequence fuzz in `constructionFuzz.test.ts`):
- *
- *   - codes whose conditions the commit gate now rejects at the
- *     introducing batch (`guardedMutate` / the builder hook — same
- *     verdict): NO_CASE_TYPE, RESERVED_CASE_PROPERTY,
- *     UNQUOTED_STRING_LITERAL, CLOSE_CONDITION_WRONG_TYPE,
- *     CLOSE_CONDITION_INCOMPLETE, CLOSE_CONDITION_FIELD_NOT_FOUND,
- *     UNKNOWN_FUNCTION, WRONG_ARITY, CASE_PROPERTY_BAD_FORMAT;
- *   - codes already unrepresentable through construction (shape):
- *     an attachment case destination with no `mode` (pinned on the add
- *     arm, the edit arm, AND the strict domain schema, together with
- *     the inverse fence that a non-attachment kind carries no mode),
- *     SELECT_NO_OPTIONS (domain schema `.min(2)`; the UI
- *     picker seeds two starter options; the SA add path fails
- *     assembly);
- *   - INVALID_FIELD_ID — rejected at source by the shared identifier
- *     verdicts (`lib/doc/identifierVerdicts.ts`), pinned here through
- *     the `addFields` path;
- *   - case-create name completeness — NOT dissolvable to a
- *     construction default (the case-name field is content the author
- *     adds): a creation lands it with the form, and removing it is
- *     rejected (pinned here) — the same single rule as everything else.
- */
+/** Finite construction regressions through actual tool schemas, workspace and
+ * commit verdicts. Rejected candidates never reach the controlled writer;
+ * schema-only invalid payloads stay at admission. No browser or SQL claim. */
 
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import {
 	makeToolWorkspaceHarness,
 	type ToolWorkspaceHarness,
 } from "@/lib/agent/__tests__/fixtures";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import type { Mutation } from "@/lib/doc/types";
 import { type BlueprintDoc, fieldSchema } from "@/lib/domain";
 import { addFieldsItemSchema, editFieldUpdatesSchema } from "../../toolSchemas";
 import { addFieldsTool } from "../addFields";
@@ -48,7 +23,7 @@ import { updateModuleTool } from "../updateModule";
  *  assertion surface, and the workspace adopts each commit so consecutive tool
  *  calls compose against the committed document. */
 function makeHarness(initialDoc: BlueprintDoc): ToolWorkspaceHarness {
-	return makeToolWorkspaceHarness(initialDoc, {
+	return makeToolWorkspaceHarness(expectAdmittedDoc(initialDoc), {
 		appId: "app-1",
 		userId: "user-1",
 		runId: "run-1",
@@ -57,76 +32,81 @@ function makeHarness(initialDoc: BlueprintDoc): ToolWorkspaceHarness {
 
 /** Valid registration baseline: one patient module writing two properties. */
 function minDoc(): BlueprintDoc {
-	return buildDoc({
-		appName: "Test",
-		modules: [
-			{
-				name: "Mod",
-				caseType: "patient",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						name: "Reg",
-						type: "registration",
-						fields: [
-							f({
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
-							}),
-							f({
-								kind: "text",
-								id: "village",
-								label: proseText("Village"),
-								caseWrite: { caseType: "patient", property: "village" },
-							}),
-						],
-					},
-				],
-			},
-		],
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [
-					{ name: "case_name", label: proseText("Name") },
-					{ name: "village", label: proseText("Village") },
-				],
-			},
-		],
-	});
+	return expectAdmittedDoc(
+		buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({
+									kind: "text",
+									id: "village",
+									label: proseText("Village"),
+									caseWrite: { caseType: "patient", property: "village" },
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "village", label: proseText("Village") }],
+				},
+			],
+		}),
+	);
 }
 
 /** A doc whose module has NO case type and no case forms (a survey).
  *  Carries a `respondent` case-type record so the conversion repair has a
  *  resolvable property surface to seed columns from. */
 function caseTypelessDoc(): BlueprintDoc {
-	return buildDoc({
-		appName: "Test",
-		modules: [
-			{
-				name: "Surveys",
-				forms: [
-					{
-						name: "Feedback",
-						type: "survey",
-						fields: [
-							f({ kind: "text", id: "comments", label: proseText("Comments") }),
-						],
-					},
-				],
-			},
-		],
-		caseTypes: [
-			{
-				name: "respondent",
-				properties: [{ name: "case_name", label: proseText("Name") }],
-			},
-		],
-	});
+	return expectAdmittedDoc(
+		buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Surveys",
+					forms: [
+						{
+							name: "Feedback",
+							type: "survey",
+							fields: [
+								f({
+									kind: "text",
+									id: "comments",
+									label: proseText("Comments"),
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "respondent",
+					properties: [],
+				},
+			],
+		}),
+	);
 }
 
 /** Field lookup by semantic id. */
@@ -157,9 +137,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 			...moduleAddress(doc),
 			name: "Register",
 			type: "registration",
-			fields: [
-				{ kind: "text", id: "case_name", label: proseText("Name") } as never,
-			],
+			fields: [{ kind: "text", id: "case_name", label: proseText("Name") }],
 		});
 		expect("error" in out.result && out.result.error).toContain("case_type");
 		expect(out.mutations).toEqual([]);
@@ -207,7 +185,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 					kind: "plain",
 					field: "case_name",
 					header: "Name",
-				} as never,
+				},
 			],
 		});
 		expect("message" in fixed.result).toBe(true);
@@ -224,13 +202,13 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 					id: "case_name",
 					label: proseText("Name"),
 					caseWrite: { caseType: "respondent", property: "case_name" },
-				} as never,
+				},
 				{
 					kind: "text",
 					id: "village",
 					label: proseText("Village"),
 					caseWrite: { caseType: "respondent", property: "village" },
-				} as never,
+				},
 			],
 		});
 		expect("message" in out.result).toBe(true);
@@ -248,7 +226,7 @@ describe("NO_CASE_TYPE — rejected at the introducing commit; updateModule is t
 			...moduleAddress(doc),
 			case_type: "household",
 			case_list_columns: [
-				{ kind: "plain", field: "case_name", header: "Name" } as never,
+				{ kind: "plain", field: "case_name", header: "Name" },
 			],
 		});
 		expect("message" in out.result).toBe(true);
@@ -298,7 +276,7 @@ describe("RESERVED_CASE_PROPERTY — rejected at the introducing commit", () => 
 					id: "date",
 					label: proseText("Date"),
 					caseWrite: { caseType: "patient", property: "date" },
-				} as never,
+				},
 			],
 		});
 		expect("error" in out.result && out.result.error).toContain("reserved");
@@ -404,7 +382,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 					uuid: target.uuid,
 					targetKind: "text",
 					patch: { relevant: xp(expr) },
-				} as Mutation,
+				},
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
@@ -423,7 +401,7 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 					uuid: target.uuid,
 					targetKind: "text",
 					patch: { default_value: xp("approved") },
-				} as Mutation,
+				},
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
@@ -458,31 +436,24 @@ describe("XPath soundness fixes — rejected at the introducing commit", () => {
 // ── SELECT_NO_OPTIONS (shape — unrepresentable) ─────────────────────
 
 describe("SELECT_NO_OPTIONS — selects can't land without options", () => {
-	it("the SA add path skips a single_select whose options are missing (assembly fails the domain schema)", async () => {
-		const doc = minDoc();
-		const h = makeHarness(doc);
-		await h.runTool(addFieldsTool, {
-			...formAddress(doc),
-			fields: [
-				{
-					kind: "single_select",
-					id: "choice",
-					label: proseText("Choice"),
-				} as never,
-			],
-		});
-		// The field never assembles — no select entity lands on the doc.
-		const landed = Object.values(h.currentDoc().fields).find(
-			(fl) => fl.id === "choice",
-		);
-		expect(landed).toBeUndefined();
+	it("the add schema refuses a select without its choice source", () => {
+		expect(
+			addFieldsItemSchema.safeParse({
+				kind: "single_select",
+				id: "choice",
+				label: proseText("Choice"),
+			}).success,
+		).toBe(false);
 	});
 
 	it("the UI field picker seeds two starter options on select kinds", async () => {
 		const { NEW_FIELD_BUILDERS } = await import(
 			"@/components/preview/form/newFieldDefaults"
 		);
-		const fresh = NEW_FIELD_BUILDERS.single_select("choice", "Choice");
+		const fresh = fieldSchema.parse({
+			...NEW_FIELD_BUILDERS.single_select("choice", "Choice"),
+			uuid: testUuid("fresh-choice"),
+		});
 		expect(fresh.kind).toBe("single_select");
 		if (fresh.kind !== "single_select") throw new Error("wrong field kind");
 		expect(fresh.optionsSource.kind).toBe("inline");
@@ -497,62 +468,61 @@ describe("SELECT_NO_OPTIONS — selects can't land without options", () => {
 
 /** minDoc plus a close form holding a two-option select ("outcome"). */
 function closeFormDoc(): BlueprintDoc {
-	return buildDoc({
-		appName: "Test",
-		modules: [
-			{
-				name: "Mod",
-				caseType: "patient",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						name: "Reg",
-						type: "registration",
-						fields: [
-							f({
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
-							}),
-							f({
-								kind: "text",
-								id: "village",
-								label: proseText("Village"),
-								caseWrite: { caseType: "patient", property: "village" },
-							}),
-						],
-					},
-					{
-						name: "Close out",
-						type: "close",
-						fields: [
-							f({
-								kind: "single_select",
-								id: "outcome",
-								label: proseText("Outcome"),
-								options: [
-									{ value: "done", label: "Done" },
-									{ value: "moved", label: "Moved" },
-								],
-							}),
-						],
-					},
-				],
-			},
-		],
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [
-					{ name: "case_name", label: proseText("Name") },
-					{ name: "village", label: proseText("Village") },
-				],
-			},
-		],
-	});
+	return expectAdmittedDoc(
+		buildDoc({
+			appName: "Test",
+			modules: [
+				{
+					name: "Mod",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							name: "Reg",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+								f({
+									kind: "text",
+									id: "village",
+									label: proseText("Village"),
+									caseWrite: { caseType: "patient", property: "village" },
+								}),
+							],
+						},
+						{
+							name: "Close out",
+							type: "close",
+							fields: [
+								f({
+									kind: "single_select",
+									id: "outcome",
+									label: proseText("Outcome"),
+									options: [
+										{ value: "done", label: "Done" },
+										{ value: "moved", label: "Moved" },
+									],
+								}),
+							],
+						},
+					],
+				},
+			],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "village", label: proseText("Village") }],
+				},
+			],
+		}),
+	);
 }
 
 describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
@@ -592,7 +562,10 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 					kind: "updateForm",
 					uuid: doc.formOrder[doc.moduleOrder[0]][0],
 					patch: {
-						closeCondition: { field: testUuid("village"), answer: "done" },
+						closeCondition: {
+							field: fieldByBareId(doc, "village").uuid,
+							answer: "done",
+						},
 					},
 				},
 			],
@@ -617,7 +590,12 @@ describe("CLOSE_CONDITION_* — rejected at the introducing commit", () => {
 					uuid: closeFormUuid,
 					// The schema admits empty strings, so this is a live input
 					// shape — both halves are required for a conditional close.
-					patch: { closeCondition: { field: testUuid("outcome"), answer: "" } },
+					patch: {
+						closeCondition: {
+							field: fieldByBareId(doc, "outcome").uuid,
+							answer: "",
+						},
+					},
 				},
 			],
 			LOOKUP_CONTEXT_UNAVAILABLE,
@@ -639,9 +617,7 @@ describe("field-id format fixes — rejected at source", () => {
 		const h = makeHarness(doc);
 		const out = await h.runTool(addFieldsTool, {
 			...formAddress(doc),
-			fields: [
-				{ kind: "text", id: "bad id!", label: proseText("Bad") } as never,
-			],
+			fields: [{ kind: "text", id: "bad id!", label: proseText("Bad") }],
 		});
 		expect("error" in out.result && out.result.error).toContain("bad id!");
 		expect(h.recordMutations).not.toHaveBeenCalled();
@@ -650,7 +626,7 @@ describe("field-id format fixes — rejected at source", () => {
 	it("rejects an XML-legal but property-illegal caseWrite destination at the input boundary", () => {
 		// "_temp" passes the XML element-name rules (underscore start is
 		// legal) but case property names must start with a letter — the
-		// identifier verdicts pass it, the commit gate catches it.
+		// input schema rejects the case-property spelling before dispatch.
 		const parsed = addFieldsItemSchema.safeParse({
 			kind: "text",
 			id: "temporary_value",

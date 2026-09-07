@@ -1,9 +1,12 @@
+import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
 import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { countFieldsUnder } from "@/lib/doc/fieldWalk";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
 import {
 	buildReactProfileBlueprint,
 	REACT_PROFILE_SEED,
@@ -55,12 +58,12 @@ describe("React profile seed", () => {
 				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 			}),
 		).toEqual({ ok: true });
-		expect(() =>
-			diffDocsToMutations(
-				buildDoc({ appId: doc.appId, appName: doc.appName }),
-				doc,
-			),
-		).not.toThrow();
+		const baseline = buildDoc({ appId: doc.appId, appName: doc.appName });
+		const mutations = diffDocsToMutations(baseline, doc);
+		const materialized = produce(baseline, (draft) => {
+			applyMutations(draft, mutations);
+		});
+		expect(toPersistableDoc(materialized)).toEqual(toPersistableDoc(doc));
 	});
 
 	it("can remove the case catalog for a smaller first profiling pass", () => {
@@ -73,5 +76,11 @@ describe("React profile seed", () => {
 		expect(
 			doc.formOrder[moduleUuid].map((formUuid) => doc.forms[formUuid]?.type),
 		).toEqual(["survey", "survey", "survey", "survey"]);
+		expect(
+			evaluateCommit({
+				nextDoc: doc,
+				lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+			}),
+		).toEqual({ ok: true });
 	});
 });

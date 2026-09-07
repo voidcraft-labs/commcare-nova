@@ -1,6 +1,6 @@
 /**
- * Rule: every simple `SearchInputDef` with an explicit `mode` declares
- * a mode whose semantics match the targeted property's effective
+ * Rule: every simple search input names an existing property. An explicit
+ * mode must also match the targeted property's effective
  * `data_type` — at the input's destination case type (resolved through
  * `via` when the input carries a relation walk).
  *
@@ -11,8 +11,7 @@
  *     gates. `property` is REQUIRED on this arm, so the existence
  *     check + per-mode allow-list both bind directly. `mode` is
  *     optional: omitted → wire layer picks the per-`type` default,
- *     which is always admissible for that type, so the rule short-
- *     circuits.
+ *     which needs no explicit mode check. Property existence still applies.
  *   - `kind: "advanced"` — body is a free-form `predicate: Predicate`
  *     AST. The advanced arm has no `mode` slot at the schema layer;
  *     property resolution lives inside the AST and is type-checked by
@@ -69,10 +68,6 @@ export function searchInputModeMatchesPropertyType(
 		// domain (mode-vs-property compatibility) has a slot to inspect
 		// only on the simple arm.
 		if (input.kind !== "simple") continue;
-		// Simple input without an explicit mode: the wire layer picks
-		// the per-`type` default, which is always admissible for that
-		// type, so this rule has no decision to make.
-		if (!input.mode) continue;
 
 		// Resolve the destination case type — self-walk lands on the
 		// module's own case type; cross-walks chase the `via` to its
@@ -129,6 +124,8 @@ export function searchInputModeMatchesPropertyType(
 			continue;
 		}
 
+		// Omitted mode still had to resolve its property above.
+		if (!input.mode) continue;
 		const allowed = SEARCH_MODE_PROPERTY_TYPES[input.mode.kind];
 		if (allowed === undefined) continue; // mode admits every type
 		if (allowed.includes(dataType)) continue;

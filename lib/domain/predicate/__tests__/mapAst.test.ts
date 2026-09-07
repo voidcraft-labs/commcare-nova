@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain";
+import { lookupColumnIdSchema, lookupTableIdSchema } from "@/lib/domain";
 import {
 	and,
 	between,
@@ -26,9 +26,13 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 
-const TABLE = "018f0000-0000-7000-8000-000000000001" as LookupTableId;
-const COL_A = "018f0000-0000-7000-8000-00000000000a" as LookupColumnId;
-const COL_B = "018f0000-0000-7000-8000-00000000000b" as LookupColumnId;
+const TABLE = lookupTableIdSchema.parse("018f0000-0000-7000-8000-000000000001");
+const COL_A = lookupColumnIdSchema.parse(
+	"018f0000-0000-7000-8000-00000000000a",
+);
+const COL_B = lookupColumnIdSchema.parse(
+	"018f0000-0000-7000-8000-00000000000b",
+);
 
 describe("identity preservation", () => {
 	it("returns the SAME reference when no hook replaces anything", () => {
@@ -75,7 +79,7 @@ describe("identity preservation", () => {
 });
 
 describe("term mapping coverage", () => {
-	it("reaches terms in every recursive expression slot", () => {
+	it("maps conditions and both branches while retaining the original expression", () => {
 		const bound = { kind: "term", term: literal("X") } as const;
 		const expression = concat(
 			ifExpr(
@@ -84,11 +88,20 @@ describe("term mapping coverage", () => {
 				coalesce(term(sessionContext("username")), term(literal("z"))),
 			),
 		);
+		const original = structuredClone(expression);
 		const mapped = mapExpressionAst(expression, {
 			mapTerm: (node) => (node.kind === "session-context" ? bound : undefined),
 		});
-		expect(JSON.stringify(mapped)).not.toContain("session-context");
-		expect(JSON.stringify(mapped).match(/"X"/g)?.length).toBe(3);
+		expect(mapped).toEqual(
+			concat(
+				ifExpr(
+					eq(literal("X"), literal("a")),
+					term(literal("X")),
+					coalesce(term(literal("X")), term(literal("z"))),
+				),
+			),
+		);
+		expect(expression).toEqual(original);
 	});
 
 	it("descends into a table-lookup's where and passes table-column through", () => {
@@ -106,10 +119,13 @@ describe("term mapping coverage", () => {
 					? { kind: "term", term: literal("u9") }
 					: undefined,
 		});
-		const printed = JSON.stringify(mapped);
-		expect(printed).toContain("table-column");
-		expect(printed).toContain('"u9"');
-		expect(printed).not.toContain("session-context");
+		expect(mapped).toEqual(
+			tableLookup(
+				TABLE,
+				COL_A,
+				and(eq(term(tableColumn(TABLE, COL_B)), literal("u9")), matchAll()),
+			),
+		);
 	});
 });
 
@@ -133,7 +149,7 @@ describe("node interception", () => {
 				return undefined;
 			},
 		});
-		expect(JSON.stringify(mapped)).toContain('"folded"');
+		expect(mapped).toEqual(term(literal("folded")));
 	});
 
 	it("mapPredicate resolves a gate and re-enters mapping explicitly", () => {
@@ -152,7 +168,6 @@ describe("node interception", () => {
 						})
 					: undefined,
 		});
-		expect(mapped.kind).toBe("eq");
-		expect(JSON.stringify(mapped)).toContain('"resolved"');
+		expect(mapped).toEqual(eq(literal("resolved"), literal("u")));
 	});
 });

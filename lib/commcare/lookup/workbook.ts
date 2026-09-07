@@ -8,12 +8,12 @@
  * table definition and its rows together and replaces them wholesale,
  * which is exactly the shape Nova has: one Project table, pushed whole.
  *
- * **The byte oracle is CommCare HQ's own exporter.** The workbook shape is
+ * **The consumer oracle is CommCare HQ's native workbook reader.** The workbook shape is
  * not documented anywhere; what is authoritative is that
  * `corehq/apps/fixtures/download.py::_prepare_fixture` writes workbooks
  * that `corehq/apps/fixtures/upload/workbook.py` reads back. This module
- * emits what that exporter emits, and the tests assert against it column
- * for column.
+ * emits its header grammar using an inline-text XLSX package; the native
+ * proof executes that reader over current production bytes.
  *
  * Two sheets, and the shapes are not interchangeable:
  *
@@ -34,11 +34,11 @@
  * them silently changes what CommCare HQ reads.
  */
 
-import * as XLSX from "xlsx";
 import type { LookupTableId } from "@/lib/domain/lookupIds";
 import type { LookupFixtureRow } from "@/lib/lookup/types";
 import { lookupFixtureCellText } from "./cellText";
 import type { LookupTableWireNaming, LookupWireNaming } from "./naming";
+import { buildTextWorkbook } from "./textWorkbook";
 
 /**
  * `upload/const.py::DELETE_HEADER`. Carries parentheses and a slash, none
@@ -182,13 +182,9 @@ export function buildLookupWorkbook(
 	const tables = [...naming.tables].sort((left, right) =>
 		left.tag < right.tag ? -1 : left.tag > right.tag ? 1 : 0,
 	);
-	const book = XLSX.utils.book_new();
+	const sheets: { name: string; rows: string[][] }[] = [];
 	const typesRows = typesSheetRows(tables);
-	XLSX.utils.book_append_sheet(
-		book,
-		XLSX.utils.aoa_to_sheet(typesRows),
-		TYPES_SHEET,
-	);
+	sheets.push({ name: TYPES_SHEET, rows: typesRows });
 
 	let totalWorkbookRows = typesRows.length;
 	const summaries = tables.map((table): LookupWorkbookTable => {
@@ -215,11 +211,7 @@ export function buildLookupWorkbook(
 				`buildLookupWorkbook: the tag '${table.tag}' is the name of the mandatory types sheet, so its rows have nowhere to go. The export boundary must reject a tag reserved by CommCare HQ before the workbook is built.`,
 			);
 		}
-		XLSX.utils.book_append_sheet(
-			book,
-			XLSX.utils.aoa_to_sheet(sheetRows),
-			table.tag,
-		);
+		sheets.push({ name: table.tag, rows: sheetRows });
 		return {
 			tableId: table.tableId,
 			tag: table.tag,
@@ -228,10 +220,7 @@ export function buildLookupWorkbook(
 		};
 	});
 
-	const bytes = XLSX.write(book, {
-		type: "buffer",
-		bookType: "xlsx",
-	}) as Uint8Array;
+	const bytes = buildTextWorkbook(sheets);
 
 	return { bytes, tables: summaries, totalWorkbookRows };
 }

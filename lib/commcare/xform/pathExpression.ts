@@ -69,16 +69,14 @@ import { parser } from "@/lib/commcare/xpath";
 /**
  * Lezer node-type lookup, built once from the parser's node set so a grammar
  * change that renames or drops one of these nodes fails at module load instead
- * of silently misclassifying. Mirrors the `T = (() => {...})()` pattern in
- * `lib/commcare/xpath/typeInfer.ts`.
+ * of silently misclassifying.
  */
 const NODE = (() => {
 	const all = parser.nodeSet.types;
 	// A grammar rule name can map to MORE THAN ONE node id — `Child` and
 	// `Descendant` each appear twice in the grammar (the leading-slash
 	// `rootStep` form and the binary `expr` form), so the parser's node set
-	// carries two distinct ids per name. Collect every id per name (mirrors
-	// `typeInfer.ts`'s `many(...)`); matching only the first id would
+	// carries two distinct ids per name. Collect every id per name; matching only the first id would
 	// misclassify whichever form the parser actually emitted.
 	const idsOf = (name: string): number[] => {
 		const ids = all.filter((t) => t.name === name).map((t) => t.id);

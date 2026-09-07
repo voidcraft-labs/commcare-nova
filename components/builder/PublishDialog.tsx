@@ -271,6 +271,12 @@ export function PublishDialog({
 		useState<ProjectSpaceCompatibilityState>({
 			type: "loading",
 		});
+	const consentServerRef = useRef(connectionServer);
+	useLayoutEffect(() => {
+		if (consentServerRef.current === connectionServer) return;
+		consentServerRef.current = connectionServer;
+		setAdoptResourceIds([]);
+	}, [connectionServer]);
 	const handleClose = useCallback(() => {
 		operationGenerationRef.current += 1;
 		uploadControllerRef.current?.abort();
@@ -333,6 +339,7 @@ export function PublishDialog({
 		const justOpened = open && !wasOpenRef.current;
 		wasOpenRef.current = open;
 		if (!justOpened) return;
+		setAdoptResourceIds([]);
 		operationGenerationRef.current += 1;
 		setStatus({ type: "idle" });
 		setCompatibilityState({ type: "loading" });
@@ -501,6 +508,7 @@ export function PublishDialog({
 					: undefined;
 			if (nextDomain !== compatibilityDomain) invalidateCompatibilityReport();
 			operationGenerationRef.current += 1;
+			setAdoptResourceIds([]);
 			setTarget(next);
 			setStatus({ type: "idle" });
 		},

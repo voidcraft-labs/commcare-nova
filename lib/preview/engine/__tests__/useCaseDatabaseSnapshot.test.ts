@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { assertAdmittedPreviewDoc } from "../../__tests__/fixtures/admittedDoc";
 import { caseDatabaseRequirements } from "../useCaseDatabaseSnapshot";
 
 const MODULE_UUID = testUuid("source-module");
@@ -24,6 +25,9 @@ describe("caseDatabaseRequirements", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Follow up",
@@ -41,6 +45,7 @@ describe("caseDatabaseRequirements", () => {
 			],
 		});
 
+		assertAdmittedPreviewDoc(doc);
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: true,
 			caseTypes: ["commcare-user", "patient"],
@@ -56,6 +61,9 @@ describe("caseDatabaseRequirements", () => {
 					uuid: "source-module",
 					name: "Source",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: "source-form",
@@ -67,14 +75,19 @@ describe("caseDatabaseRequirements", () => {
 									condition: "count(instance('casedb')/casedb/case) > 0",
 									target: { type: "module", moduleUuid: MODULE_UUID },
 								},
+								{
+									uuid: "fallback-link",
+									target: { type: "module", moduleUuid: MODULE_UUID },
+								},
 							],
-							fields: [],
+							fields: [f({ kind: "text", id: "notes" })],
 						},
 					],
 				},
 			],
 		});
 
+		assertAdmittedPreviewDoc(doc);
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: true,
 			caseTypes: ["commcare-user", "patient"],
@@ -90,6 +103,9 @@ describe("caseDatabaseRequirements", () => {
 					uuid: "source-module",
 					name: "Source",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							uuid: "source-form",
@@ -98,17 +114,17 @@ describe("caseDatabaseRequirements", () => {
 							formLinks: [
 								{
 									uuid: "source-link",
-									condition: "true()",
 									target: { type: "module", moduleUuid: MODULE_UUID },
 								},
 							],
-							fields: [],
+							fields: [f({ kind: "text", id: "notes" })],
 						},
 					],
 				},
 			],
 		});
 
+		assertAdmittedPreviewDoc(doc);
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: true,
 			caseTypes: ["commcare-user", "patient"],
@@ -130,17 +146,17 @@ describe("caseDatabaseRequirements", () => {
 							formLinks: [
 								{
 									uuid: "source-link",
-									condition: "true()",
 									target: { type: "module", moduleUuid: MODULE_UUID },
 								},
 							],
-							fields: [],
+							fields: [f({ kind: "text", id: "notes" })],
 						},
 					],
 				},
 			],
 		});
 
+		assertAdmittedPreviewDoc(doc);
 		expect(caseDatabaseRequirements(doc)).toEqual({
 			required: false,
 			caseTypes: [],

@@ -11,7 +11,7 @@
  *
  * Resolution by namespace:
  *
- *   - `#form/` / `#user/` — flat prefixes, identical in every form context.
+ *   - `#form/` — canonical field paths projected to emitted data paths; `#user/` uses a flat prefix.
  *   - `#<case_type>/<prop>` — looks the namespace up in `caseTypeDepths` (the
  *     form's reachable case types, own = hop depth 0, parent = 1, …) and reuses
  *     the SAME `…/index/parent × depth …/<prop>` walk via `expandCaseToWire`.
@@ -53,6 +53,7 @@ import {
 	VELLUM_CASE_GENERATION_PREFIXES,
 } from "@/lib/commcare/hashtags";
 import { type CaseType, reachableCaseTypes } from "@/lib/domain";
+import type { FormPath } from "../xform/formPath";
 
 /**
  * The form-shape inputs the hashtag resolver needs.
@@ -67,6 +68,8 @@ export interface FormHashtagContext {
 	 * already emits. Empty when the form has no case type.
 	 */
 	readonly caseTypeDepths: ReadonlyMap<string, number>;
+	/** Canonical authored field path to emitted data path, including query-repeat item steps. */
+	readonly formPaths?: ReadonlyMap<string, FormPath>;
 	/** Session reference of the form's selected own case. Child root menus may
 	 * rename it from the flat `case_id` default. */
 	readonly currentCaseIdRef?: string;
@@ -100,7 +103,12 @@ export function expandHashtagsInContext(
 	const isRegistration = ctx.formType === "registration";
 
 	return rewriteHashtags(expr, (typeName, segments) => {
-		// `#form/` / `#user/` resolve identically in every form context.
+		// Field identities use the same paths as the emitted data nodes. Query-bound
+		// repeats insert a wire-only item step that never belongs in authored refs.
+		if (typeName === "form") {
+			const path = ctx.formPaths?.get(segments.join("/"));
+			if (path !== undefined) return path.toXPath();
+		}
 		const flat = resolveFlatHashtag(typeName, segments);
 		if (flat !== undefined) return flat;
 
@@ -275,7 +283,8 @@ export function vellumShorthandInContext(
 	const out = rewriteHashtags(expr, (typeName, segments) => {
 		sawHashtag = true;
 		// `#form/` is the editor's own namespace on every form.
-		if (typeName === "form") return undefined;
+		if (typeName === "form")
+			return ctx.formPaths?.get(segments.join("/"))?.toVellum();
 
 		const fail = (): undefined => {
 			untranslatable = true;

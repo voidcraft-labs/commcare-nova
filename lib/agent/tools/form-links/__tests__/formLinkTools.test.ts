@@ -1,13 +1,9 @@
-/**
- * The shared after-submit link tools over the canonical workspace: UUID
- * addressing, the batch add's anchor chain and fallback pin, and the
- * planner refusals rendered as sentences that name the links involved.
- * Every successful call commits through the gate, so a tool cannot
- * promise a shape the validator refuses.
- */
-
+/** Real UUID-addressed commands, planners, gate and reducer with a controlled
+ * writer receipt. No claim about SQL concurrency or device navigation. */
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
-import type { z } from "zod";
+import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	buildDoc,
@@ -16,6 +12,7 @@ import {
 	xp,
 	xpIn,
 } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
 import type { BlueprintDoc, FormLink } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
@@ -27,7 +24,7 @@ import {
 	removeFormLinkInputSchema,
 	removeFormLinkTool,
 } from "../removeFormLink";
-import { formLinkInputSchema, linkRefusalMessage } from "../shared";
+import { formLinkInputSchema } from "../shared";
 import {
 	updateFormLinkInputSchema,
 	updateFormLinkTool,
@@ -62,73 +59,77 @@ function fixture(
 	links: Spec[] = [],
 	opts: { postSubmit?: "app_home" | "module" | "previous" } = {},
 ): BlueprintDoc {
-	return buildDoc({
-		appName: "Links",
-		caseTypes: [
-			{
-				name: "patient",
-				properties: [{ name: "mood", label: proseText("Mood") }],
-			},
-		],
-		modules: [
-			{
-				uuid: "mod-intake",
-				name: "Intake",
-				caseType: "patient",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						uuid: "frm-source",
-						name: "Source",
-						type: "registration",
-						...(opts.postSubmit !== undefined && {
-							postSubmit: opts.postSubmit,
-						}),
-						...(links.length > 0 && { formLinks: links }),
-						fields: [
-							f({
-								kind: "text",
-								id: "case_name",
-								label: proseText("Name"),
-								caseWrite: { caseType: "patient", property: "case_name" },
+	return expectAdmittedDoc(
+		buildDoc({
+			appName: "Links",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [{ name: "mood", label: proseText("Mood") }],
+				},
+			],
+			modules: [
+				{
+					uuid: "mod-intake",
+					name: "Intake",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: "frm-source",
+							name: "Source",
+							type: "registration",
+							...((opts.postSubmit !== undefined ||
+								(links.length > 0 &&
+									links.every((link) => link.condition !== undefined))) && {
+								postSubmit: opts.postSubmit ?? "app_home",
 							}),
-						],
-					},
-				],
-			},
-			{
-				uuid: "mod-care",
-				name: "Care",
-				caseType: "patient",
-				caseListConfig: caseListConfig([
-					{ field: "case_name", header: "Name" },
-				]),
-				forms: [
-					{
-						uuid: "frm-visit",
-						name: "Visit",
-						type: "followup",
-						fields: [
-							f({
-								kind: "text",
-								id: "mood",
-								label: proseText("Mood"),
-								caseWrite: { caseType: "patient", property: "mood" },
-							}),
-						],
-					},
-					{
-						uuid: "frm-note",
-						name: "Note",
-						type: "survey",
-						fields: [f({ kind: "text", id: "n", label: proseText("N") })],
-					},
-				],
-			},
-		],
-	});
+							...(links.length > 0 && { formLinks: links }),
+							fields: [
+								f({
+									kind: "text",
+									id: "case_name",
+									label: proseText("Name"),
+									caseWrite: { caseType: "patient", property: "case_name" },
+								}),
+							],
+						},
+					],
+				},
+				{
+					uuid: "mod-care",
+					name: "Care",
+					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+					forms: [
+						{
+							uuid: "frm-visit",
+							name: "Visit",
+							type: "followup",
+							fields: [
+								f({
+									kind: "text",
+									id: "mood",
+									label: proseText("Mood"),
+									caseWrite: { caseType: "patient", property: "mood" },
+								}),
+							],
+						},
+						{
+							uuid: "frm-note",
+							name: "Note",
+							type: "survey",
+							fields: [f({ kind: "text", id: "n", label: proseText("N") })],
+						},
+					],
+				},
+			],
+		}),
+	);
 }
 
 const cond = (
@@ -153,13 +154,10 @@ const conditional = (text: string, target: FormLink["target"] = toNote) => ({
 const order = (doc: BlueprintDoc) =>
 	doc.forms[SOURCE]?.formLinks?.map((link) => link.uuid) ?? [];
 
-const errorOf = (result: { result: unknown }): string => {
-	const inner = result.result as { error?: string };
-	if (inner.error === undefined) {
-		throw new Error(`expected a refusal, got ${JSON.stringify(inner)}`);
-	}
-	return inner.error;
-};
+const errorOf = (result: { result: unknown }): string =>
+	z.object({ error: z.string() }).parse(result.result).error;
+const messageOf = (result: { result: unknown }): string =>
+	z.object({ message: z.string() }).parse(result.result).message;
 
 describe("form-link author boundary", () => {
 	it("admits the complete link shape and refuses what has no meaning", () => {
@@ -201,40 +199,47 @@ describe("form-link author boundary", () => {
 		).toBe(false);
 	});
 
-	it("publishes linkUuid addressing on the chat wire for every tool", async () => {
-		const surfaces: ReadonlyArray<readonly [z.ZodType, readonly string[]]> = [
-			[addFormLinksInputSchema, ["linkUuid", "afterLinkUuid", "datums"]],
-			[updateFormLinkInputSchema, ["linkUuid", "condition"]],
-			[removeFormLinkInputSchema, ["linkUuid"]],
-			[moveFormLinkInputSchema, ["linkUuid", "afterLinkUuid"]],
+	it("admits UUID commands and rejects positional aliases in emitted and canonical schemas", async () => {
+		const ajv = new Ajv({ strict: false });
+		addFormats(ajv);
+		const surfaces: ReadonlyArray<readonly [z.ZodType, object, object]> = [
+			[
+				addFormLinksInputSchema,
+				{
+					...address,
+					links: [{ linkUuid: L1, link: conditional("1 = 1") }],
+					afterLinkUuid: null,
+				},
+				{
+					...address,
+					links: [{ link: conditional("1 = 1") }],
+					afterLinkUuid: 0,
+				},
+			],
+			[
+				updateFormLinkInputSchema,
+				{ ...address, linkUuid: L1, link: { condition: null, target: toCare } },
+				{ ...address, linkIndex: 0, link: { target: toCare } },
+			],
+			[
+				removeFormLinkInputSchema,
+				{ ...address, linkUuid: L1 },
+				{ ...address, linkIndex: 0 },
+			],
+			[
+				moveFormLinkInputSchema,
+				{ ...address, linkUuid: L1, afterLinkUuid: L2 },
+				{ ...address, linkUuid: L1, afterLinkUuid: 1 },
+			],
 		];
-		for (const [schema, keys] of surfaces) {
+		for (const [schema, valid, invalid] of surfaces) {
 			const wire = wireToolSchema(schema);
-			const json = JSON.stringify(await wire.jsonSchema);
-			for (const key of keys) expect(json).toContain(`"${key}"`);
-			expect(json).not.toContain("linkIndex");
+			const admits = ajv.compile(await wire.jsonSchema);
+			expect(admits(valid), JSON.stringify(admits.errors)).toBe(true);
+			expect((await wire.validate?.(valid))?.success).toBe(true);
+			expect(admits(invalid)).toBe(false);
+			expect((await wire.validate?.(invalid))?.success).toBe(false);
 		}
-		const wire = wireToolSchema(addFormLinksInputSchema);
-		const accepted = await wire.validate?.({
-			...address,
-			links: [{ linkUuid: L1, link: conditional("1 = 1") }],
-			afterLinkUuid: null,
-		});
-		expect(accepted?.success).toBe(true);
-		const positional = await wire.validate?.({
-			...address,
-			links: [{ link: conditional("1 = 1") }],
-			afterLinkUuid: 0,
-		});
-		expect(positional?.success).toBe(false);
-	});
-
-	it("gives the agent a direct repair for incompatible case selections", () => {
-		expect(
-			linkRefusalMessage({ kind: "selection-cardinality" }, fixture(), VISIT),
-		).toBe(
-			'Form "Visit" cannot hand its complete case selection directly to that form. Link to the destination module so the person can choose again, or configure both modules with the same selection mode and a destination limit that accepts the complete source selection.',
-		);
 	});
 });
 
@@ -270,6 +275,37 @@ describe("addFormLinks", () => {
 		expect(links?.map((link) => link.uuid)).toEqual([L2, L3, L1]);
 	});
 
+	it("refuses the entire batch when its second link fails after a valid conditional link", async () => {
+		const doc = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const refused = await h.runTool(addFormLinksTool, {
+			...address,
+			links: [
+				{ linkUuid: L1, link: conditional("1 = 1") },
+				{
+					linkUuid: L2,
+					link: {
+						target: { type: "form", moduleUuid: INTAKE, formUuid: SOURCE },
+					},
+				},
+			],
+		});
+		expect(errorOf(refused)).toContain("Link 2 of 2");
+		expect(refused.mutations).toEqual([]);
+		expect(h.recordMutations).not.toHaveBeenCalled();
+		expect(h.currentDoc()).toEqual(doc);
+		const accepted = await h.runTool(addFormLinksTool, {
+			...address,
+			links: [
+				{ linkUuid: L1, link: conditional("1 = 1") },
+				{ linkUuid: L2, link: { target: toCare } },
+			],
+		});
+		expect(accepted.result).toMatchObject({ linkOrder: [L1, L2] });
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		expectAdmittedDoc(h.currentDoc());
+	});
+
 	it("pins the fallback when the first conditional link lands on a form with no post_submit, and says so", async () => {
 		const h = makeToolWorkspaceHarness(fixture());
 		const result = await h.runTool(addFormLinksTool, {
@@ -281,7 +317,7 @@ describe("addFormLinks", () => {
 			linkUuids: [L1],
 			pinnedPostSubmit: "app_home",
 		});
-		const message = (result.result as { message: string }).message;
+		const message = messageOf(result);
 		expect(message).toContain('post_submit explicitly to "app_home"');
 		expect(message).toContain("update_form");
 		expect(h.currentDoc().forms[SOURCE]?.postSubmit).toBe("app_home");
@@ -441,6 +477,29 @@ describe("updateFormLink", () => {
 		);
 	});
 
+	it("drops carried values the new destination no longer reads", async () => {
+		const h = makeToolWorkspaceHarness(fixture());
+		const datums = [{ name: "case_id", xpath: xp("#patient/case_id") }];
+		const added = await h.runTool(addFormLinksTool, {
+			...address,
+			links: [{ linkUuid: L1, link: { target: toVisit, datums } }],
+		});
+		expect(added.result).not.toHaveProperty("error");
+		expect(h.currentDoc().forms[SOURCE].formLinks?.[0].datums).toEqual(datums);
+		h.recordMutations.mockClear();
+		const changed = await h.runTool(updateFormLinkTool, {
+			...address,
+			linkUuid: L1,
+			link: { target: toNote, datums },
+		});
+		expect(changed.result).toMatchObject({ droppedDatums: ["case_id"] });
+		expect(h.currentDoc().forms[SOURCE].formLinks).toEqual([
+			{ uuid: L1, target: toNote },
+		]);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		expectAdmittedDoc(h.currentDoc());
+	});
+
 	it("refuses making a link unconditional while links follow it", async () => {
 		const h = makeToolWorkspaceHarness(
 			fixture([cond("lnk-1", "1 = 1"), cond("lnk-2", "2 = 2")], {
@@ -498,7 +557,7 @@ describe("removeFormLink", () => {
 			pinnedPostSubmit: "app_home",
 			summary: { location: "Source" },
 		});
-		expect((result.result as { message: string }).message).toContain(
+		expect(messageOf(result)).toContain(
 			`Removed link 2 (${ELSE}, to module "Care")`,
 		);
 		expect(order(h.currentDoc())).toEqual([L1]);
@@ -536,7 +595,7 @@ describe("moveFormLink", () => {
 			afterLinkUuid: L2,
 			linkOrder: [L2, L1, ELSE],
 		});
-		expect((after.result as { message: string }).message).toContain(
+		expect(messageOf(after)).toContain(
 			`Moved link 2 (${L1}, to form "Note") after link 1 (${L2}`,
 		);
 		expect(order(h.currentDoc())).toEqual([L2, L1, ELSE]);
@@ -550,9 +609,7 @@ describe("moveFormLink", () => {
 			afterLinkUuid: null,
 			linkOrder: [L1, L2, ELSE],
 		});
-		expect((front.result as { message: string }).message).toContain(
-			"checked first",
-		);
+		expect(messageOf(front)).toContain("checked first");
 	});
 
 	it("refuses moving a conditional link after the otherwise link and names both", async () => {
@@ -591,9 +648,7 @@ describe("moveFormLink", () => {
 			afterLinkUuid: L1,
 		});
 		expect(same.mutations).toEqual([]);
-		expect((same.result as { message: string }).message).toContain(
-			"already in that position",
-		);
+		expect(messageOf(same)).toContain("already in that position");
 
 		const self = await h.runTool(moveFormLinkTool, {
 			...address,

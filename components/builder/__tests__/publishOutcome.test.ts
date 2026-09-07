@@ -8,9 +8,10 @@
  */
 
 import { describe, expect, it } from "vitest";
-import { publishOutcome } from "../publishOutcome";
+import type { DeploymentRecord } from "@/lib/deployment/types";
+import { type PublishResponseBody, publishOutcome } from "../publishOutcome";
 
-const RECORD = {
+const RECORD: DeploymentRecord = {
 	id: "dep-1",
 	appId: "app-1",
 	projectId: "proj-1",
@@ -20,6 +21,7 @@ const RECORD = {
 	resumePhase: null,
 	phases: {
 		preflight: null,
+		resources: null,
 		upload: null,
 		build: null,
 		release: null,
@@ -30,8 +32,12 @@ const RECORD = {
 	updatedAt: "2026-08-06T00:00:00.000Z",
 	lastObservedAt: null,
 };
-const VIEW = { deployment: RECORD, active: [], superseded: [] };
-const ARTIFACT = {
+const VIEW: NonNullable<PublishResponseBody["deployment"]> = {
+	deployment: RECORD,
+	active: [],
+	superseded: [],
+};
+const ARTIFACT: NonNullable<PublishResponseBody["setup_artifact"]> = {
 	server: "production",
 	domain: "acme",
 	hqAppId: "hq-1",
@@ -53,12 +59,14 @@ describe("a publish that landed", () => {
 			success: true,
 			url: "https://hq/app",
 			warnings: ["media still processing"],
-			deployment: VIEW as never,
-			setup_artifact: ARTIFACT as never,
+			deployment: VIEW,
+			setup_artifact: ARTIFACT,
 			preview_project_space: "acme",
 		});
-		expect(outcome).toMatchObject({
+		expect(outcome).toStrictEqual({
 			kind: "landed",
+			deployment: { deployment: VIEW, artifact: ARTIFACT, leftBehind: [] },
+			hqAppAction: null,
 			appUrl: "https://hq/app",
 			warnings: ["media still processing"],
 			previewProjectSpace: "acme",
@@ -81,8 +89,8 @@ describe("a publish that landed", () => {
 			success: true,
 			hq_app_action: "updated",
 			url: "https://hq/app",
-			deployment: VIEW as never,
-			setup_artifact: ARTIFACT as never,
+			deployment: VIEW,
+			setup_artifact: ARTIFACT,
 			preview_project_space: "acme",
 		});
 		expect(outcome).toMatchObject({ kind: "landed", hqAppAction: "updated" });
@@ -97,6 +105,34 @@ describe("a publish that landed", () => {
 });
 
 describe("a publish that was refused", () => {
+	it("preserves exact resource identities so takeover can name the refused remote resource", () => {
+		const conflict = {
+			kind: "lookup-table" as const,
+			novaResourceId: "table-1",
+			name: "Clinics",
+			identity: "clinics",
+			remoteId: "remote-9",
+		};
+		expect(
+			publishOutcome(true, {
+				refusal: { ...REFUSAL, resourceConflicts: [conflict] },
+				warnings: ["Review target"],
+			}),
+		).toStrictEqual({
+			kind: "refused",
+			deployment: null,
+			refusal: { message: REFUSAL.failure.message, items: [] },
+			resourceConflicts: [conflict],
+			warnings: ["Review target"],
+			previewProjectSpace: null,
+		});
+	});
+	it("does not synthesize setup instructions when the response has a record alone", () => {
+		const outcome = publishOutcome(true, { success: true, deployment: VIEW });
+		expect(outcome.kind).toBe("landed");
+		if (outcome.kind !== "landed") throw new Error("Expected landed publish");
+		expect(outcome.deployment).toBeNull();
+	});
 	it("carries the refusal beside whatever record the target has", () => {
 		const outcome = publishOutcome(true, {
 			success: false,
@@ -104,8 +140,8 @@ describe("a publish that was refused", () => {
 			deployment: {
 				...VIEW,
 				deployment: { ...RECORD, state: "runnable" },
-			} as never,
-			setup_artifact: ARTIFACT as never,
+			},
+			setup_artifact: ARTIFACT,
 			preview_project_space: "acme",
 		});
 		expect(outcome).toMatchObject({
@@ -116,7 +152,14 @@ describe("a publish that was refused", () => {
 			},
 			previewProjectSpace: "acme",
 		});
-		expect(outcome.kind === "refused" && outcome.deployment).not.toBeNull();
+		expect(outcome.kind).toBe("refused");
+		if (outcome.kind !== "refused") throw new Error("Expected refused publish");
+		expect(outcome.deployment).toStrictEqual({
+			deployment: { ...VIEW, deployment: { ...RECORD, state: "runnable" } },
+			artifact: ARTIFACT,
+			leftBehind: [],
+		});
+		expect(outcome.resourceConflicts).toStrictEqual([]);
 	});
 
 	it("carries the boundary findings so the author sees what to fix", () => {
@@ -147,7 +190,7 @@ describe("a publish that was refused", () => {
 			success: false,
 			refusal: REFUSAL,
 			deployment: null,
-			setup_artifact: ARTIFACT as never,
+			setup_artifact: ARTIFACT,
 			preview_project_space: null,
 		});
 		expect(outcome.kind).toBe("refused");
@@ -166,8 +209,8 @@ describe("nothing to show", () => {
 		expect(
 			publishOutcome(false, {
 				success: true,
-				deployment: VIEW as never,
-				setup_artifact: ARTIFACT as never,
+				deployment: VIEW,
+				setup_artifact: ARTIFACT,
 			}).kind,
 		).toBe("failure");
 	});

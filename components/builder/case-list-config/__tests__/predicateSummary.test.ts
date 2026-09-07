@@ -1,11 +1,14 @@
 // components/builder/case-list-config/__tests__/predicateSummary.test.ts
 //
-// Pins the human-language Cases available summary used in Results. The contract:
+// Tests the pure text projection, including incomplete lower-boundary expressions.
+// Reachable grouped-filter regressions below additionally pass full admission.
+// The contract:
 // worker-facing words, never AST jargon; vacuous predicates summarize
 // to nothing; exotic shapes degrade to honest generic phrases.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { caseListConfig } from "@/lib/__tests__/docHelpers";
 import type { CaseType } from "@/lib/domain";
 import {
 	ancestorPath,
@@ -32,6 +35,7 @@ import {
 } from "@/lib/domain/predicate";
 import { projectProseTemplate, proseText } from "@/lib/domain/prose";
 import { humanizeName, summarizeFilter } from "../predicateSummary";
+import { admittedWorkspace } from "./admittedWorkspace";
 
 /** These fixtures label every choice with literal prose, so an empty document
  *  resolves everything they reference (nothing). */
@@ -115,29 +119,6 @@ describe("summarizeFilter", () => {
 				{ projectProse },
 			),
 		).toBe("external ID roughly matches ABC");
-		expect(
-			summarizeFilter(
-				{
-					kind: "multi-select-contains",
-					property: prop("patient", "case_name"),
-					values: [literal("Alice")],
-					quantifier: "any",
-				},
-				{ projectProse },
-			),
-		).toBe("case name includes any of Alice");
-		expect(
-			summarizeFilter(
-				{
-					kind: "within-distance",
-					property: prop("patient", "date_opened"),
-					center: term(literal("0 0")),
-					distance: 5,
-					unit: "kilometers",
-				},
-				{ projectProse },
-			),
-		).toBe("date opened is within 5 kilometers of 0 0");
 	});
 
 	it("does not repeat a canonical property label in parentheses", () => {
@@ -501,4 +482,34 @@ describe("summarizeFilter", () => {
 			),
 		).toBe("status is a calculated value");
 	});
+});
+
+it("keeps an admitted alternative group visibly grouped inside an all-conditions filter", () => {
+	const caseTypes: CaseType[] = [
+		{
+			name: "patient",
+			properties: [
+				{ name: "stage", label: proseText("Stage"), data_type: "text" },
+				{ name: "region", label: proseText("Region"), data_type: "text" },
+				{ name: "age", label: proseText("Age"), data_type: "int" },
+			],
+		},
+	];
+	const filter = and(
+		or(
+			eq(prop("patient", "stage"), literal("active")),
+			eq(prop("patient", "region"), literal("north")),
+		),
+		eq(prop("patient", "age"), literal(5)),
+	);
+	const config = caseListConfig([{ field: "case_name", header: "Name" }]);
+	config.filter = filter;
+	admittedWorkspace(caseTypes, config);
+	expect(
+		summarizeFilter(filter, {
+			caseTypes,
+			currentCaseType: "patient",
+			projectProse,
+		}),
+	).toBe("(Stage is active or Region is north) and Age is 5");
 });

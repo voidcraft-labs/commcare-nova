@@ -575,7 +575,7 @@ A module's case list is the screen that lists existing cases and the search bar 
 | `remove_case_list_column` | Remove one column by `moduleUuid` and `columnUuid`. |
 | `reorder_case_list_columns` | Reorder a surface by passing its complete `columnUuids` sequence. |
 | `set_case_list_filter` | Set or clear the optional filter predicate that narrows the list. |
-| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value worked out when the Search screen opens. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select` / `multi-select` inputs take their choices from a Project lookup table through `options`. Each may predeclare `searchInputUuid`; predicates reference inputs by that UUID. |
+| `add_search_inputs` | Add one or more search inputs in one call: a simple property bind, an advanced predicate, or a hidden value carried with the search. Visible inputs may carry a `hint`, a `required` condition, and one `validation` check; `select` / `multi-select` inputs take their choices from a Project lookup table through `options`. Each may predeclare `searchInputUuid`; predicates reference inputs by that UUID. |
 | `update_search_input` | Replace a search input's body, addressed by `moduleUuid` and `searchInputUuid`. Accepts the same shapes as `add_search_inputs`. |
 | `remove_search_input` | Remove one search input by `moduleUuid` and `searchInputUuid`. |
 | `reorder_search_inputs` | Reorder search inputs by passing their complete `searchInputUuids` sequence. |

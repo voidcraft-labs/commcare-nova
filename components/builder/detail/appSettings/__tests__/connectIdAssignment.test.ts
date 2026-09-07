@@ -8,8 +8,13 @@
  */
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { assignDraftConnectIds, EMPTY_DRAFT } from "../ConnectEnableDialog";
-import { hasDraftConnectParticipant } from "../ConnectManagerDialog";
+import {
+	assignDraftConnectIds,
+	connectIdHelpers,
+	draftIdsValid,
+	EMPTY_DRAFT,
+	hasDraftConnectParticipant,
+} from "../connectDraft";
 
 const FORM_1 = testUuid("connect-form-1");
 const FORM_2 = testUuid("connect-form-2");
@@ -24,7 +29,7 @@ describe("assignDraftConnectIds", () => {
 			[FORM_1]: { ...EMPTY_DRAFT, learnOn: true },
 			[FORM_2]: { ...EMPTY_DRAFT, learnOn: true },
 		};
-		expect(assignDraftConnectIds(FORMS, drafts, "learn")).toEqual([
+		expect(assignDraftConnectIds(FORMS, drafts, "learn")).toStrictEqual([
 			{ formUuid: FORM_1, kind: "learn_module", id: "clients" },
 			{ formUuid: FORM_2, kind: "learn_module", id: "clients_2" },
 		]);
@@ -37,7 +42,26 @@ describe("assignDraftConnectIds", () => {
 		};
 		expect(
 			assignDraftConnectIds(FORMS, drafts, "deliver").map((i) => i.id),
-		).toEqual(["visit", "visit"]);
+		).toStrictEqual(["visit", "visit"]);
+	});
+
+	it("the actual per-slot validity owner rejects both duplicated explicit identities", () => {
+		const drafts = {
+			[FORM_1]: { ...EMPTY_DRAFT, assessmentOn: true, assessmentId: "same" },
+			[FORM_2]: { ...EMPTY_DRAFT, assessmentOn: true, assessmentId: "same" },
+		};
+		const ids = assignDraftConnectIds(FORMS, drafts, "learn");
+		for (const form of FORMS) {
+			const helper = connectIdHelpers(
+				ids,
+				form.formUuid,
+				form.moduleName,
+				form.formName,
+			);
+			expect(
+				draftIdsValid(drafts[form.formUuid], "learn", helper.validateId),
+			).toBe(false);
+		}
 	});
 
 	it("reserves a later explicit id before an earlier blank derives", () => {
@@ -47,7 +71,7 @@ describe("assignDraftConnectIds", () => {
 		};
 		expect(
 			assignDraftConnectIds(FORMS, drafts, "learn").map((i) => i.id),
-		).toEqual(["clients_2", "clients"]);
+		).toStrictEqual(["clients_2", "clients"]);
 	});
 
 	it("disambiguates colliding same-form blank sections", () => {
@@ -65,7 +89,7 @@ describe("assignDraftConnectIds", () => {
 		};
 		expect(
 			assignDraftConnectIds([form], drafts, "learn").map((i) => i.id),
-		).toEqual(["care", "care_2"]);
+		).toStrictEqual(["care", "care_2"]);
 	});
 
 	it("lets a later same-form explicit id beat an earlier blank section", () => {
@@ -84,7 +108,7 @@ describe("assignDraftConnectIds", () => {
 		};
 		expect(
 			assignDraftConnectIds([form], drafts, "learn").map((i) => i.id),
-		).toEqual(["care_2", "care"]);
+		).toStrictEqual(["care_2", "care"]);
 	});
 
 	it("derives around committed ids outside the dialog target set", () => {
@@ -95,14 +119,14 @@ describe("assignDraftConnectIds", () => {
 			assignDraftConnectIds([FORMS[0]], drafts, "learn", [
 				{ formUuid: FORM_2, kind: "assessment", id: "clients" },
 			]).map((i) => i.id),
-		).toEqual(["clients", "clients_2"]);
+		).toStrictEqual(["clients", "clients_2"]);
 	});
 
 	it("preserves whitespace bytes as an invalid explicit buffer", () => {
 		const drafts = {
 			[FORM_1]: { ...EMPTY_DRAFT, deliverOn: true, deliverId: " visit " },
 		};
-		expect(assignDraftConnectIds([FORMS[0]], drafts, "deliver")).toEqual([
+		expect(assignDraftConnectIds([FORMS[0]], drafts, "deliver")).toStrictEqual([
 			{ formUuid: FORM_1, kind: "deliver_unit", id: " visit " },
 		]);
 	});
@@ -118,14 +142,14 @@ describe("assignDraftConnectIds", () => {
 		};
 		// mode === "learn" → only the learn_module is assigned; the stray deliver
 		// block (off-mode) contributes nothing to the scope.
-		expect(assignDraftConnectIds([FORMS[0]], drafts, "learn")).toEqual([
+		expect(assignDraftConnectIds([FORMS[0]], drafts, "learn")).toStrictEqual([
 			{ formUuid: FORM_1, kind: "learn_module", id: "clients" },
 		]);
 	});
 
 	it("derives per-form assessment ids from '<module> <form>'", () => {
 		const drafts = { [FORM_1]: { ...EMPTY_DRAFT, assessmentOn: true } };
-		expect(assignDraftConnectIds([FORMS[0]], drafts, "learn")).toEqual([
+		expect(assignDraftConnectIds([FORMS[0]], drafts, "learn")).toStrictEqual([
 			{
 				formUuid: FORM_1,
 				kind: "assessment",
@@ -140,13 +164,23 @@ describe("assignDraftConnectIds", () => {
 		};
 		expect(
 			assignDraftConnectIds([FORMS[0]], drafts, "learn").map((i) => i.kind),
-		).toEqual(["learn_module", "assessment"]);
+		).toStrictEqual(["learn_module", "assessment"]);
 	});
 });
 
 describe("Connect manager participant admission", () => {
 	it("withholds apply for an app with no forms", () => {
 		expect(hasDraftConnectParticipant([], {}, "learn")).toBe(false);
+	});
+
+	it("ignores a removed form draft even when it still has a participant", () => {
+		expect(
+			hasDraftConnectParticipant(
+				[{ formUuid: FORM_1 }],
+				{ [FORM_2]: { ...EMPTY_DRAFT, assessmentOn: true } },
+				"learn",
+			),
+		).toBe(false);
 	});
 
 	it("admits exactly when at least one live form draft participates", () => {

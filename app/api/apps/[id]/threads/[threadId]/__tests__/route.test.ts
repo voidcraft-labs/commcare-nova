@@ -1,11 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireSession } from "@/lib/auth-utils";
-import { resolveAppScope } from "@/lib/db/appAccess";
+import { AppAccessError, resolveAppScope } from "@/lib/db/appAccess";
 import { loadThread } from "@/lib/db/threads";
 import { GET } from "../route";
 
 vi.mock("@/lib/auth-utils", () => ({ requireSession: vi.fn() }));
-vi.mock("@/lib/db/appAccess", () => ({ resolveAppScope: vi.fn() }));
+vi.mock("@/lib/db/appAccess", async (importOriginal) => ({
+	...(await importOriginal<typeof import("@/lib/db/appAccess")>()),
+	resolveAppScope: vi.fn(),
+}));
 vi.mock("@/lib/db/threads", () => ({ loadThread: vi.fn() }));
 
 beforeEach(() => {
@@ -45,4 +48,27 @@ describe("GET /api/apps/[id]/threads/[threadId]", () => {
 			},
 		});
 	});
+});
+
+it("keeps an access denial non-cacheable and does not read any transcript", async () => {
+	vi.mocked(resolveAppScope).mockRejectedValueOnce(
+		new AppAccessError("not_member"),
+	);
+	const response = await GET(new Request("http://localhost"), {
+		params: Promise.resolve({ id: "app-1", threadId: "thread-1" }),
+	});
+	expect(response.status).toBe(404);
+	expect(response.headers.get("cache-control")).toBe("private, no-store");
+	expect(await response.json()).toEqual({ error: "App not found" });
+	expect(loadThread).not.toHaveBeenCalled();
+});
+
+it("returns an opaque non-cacheable missing-thread response", async () => {
+	vi.mocked(loadThread).mockResolvedValueOnce(null);
+	const response = await GET(new Request("http://localhost"), {
+		params: Promise.resolve({ id: "app-1", threadId: "thread-1" }),
+	});
+	expect(response.status).toBe(404);
+	expect(response.headers.get("cache-control")).toBe("private, no-store");
+	expect(await response.json()).toEqual({ error: "Thread not found" });
 });

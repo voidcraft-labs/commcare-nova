@@ -1,14 +1,13 @@
-// components/builder/case-list-config/__tests__/configValidity.test.ts
-//
-// Pins the pure whole-config verdicts (tab dots, in-canvas marks,
-// preview gate). The verdicts must mirror what the entity editors
-// surface: a config every editor would render error-free carries no
-// dots or marks; a config any editor would flag does, and the
-// preview pauses ONLY for the ASTs the SQL compiler consumes.
+// Diagnostic projection tests. Reachable clean configurations pass the complete
+// document gate. Refused candidates are deliberately fed below that gate to
+// verify where their real validator findings appear in the workspace.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import { caseWorkspaceBoundaryVerdicts } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	advancedSearchInputDef,
 	type CaseListConfig,
@@ -29,8 +28,8 @@ import {
 	whenInput,
 } from "@/lib/domain/predicate";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
-
 import { caseListConfigVerdicts } from "../configValidity";
+import { admittedWorkspace } from "./admittedWorkspace";
 
 /** Every fixture property below is labeled with literal prose, so a
  *  context-free projection spells exactly what a document-aware one would. */
@@ -45,20 +44,40 @@ const CASE_TYPES: CaseType[] = [
 			{ name: "age", label: proseText("Age"), data_type: "int" },
 			{ name: "score", label: proseText("Score"), data_type: "int" },
 		],
-	} as CaseType,
+	},
 ];
 
 function config(partial: Partial<CaseListConfig>): CaseListConfig {
-	return resolveCaseListConfig({ columns: [], searchInputs: [], ...partial });
+	return resolveCaseListConfig({
+		columns: [plainColumn(testUuid("default-name"), "case_name", "Name")],
+		searchInputs: [],
+		...partial,
+	});
 }
 
 function verdicts(partial: Partial<CaseListConfig>) {
-	return caseListConfigVerdicts(
-		config(partial),
+	const { doc, moduleUuid } = admittedWorkspace(CASE_TYPES);
+	const candidate = config(partial);
+	doc.modules[moduleUuid].caseListConfig = candidate;
+	const result = caseListConfigVerdicts(
+		candidate,
 		CASE_TYPES,
 		"patient",
 		projectProse,
+		{
+			boundary: caseWorkspaceBoundaryVerdicts(
+				doc,
+				moduleUuid,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		},
 	);
+	if (
+		!Object.values(result.errorAreas).some(Boolean) &&
+		result.brokenColumns.size === 0
+	)
+		assertAdmittedDoc(doc);
+	return result;
 }
 
 const CLEAN = { search: false, list: false, detail: false };
@@ -67,7 +86,7 @@ const TOP_LEFT = { x: 0, y: 0, width: 6, height: 1 };
 const TOP_RIGHT = { x: 6, y: 0, width: 6, height: 1 };
 
 describe("caseListConfigVerdicts", () => {
-	it("reports an empty config clean", () => {
+	it("reports the admitted default Results configuration clean", () => {
 		const v = verdicts({});
 		expect(v.errorAreas).toEqual(CLEAN);
 		expect(v.brokenColumns.size).toBe(0);
@@ -102,7 +121,10 @@ describe("caseListConfigVerdicts", () => {
 	it("checks Results filters against a date field's runtime date value", () => {
 		const searchInputUuid = testUuid("date-search");
 		const v = verdicts({
-			filter: eq(prop("patient", "dob"), input(searchInputUuid)),
+			filter: whenInput(
+				input(searchInputUuid),
+				eq(prop("patient", "dob"), input(searchInputUuid)),
+			),
 			searchInputs: [
 				simpleSearchInputDef(
 					searchInputUuid,
@@ -158,12 +180,17 @@ describe("caseListConfigVerdicts", () => {
 			{
 				name: "patient",
 				properties: [{ name: "mystery", label: proseText("Mystery") }],
-			} as CaseType,
+			},
 		];
-		const v = caseListConfigVerdicts(
+		const admitted = admittedWorkspace(
+			caseTypes,
 			config({
 				columns: [dateColumn(testUuid("c1"), "mystery", "M", "%d/%m/%Y")],
 			}),
+			"patient",
+		);
+		const v = caseListConfigVerdicts(
+			admitted.config,
 			caseTypes,
 			"patient",
 			projectProse,
@@ -319,71 +346,85 @@ describe("caseListConfigVerdicts", () => {
 		expect(v.filterBroken).toBe(false);
 	});
 
-	it("applies the remote-query restriction only when Results are search-backed", () => {
-		const propertyComparison = config({
+	it("applies the remote-query restriction to an actual effective Search configuration", () => {
+		const candidate = config({
 			filter: eq(prop("patient", "age"), prop("patient", "score")),
 		});
+		const { doc, moduleUuid } = admittedWorkspace(CASE_TYPES, candidate);
 		const onDevice = caseListConfigVerdicts(
-			propertyComparison,
+			candidate,
 			CASE_TYPES,
 			"patient",
 			projectProse,
-			{ caseSearchEnabled: false },
+			{
+				caseSearchEnabled: false,
+				boundary: caseWorkspaceBoundaryVerdicts(
+					doc,
+					moduleUuid,
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				),
+			},
 		);
-		const searchBacked = caseListConfigVerdicts(
-			propertyComparison,
-			CASE_TYPES,
-			"patient",
-			projectProse,
-			{ caseSearchEnabled: true },
-		);
-
 		expect(onDevice.filterBroken).toBe(false);
 		expect(onDevice.errorAreas).toEqual(CLEAN);
+		const searchDoc = structuredClone(doc);
+		searchDoc.modules[moduleUuid].caseSearchConfig = {};
+		const searchBacked = caseListConfigVerdicts(
+			candidate,
+			CASE_TYPES,
+			"patient",
+			projectProse,
+			{
+				caseSearchEnabled: true,
+				boundary: caseWorkspaceBoundaryVerdicts(
+					searchDoc,
+					moduleUuid,
+					LOOKUP_CONTEXT_UNAVAILABLE,
+				),
+			},
+		);
 		expect(searchBacked.filterBroken).toBe(true);
 		expect(searchBacked.errorAreas.list).toBe(true);
 	});
 
-	it("keeps Search-action and assigned-case findings owned by their settings", () => {
-		const baseBoundary = {
-			filterBroken: false,
-			searchInputsBroken: false,
-			searchButtonConditionBroken: false,
-			excludedOwnerIdsBroken: false,
-			brokenColumnUuids: [],
-		} as const;
-		const searchButton = caseListConfigVerdicts(
-			config({}),
-			CASE_TYPES,
-			"patient",
-			projectProse,
-			{
-				boundary: { ...baseBoundary, searchButtonConditionBroken: true },
-			},
-		);
-		const assignedCases = caseListConfigVerdicts(
-			config({}),
-			CASE_TYPES,
-			"patient",
-			projectProse,
-			{
-				boundary: { ...baseBoundary, excludedOwnerIdsBroken: true },
-			},
-		);
-
-		expect(searchButton.errorAreas).toEqual({
-			search: true,
-			list: false,
-			detail: false,
-		});
-		expect(searchButton.searchButtonConditionBroken).toBe(true);
-		expect(assignedCases.errorAreas).toEqual({
-			search: false,
-			list: true,
-			detail: false,
-		});
-		expect(assignedCases.filterBroken).toBe(false);
-		expect(assignedCases.excludedOwnerIdsBroken).toBe(true);
+	it("projects actual Search-action and assigned-case failures to their own settings", () => {
+		for (const slot of [
+			"searchButtonDisplayCondition",
+			"excludedOwnerIds",
+		] as const) {
+			const { doc, moduleUuid, config: saved } = admittedWorkspace(CASE_TYPES);
+			doc.modules[moduleUuid].caseSearchConfig =
+				slot === "searchButtonDisplayCondition"
+					? {
+							searchButtonDisplayCondition: eq(
+								prop("patient", "missing"),
+								literal("x"),
+							),
+						}
+					: { excludedOwnerIds: term(prop("patient", "missing")) };
+			const boundary = caseWorkspaceBoundaryVerdicts(
+				doc,
+				moduleUuid,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			const result = caseListConfigVerdicts(
+				saved,
+				CASE_TYPES,
+				"patient",
+				projectProse,
+				{ caseSearchEnabled: true, boundary },
+			);
+			expect(result.errorAreas).toEqual({
+				search: slot === "searchButtonDisplayCondition",
+				list: slot === "excludedOwnerIds",
+				detail: false,
+			});
+			expect(result.searchButtonConditionBroken).toBe(
+				slot === "searchButtonDisplayCondition",
+			);
+			expect(result.excludedOwnerIdsBroken).toBe(slot === "excludedOwnerIds");
+			expect(result.filterBroken).toBe(false);
+		}
 	});
 	// ── Tile placement ──
 	//

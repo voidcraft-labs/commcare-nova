@@ -1,0 +1,232 @@
+{
+	"nativeHqSha": "f391f622123f52c8943098d1228986f6999cddb8",
+	"results": [
+		{
+			"test": "HQ-JSON oracle \u2014 clean baseline > accepts resolved root-module and parent-select identities",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 clean baseline > flags unresolved root-module and parent-select identities",
+			"codes": [
+				"HQJSON_BAD_ROOT_MODULE_ID",
+				"HQJSON_BAD_PARENT_SELECT_MODULE_ID"
+			],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 clean baseline > accepts independently ordered short and long column arrays with list-indexed calculated sort",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 clean baseline > keeps a Results sort carrier invisible and omits it from Details",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 clean baseline > joins attribute-backed sorts to their visible HQ column and drops useless hidden definitions",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 clean baseline > the partial shell fixture passes this private checker",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 clean baseline > a real expandDoc of a minimal valid doc passes clean",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 application doc_type > flags an application doc_type that isn't 'Application'",
+			"codes": ["HQJSON_BAD_DOC_TYPE"],
+			"nativeApplicationDispatch": "RemoteApp"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 doc_type dispatch > flags a module doc_type outside the ModuleBase.wrap dispatch set",
+			"codes": ["HQJSON_BAD_MODULE_DOC_TYPE"],
+			"nativeWrapFailure": "ValueError: ('Unexpected doc_type for Module', 'BogusModule')"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 doc_type dispatch > flags an unknown form tag as a generator convention",
+			"codes": ["HQJSON_BAD_FORM_DOC_TYPE"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 form choice slots > flags a form requires value outside the choice list",
+			"codes": ["HQJSON_BAD_FORM_REQUIRES"],
+			"nativeWrapFailure": "BadValueError: 'always' not in choices: ['case', 'referral', 'none']"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 form choice slots > flags a post_form_workflow value outside ALL_WORKFLOWS",
+			"codes": ["HQJSON_BAD_POST_FORM_WORKFLOW"],
+			"nativeWrapFailure": "BadValueError: 'home' not in choices: ['default', 'root', 'parent_module', 'module', 'previous_screen', 'form']"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 form choice slots > flags a form link whose form_id lives in a different module than its form_module_id",
+			"codes": ["HQJSON_BAD_FORM_LINK"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 form choice slots > flags a form link whose form_id lives in a different module than its form_module_id",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 case_list_form > flags a registration form id no module carries",
+			"codes": ["HQJSON_BAD_CASE_LIST_FORM"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 case_list_form > flags a post_form_workflow outside CaseListForm's choices",
+			"codes": ["HQJSON_BAD_CASE_LIST_FORM"],
+			"nativeWrapFailure": "BadValueError: 'previous_screen' not in choices: ['default', 'case_list']"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 case_list_form > accepts a resolvable form under case_list",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 condition choice slots > flags a condition type outside {if, always, never}",
+			"codes": ["HQJSON_BAD_CONDITION_TYPE"],
+			"nativeWrapFailure": "BadValueError: 'maybe' not in choices: ['if', 'always', 'never']"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 condition choice slots > flags a non-null condition operator outside the choice list",
+			"codes": ["HQJSON_BAD_CONDITION_OPERATOR"],
+			"nativeWrapFailure": "BadValueError: '~=' not in choices: ['=', 'selected', 'boolean_true']"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 condition choice slots > does NOT flag a null operator (the always/never factory default)",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 update_mode choice slot > flags an update_mode in the update-case map outside {always, edit}",
+			"codes": ["HQJSON_BAD_UPDATE_MODE"],
+			"nativeWrapFailure": "BadValueError: 'sometimes' not in choices: ['always', 'edit']"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 update_mode choice slot > flags an update_mode on a subcase name_update outside the choice list",
+			"codes": ["HQJSON_BAD_UPDATE_MODE"],
+			"nativeWrapFailure": "BadValueError: 'never' not in choices: ['always', 'edit']"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 subcase relationship choice slot > flags a subcase relationship outside {child, extension}",
+			"codes": ["HQJSON_BAD_SUBCASE_RELATIONSHIP"],
+			"nativeWrapFailure": "BadValueError: 'sibling' not in choices: ['child', 'extension']"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 detail display choice slot > flags a case detail display outside {short, long}",
+			"codes": ["HQJSON_BAD_DETAIL_DISPLAY"],
+			"nativeWrapFailure": "BadValueError: 'medium' not in choices: ['short', 'long']"
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 column finite-number slots > flags a non-finite late_flag (NaN serializes to null at import)",
+			"codes": ["HQJSON_BAD_TYPE"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 column finite-number slots > flags a non-finite time_ago_interval (Infinity from a bad divisor)",
+			"codes": ["HQJSON_BAD_TYPE"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 multimedia_map shape > flags a multimedia_map key missing the jr://file/ prefix",
+			"codes": ["HQJSON_BAD_MULTIMEDIA_MAP_KEY"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 multimedia_map shape > flags an unknown multimedia_map media_type",
+			"codes": ["HQJSON_BAD_MULTIMEDIA_MAP_MEDIA_TYPE"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 multimedia_map shape > accepts every live CommCare media class name",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 nav media dict shape > flags a module media_image value missing the jr://file/ prefix",
+			"codes": ["HQJSON_BAD_NAV_MEDIA_VALUE"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 nav media dict shape > flags a module media_audio value missing the prefix",
+			"codes": ["HQJSON_BAD_NAV_MEDIA_VALUE"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 nav media dict shape > flags a form media_image value missing the prefix",
+			"codes": ["HQJSON_BAD_NAV_MEDIA_VALUE"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 nav media dict shape > flags a case-list media_image value missing the prefix",
+			"codes": ["HQJSON_BAD_NAV_MEDIA_VALUE"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 nav media dict shape > accepts well-formed jr://file/ media values across all carriers",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 nav media dict shape > accepts an empty media dict (no carrier media)",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 logo_refs shape > flags a logo_refs path missing the jr://file/ prefix",
+			"codes": ["HQJSON_BAD_LOGO_REF"],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 logo_refs shape > accepts a well-formed jr://file/ logo path",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 logo_refs shape > accepts an absent logo_refs (no logo configured)",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 search prompt children > projects hint, required, and one validation as language-mapped Assertions",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 search prompt children > projects a hidden input as hidden + default_value + exclude with no children",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 search prompt children > projects a visible seed to default_value and a session-gated requirement",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 search prompt children > projects lookup-backed select and multi-select prompts as input_ + itemset",
+			"codes": [],
+			"nativeWrapFailure": null
+		},
+		{
+			"test": "HQ-JSON oracle \u2014 search prompt children > projects lookup-backed select and multi-select prompts as input_ + itemset",
+			"codes": [],
+			"nativeWrapFailure": null
+		}
+	],
+	"sourceHashes": {
+		"lib/commcare/validator/hqJsonOracle.ts": "bf6610c50a74e99d2f80b2084266d88be85a612b1e30591e521ef8361b4eba0e",
+		"lib/commcare/__tests__/hqJsonOracle.test.ts": "4635e5f4df61dd22ee3e49b558331d8e2f3db06000320c0ac5ccafb03f6b8683",
+		"scripts/fixtures/hq/hq-json-oracle-proof.py": "647ad73660e735552174e43e3449554338cc828c8c9d73375b33bd86305ff3da"
+	},
+	"artifactHashes": {
+		"/tmp/nova-hq-oracle-evidence-final/hq-oracle-probes.json": "ac7e75ee69889bd9877d69db22a2c3bd790172823bce29aa62e5627027504b24"
+	},
+	"log": "/tmp/nova-test-audit-parallel/commcare/hq-oracle-native-final.log"
+}

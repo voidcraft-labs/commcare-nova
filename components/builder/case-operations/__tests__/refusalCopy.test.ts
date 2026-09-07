@@ -10,13 +10,14 @@
 // walk to find, so borrowing that wording names an unrelated change.
 
 import { describe, expect, it } from "vitest";
+import { testUuid } from "@/__tests__/helpers/uuid";
 import type { CaseOperationMoveVerdict } from "@/lib/doc/caseOperationReview";
 import type { Uuid } from "@/lib/doc/types";
 import { dependencyLine, moveRefusalReason } from "../refusalCopy";
 
-const MOVED = "op-moved" as Uuid;
-const OTHER = "op-other" as Uuid;
-const DEPENDENCY = "op-dependency" as Uuid;
+const MOVED = testUuid("op-moved");
+const OTHER = testUuid("op-other");
+const DEPENDENCY = testUuid("op-dependency");
 
 const nameOf = (uuid: Uuid) =>
 	({

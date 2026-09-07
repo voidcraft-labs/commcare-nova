@@ -16,12 +16,15 @@
 
 import "server-only";
 
+import { hqNestedSelectionFindings } from "@/lib/commcare/hqNestedSelection";
+
 import {
 	buildLookupFixtures,
 	type CompiledLookupFixtureSet,
 	lookupFixtureBudgetExcess,
 	type PreparedLookupWire,
 } from "@/lib/commcare/lookup/fixtures";
+import { lookupHqCellTextFindings } from "@/lib/commcare/lookup/hqCellText";
 import {
 	type LookupWireNaming,
 	lookupWireNaming,
@@ -214,8 +217,7 @@ async function collectViolationsWithRegistry(
  * because it used to be half the stated reason. `owner-location-at-level`
  * reads `instance('locations')`, and that is CommCare's own restore
  * fixture on every mode alike (`jr://fixture/locations`; Nova emits no
- * copy, and the flat serializer under `lib/commcare/locations/__tests__`
- * is an oracle rather than a producer). `fixed-location` reads no
+ * copy, and native compatibility scripts execute HQ's actual serializer). `fixed-location` reads no
  * instance at all — `predicate/instances.ts` groups it with `literal`.
  * What decides this is WHOSE IDENTITIES the printed expression carries.
  *
@@ -609,7 +611,10 @@ async function prepareWithRegistry(
 		lookupTargets.tableIds.length === 0
 			? undefined
 			: lookupWireNaming(fixtureData.definitions);
-	const textFindings = lookupXmlTextFindings(fixtureData);
+	const textFindings = [
+		...lookupXmlTextFindings(fixtureData),
+		...(input.mode === "ccz" ? [] : lookupHqCellTextFindings(fixtureData)),
+	];
 	const lookupWire =
 		naming === undefined || input.mode !== "ccz" || textFindings.length > 0
 			? undefined
@@ -644,6 +649,16 @@ async function prepareWithRegistry(
 	);
 	if (violations.length > 0) {
 		return { ok: false, violations };
+	}
+	if (input.mode !== "ccz") {
+		const hqSelectionViolations = hqNestedSelectionFindings(
+			input.doc,
+			input.mode,
+			naming,
+		);
+		if (hqSelectionViolations.length > 0) {
+			return { ok: false, violations: hqSelectionViolations };
+		}
 	}
 
 	/* Bytes are resolved only after the complete boundary succeeds. All three

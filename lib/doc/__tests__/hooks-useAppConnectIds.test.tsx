@@ -11,10 +11,7 @@ import {
 	planConnectTargetState,
 } from "@/lib/doc/connectTargetState";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import {
-	connectIdsExcept,
-	useAppConnectIds,
-} from "@/lib/doc/hooks/useAppConnectIds";
+import { useAppConnectIds } from "@/lib/doc/hooks/useAppConnectIds";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import {
@@ -128,16 +125,5 @@ describe("Connect id subscription", () => {
 		]);
 		act(() => switchConnect(store, { mode: null }));
 		expect(result.current).toEqual([]);
-	});
-
-	it("excludes only the edited slot, retaining its co-located assessment and cross-form ids", () => {
-		const { wrapper } = setup();
-		const { result } = renderHook(useAppConnectIds, { wrapper });
-		expect(connectIdsExcept(result.current, FORM_A, "learn_module")).toEqual(
-			new Set(["intro_quiz", "lesson_two"]),
-		);
-		expect(connectIdsExcept(result.current, FORM_B, "learn_module")).toEqual(
-			new Set(["intro", "intro_quiz"]),
-		);
 	});
 });

@@ -1,11 +1,8 @@
 import type { ModelMessage, UIMessage } from "ai";
-import { tool } from "ai";
+import { validateUIMessages } from "ai";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-	contractSubmissionPulsePhase,
-	designLoopStopMessage,
-	designModelContextTrailsSuccessfulWait,
 	designModelStepKey,
 	designResponseAppendKey,
 	designTerminalOmissionCanCorrect,
@@ -17,7 +14,6 @@ import {
 	pendingDesignTerminalCorrectionStepAllowance,
 	projectAnsweredDesignContinuation,
 	projectMissingDesignUserContinuations,
-	readRequiredDesignQuestionsFromWorkspace,
 	recoverableDesignTerminalOmissionForTurn,
 	recoverableDesignWaitForTurn,
 	recoveredDesignWaitChunks,
@@ -28,21 +24,7 @@ import {
 	designPhaseTerminalSucceeded,
 	designStepBudgetReached,
 } from "@/lib/agent/design/loop/designAgent";
-import type { DesignGateState } from "@/lib/agent/design/loop/gates";
-
-describe("contractSubmissionPulsePhase", () => {
-	it("distinguishes a first design from an immutable replacement revision", () => {
-		expect(contractSubmissionPulsePhase(false)).toBe("design");
-		expect(contractSubmissionPulsePhase(true)).toBe("revise");
-	});
-
-	it("keeps schema-repair internals out of the user-facing stop message", () => {
-		const message = designLoopStopMessage({ head: null } as DesignGateState);
-		expect(message).toContain("unfinished design workspace");
-		expect(message).not.toMatch(/schema|submission|diagnostic|tool/i);
-		expect(message).not.toContain("reviewed design is saved");
-	});
-});
+import { askQuestionsTool } from "@/lib/agent/tools/askQuestions";
 
 describe("designToolPulsePhase", () => {
 	it("switches to review as soon as requestReview starts", () => {
@@ -148,7 +130,7 @@ describe("design terminal omission correction", () => {
 	it("keeps the correction identity when a dead response is regenerated", () => {
 		const messages = [
 			{ id: "user-turn-1", role: "user", parts: [] },
-		] as UIMessage[];
+		] satisfies UIMessage[];
 		expect(designTurnProvenanceId(messages, "response-1")).toBe(
 			designTurnProvenanceId(messages, "response-2"),
 		);
@@ -169,15 +151,15 @@ describe("design terminal omission correction", () => {
 					},
 				],
 			},
-		] as UIMessage[];
-		const secondRound = structuredClone(firstRound);
+		] satisfies UIMessage[];
+		const secondRound: UIMessage[] = structuredClone(firstRound);
 		secondRound[0]?.parts.push({
 			type: "tool-askQuestions",
 			toolCallId: "question-2",
 			state: "output-available",
 			input: { questions: [] },
 			output: { "0": "Second answer" },
-		} as never);
+		});
 
 		expect(designTurnProvenanceId(firstRound, "response-1")).not.toBe(
 			designTurnProvenanceId(secondRound, "response-1"),
@@ -323,7 +305,7 @@ describe("design terminal omission correction", () => {
 									input: { questions: [] },
 								},
 							],
-						} as ModelMessage,
+						} satisfies ModelMessage,
 					},
 				],
 				predecessorItems: [],
@@ -374,24 +356,24 @@ describe("design wait terminal", () => {
 					},
 				],
 			},
-		] as ModelMessage[];
+		] satisfies ModelMessage[];
 
-		expect(designModelContextTrailsSuccessfulWait(waitStep)).toBe(true);
+		expect(trailingSuccessfulDesignWait(waitStep) !== null).toBe(true);
 		expect(trailingSuccessfulDesignWait(waitStep)).toMatchObject({
 			acknowledgement: "I have that. Send the rest when you're ready.",
 		});
 		expect(
-			designModelContextTrailsSuccessfulWait([
+			trailingSuccessfulDesignWait([
 				...waitStep,
 				{ role: "user", content: [{ type: "text", text: "Continue now." }] },
 			]),
-		).toBe(false);
+		).toBeNull();
 		expect(
-			designModelContextTrailsSuccessfulWait([
+			trailingSuccessfulDesignWait([
 				...waitStep,
 				{ role: "assistant", content: [{ type: "text", text: "Later step" }] },
 			]),
-		).toBe(false);
+		).toBeNull();
 	});
 
 	it("honors the first provider-ordered input terminal", () => {
@@ -408,7 +390,7 @@ describe("design wait terminal", () => {
 					},
 				},
 			],
-		} as ModelMessage;
+		} satisfies ModelMessage;
 		const question = {
 			type: "tool-call",
 			toolCallId: "question-1",
@@ -424,19 +406,19 @@ describe("design wait terminal", () => {
 
 		expect(
 			trailingSuccessfulDesignWait([
-				{ role: "assistant", content: [question, wait] } as ModelMessage,
+				{ role: "assistant", content: [question, wait] } satisfies ModelMessage,
 				waitResult,
 			]),
 		).toBeNull();
 		expect(
 			trailingSuccessfulDesignWait([
-				{ role: "assistant", content: [wait, question] } as ModelMessage,
+				{ role: "assistant", content: [wait, question] } satisfies ModelMessage,
 				waitResult,
 			]),
 		).toMatchObject({ toolCallId: "wait-1" });
 		expect(
 			trailingSuccessfulDesignWait([
-				{ role: "assistant", content: [question, wait] } as ModelMessage,
+				{ role: "assistant", content: [question, wait] } satisfies ModelMessage,
 				{
 					role: "tool",
 					content: [
@@ -451,7 +433,7 @@ describe("design wait terminal", () => {
 						},
 						...(waitResult.role === "tool" ? waitResult.content : []),
 					],
-				} as ModelMessage,
+				} satisfies ModelMessage,
 			]),
 		).toMatchObject({ toolCallId: "wait-1" });
 	});
@@ -520,7 +502,7 @@ describe("design wait terminal", () => {
 					input: { questions: [] },
 				},
 			],
-		} as ModelMessage;
+		} satisfies ModelMessage;
 		const items = [
 			{
 				appendKey,
@@ -541,7 +523,7 @@ describe("design wait terminal", () => {
 							},
 						},
 					],
-				} as ModelMessage,
+				} satisfies ModelMessage,
 			},
 			{
 				appendKey: "input-terminal-rejection:question-after-wait:digest",
@@ -558,7 +540,7 @@ describe("design wait terminal", () => {
 							},
 						},
 					],
-				} as ModelMessage,
+				} satisfies ModelMessage,
 			},
 		];
 
@@ -610,52 +592,22 @@ describe("design wait terminal", () => {
 						message: {
 							role: "assistant",
 							content: "A later provider response superseded the wait.",
-						} as ModelMessage,
+						} satisfies ModelMessage,
 					},
 				],
 				{ turnProvenanceId },
 			),
 		).toBeNull();
 	});
-
-	it("recovers blocking questions directly from an accepted head", async () => {
-		const question = {
-			id: "00000000-0000-4000-8000-000000000001",
-			question: "Which queue should open first?",
-			blocking: true,
-			relatedElementIds: [],
-		};
-		const gates = {
-			head: {
-				lifecycle: "accepted",
-				envelope: {
-					payload: {
-						openQuestions: [question, { ...question, blocking: false }],
-					},
-				},
-			},
-		} as unknown as DesignGateState;
-		await expect(
-			readRequiredDesignQuestionsFromWorkspace({
-				designSessionId: "design-session-1",
-				gates,
-				authority: {
-					actorUserId: "user-1",
-					runId: "run-1",
-					holderNonce: "nonce-1",
-					expectedProjectId: "project-1",
-				},
-			}),
-		).resolves.toEqual([question]);
-	});
 });
 
 describe("answered design continuation", () => {
 	const toolCallId = "question-1";
 	const tools = {
-		askQuestions: tool({
-			inputSchema: z.object({ questions: z.array(z.unknown()) }),
-		}),
+		askQuestions: {
+			...askQuestionsTool,
+			outputSchema: z.record(z.string(), z.string()),
+		},
 	};
 	const answered = [
 		{
@@ -667,12 +619,15 @@ describe("answered design continuation", () => {
 					type: "tool-askQuestions",
 					toolCallId,
 					state: "output-available",
-					input: { questions: [{ question: "Which values?", options: [] }] },
+					input: {
+						header: "Values",
+						questions: [{ question: "Which values?", options: [] }],
+					},
 					output: { "0": "Alpha and beta" },
 				},
 			],
 		},
-	] as UIMessage[];
+	] satisfies UIMessage[];
 	const call: ModelMessage = {
 		role: "assistant",
 		content: [
@@ -680,14 +635,17 @@ describe("answered design continuation", () => {
 				type: "tool-call",
 				toolCallId,
 				toolName: "askQuestions",
-				input: { questions: [{ question: "Which values?", options: [] }] },
+				input: {
+					header: "Values",
+					questions: [{ question: "Which values?", options: [] }],
+				},
 			},
 		],
 	};
 
 	it("appends only the missing tool result when the original call is durable", async () => {
 		const continuation = await projectAnsweredDesignContinuation({
-			uiMessages: answered,
+			uiMessages: await validateUIMessages({ messages: answered, tools }),
 			modelContext: [call],
 			tools,
 		});
@@ -707,7 +665,7 @@ describe("answered design continuation", () => {
 
 	it("restores both sides after a crash and deduplicates a completed round", async () => {
 		const restored = await projectAnsweredDesignContinuation({
-			uiMessages: answered,
+			uiMessages: await validateUIMessages({ messages: answered, tools }),
 			modelContext: [],
 			tools,
 		});
@@ -717,7 +675,7 @@ describe("answered design continuation", () => {
 		]);
 		expect(
 			await projectAnsweredDesignContinuation({
-				uiMessages: answered,
+				uiMessages: await validateUIMessages({ messages: answered, tools }),
 				modelContext: restored,
 				tools,
 			}),
@@ -772,7 +730,7 @@ describe("answered design continuation", () => {
 
 describe("ordinary design continuation", () => {
 	const tools = {
-		ask: tool({ inputSchema: z.object({ value: z.string() }) }),
+		ask: { inputSchema: z.object({ value: z.string() }) },
 	};
 
 	it("appends every missing user turn under its stable message id", async () => {
@@ -784,7 +742,7 @@ describe("ordinary design continuation", () => {
 				parts: [{ type: "text", text: "Response" }],
 			},
 			{ id: "user-2", role: "user", parts: [{ type: "text", text: "Next" }] },
-		] as UIMessage[];
+		] satisfies UIMessage[];
 
 		await expect(
 			projectMissingDesignUserContinuations({
@@ -830,7 +788,7 @@ describe("ordinary design continuation", () => {
 						role: "user",
 						parts: [{ type: "text", text: "Four" }],
 					},
-				] as UIMessage[],
+				] satisfies UIMessage[],
 				appendKeys: new Set(["seed-through:assistant-2", "ui-turn:user-3"]),
 				tools,
 			}),

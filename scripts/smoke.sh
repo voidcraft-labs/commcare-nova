@@ -102,5 +102,9 @@ echo "[smoke] seeding local Postgres, running Playwright…"
 # `server-only` persistence services (for example, lookup-table creation).
 # Resolve that marker to its no-op server condition instead of Node's
 # client-import guard.
+smoke_discovery_dir="$(mktemp -d "${TMPDIR:-/tmp}/nova-smoke-discovery.XXXXXX")"
+trap 'rm -rf "$smoke_discovery_dir"' EXIT
+export NOVA_E2E_DISCOVERY_MANIFEST="$smoke_discovery_dir/tests.json"
+node_modules/.bin/playwright test "$@" --list --reporter=json > "$NOVA_E2E_DISCOVERY_MANIFEST"
 node_modules/.bin/tsx --conditions=react-server e2e/seed.ts
 node_modules/.bin/playwright test "$@"

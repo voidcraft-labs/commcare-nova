@@ -35,11 +35,8 @@
 //   - Blueprint-root slots (`appId` / `appName` / `connectType` /
 //     `logo` / the order arrays / the `caseTypes` catalog): the
 //     registry's owning entities are field / form / module. The
-//     `caseTypes` catalog is a generation-time artifact (defaults are
-//     baked into fields at add time; the record is never consulted at
-//     runtime), and its `parent_type` case-type link is consumed
-//     through `caseTypes.ts`'s reachability helpers, not through a
-//     per-entity rewrite walk.
+//     `caseTypes` catalog is outside this field/form/module registry;
+//     its ancestry and property declarations have their own domain consumers.
 //   - Media asset slots: they reference stored media by `MediaAssetId`, and
 //     `mediaRefs.ts::walkAssetRefs` is the single walk that owns them.
 //     They are classified `media` in the non-reference maps so the
@@ -988,6 +985,7 @@ export const NON_REFERENCE_FIELD_PATHS: Readonly<
 	help_media: "media",
 	validate_msg_media: "media",
 	"caseWrite.mode": "discriminator",
+	"optionsSource.kind": "discriminator",
 	"optionsSource.options[].uuid": "identity",
 	"optionsSource.options[].value": "data-literal",
 	"optionsSource.options[].media": "media",

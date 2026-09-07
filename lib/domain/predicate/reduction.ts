@@ -20,10 +20,9 @@
 // clause lists. Authors compose ASTs progressively through the
 // builder layer and editor surfaces — a multi-clause `and` whose
 // middle element is a `match-all` is a meaningful intermediate
-// editing state, not noise to collapse. The wire emitters faithfully
-// emit whatever the builder constructed; CCHQ's runtime evaluates
-// `true() and X` as `X` natively, so the wire passes through the
-// extra sentinel without runtime cost.
+// editing state, not noise to collapse. Wire emission applies the separate deep
+// simplifier in simplify.ts, keeping construction and emission policies
+// independent.
 //
 // Why a separate module: the `and` / `or` / `not` builders in
 // `builders.ts` call these reducers before falling through to the

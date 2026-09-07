@@ -11,7 +11,7 @@ import {
 	insertDesignBuildPlan,
 	readDesignBuildPlan,
 } from "@/lib/agent/design/artifactStore";
-import { deriveBuildPlan } from "@/lib/agent/design/buildPlan";
+import { buildPlanSchema, deriveBuildPlan } from "@/lib/agent/design/buildPlan";
 import {
 	appDesignContractSchema,
 	type ExternalRequirement,
@@ -62,27 +62,32 @@ async function fixture(
 		kind,
 		description: "Load the approved facility catalog.",
 		relatedWorkflowIds: [workflow.id],
-		blocksConstruction: blocked,
+		blocksConstruction: false,
 	};
 	contract.externalRequirements = [requirement];
 	workflow.externalRequirementIds = [requirement.id];
-	if (blocked) {
-		contract.openQuestions.push({
-			id: did(902),
-			question: "Is the facility catalog available?",
-			blocking: true,
-			relatedElementIds: [requirement.id],
-		});
-	}
+
 	const state = await persistAcceptedRevisionFixture({
 		designSessionId: sessionId,
 		authority,
 		contract: appDesignContractSchema.parse(contract),
 	});
-	const plan = deriveBuildPlan({
+	const currentPlan = deriveBuildPlan({
 		contract: state.accepted.envelope.payload,
 		revision: { id: state.accepted.id, digest: state.accepted.artifactDigest },
 	});
+	// Current derivation requires a resolved design. Model the retained
+	// historical plan format only after that complete derivation, then seal
+	// its changed timing so every stored digest still describes exact bytes.
+	const plan = blocked
+		? buildPlanSchema.parse({
+				...currentPlan,
+				externalActions: currentPlan.externalActions.map((action) => ({
+					...action,
+					timing: "blocked",
+				})),
+			})
+		: currentPlan;
 	const envelope = state.envelope(
 		"design-build-plan",
 		plan,
@@ -98,7 +103,7 @@ async function fixture(
 			await h.db().selectFrom("design_build_plans").selectAll().execute(),
 		).toEqual([]);
 		// Historical bytes enter below the new-plan admission policy, with every
-		// envelope, source, revision and plan digest still derived and verified.
+		// envelope, source and revision identity intact and its plan digest resealed.
 		await h
 			.db()
 			.insertInto("design_build_plans")

@@ -22,6 +22,7 @@ export async function persistAcceptedRevisionFixture(args: {
 	designSessionId: string;
 	authority: DesignArtifactWriteAuthority;
 	contract?: AppDesignContract;
+	predecessor?: { id: string; artifactDigest: string; revision: number };
 }) {
 	const { designSessionId, authority } = args;
 	const contract = appDesignContractSchema.parse(
@@ -80,7 +81,13 @@ export async function persistAcceptedRevisionFixture(args: {
 		});
 	}
 	const draft = await insertDesignRevision({
-		envelope: envelope("design-contract", contract, 1, null, []),
+		envelope: envelope(
+			"design-contract",
+			contract,
+			(args.predecessor?.revision ?? 0) + 1,
+			args.predecessor?.id ?? null,
+			args.predecessor === undefined ? [] : [args.predecessor.artifactDigest],
+		),
 		lifecycle: "draft",
 		authority,
 	});
@@ -93,7 +100,7 @@ export async function persistAcceptedRevisionFixture(args: {
 				summary: "Fixture review has no findings.",
 				findings: [],
 			},
-			1,
+			draft.revision,
 			draft.id,
 			[draft.artifactDigest],
 		),
@@ -101,10 +108,13 @@ export async function persistAcceptedRevisionFixture(args: {
 		authority,
 	});
 	const accepted = await insertDesignRevision({
-		envelope: envelope("design-contract", contract, 2, draft.id, [
-			draft.artifactDigest,
-			review.artifactDigest,
-		]),
+		envelope: envelope(
+			"design-contract",
+			contract,
+			draft.revision + 1,
+			draft.id,
+			[draft.artifactDigest, review.artifactDigest],
+		),
 		lifecycle: "accepted",
 		authority,
 	});

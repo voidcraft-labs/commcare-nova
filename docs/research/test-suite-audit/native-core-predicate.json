@@ -1,0 +1,29 @@
+{
+	"coreCommit": "8e9ba8d908e95f4dc71c9ade0467c6ebfbfbd305",
+	"testReport": {
+		"name": "nova.compatibility.PredicateRuntimeTest",
+		"tests": "1",
+		"skipped": "0",
+		"failures": "0",
+		"errors": "0",
+		"timestamp": "2026-09-07T04:28:52",
+		"hostname": "DIM-A127",
+		"time": "0.251"
+	},
+	"tests": ["executesPredicatesAndRejectsMalformedGpsWithoutThrowing"],
+	"sourceHashes": {
+		"lib/commcare/predicate/caseListFilterEmitter.ts": "552fb6b60ff11278ee7160a6af8346fe897be522b4cca0522d06597f892f147a",
+		"lib/commcare/predicate/termEmitter.ts": "77c0a15eede2773d71d25474e42605c8de5cc7ba0fe1af1275a751a3ab375749",
+		"lib/commcare/predicate/relationPresenceEmitter.ts": "27a5c88d95400cb0d06c36ffc6cfac6b42caa156a5b59adc4cf81cf8d5b7d979",
+		"lib/commcare/predicate/__tests__/caseListFilterEmitter.test.ts": "a7e038dcaad893f91f98d723b77aa4bf24800633e3c727a9193967c58839b007",
+		"scripts/fixtures/hq/emit-predicate-evidence.ts": "aafd46d60029a9333b38995349817fdf45c58bb24e407667a0a2c1b0946a6237",
+		"scripts/fixtures/javarosa/PredicateRuntimeTest.java": "97ff3b9dacc4294cd9ce210713759b6c9968c06152d42617ae9edbc6d8e9d53e"
+	},
+	"artifactHashes": {
+		"/tmp/nova-test-audit-parallel/commcare/predicate-native-current.xml": "d9991b2ad8eedeaff740faa7d1d8ff2f62c59985002e2bf7aeca96c85abf7524",
+		"/tmp/nova-predicate-evidence-final/predicate-corpus-count.txt": "41cfc0d1f2d127b04555b7246d84019b4d27710a3f3aff6e7764375b1e06e05d",
+		"/tmp/nova-predicate-evidence-final/predicate-corpus.tsv": "fb94e80c57db705e5f1ef41c3d2eb5cf61a8cd08a350785ad3e800e4d0a8f919"
+	},
+	"log": "/tmp/nova-test-audit-parallel/commcare/predicate-native-current.log",
+	"scope": "52 schema-parsed private AST programs execute current emitted expressions on native instance trees, including positive/negative operator neighbors, same-row relation scope, quote escapes, absent input identity, malformed GPS short circuit and distinct mile/kilometer thresholds. No whole-app, HQ, database or Android claim."
+}

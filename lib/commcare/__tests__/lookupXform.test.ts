@@ -1,401 +1,130 @@
 import { type Element, isTag } from "domhandler";
-import { findAll, getAttributeValue, getChildren } from "domutils";
+import { findAll } from "domutils";
 import { parseDocument } from "htmlparser2";
+import { SaxesParser } from "saxes";
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { lookupWireNaming } from "@/lib/commcare/lookup/naming";
+import { xp } from "@/lib/__tests__/docHelpers";
 import { validateXForm } from "@/lib/commcare/validator/xformOracle";
 import { buildXForm } from "@/lib/commcare/xform";
-import type { Uuid } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
-import {
-	eq,
-	formField,
-	sessionUser,
-	tableColumn,
-} from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
-import type { LookupRevision } from "@/lib/lookup/types";
+import { lookupAppFixture } from "./lookupAppFixtures";
 
-const REGIONS = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
-const VALUE = "018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
-const LABEL = "018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
-
-const naming = lookupWireNaming([
-	{
-		id: REGIONS,
-		name: "Regions",
-		tag: "regions",
-		definitionRevision: "1" as LookupRevision,
-		columns: [
-			{ id: VALUE, wireName: "value", label: "Value", dataType: "text" },
-			{ id: LABEL, wireName: "label", label: "Label", dataType: "text" },
-		],
-	},
-]);
-
-const XMLNS = "http://openrosa.org/formdesigner/lookup";
-
-function firstFormUuid(doc: ReturnType<typeof buildDoc>): Uuid {
-	return Object.keys(doc.forms)[0] as Uuid;
+const XMLNS = "http://openrosa.org/formdesigner/lookup-proof";
+function emitted() {
+	const fixture = lookupAppFixture();
+	const formUuid = fixture.doc.formOrder[fixture.doc.moduleOrder[0]][0];
+	const xml = buildXForm(fixture.doc, formUuid, {
+		xmlns: XMLNS,
+		lookupNaming: fixture.naming,
+	});
+	new SaxesParser({ xmlns: true }).write(xml).close();
+	return { ...fixture, formUuid, xml };
 }
-
-/** Every element with a matching name anywhere in the parsed tree. XML mode
- *  keeps the XForm's custom elements (`select1`, `itemset`) in their authored
- *  nesting — HTML recovery would reparent them. */
-function allNamed(xml: string, name: string): Element[] {
-	const root = parseDocument(xml, { xmlMode: true });
-	return findAll((el) => el.name === name, root.children);
-}
-
-function directChildren(el: Element, name: string): Element[] {
-	return getChildren(el).filter(
-		(child): child is Element => isTag(child) && child.name === name,
+function named(xml: string, name: string) {
+	return findAll(
+		(element) => element.name === name,
+		parseDocument(xml, { xmlMode: true }).children,
 	);
 }
-
-/** A minimal survey form whose only field is a lookup-backed select. */
-function selectForm(
-	kind: "single_select" | "multi_select",
-	optionsSource: Record<string, unknown>,
-): { xml: string } {
-	const doc = buildDoc({
-		appName: "Lookup form",
-		modules: [
-			{
-				name: "Survey",
-				forms: [
-					{
-						name: "Visit",
-						type: "survey",
-						fields: [
-							f({
-								kind,
-								id: "region",
-								label: "Region",
-								optionsSource,
-							}),
-						],
-					},
-				],
-			},
-		],
-	});
-	return {
-		xml: buildXForm(doc, firstFormUuid(doc), {
-			xmlns: XMLNS,
-			lookupNaming: naming,
-		}),
-	};
+function children(element: Element, name: string) {
+	return element.children
+		.filter(isTag)
+		.filter((element) => element.name === name);
 }
 
-describe("buildXForm — lookup-backed select itemset", () => {
-	it("declares a lookup fixture referenced only by an authored XPath", () => {
-		const expression =
-			"instance('regions')/regions_list/regions[value = 'north'][1]/label";
-		const doc = buildDoc({
-			appName: "Lookup expression",
-			modules: [
-				{
-					name: "Survey",
-					forms: [
-						{
-							name: "Visit",
-							type: "survey",
-							fields: [
-								f({
-									kind: "hidden",
-									id: "region_label",
-									calculate: expression,
-								}),
-							],
-						},
-					],
-				},
+// LookupRuntimeTest executes current emitted itemsets through Core's real form
+// prompts after SuiteParser installation, with changing root/repeat/session data.
+describe("lookup XForm structure", () => {
+	it("joins each admitted choice source to its instance, filter, label and value", () => {
+		const { xml } = emitted();
+		const instances = named(xml, "instance").filter(
+			(element) => element.attribs.id === "regions",
+		);
+		expect(instances).toHaveLength(1);
+		expect(instances[0].attribs).toEqual({
+			id: "regions",
+			src: "jr://fixture/item-list:regions",
+		});
+		const expected = new Map([
+			["/data/all_regions", "instance('regions')/regions_list/regions"],
+			[
+				"/data/filtered",
+				"instance('regions')/regions_list/regions[province = /data/province]",
 			],
-		});
-
-		const xml = buildXForm(doc, firstFormUuid(doc), {
-			xmlns: XMLNS,
-			lookupNaming: naming,
-		});
-		const fixtureInstances = allNamed(xml, "instance").filter(
-			(instance) => getAttributeValue(instance, "id") === "regions",
-		);
-		expect(fixtureInstances).toHaveLength(1);
-		expect(getAttributeValue(fixtureInstances[0], "src")).toBe(
-			"jr://fixture/item-list:regions",
-		);
-		const [bind] = allNamed(xml, "bind").filter(
-			(candidate) =>
-				getAttributeValue(candidate, "nodeset") === "/data/region_label",
-		);
-		expect(getAttributeValue(bind, "calculate")).toBe(expression);
-		expect(validateXForm(xml, "Visit", "Survey")).toEqual([]);
+			[
+				"/data/session_filtered",
+				"instance('regions')/regions_list/regions[value = instance('commcaresession')/session/context/username]",
+			],
+			["/data/many", "instance('regions')/regions_list/regions"],
+			[
+				"/data/visits/repeat_filtered",
+				"instance('regions')/regions_list/regions[province = current()/../zone]",
+			],
+		]);
+		const controls = [...named(xml, "select1"), ...named(xml, "select")];
+		expect(controls).toHaveLength(expected.size);
+		for (const control of controls) {
+			expect(control.name).toBe(
+				control.attribs.ref === "/data/many" ? "select" : "select1",
+			);
+			expect(children(control, "item")).toEqual([]);
+			const itemsets = children(control, "itemset");
+			expect(itemsets).toHaveLength(1);
+			expect(itemsets[0].attribs.nodeset).toBe(
+				expected.get(control.attribs.ref),
+			);
+			expect(
+				children(itemsets[0], "label").map((node) => node.attribs),
+			).toEqual([{ ref: "label" }]);
+			expect(
+				children(itemsets[0], "value").map((node) => node.attribs),
+			).toEqual([{ ref: "value" }]);
+		}
+		expect(
+			named(xml, "text").filter((node) =>
+				(node.attribs.id ?? "").includes("-opt"),
+			),
+		).toEqual([]);
+		expect(validateXForm(xml, "Visit", "Patients")).toEqual([]);
 	});
-
-	it("fails closed when an authored XPath bypasses validation with an unknown instance", () => {
-		const doc = buildDoc({
-			appName: "Unknown lookup expression",
-			modules: [
-				{
-					name: "Survey",
-					forms: [
-						{
-							name: "Visit",
-							type: "survey",
-							fields: [
-								f({
-									kind: "hidden",
-									id: "value",
-									calculate: "instance('missing')/items/item[1]/value",
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-
+	it("refuses a caller that omits the admitted app's lookup naming", () => {
+		const { doc, formUuid } = emitted();
+		expect(() => buildXForm(doc, formUuid, { xmlns: XMLNS })).toThrow(
+			/no lookup wire naming/i,
+		);
+	});
+	it("refuses an unknown secondary instance if a caller bypasses admission", () => {
+		const { doc, formUuid, naming } = emitted();
+		const field = Object.values(doc.fields).find(
+			(field) => field.id === "province",
+		);
+		if (field?.kind !== "text") throw new Error("Missing province field");
+		field.default_value = xp("instance('missing')/items/item[1]/value");
 		expect(() =>
-			buildXForm(doc, firstFormUuid(doc), {
-				xmlns: XMLNS,
-				lookupNaming: naming,
-			}),
+			buildXForm(doc, formUuid, { xmlns: XMLNS, lookupNaming: naming }),
 		).toThrow(
 			"XForm XPath references an undeclared secondary instance. Validation must reject it before emission.",
 		);
 	});
-
-	it("emits exactly one filterless itemset and no inline items", () => {
-		const { xml } = selectForm("single_select", {
-			kind: "lookup",
-			tableId: REGIONS,
-			valueColumnId: VALUE,
-			labelColumnId: LABEL,
-		});
-
-		const selects = allNamed(xml, "select1");
-		expect(selects).toHaveLength(1);
-		const [select] = selects;
-		expect(directChildren(select, "itemset")).toHaveLength(1);
-		expect(directChildren(select, "item")).toHaveLength(0);
-
-		const [itemset] = directChildren(select, "itemset");
-		const nodeset = getAttributeValue(itemset, "nodeset");
-		expect(nodeset).toBe("instance('regions')/regions_list/regions");
-		expect(nodeset).not.toContain("[");
-		expect(getAttributeValue(directChildren(itemset, "label")[0], "ref")).toBe(
-			"label",
-		);
-		expect(getAttributeValue(directChildren(itemset, "value")[0], "ref")).toBe(
-			"value",
-		);
-	});
-
-	it("declares the fixture instance and drops the inline option itext", () => {
-		const { xml } = selectForm("single_select", {
-			kind: "lookup",
-			tableId: REGIONS,
-			valueColumnId: VALUE,
-			labelColumnId: LABEL,
-		});
-
-		const fixtureInstances = allNamed(xml, "instance").filter(
-			(instance) => getAttributeValue(instance, "id") === "regions",
-		);
-		expect(fixtureInstances).toHaveLength(1);
-		expect(getAttributeValue(fixtureInstances[0], "src")).toBe(
-			"jr://fixture/item-list:regions",
-		);
-
-		// The inline fallback options register no `-optN-label` itext.
-		const optionItext = allNamed(xml, "text").filter((textEl) =>
-			(getAttributeValue(textEl, "id") ?? "").includes("-opt"),
-		);
-		expect(optionItext).toHaveLength(0);
-	});
-
-	it("emits a <select> for a multi_select lookup source", () => {
-		const { xml } = selectForm("multi_select", {
-			kind: "lookup",
-			tableId: REGIONS,
-			valueColumnId: VALUE,
-			labelColumnId: LABEL,
-		});
-
-		expect(allNamed(xml, "select1")).toHaveLength(0);
-		const selects = allNamed(xml, "select");
-		expect(selects).toHaveLength(1);
-		expect(directChildren(selects[0], "itemset")).toHaveLength(1);
-	});
-
-	it("passes the XForm oracle", () => {
-		const { xml } = selectForm("single_select", {
-			kind: "lookup",
-			tableId: REGIONS,
-			valueColumnId: VALUE,
-			labelColumnId: LABEL,
-		});
-		expect(validateXForm(xml, "Visit", "Survey")).toEqual([]);
-	});
 });
 
-describe("buildXForm — lookup itemset filters", () => {
-	it("prints a root form-field filter as an absolute /data path", () => {
-		const province = testUuid("018f3e8a-7b2c-7def-8abc-0000000000c1");
-		const doc = buildDoc({
-			appName: "Filtered lookup",
-			modules: [
-				{
-					name: "Survey",
-					forms: [
-						{
-							name: "Visit",
-							type: "survey",
-							fields: [
-								f({
-									kind: "text",
-									id: "province",
-									label: proseText("Province"),
-									uuid: province,
-								}),
-								f({
-									kind: "single_select",
-									id: "region",
-									label: proseText("Region"),
-									optionsSource: {
-										kind: "lookup",
-										tableId: REGIONS,
-										valueColumnId: VALUE,
-										labelColumnId: LABEL,
-										filter: eq(
-											tableColumn(REGIONS, VALUE),
-											formField(province),
-										),
-									},
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const xml = buildXForm(doc, firstFormUuid(doc), {
-			xmlns: XMLNS,
-			lookupNaming: naming,
-		});
-		const [itemset] = allNamed(xml, "itemset");
-		expect(getAttributeValue(itemset, "nodeset")).toBe(
-			"instance('regions')/regions_list/regions[value = /data/province]",
-		);
-		/* The predicated nodeset must satisfy the itemset oracle contract —
-		 * predicates are allowed in the nodeset, and only there. */
-		expect(validateXForm(xml, "Visit", "Survey")).toEqual([]);
-	});
-
-	it("prints a same-repeat form-field filter through current()/..", () => {
-		const zone = testUuid("018f3e8a-7b2c-7def-8abc-0000000000c2");
-		const doc = buildDoc({
-			appName: "Repeated lookup",
-			modules: [
-				{
-					name: "Survey",
-					forms: [
-						{
-							name: "Visit",
-							type: "survey",
-							fields: [
-								f({
-									kind: "repeat",
-									id: "visits",
-									label: proseText("Visits"),
-									children: [
-										f({
-											kind: "text",
-											id: "zone",
-											label: proseText("Zone"),
-											uuid: zone,
-										}),
-										f({
-											kind: "single_select",
-											id: "region",
-											label: proseText("Region"),
-											optionsSource: {
-												kind: "lookup",
-												tableId: REGIONS,
-												valueColumnId: VALUE,
-												labelColumnId: LABEL,
-												filter: eq(
-													tableColumn(REGIONS, VALUE),
-													formField(zone),
-												),
-											},
-										}),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const xml = buildXForm(doc, firstFormUuid(doc), {
-			xmlns: XMLNS,
-			lookupNaming: naming,
-		});
-		const [itemset] = allNamed(xml, "itemset");
-		expect(getAttributeValue(itemset, "nodeset")).toBe(
-			"instance('regions')/regions_list/regions[value = current()/../zone]",
-		);
-	});
-
-	it("declares commcaresession for a session-user filter term", () => {
-		const { xml } = selectForm("single_select", {
-			kind: "lookup",
-			tableId: REGIONS,
-			valueColumnId: VALUE,
-			labelColumnId: LABEL,
-			filter: eq(tableColumn(REGIONS, VALUE), sessionUser("region")),
-		});
-		const [itemset] = allNamed(xml, "itemset");
-		expect(getAttributeValue(itemset, "nodeset")).toBe(
-			"instance('regions')/regions_list/regions[value = instance('commcaresession')/session/user/data/region]",
-		);
-		const sessionInstances = allNamed(xml, "instance").filter(
-			(instance) => getAttributeValue(instance, "id") === "commcaresession",
-		);
-		expect(sessionInstances).toHaveLength(1);
-		expect(getAttributeValue(sessionInstances[0], "src")).toBe(
-			"jr://instance/session",
-		);
-	});
-});
-
-describe("validateXForm — malformed select shapes", () => {
-	const validXform = selectForm("single_select", {
-		kind: "lookup",
-		tableId: REGIONS,
-		valueColumnId: VALUE,
-		labelColumnId: LABEL,
-	}).xml;
-
-	function codes(xml: string): string[] {
-		return validateXForm(xml, "Visit", "Survey").map((error) => error.code);
-	}
-
-	it("flags a select carrying both inline items and an itemset", () => {
-		const withBoth = validXform.replace(
+describe("Nova's lookup select shape guard", () => {
+	it("rejects mixing static and dynamic choices in one select", () => {
+		const { xml } = emitted();
+		const broken = xml.replace(
 			"</select1>",
-			`<item><label ref="jr:itext('region-label')"/><value>manual</value></item></select1>`,
+			"<item><label>Manual</label><value>manual</value></item></select1>",
 		);
-		expect(codes(withBoth)).toContain("XFORM_SELECT_ITEMS_AND_ITEMSET");
+		expect(broken).not.toBe(xml);
+		expect(
+			validateXForm(broken, "Visit", "Patients").map((error) => error.code),
+		).toContain("XFORM_SELECT_ITEMS_AND_ITEMSET");
 	});
-
-	it("flags an itemset missing its value ref", () => {
-		const withoutValue = validXform.replace('<value ref="value"/>', "");
-		expect(withoutValue).not.toBe(validXform);
-		expect(codes(withoutValue)).toContain("XFORM_ITEMSET_INVALID");
+	it("rejects an itemset without a value binding", () => {
+		const { xml } = emitted();
+		const broken = xml.replace('<value ref="value"/>', "");
+		expect(broken).not.toBe(xml);
+		expect(
+			validateXForm(broken, "Visit", "Patients").map((error) => error.code),
+		).toContain("XFORM_ITEMSET_INVALID");
 	});
 });

@@ -33,7 +33,7 @@ const VALUES = [
 ] as const;
 
 describe("generated JavaRosa functions", () => {
-	it("matches the pinned OpenJDK runtime for every machine-owned pattern", () => {
+	it("matches the compiled OpenJDK runtime across a finite generated-pattern corpus", () => {
 		for (const pattern of GENERATED_PATTERNS) {
 			for (const value of VALUES) {
 				const result = invokeGeneratedJavaRosaFunction("regex", [

@@ -124,3 +124,60 @@ describe("model context compaction", () => {
 		expect(projected[1]?.role).toBe("tool");
 	});
 });
+
+it("selects the last checkpoint, including two checkpoints inside one message", () => {
+	const checkpoint = compactedMessage({ model: MODEL, contextVersion: "v1" });
+	const newest = {
+		...checkpoint,
+		id: "newest",
+		parts: [
+			...checkpoint.parts,
+			{ type: "text", text: "between checkpoints" } as const,
+			{ ...checkpoint.parts[1], value: "newest-opaque-item" },
+			{ type: "text", text: "after checkpoint" } as const,
+		],
+	} as UIMessage;
+	const messages = [
+		textMessage("old", "user", "before"),
+		checkpoint,
+		newest,
+		textMessage("tail", "user", "after"),
+	];
+	const before = structuredClone(messages);
+	expect(projectCompatibleCompactedHistory(messages, MODEL, "v1")).toEqual([
+		{ ...newest, parts: newest.parts.slice(3) },
+		messages[3],
+	]);
+	expect(messages).toEqual(before);
+	// A newer incompatible checkpoint must not resurrect an older compatible
+	// checkpoint, which would erase the intervening visible conversation.
+	newest.metadata = { model: "different-model", contextVersion: "v1" };
+	expect(projectCompatibleCompactedHistory(messages, MODEL, "v1")).toEqual([
+		messages[0],
+		{ ...checkpoint, parts: [checkpoint.parts[0]] },
+		{ ...newest, parts: [newest.parts[0], newest.parts[2], newest.parts[4]] },
+		messages[3],
+	]);
+});
+
+it("does not mistake ordinary custom content for a provider checkpoint", () => {
+	const ordinary = {
+		...compactedMessage({ model: MODEL, contextVersion: "v1" }),
+		parts: [{ type: "custom", kind: "openai.compaction" }],
+	} as UIMessage;
+	const messages = [textMessage("old", "user", "retain me"), ordinary];
+	expect(projectCompatibleCompactedHistory(messages, MODEL, "v1")).toEqual(
+		messages,
+	);
+	expect(
+		isOpenAICompactionChunk({ type: "custom", kind: "another.custom" }),
+	).toBe(false);
+	expect(
+		modelMessagesContainCompaction([
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "openai.compaction" }],
+			},
+		]),
+	).toBe(false);
+});

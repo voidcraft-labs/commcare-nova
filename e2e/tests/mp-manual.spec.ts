@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import { test } from "@playwright/test";
+import { type BrowserContext, test } from "@playwright/test";
+import { waitForManualPageClose } from "../lib/manualSession";
 import { applyPageZoom, type TileSlot, tileWindow } from "../lib/windowTiling";
 
 /**
@@ -51,6 +52,7 @@ test("manual four-user session — close ALL windows (or Ctrl-C) to end", async 
 		),
 	);
 
+	const contexts: BrowserContext[] = [];
 	const open = async (storageState: string, slot: TileSlot) => {
 		const context = await browser.newContext({
 			storageState,
@@ -61,6 +63,7 @@ test("manual four-user session — close ALL windows (or Ctrl-C) to end", async 
 			// the full desktop layout with native (un-emulated) input.
 			viewport: { width: 1280, height: 720 },
 		});
+		contexts.push(context);
 		const page = await context.newPage();
 		const content = await tileWindow(page, slot);
 		if (content) {
@@ -74,28 +77,42 @@ test("manual four-user session — close ALL windows (or Ctrl-C) to end", async 
 		return page;
 	};
 
-	// All four Project members, one quadrant each — a hands-on co-editing crowd.
-	const pages = await Promise.all([
-		open(mp.stateFileA, "top-left"),
-		open(mp.stateFileB, "top-right"),
-		open(mp.stateFileC, "bottom-left"),
-		open(mp.stateFileD, "bottom-right"),
-	]);
+	let closeFailures: unknown[] = [];
+	try {
+		const opened = await Promise.allSettled([
+			open(mp.stateFileA, "top-left"),
+			open(mp.stateFileB, "top-right"),
+			open(mp.stateFileC, "bottom-left"),
+			open(mp.stateFileD, "bottom-right"),
+		]);
+		const failures = opened.filter((result) => result.status === "rejected");
+		if (failures.length > 0)
+			throw new AggregateError(
+				failures.map((result) => result.reason),
+				"Manual windows failed to open",
+			);
+		const pages = opened.flatMap((result) =>
+			result.status === "fulfilled" ? [result.value] : [],
+		);
 
-	console.log(
-		`\n[mp:manual] TOP-LEFT     = ${mp.userA.name} <${mp.userA.email}> (Project owner)` +
-			`\n[mp:manual] TOP-RIGHT    = ${mp.userB.name} <${mp.userB.email}> (editor)` +
-			`\n[mp:manual] BOTTOM-LEFT  = ${mp.userC.name} <${mp.userC.email}> (editor)` +
-			`\n[mp:manual] BOTTOM-RIGHT = ${mp.userD.name} <${mp.userD.email}> (editor)` +
-			`\n[mp:manual] All four share the app — edits, presence, and follow propagate live.` +
-			`\n[mp:manual] Close ALL windows (or Ctrl-C here) to end the session.\n`,
-	);
+		console.log(
+			`\n[mp:manual] TOP-LEFT     = ${mp.userA.name} <${mp.userA.email}> (Project owner)` +
+				`\n[mp:manual] TOP-RIGHT    = ${mp.userB.name} <${mp.userB.email}> (editor)` +
+				`\n[mp:manual] BOTTOM-LEFT  = ${mp.userC.name} <${mp.userC.email}> (editor)` +
+				`\n[mp:manual] BOTTOM-RIGHT = ${mp.userD.name} <${mp.userD.email}> (editor)` +
+				`\n[mp:manual] All four share the app — edits, presence, and follow propagate live.` +
+				`\n[mp:manual] Close ALL windows (or Ctrl-C here) to end the session.\n`,
+		);
 
-	// Resolve when every window is gone; a Cmd-Q / browser disconnect rejects
-	// the waits, which reads as "gone" too.
-	await Promise.all(
-		pages.map((p) =>
-			p.waitForEvent("close", { timeout: 0 }).catch(() => undefined),
-		),
-	);
+		await Promise.all(pages.map(waitForManualPageClose));
+	} finally {
+		const closed = await Promise.allSettled(
+			contexts.map((context) => context.close()),
+		);
+		closeFailures = closed.flatMap((result) =>
+			result.status === "rejected" ? [result.reason] : [],
+		);
+	}
+	if (closeFailures.length > 0)
+		throw new AggregateError(closeFailures, "Manual contexts failed to close");
 });

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { requireSession } from "@/lib/auth-utils";
+import { AppAccessError } from "@/lib/db/appAccess";
 import { resolveGenerationTargetScope } from "@/lib/db/generationTargetScope";
 import { loadThread } from "@/lib/db/threads";
 import { GET } from "../route";
@@ -71,4 +72,27 @@ describe("GET /api/design-sessions/[id]/threads/[threadId]", () => {
 			materializedAppId: "app-after-thread-read",
 		});
 	});
+});
+
+it("keeps an access denial non-cacheable and does not read any transcript", async () => {
+	vi.mocked(resolveGenerationTargetScope).mockRejectedValueOnce(
+		new AppAccessError("not_member"),
+	);
+	const response = await GET(new Request("http://localhost"), {
+		params: Promise.resolve({ id: "design-1", threadId: "thread-1" }),
+	});
+	expect(response.status).toBe(404);
+	expect(response.headers.get("cache-control")).toBe("private, no-store");
+	expect(await response.json()).toEqual({ error: "App not found" });
+	expect(loadThread).not.toHaveBeenCalled();
+});
+
+it("returns an opaque non-cacheable missing-thread response", async () => {
+	vi.mocked(loadThread).mockResolvedValueOnce(null);
+	const response = await GET(new Request("http://localhost"), {
+		params: Promise.resolve({ id: "design-1", threadId: "thread-1" }),
+	});
+	expect(response.status).toBe(404);
+	expect(response.headers.get("cache-control")).toBe("private, no-store");
+	expect(await response.json()).toEqual({ error: "Thread not found" });
 });

@@ -40,9 +40,11 @@ type OwnedCount =
 export function PersonaRemoveConfirm({
 	persona,
 	returnFocusRef,
+	disabled = false,
 }: {
 	persona: Persona;
 	returnFocusRef: RefObject<HTMLButtonElement | null>;
+	disabled?: boolean;
 }) {
 	const [confirming, setConfirming] = useState(false);
 	const { triggerRef, panelRef } = useInlineConfirmFocus(confirming);
@@ -53,6 +55,7 @@ export function PersonaRemoveConfirm({
 				ref={triggerRef}
 				type="button"
 				variant="ghost-destructive"
+				disabled={disabled}
 				onClick={() => setConfirming(true)}
 				className="self-start"
 			>
@@ -63,6 +66,7 @@ export function PersonaRemoveConfirm({
 
 	return (
 		<ConfirmPanel
+			disabled={disabled}
 			persona={persona}
 			panelRef={panelRef}
 			returnFocusRef={returnFocusRef}
@@ -76,11 +80,13 @@ function ConfirmPanel({
 	panelRef,
 	returnFocusRef,
 	onCancel,
+	disabled,
 }: {
 	persona: Persona;
 	panelRef: RefObject<HTMLDivElement | null>;
 	returnFocusRef: RefObject<HTMLButtonElement | null>;
 	onCancel: () => void;
+	disabled: boolean;
 }) {
 	const appId = useAppId();
 	const mutations = useBlueprintMutations();
@@ -164,9 +170,9 @@ function ConfirmPanel({
 				<Button
 					type="button"
 					variant="destructive"
-					disabled={owned.state !== "known"}
+					disabled={disabled || owned.state !== "known"}
 					onClick={() => {
-						if (owned.state !== "known") return;
+						if (disabled || owned.state !== "known") return;
 						if (!sessionApi.getState().canEdit) return;
 						returnFocusRef.current?.focus();
 						mutations.removePersona(persona.uuid);

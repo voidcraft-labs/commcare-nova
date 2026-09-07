@@ -1,3 +1,4 @@
+import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { assertRuntimeStartupHealth } = vi.hoisted(() => ({
@@ -9,7 +10,7 @@ vi.mock("@/lib/runtimeCapabilities/startupHealth", () => ({
 	assertRuntimeStartupHealth,
 }));
 
-import WarmupPage, { dynamic } from "../page";
+import WarmupPage from "../page";
 
 describe("WarmupPage", () => {
 	beforeEach(() => {
@@ -18,10 +19,9 @@ describe("WarmupPage", () => {
 	});
 
 	it("renders only the opaque success marker after startup admission", async () => {
-		expect(dynamic).toBe("force-dynamic");
 		const result = await WarmupPage();
 		expect(assertRuntimeStartupHealth).toHaveBeenCalledTimes(1);
-		expect(result).toEqual(<p>warm</p>);
+		expect(renderToStaticMarkup(result)).toBe("<p>warm</p>");
 	});
 
 	it("does not render success when startup admission fails", async () => {

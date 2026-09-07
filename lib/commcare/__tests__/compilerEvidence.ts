@@ -185,13 +185,7 @@ export function checkCompilerEvidence(doc: BlueprintDoc): void {
 		const datumIds = new Set(datums.map((d) => d.attributes.id));
 		expect(datumIds.size).toBe(datums.length);
 		expect(
-			validateBindingResolution(
-				form.xml,
-				form.path,
-				doc.appName,
-				datumIds,
-				manifestPaths,
-			),
+			validateBindingResolution(form.xml, form.path, doc.appName, datumIds),
 		).toEqual([]);
 	}
 	expect(visited).toEqual(new Set(forms.keys()));

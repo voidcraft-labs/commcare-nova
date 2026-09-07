@@ -847,7 +847,7 @@ describe("deterministic build planning", () => {
 		expect(workflowGroup?.blueprintAreas).toContain("lookup-references");
 	});
 
-	it("refuses blocking external actions until a receipt producer exists", () => {
+	it("refuses unresolved external prerequisites at derivation and stored-plan admission", () => {
 		const contract = cloneContract(makeContract());
 		contract.externalRequirements.push({
 			id: ids.externalSetup,
@@ -864,15 +864,46 @@ describe("deterministic build planning", () => {
 			blocking: true,
 			relatedElementIds: [ids.externalSetup],
 		});
+		const admittedContract = appDesignContractSchema.parse(contract);
+		expect(() =>
+			deriveBuildPlan({
+				contract: admittedContract,
+				revision: { id: ids.revisionId, digest: "d".repeat(64) },
+				planId: ids.planId,
+			}),
+		).toThrow("Accepted design is not constructible: openQuestions.0:");
+
+		// Resolving the prerequisite and its question allows current derivation.
+		fixtureValue(
+			contract.externalRequirements[0],
+			"external prerequisite",
+		).blocksConstruction = false;
+		fixtureValue(contract.openQuestions[0], "prerequisite question").blocking =
+			false;
 		const plan = deriveBuildPlan({
 			contract,
 			revision: { id: ids.revisionId, digest: "d".repeat(64) },
 			planId: ids.planId,
 		});
-		expect(newPlanAdmissionMessages(plan)).toHaveLength(1);
-		expect(newPlanAdmissionMessages(plan)[0]).toContain(
-			"no registered completion producer",
-		);
+		expect(newPlanAdmissionMessages(plan)).toEqual([]);
+		const action = fixtureValue(plan.externalActions[0], "external action");
+		expect(action).toMatchObject({
+			requirementId: ids.externalSetup,
+			timing: "after-slice",
+		});
+
+		// The stored-plan schema retains this legacy timing. Its independent
+		// environment gate must still refuse it even though current derivation
+		// stops at the unanswered question before producing such a plan.
+		const storedPlan = buildPlanSchema.parse({
+			...plan,
+			externalActions: [{ ...action, timing: "blocked" }],
+		});
+		expect(newPlanAdmissionMessages(storedPlan)).toEqual([
+			expect.stringContaining(
+				`External action ${action.id} blocks construction, but no registered completion producer`,
+			),
+		]);
 	});
 
 	it("keeps non-blocking workflow readiness out of construction gating", () => {

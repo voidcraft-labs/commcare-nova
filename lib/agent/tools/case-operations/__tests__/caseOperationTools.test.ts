@@ -1,19 +1,20 @@
-import { produce } from "immer";
+/** Real input admission, tool planners, commit gate and reducer. The writer
+ * is controlled; these tests do not prove SQL concurrency or wire execution. */
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { wireToolSchema } from "@/lib/agent/wireSchemas";
+import { BlueprintCommitRejectedError } from "@/lib/db/commitGuard";
+import type { BlueprintDoc, Uuid } from "@/lib/domain";
 import {
-	BlueprintCommitRejectedError,
-	mutationTargetsInvalid,
-} from "@/lib/db/commitGuard";
-import type {
-	BlueprintDoc,
-	LookupColumnId,
-	LookupTableId,
-	Uuid,
+	caseOperationSchema,
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
 } from "@/lib/domain";
-import { caseOperationSchema } from "@/lib/domain";
 import { eq, literal, tableColumn, tableLookup } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { makeToolWorkspaceHarness } from "../../../__tests__/fixtures";
@@ -40,9 +41,15 @@ const CREATE_UUID = testUuid("create-visit-operation");
 const UPDATE_UUID = testUuid("update-visit-operation");
 const RETYPE_UUID = testUuid("retype-lead-operation");
 const TAG_UUID = testUuid("tag-lead-operation");
-const LOOKUP_TABLE = "018f3e8a-7b2c-7def-8abc-1234567890ab" as LookupTableId;
-const LOOKUP_VALUE = "018f3e8a-7b2c-7def-8abc-1234567890ad" as LookupColumnId;
-const LOOKUP_FILTER = "018f3e8a-7b2c-7def-8abc-1234567890ae" as LookupColumnId;
+const LOOKUP_TABLE = lookupTableIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ab",
+);
+const LOOKUP_VALUE = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ad",
+);
+const LOOKUP_FILTER = lookupColumnIdSchema.parse(
+	"018f3e8a-7b2c-7def-8abc-1234567890ae",
+);
 
 const fieldValue = {
 	kind: "term",
@@ -125,7 +132,11 @@ function fixture(): {
 		],
 	});
 	const moduleUuid = doc.moduleOrder[0];
-	return { doc, moduleUuid, formUuid: doc.formOrder[moduleUuid][0] };
+	return {
+		doc: expectAdmittedDoc(doc),
+		moduleUuid,
+		formUuid: doc.formOrder[moduleUuid][0],
+	};
 }
 
 function item(operation: CaseOperationInput, operationUuid: Uuid) {
@@ -251,10 +262,9 @@ describe("case-operation canonical author boundary", () => {
 	it("publishes the same UUID and lookup vocabulary on the chat wire", async () => {
 		const { moduleUuid, formUuid } = fixture();
 		const wire = wireToolSchema(addCaseOperationsInputSchema);
-		const json = JSON.stringify(await wire.jsonSchema);
-		expect(json).toContain("operationUuid");
-		expect(json).toContain("opUuid");
-		expect(json).not.toContain("operationId");
+		const ajv = new Ajv({ strict: false });
+		addFormats(ajv);
+		const admitsWire = ajv.compile(await wire.jsonSchema);
 		expect(
 			caseOperationInputSchema.safeParse({
 				...createVisit,
@@ -262,15 +272,18 @@ describe("case-operation canonical author boundary", () => {
 			}).success,
 		).toBe(true);
 
-		const valid = await wire.validate?.({
+		const validInput = {
 			moduleUuid,
 			formUuid,
 			operations: [
 				item({ ...createVisit, owner: lookupExpression }, CREATE_UUID),
 			],
-		});
-		expect(valid?.success).toBe(true);
-		const rejected = await wire.validate?.({
+		};
+		expect(admitsWire(validInput), JSON.stringify(admitsWire.errors)).toBe(
+			true,
+		);
+		expect((await wire.validate?.(validInput))?.success).toBe(true);
+		const invalidInput = {
 			moduleUuid,
 			formUuid,
 			operations: [
@@ -285,8 +298,19 @@ describe("case-operation canonical author boundary", () => {
 					},
 				},
 			],
-		});
-		expect(rejected?.success).toBe(false);
+		};
+		// Nested AST slots are deliberately open in the bounded provider projection;
+		// canonical runtime validation owns the full recursive grammar.
+		expect(admitsWire(invalidInput)).toBe(true);
+		expect(
+			admitsWire({
+				...validInput,
+				operations: [
+					{ ...validInput.operations[0], operationUuid: "create_visit" },
+				],
+			}),
+		).toBe(false);
+		expect((await wire.validate?.(invalidInput))?.success).toBe(false);
 	});
 
 	it("accepts UUID anchors and rejects numeric placement on add and move", () => {
@@ -372,14 +396,16 @@ describe("shared case-operation tools", () => {
 			moduleUuid,
 			formUuid,
 		});
-		const json = JSON.stringify(
-			(read.data as { operations: readonly unknown[] }).operations,
-		);
-		expect(json).toContain(CREATE_UUID);
-		expect(json).toContain(TEXT);
-		expect(json).toContain('"opUuid"');
-		expect(json).not.toContain('"path"');
-		expect(json).not.toContain('"operationId"');
+		const projected = z
+			.object({ operations: z.array(caseOperationSchema) })
+			.parse(read.data).operations;
+		expect(projected).toEqual(h.currentDoc().forms[formUuid].caseOperations);
+		expect(projected[0]).toMatchObject({ uuid: CREATE_UUID, name: fieldValue });
+		expect(projected[1]).toMatchObject({
+			uuid: UPDATE_UUID,
+			target: { kind: "op", opUuid: CREATE_UUID },
+			writes: updateVisit.writes,
+		});
 
 		const formRead = await h.runTool(getFormTool, { moduleUuid, formUuid });
 		const formOperations =
@@ -506,6 +532,48 @@ describe("shared case-operation tools", () => {
 		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
+	it("moves an independent operation and removes dependents before their producer", async () => {
+		const { doc, moduleUuid, formUuid } = fixture();
+		const h = makeToolWorkspaceHarness(doc);
+		const independentUuid = testUuid("independent-visit");
+		await h.runTool(addCaseOperationsTool, {
+			moduleUuid,
+			formUuid,
+			operations: [
+				...visitBatch(),
+				item({ ...createVisit, id: "independent_visit" }, independentUuid),
+			],
+		});
+		h.recordMutations.mockClear();
+		const moved = await h.runTool(moveCaseOperationTool, {
+			moduleUuid,
+			formUuid,
+			operationUuid: independentUuid,
+			afterOperationUuid: null,
+		});
+		expect(moved.result).toMatchObject({
+			afterOperationUuid: null,
+			operationOrder: [independentUuid, CREATE_UUID, UPDATE_UUID],
+		});
+		expect(
+			h.currentDoc().forms[formUuid].caseOperations?.map((op) => op.uuid),
+		).toEqual([independentUuid, CREATE_UUID, UPDATE_UUID]);
+		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		for (const operationUuid of [UPDATE_UUID, CREATE_UUID]) {
+			const removed = await h.runTool(removeCaseOperationTool, {
+				moduleUuid,
+				formUuid,
+				operationUuid,
+			});
+			expect(removed.result).not.toHaveProperty("error");
+		}
+		expect(
+			h.currentDoc().forms[formUuid].caseOperations?.map((op) => op.uuid),
+		).toEqual([independentUuid]);
+		expect(h.recordMutations).toHaveBeenCalledTimes(3);
+		expectAdmittedDoc(h.currentDoc());
+	});
+
 	it("reports canonical UUID placement for a no-op move", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		const h = makeToolWorkspaceHarness(doc);
@@ -530,7 +598,7 @@ describe("shared case-operation tools", () => {
 		expect(h.recordMutations).not.toHaveBeenCalled();
 	});
 
-	it("surfaces an authoritative race instead of reporting success", async () => {
+	it("propagates a writer refusal without adopting its prepared proposal", async () => {
 		const { doc, moduleUuid, formUuid } = fixture();
 		const setup = makeToolWorkspaceHarness(doc);
 		await setup.runTool(addCaseOperationsTool, {
@@ -539,18 +607,12 @@ describe("shared case-operation tools", () => {
 			operations: [item(createVisit, CREATE_UUID)],
 		});
 		const stale = setup.currentDoc();
-		const fresh = produce(stale, (draft) => {
-			delete draft.forms[formUuid].caseOperations;
-		});
-		const h = makeToolWorkspaceHarness(stale);
-		h.recordMutations.mockImplementation(async (prepared) => {
-			if (mutationTargetsInvalid(fresh, prepared.mutations)) {
-				throw new BlueprintCommitRejectedError(
-					"A peer changed this case operation first.",
-				);
-			}
-			return { events: [], committedDoc: prepared.nextDoc };
-		});
+		const h = makeToolWorkspaceHarness(expectAdmittedDoc(stale));
+		h.recordMutations.mockRejectedValueOnce(
+			new BlueprintCommitRejectedError(
+				"A peer changed this case operation first.",
+			),
+		);
 
 		await expect(
 			h.runTool(updateCaseOperationTool, {
@@ -561,6 +623,7 @@ describe("shared case-operation tools", () => {
 			}),
 		).rejects.toBeInstanceOf(BlueprintCommitRejectedError);
 		expect(h.recordMutations).toHaveBeenCalledTimes(1);
+		expect(h.currentDoc()).toEqual(stale);
 	});
 });
 
@@ -604,7 +667,11 @@ describe("dependency refusals name the actual constraint", () => {
 			],
 		});
 		const moduleUuid = doc.moduleOrder[0];
-		return { doc, moduleUuid, formUuid: doc.formOrder[moduleUuid][0] };
+		return {
+			doc: expectAdmittedDoc(doc),
+			moduleUuid,
+			formUuid: doc.formOrder[moduleUuid][0],
+		};
 	}
 
 	it("distinguishes target-type dependencies from identity references", async () => {
@@ -645,7 +712,9 @@ describe("dependency refusals name the actual constraint", () => {
 			formUuid,
 			operationUuid: RETYPE_UUID,
 		});
-		const removeError = (removed.result as { error: string }).error;
+		const removeError = z
+			.object({ error: z.string() })
+			.parse(removed.result).error;
 		expect(removeError).toContain("kind of case");
 		expect(removeError).toContain("tag_lead");
 		expect(removeError).not.toContain("uses its result");
@@ -656,7 +725,7 @@ describe("dependency refusals name the actual constraint", () => {
 			operationUuid: RETYPE_UUID,
 			afterOperationUuid: TAG_UUID,
 		});
-		const moveError = (moved.result as { error: string }).error;
+		const moveError = z.object({ error: z.string() }).parse(moved.result).error;
 		expect(moveError).toContain("kind of case");
 		expect(moveError).not.toContain("reference");
 		expect(h.recordMutations).not.toHaveBeenCalled();
@@ -675,7 +744,7 @@ describe("dependency refusals name the actual constraint", () => {
 			formUuid,
 			operationUuid: CREATE_UUID,
 		});
-		const error = (removed.result as { error: string }).error;
+		const error = z.object({ error: z.string() }).parse(removed.result).error;
 		expect(error).toContain("uses its result");
 		expect(error).not.toContain("kind of case");
 	});

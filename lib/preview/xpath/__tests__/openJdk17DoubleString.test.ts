@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
 import { openJdk17DoubleToString } from "../openJdk17DoubleString";
+import corpus from "./fixtures/double-text-openjdk17.json";
 
 describe("OpenJDK 17 double text", () => {
+	it("matches native OpenJDK 17 over exact IEEE-754 boundary and seeded bit patterns", () => {
+		const storage = new DataView(new ArrayBuffer(8));
+		for (const [bits, expected] of corpus) {
+			if (bits === undefined || expected === undefined)
+				throw new Error("Invalid oracle vector");
+			storage.setBigUint64(0, BigInt(`0x${bits}`));
+			expect(openJdk17DoubleToString(storage.getFloat64(0)), bits).toBe(
+				expected,
+			);
+		}
+	});
+
 	it("retains FloatingDecimal spellings across ordinary and boundary values", () => {
 		const vectors: readonly [number, string][] = [
 			[0, "0.0"],

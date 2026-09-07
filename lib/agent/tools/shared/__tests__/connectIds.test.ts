@@ -8,8 +8,13 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { xp } from "@/lib/__tests__/docHelpers";
-import type { BlueprintDoc, ConnectConfig } from "@/lib/domain";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
+import {
+	type BlueprintDoc,
+	type ConnectConfig,
+	connectConfigSchema,
+} from "@/lib/domain";
+import { expectAdmittedDoc } from "../../../__tests__/admittedFixture";
 import {
 	collectConnectIds,
 	enforceConnectIds,
@@ -87,6 +92,8 @@ describe("enforceConnectIds — explicit-duplicate rejection", () => {
 			new Set(),
 		);
 		expect(result.ok).toBe(true);
+		if (!result.ok) throw new Error(result.error);
+		expect(connectConfigSchema.parse(result.config)).toEqual(config);
 	});
 
 	it("reserves a later explicit id before deriving an earlier omitted id", () => {
@@ -138,64 +145,60 @@ describe("reserveExplicitConnectIds — complete target preflight", () => {
 describe("collectConnectIds — final config scope", () => {
 	/** Learn doc: FORM_A has two distinct learn-mode ids; FORM_B has one. */
 	function learnDoc(): BlueprintDoc {
-		return {
-			appId: "app",
-			appName: "n",
-			connectType: "learn",
-			caseTypes: null,
-			modules: { [MOD]: { uuid: MOD, id: "m", name: "M" } },
-			forms: {
-				[FORM_A]: {
-					uuid: FORM_A,
-					id: "form_a",
-					name: "Form A",
-					type: "survey",
-					connect: {
-						learn_module: {
-							id: "intro",
-							name: "Intro",
-							description: "x",
-							time_estimate: 5,
-						},
-						assessment: { id: "quiz", user_score: xp("100") },
+		return expectAdmittedDoc(
+			buildDoc({
+				connectType: "learn",
+				modules: [
+					{
+						uuid: MOD,
+						name: "Training",
+						forms: [
+							{
+								uuid: FORM_A,
+								name: "Intro",
+								type: "survey",
+								fields: [f({ kind: "text", id: "note" })],
+								connect: {
+									learn_module: {
+										id: "intro",
+										name: "Intro",
+										description: "x",
+										time_estimate: 5,
+									},
+									assessment: { id: "quiz", user_score: xp("100") },
+								},
+							},
+							{
+								uuid: FORM_B,
+								name: "Lesson two",
+								type: "survey",
+								fields: [f({ kind: "text", id: "note" })],
+								connect: {
+									learn_module: {
+										id: "lesson_two",
+										name: "Lesson two",
+										description: "x",
+										time_estimate: 5,
+									},
+								},
+							},
+						],
 					},
-				},
-				[FORM_B]: {
-					uuid: FORM_B,
-					id: "form_b",
-					name: "Form B",
-					type: "survey",
-					connect: {
-						learn_module: {
-							id: "lesson_two",
-							name: "Lesson Two",
-							description: "x",
-							time_estimate: 5,
-						},
-					},
-				},
-			},
-			fields: {},
-			moduleOrder: [MOD],
-			formOrder: { [MOD]: [FORM_A, FORM_B] },
-			fieldOrder: {},
-			fieldParent: {},
-		};
+				],
+			}),
+		);
 	}
 
-	it("counts only live (mode-matching) kinds and excludes the named form", () => {
+	it("excludes every id belonging to the edited form", () => {
 		const doc = learnDoc();
 		// Excluding FORM_A: FORM_B's learn_module "lesson_two" is in scope.
 		const scope = collectConnectIds(doc, FORM_A);
-		expect(scope.has("lesson_two")).toBe(true);
-		// FORM_A's own ids excluded (it's the edited form).
-		expect(scope.has("intro")).toBe(false);
+		expect(scope).toEqual(new Set(["lesson_two"]));
 	});
 
 	it("includes every subkind in a mode-compatible config", () => {
 		const doc = learnDoc();
 		const scope = collectConnectIds(doc, FORM_B);
-		expect(scope.has("intro")).toBe(true);
-		expect(scope.has("quiz")).toBe(true);
+		expect(scope).toEqual(new Set(["intro", "quiz"]));
 	});
 });

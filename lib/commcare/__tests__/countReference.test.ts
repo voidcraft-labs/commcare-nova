@@ -1,21 +1,10 @@
-/**
- * Classifier battery for `isCountReferencePath` — the Lezer-backed decision
- * that drives whether the XForm emitter points a `count_bound` repeat's
- * `jr:count` directly at an expression (path) or hoists it into a hidden
- * node first (non-path).
- *
- * The contract mirrors JavaRosa's `instanceof XPathPathExpr` runtime check
- * (`commcare-core/.../org/javarosa/model/xform/XPathReference.java::
- * getPathExpr`): only a location path is accepted as a `jr:count`
- * reference. The cases below enumerate the path/non-path boundary,
- * including the structurally-tricky `Filtered` arm whose classification
- * depends on its base.
- */
+/** Pure path classification controlling the snapshot conversion, not a runtime proof.
+ * Core snapshot conversion is exercised by ContainerRuntimeTest. */
 
 import { describe, expect, it } from "vitest";
 import { isCountReferencePath } from "@/lib/commcare/xform/countReference";
 
-describe("isCountReferencePath — jr:count hoist classifier", () => {
+describe("isCountReferencePath — count carrier classifier", () => {
 	// Inputs the emitter sees are already hashtag-expanded, so `#form/x`
 	// arrives here as `/data/x`. We still spot-check the expanded forms.
 	const directCases: ReadonlyArray<[label: string, expr: string]> = [
@@ -34,7 +23,7 @@ describe("isCountReferencePath — jr:count hoist classifier", () => {
 		["axis-specified step", "child::item"],
 	];
 
-	const hoistCases: ReadonlyArray<[label: string, expr: string]> = [
+	const expressionCases: ReadonlyArray<[label: string, expr: string]> = [
 		["integer literal", "5"],
 		["addition expression", "3 + 2"],
 		["count() function call", "count(/data/items)"],
@@ -57,8 +46,8 @@ describe("isCountReferencePath — jr:count hoist classifier", () => {
 		});
 	}
 
-	for (const [label, expr] of hoistCases) {
-		it(`classifies ${label} as a hoist`, () => {
+	for (const [label, expr] of expressionCases) {
+		it(`classifies ${label} as an expression`, () => {
 			expect(isCountReferencePath(expr)).toBe(false);
 		});
 	}

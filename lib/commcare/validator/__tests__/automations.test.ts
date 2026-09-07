@@ -1,15 +1,51 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type Automation,
 	automationMessageText,
 	type BlueprintDoc,
 	effectiveCaseTypes,
-	type Form,
+	plainColumn,
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
-import { validateAutomations } from "../rules/automations";
+import { runValidation } from "../runner";
+
+// These are complete-runner admission/diagnostic tests. They do not execute
+// HQ schedules or prove external location/recipient row existence.
+function automationDoc(spec: Parameters<typeof buildDoc>[0]) {
+	const doc = buildDoc({
+		...spec,
+		modules: [
+			{
+				name: "Visits",
+				caseType: "visit",
+				caseListConfig: {
+					columns: [
+						plainColumn(testUuid("automation-case-name"), "case_name", "Name"),
+					],
+					searchInputs: [],
+				},
+				forms: [
+					{
+						name: "Follow up",
+						type: "followup",
+						fields: [f({ kind: "text", id: "note", label: "Note" })],
+					},
+				],
+			},
+		],
+	});
+	return expectAdmittedDoc(doc);
+}
+function validateCandidate(doc: BlueprintDoc) {
+	const candidate = { ...doc };
+	const findings = runValidation(candidate, LOOKUP_CONTEXT_UNAVAILABLE);
+	if (findings.length === 0) expectAdmittedDoc(candidate);
+	return findings;
+}
 
 const FILTER_USER_PROPERTY_UUID = testUuid("validator-filter-user-property");
 
@@ -19,7 +55,7 @@ function docWithCriterion(
 	matchType: "has-value" | "equal" | "date-days",
 	relationship: "child" | "extension" = "child",
 ): BlueprintDoc {
-	const doc = buildDoc({
+	const doc = automationDoc({
 		appName: "Automation validation",
 		caseTypes: [
 			{
@@ -31,13 +67,6 @@ function docWithCriterion(
 				parent_type: "household",
 				relationship,
 				properties: [{ name: "due", label: "Due", data_type: "date" }],
-			},
-		],
-		modules: [
-			{
-				name: "Visits",
-				caseType: "visit",
-				forms: [{ name: "Follow up", type: "followup" }],
 			},
 		],
 	});
@@ -75,7 +104,7 @@ function addAdvancedExtensionLink(
 	doc: BlueprintDoc,
 	identifier = "facility_host",
 ): void {
-	const form = Object.values(doc.forms)[0] as Form | undefined;
+	const form = Object.values(doc.forms)[0];
 	if (form === undefined) throw new Error("expected automation fixture form");
 	form.caseOperations = [
 		{
@@ -102,7 +131,7 @@ function addAdvancedExtensionLink(
 describe("automation property criteria validation", () => {
 	it("resolves a parent criterion against the declared parent case type", () => {
 		expect(
-			validateAutomations(docWithCriterion("parent", "state", "has-value")),
+			validateCandidate(docWithCriterion("parent", "state", "has-value")),
 		).toEqual([]);
 	});
 
@@ -124,7 +153,7 @@ describe("automation property criteria validation", () => {
 		];
 		automation.closeCase = false;
 
-		expect(validateAutomations(doc)).toEqual([]);
+		expect(validateCandidate(doc)).toEqual([]);
 	});
 
 	it("keeps alert case.parent templates child-only on an extension case type", () => {
@@ -171,7 +200,7 @@ describe("automation property criteria validation", () => {
 		doc.automations = { [uuid]: alert };
 		doc.automationOrder = [uuid];
 
-		expect(validateAutomations(doc)).toEqual([
+		expect(validateCandidate(doc)).toEqual([
 			expect.objectContaining({
 				details: expect.objectContaining({
 					path: "schedule.events.0.content.message.parts.0",
@@ -182,7 +211,7 @@ describe("automation property criteria validation", () => {
 
 	it("rejects a scope with no matching relationship", () => {
 		expect(
-			validateAutomations(docWithCriterion("host", "state", "has-value")),
+			validateCandidate(docWithCriterion("host", "state", "has-value")),
 		).toEqual([
 			expect.objectContaining({
 				code: "AUTOMATION_INVALID",
@@ -193,7 +222,7 @@ describe("automation property criteria validation", () => {
 
 	it("type-checks date comparisons in the related case scope", () => {
 		expect(
-			validateAutomations(docWithCriterion("parent", "state", "date-days")),
+			validateCandidate(docWithCriterion("parent", "state", "date-days")),
 		).toEqual([
 			expect.objectContaining({
 				code: "AUTOMATION_INVALID",
@@ -204,23 +233,23 @@ describe("automation property criteria validation", () => {
 
 	it("accepts projected standard reads and standard datetime date comparisons", () => {
 		expect(
-			validateAutomations(docWithCriterion("case", "case_name", "has-value")),
+			validateCandidate(docWithCriterion("case", "case_name", "has-value")),
 		).toEqual([]);
 		expect(
-			validateAutomations(docWithCriterion("case", "date_opened", "date-days")),
+			validateCandidate(docWithCriterion("case", "date_opened", "date-days")),
 		).toEqual([]);
 	});
 
 	it("refuses status and text equality against HQ datetime model fields", () => {
 		expect(
-			validateAutomations(docWithCriterion("case", "status", "has-value")),
+			validateCandidate(docWithCriterion("case", "status", "has-value")),
 		).toEqual([
 			expect.objectContaining({
 				details: expect.objectContaining({ path: "criteria.0.property" }),
 			}),
 		]);
 		expect(
-			validateAutomations(docWithCriterion("case", "date_opened", "equal")),
+			validateCandidate(docWithCriterion("case", "date_opened", "equal")),
 		).toEqual([
 			expect.objectContaining({
 				details: expect.objectContaining({ path: "criteria.0.matchType" }),
@@ -238,7 +267,7 @@ describe("automation property criteria validation", () => {
 			expect(visit?.properties.some((entry) => entry.name === property)).toBe(
 				false,
 			);
-			expect(validateAutomations(doc)).toEqual([]);
+			expect(validateCandidate(doc)).toEqual([]);
 		},
 	);
 
@@ -250,7 +279,7 @@ describe("automation property criteria validation", () => {
 			"extension",
 		);
 		addAdvancedExtensionLink(criterionDoc);
-		expect(validateAutomations(criterionDoc)).toEqual([
+		expect(validateCandidate(criterionDoc)).toEqual([
 			expect.objectContaining({
 				message: expect.stringContaining("does not define which extension"),
 				details: expect.objectContaining({ path: "criteria.0.scope" }),
@@ -275,7 +304,7 @@ describe("automation property criteria validation", () => {
 		];
 		update.closeCase = false;
 		addAdvancedExtensionLink(updateDoc);
-		expect(validateAutomations(updateDoc)).toEqual([
+		expect(validateCandidate(updateDoc)).toEqual([
 			expect.objectContaining({
 				details: expect.objectContaining({
 					path: "updates.0.value.source.scope",
@@ -303,7 +332,7 @@ describe("automation property criteria validation", () => {
 		];
 		targetUpdate.closeCase = false;
 		addAdvancedExtensionLink(updateTargetDoc);
-		expect(validateAutomations(updateTargetDoc)).toEqual([
+		expect(validateCandidate(updateTargetDoc)).toEqual([
 			expect.objectContaining({
 				message: expect.stringContaining("host update target is ambiguous"),
 				details: expect.objectContaining({
@@ -361,7 +390,7 @@ describe("automation property criteria validation", () => {
 		};
 		templateDoc.automationOrder = [alertUuid];
 		addAdvancedExtensionLink(templateDoc);
-		expect(validateAutomations(templateDoc)).toEqual([
+		expect(validateCandidate(templateDoc)).toEqual([
 			expect.objectContaining({
 				details: expect.objectContaining({
 					path: "schedule.events.0.content.message.parts.0.scope",
@@ -378,7 +407,7 @@ describe("automation property criteria validation", () => {
 			"extension",
 		);
 		addAdvancedExtensionLink(parentDoc);
-		expect(validateAutomations(parentDoc)).toEqual([]);
+		expect(validateCandidate(parentDoc)).toEqual([]);
 
 		const canonicalHostDoc = docWithCriterion(
 			"host",
@@ -387,11 +416,11 @@ describe("automation property criteria validation", () => {
 			"extension",
 		);
 		addAdvancedExtensionLink(canonicalHostDoc, "parent");
-		expect(validateAutomations(canonicalHostDoc)).toEqual([]);
+		expect(validateCandidate(canonicalHostDoc)).toEqual([]);
 	});
 
 	it("normalizes duplicate names identically outside the browser locale", () => {
-		const doc = buildDoc({
+		const doc = automationDoc({
 			appName: "Locale-independent automation names",
 			caseTypes: [{ name: "visit", properties: [] }],
 		});
@@ -420,7 +449,7 @@ describe("automation property criteria validation", () => {
 		expect(first.name.toLocaleLowerCase("tr")).not.toBe(
 			second.name.toLocaleLowerCase("tr"),
 		);
-		expect(validateAutomations(doc)).toEqual([
+		expect(validateCandidate(doc)).toEqual([
 			expect.objectContaining({
 				code: "AUTOMATION_INVALID",
 				details: expect.objectContaining({
@@ -434,8 +463,8 @@ describe("automation property criteria validation", () => {
 
 function validateOne(
 	automation: Automation,
-): ReturnType<typeof validateAutomations> {
-	const doc = buildDoc({
+): ReturnType<typeof validateCandidate> {
+	const doc = automationDoc({
 		appName: "Automation property slots",
 		caseTypes: [
 			{
@@ -457,7 +486,7 @@ function validateOne(
 	doc.userPropertyOrder = [FILTER_USER_PROPERTY_UUID];
 	doc.automations = { [automation.uuid]: automation };
 	doc.automationOrder = [automation.uuid];
-	return validateAutomations(doc);
+	return validateCandidate(doc);
 }
 
 function alertWithContent(
@@ -595,7 +624,7 @@ describe("automation HQ property-slot compatibility", () => {
 		for (const scope of ["case", "parent", "host"] as const) {
 			for (const property of ["owner", "host", "last_modified_by"] as const) {
 				const relationship = scope === "host" ? "extension" : "child";
-				const doc = buildDoc({
+				const doc = automationDoc({
 					appName: "Shadowed automation template",
 					caseTypes: [
 						{
@@ -630,7 +659,7 @@ describe("automation HQ property-slot compatibility", () => {
 				doc.automations = { [alert.uuid]: alert };
 				doc.automationOrder = [alert.uuid];
 
-				expect(validateAutomations(doc)).toEqual([
+				expect(validateCandidate(doc)).toEqual([
 					expect.objectContaining({
 						message: expect.stringContaining(`“${property}” is shadowed`),
 						details: expect.objectContaining({

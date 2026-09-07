@@ -1,15 +1,11 @@
 /**
  * Post-expansion XForm parse-time ORACLE.
  *
- * Mirrors the FATAL contract CommCare Core / JavaRosa enforces while parsing a
- * form (`commcare-core .../xform/parse/XFormParser.java`). Any state our
- * emitter can reach must pass this oracle — a failing form here is a generator
- * bug, not an authoring error a user could fix. The oracle is co-developed
- * with a property-based fuzzer (`__tests__/xformOracle.fuzz.test.ts`) that
- * generates schema-valid `BlueprintDoc`s, emits them, and asserts the oracle
- * returns clean: that fuzzer is what proves the emitter total, and it also
- * defines the oracle's faithfulness — a check that flags legitimately-emitted
- * output is the ORACLE being wrong, never a new reject rule.
+ * Checks selected Core parser rules plus stricter Nova emission contracts.
+ * The external-wire corpus is also executed by the actual Core parser; the
+ * admitted-app corpus exercises generated output. Neither finite corpus proves
+ * emitter totality or all possible Core compatibility. A finding requires
+ * investigation at the native consumer before changing the emitter or guard.
  *
  * ## Two XPath surfaces
  *
@@ -32,17 +28,8 @@
  * node paths (elements carrying `jr:template`), and the itext id set. Each
  * invariant reads off that model.
  *
- * ## Conservatism on query_bound
- *
- * Query_bound repeats emit model-iteration markup with attribute targets
- * (`@ids`/`@count`/`@current_index` on the outer `<id>`, `@index`/`@id` on the
- * inner `<item jr:template="">`) plus a `current_index` calculate bind. Whether
- * Core's `expandReference(target,true)` resolves these template attributes was
- * not fully traced to ground, so the path-existence checks (#19/#20) collect
- * every `@attr` path into the valid-path set — exactly as the prior validator
- * did — and never newly reject a legitimately-emitted query_bound form. The
- * fuzzer generates query_bound docs; if the oracle flags one, the oracle is
- * wrong and gets fixed, never the emitter.
+ * Attribute targets are included in the structural path set. Actual repeat
+ * execution belongs to the native Core feature proofs, not this static join.
  *
  * ## Intentionally NOT enforced
  *
@@ -102,13 +89,13 @@ type XFormModel = XFormDataModel;
 
 /**
  * A ref/nodeset targets the MAIN instance (the data tree this oracle resolves
- * against) when it starts with the data root path. Refs into secondary
+ * against) when it is an absolute location path. Refs into secondary
  * instances (`instance('casedb')/...`) reference external data and are out of
  * scope for path-existence checks — only their XPath validity matters, which
  * the PATH/ANY classifiers cover.
  */
-function targetsMainInstance(ref: string, rootPath: string): boolean {
-	return ref.startsWith(rootPath);
+function targetsMainInstance(ref: string, _rootPath: string): boolean {
+	return ref.startsWith("/");
 }
 
 // ── itext duplicate-definition detection (#10) ─────────────────────
@@ -376,13 +363,15 @@ function checkBinds(
 		// Stricter-than-Core dangling-bind check: a main-instance nodeset must
 		// resolve to a real node. Refs into secondary instances are skipped —
 		// they reference external data this oracle doesn't model.
-		if (!targetsMainInstance(nodeset, model.rootPath)) continue;
-		if (!model.instancePaths.has(nodeset)) {
+		if (
+			targetsMainInstance(nodeset, model.rootPath) &&
+			!model.instancePaths.has(nodeset)
+		) {
 			errors.push(
 				validationError(
 					"XFORM_DANGLING_BIND",
 					"form",
-					`"${formName}" has a <bind> pointing to "${nodeset}" but that node doesn't exist in the form's data model. FormPlayer will reject this form. This is a bug in the form generator.`,
+					`"${formName}" has a <bind> pointing to "${nodeset}" but that node doesn't exist in the form's data model. Nova requires every emitted bind to target an existing data node. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -399,7 +388,7 @@ function checkBinds(
 			"readonly",
 		]) {
 			const expr = getAttributeValue(bind, attr);
-			if (expr !== undefined && expr !== "" && !isParseableXPath(expr)) {
+			if (expr !== undefined && !isParseableXPath(expr)) {
 				errors.push(
 					validationError(
 						"XFORM_INVALID_BIND_EXPRESSION",
@@ -453,7 +442,7 @@ function checkControls(
 		// #5: a non-trigger control must carry a ref. Nova always emits one; the
 		// assertion still fires if a future change drops it.
 		if (!ref) {
-			if (ctrl.name !== "trigger") {
+			if (ctrl.name !== "trigger" && ctrl.name !== "group") {
 				errors.push(
 					validationError(
 						"XFORM_CONTROL_NO_REF",
@@ -703,15 +692,6 @@ function checkRepeats(
  */
 function collapseRepeatWrapper(el: Element): Element {
 	if (localName(el.name) !== "group") return el;
-	// The `ref` guard has NO analog in Core's `collapseRepeatGroups` — Core
-	// collapses any non-repeat group wrapping a single repeat regardless of
-	// whether the group is bound. It's a Nova-emitter-shape assumption: Nova's
-	// repeat wrapper group ALWAYS carries the repeat's `ref` (see the
-	// `<group ref="…"><repeat nodeset="…">` shape in `xform/builder.ts`), so a
-	// ref-less group here is never a Nova repeat wrapper and skipping it avoids
-	// collapsing an unrelated layout group. If the emitter ever emits a ref-less
-	// wrapper, drop this guard to match Core exactly.
-	if (getAttributeValue(el, "ref") === undefined) return el;
 
 	const FORM_ELEMENT_TAGS = new Set(["repeat", "group", ...REF_CONTROL_TAGS]);
 	const formChildren = getChildren(el).filter(
@@ -938,7 +918,7 @@ function checkSetValues(
 
 		// #14b: the value expression (when present) must parse as valid XPath.
 		const value = getAttributeValue(sv, "value");
-		if (value !== undefined && value !== "" && !isParseableXPath(value)) {
+		if (value !== undefined && !isParseableXPath(value)) {
 			errors.push(
 				validationError(
 					"XFORM_INVALID_SETVALUE",
@@ -981,12 +961,14 @@ function checkOutputs(
 			);
 			continue;
 		}
-		if (value !== undefined && value !== "" && !isParseableXPath(value)) {
+		// Core parseOutput prefers ref when both attributes are supplied.
+		const expression = ref ?? value;
+		if (expression !== undefined && !isParseableXPath(expression)) {
 			errors.push(
 				validationError(
 					"XFORM_INVALID_OUTPUT",
 					"form",
-					`"${formName}" has an <output value="${value}"> whose value doesn't parse as valid XPath. FormPlayer evaluates an output value and rejects the form when it can't parse it. Look at how this label's reference was built. This is a bug in the form generator.`,
+					`"${formName}" has an <output> whose ${ref !== undefined ? "ref" : "value"} expression "${expression}" does not parse as XPath. This is a bug in the form generator.`,
 					loc,
 				),
 			);
@@ -1130,7 +1112,7 @@ function checkMediaValues(
 		// are non-media and out of scope here.
 		if (form !== "image" && form !== "audio" && form !== "video") continue;
 
-		const refText = readElementText(valueEl).trim();
+		const refText = readElementText(valueEl);
 		if (refText === "") continue;
 		if (!refText.startsWith(JR_FILE_PREFIX)) continue;
 

@@ -35,7 +35,9 @@ gate, and integrity services every other write uses.
   invocation, durable idempotent replay by request id + input digest
   (recomputed at the STORED expected revision, so a post-advance retry
   still replays its original receipt — the receipt, not prose, is the
-  replay contract), handle declaration/resolution against a scratch table
+  replay contract). If a stored receipt advanced beyond this workspace, it
+  first rehydrates the durable steps and handles before serving that receipt.
+  It also owns handle declaration/resolution against a scratch table
   merged only when the step commits, automatic read-set capture, the
   batch-exclusive fence, and the REAL whole-document evaluator whose
   findings land on the receipt as compact fingerprints.
@@ -50,8 +52,10 @@ gate, and integrity services every other write uses.
   transaction-hook seam. A rejection returns a structured per-step
   `ChangeSetRebaseReport` (never a name/position retarget) with every step
   retained; a retry converges on the stored `design_committed_slices`
-  receipt, and a canonical batch without that receipt is corruption, not a
-  commit. Genesis sets refuse this path — their commit is
+  receipt. Every public committed-receipt replay verifies the exact
+  actor/run owner and locks current app scope and Project view membership;
+  revoked membership or a changed Project refuses the replay. A canonical
+  batch without that receipt is corruption, not a commit. Genesis sets refuse this path — their commit is
   `materializeGenesis.ts`.
 - `materializeGenesis.ts` — `materializeAppFromGenesis`, the design-slice
   birth: pre-read → committed-replay short-circuit (rebuilds the exact
@@ -199,8 +203,9 @@ gate, and integrity services every other write uses.
    commit, and blocker request has an idempotent durable sub-budget claim, so
    replay cannot consume a second unit. A paid blocker result is durably
    appended before execution continues; a response lost before that write
-   stops rather than purchasing another decision. A canonical commit receipt
-   supplies the lost commit output before a later slice begins. The attempt
+   stops rather than purchasing another decision. The orchestrator recognizes
+   already committed slices from their canonical receipts and advances to a
+   fresh context generation; prior transcript gaps do not authorize replay. The attempt
    transcript preserves local reasoning continuity but never decides what
    committed or was already applied privately. Repeating one identical compiler failure
    automatically invokes the bounded architect on occurrence two; occurrence
@@ -210,8 +215,10 @@ gate, and integrity services every other write uses.
 
 `__tests__/changeSetStore.postgres.test.ts` (the fault matrix +
 idempotency/authority/lifecycle), `changeSetRuntime.postgres.test.ts`
-(workspace replay/process death, isolation gate, exclusivity, commit +
-rebase), and the pure suites (`digest`, `handles`,
+(fresh-workspace replay, isolation gate, real command exclusivity, commit +
+rebase), `materializeGenesis.postgres.test.ts` (including a native late
+SQL failure after every required genesis write, rollback and successful retry),
+and the pure suites (`digest`, `handles`,
 `stagingProjection` — classification completeness + collision freedom,
 `changeSetSourceGuards` — the package-level import isolation).
 

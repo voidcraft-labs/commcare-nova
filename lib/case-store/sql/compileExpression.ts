@@ -46,12 +46,14 @@ import {
 	parseCommCareDatePattern,
 } from "@/lib/domain/commCareDatePattern";
 import { resolveCommCareDatePattern } from "@/lib/domain/dateFormats";
+import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
 	missingPredicateThunkMessage,
 	typeCheckerBypassMessage,
 	unhandledKindMessage,
 } from "@/lib/domain/predicate/errors";
 import { canonicalizeRelationPath } from "@/lib/domain/predicate/normalizeRelationEvaluationScopes";
+import { resolveNumericExpressionType } from "@/lib/domain/predicate/numericType";
 import {
 	asTemporalType,
 	inferStructuralTemporalType,
@@ -303,10 +305,40 @@ function compileArith(
 	right: ValueExpression,
 	ctx: ExpressionCompileContext,
 ): AliasableExpression<unknown> {
-	const leftExpr = compileExpression(left, ctx);
-	const rightExpr = compileExpression(right, ctx);
+	const lookupTables = new Map(
+		[...(ctx.lookupTableSchemas ?? [])].map(([tableId, columns]) => [
+			tableId as LookupTableId,
+			new Map(
+				[...columns].map(([columnId, type]) => [
+					columnId as LookupColumnId,
+					type,
+				]),
+			),
+		]),
+	);
+	const tableId = ctx.lookupRowScope?.tableId as LookupTableId | undefined;
+	const columns = tableId === undefined ? undefined : lookupTables.get(tableId);
+	const type = resolveNumericExpressionType(
+		{ kind: "arith", op, left, right },
+		{
+			caseTypes: caseTypesForTemporalTypeChecking(ctx.caseTypeSchemas),
+			currentCaseType: ctx.currentCaseType,
+			knownInputs: ctx.knownInputs ?? [],
+			formFields: ctx.formFieldTypes,
+			organizationLevels: ctx.organizationLevels,
+			lookupTables,
+			...(tableId !== undefined &&
+				columns !== undefined && { tableScope: { tableId, columns } }),
+		},
+	);
+	// Explicit numeric casts prevent Postgres selecting text's pg_trgm `%`
+	// operator for bound answers. Numeric operands avoid imposing an int4 or
+	// int8 range on admitted integral literals and intermediate expressions.
+	const leftExpr = eb.cast(compileExpression(left, ctx), "numeric");
+	const rightExpr = eb.cast(compileExpression(right, ctx), "numeric");
 	const opToken = ARITH_OP_TO_SQL[op];
-	return eb.parens(eb(leftExpr, opToken, rightExpr));
+	const result = eb.parens(eb(leftExpr, opToken, rightExpr));
+	return op === "div" && type === "int" ? eb.fn("trunc", [result]) : result;
 }
 
 /**

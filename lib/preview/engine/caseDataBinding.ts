@@ -446,7 +446,7 @@ export async function loadCasesAction(args: {
 		});
 		return {
 			kind: "error",
-			message: err instanceof Error ? err.message : "Failed to load cases.",
+			message: "We couldn't load the cases. Try again.",
 		};
 	}
 }
@@ -492,7 +492,7 @@ export async function loadCaseCountAction(args: {
 		});
 		return {
 			kind: "error",
-			message: err instanceof Error ? err.message : "Failed to count cases.",
+			message: "We couldn't count the cases. Try again.",
 		};
 	}
 }
@@ -547,7 +547,7 @@ export async function loadMissingConnectionCountAction(args: {
 		});
 		return {
 			kind: "error",
-			message: err instanceof Error ? err.message : "Failed to count cases.",
+			message: "We couldn't count the cases. Try again.",
 		};
 	}
 }
@@ -592,7 +592,7 @@ export async function countCasesOwnedByAction(args: {
 		});
 		return {
 			kind: "error",
-			message: err instanceof Error ? err.message : "Failed to count cases.",
+			message: "We couldn't count the cases. Try again.",
 		};
 	}
 }
@@ -632,8 +632,7 @@ export async function conversionImpactAction(args: {
 		});
 		return {
 			kind: "error",
-			message:
-				err instanceof Error ? err.message : "Failed to check saved data.",
+			message: "We couldn't check the saved data. Try again.",
 		};
 	}
 }
@@ -731,7 +730,7 @@ export async function loadCaseDataAction(
 		reportUnexpectedActionError("loadCaseData", err, { appId, caseType });
 		return {
 			kind: "error",
-			message: err instanceof Error ? err.message : "Failed to load case.",
+			message: "We couldn't load the case. Try again.",
 		};
 	}
 }
@@ -765,10 +764,7 @@ export async function loadCaseDatabaseSnapshotAction(
 		reportUnexpectedActionError("loadCaseDatabaseSnapshot", err, { appId });
 		return {
 			kind: "error",
-			message:
-				err instanceof Error
-					? err.message
-					: "Failed to load the Preview case database.",
+			message: "We couldn't load the case data. Try again.",
 		};
 	}
 }
@@ -901,10 +897,7 @@ export async function loadParkedValuesAction(args: {
 		});
 		return {
 			kind: "error",
-			message:
-				err instanceof Error
-					? err.message
-					: "Couldn't load the data to review.",
+			message: "We couldn't load the data to review. Try again.",
 		};
 	}
 }
@@ -937,7 +930,7 @@ export async function restoreParkedValuesAction(args: {
 		});
 		return {
 			kind: "error",
-			message: err instanceof Error ? err.message : "Failed to restore values.",
+			message: "We couldn't restore the values. Try again.",
 		};
 	}
 }
@@ -970,8 +963,7 @@ export async function setParkedValuesDismissedAction(args: {
 		});
 		return {
 			kind: "error",
-			message:
-				err instanceof Error ? err.message : "Failed to update the entries.",
+			message: "We couldn't update the entries. Try again.",
 		};
 	}
 }
@@ -1016,8 +1008,7 @@ export async function replaceParkedValueAction(args: {
 		});
 		return {
 			kind: "error",
-			message:
-				err instanceof Error ? err.message : "Failed to save the replacement.",
+			message: "We couldn't save the replacement. Try again.",
 		};
 	}
 }

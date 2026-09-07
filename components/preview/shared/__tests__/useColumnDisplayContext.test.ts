@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest";
-import { projectLocalizedCaseProperties } from "@/components/preview/shared/useColumnDisplayContext";
 import {
 	casePropertyOptionTranslationUnitId,
 	type LocalizedValue,
@@ -7,6 +6,7 @@ import {
 	proseText,
 	type TranslationUnitId,
 } from "@/lib/domain";
+import { projectLocalizedCaseProperties } from "../localizedCaseProperties";
 
 describe("projectLocalizedCaseProperties", () => {
 	it("keeps the effective structure while projecting localized option labels", () => {

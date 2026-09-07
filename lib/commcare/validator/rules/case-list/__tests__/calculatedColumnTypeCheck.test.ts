@@ -1,433 +1,78 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { calculatedColumn, plainColumn } from "@/lib/domain";
+import { f } from "@/lib/__tests__/docHelpers";
+import { calculatedColumn } from "@/lib/domain";
 import { arith, prop, term } from "@/lib/domain/predicate";
-import { proseText } from "@/lib/domain/prose";
-import { runValidation } from "../../../runner";
+import {
+	admittedCaseListDoc,
+	findings,
+	withColumns,
+} from "./caseListRuleFixture";
 
-describe("calculatedColumnTypeCheck", () => {
-	it("fires when a calculated column's expression has a type error", () => {
-		// `arith` requires numeric operands — a `text` property fails the
-		// per-side numeric check.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							calculatedColumn(
-								testUuid("col-bad-arith"),
-								"Bad",
-								arith(
-									"+",
-									term(prop("patient", "full_name")),
-									term(prop("patient", "full_name")),
-								),
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "text",
-									id: "name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "full_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "full_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
+const id = testUuid("calculated");
+describe("calculated column type admission", () => {
+	const base = () =>
+		admittedCaseListDoc({
+			fields: [
+				f({
+					kind: "int",
+					id: "age",
+					label: "Age",
+					caseWrite: { caseType: "patient", property: "age" },
+				}),
+				f({
+					kind: "text",
+					id: "nickname",
+					label: "Nickname",
+					caseWrite: { caseType: "patient", property: "nickname" },
+				}),
 			],
 		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
-			),
-		).toBe(true);
+	it("accepts numeric arithmetic and writer-derived and standard properties", () => {
+		for (const expression of [
+			arith("+", term(prop("patient", "age")), term(prop("patient", "age"))),
+			term(prop("patient", "nickname")),
+			term(prop("patient", "case_name")),
+		])
+			expect(
+				findings(
+					withColumns(base(), [calculatedColumn(id, "Value", expression)]),
+				),
+			).toEqual([]);
 	});
-
-	it("does not fire on a well-typed calculated column", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							calculatedColumn(
-								testUuid("col-age-plus"),
-								"Age + 1",
-								arith(
-									"+",
-									term(prop("patient", "age")),
-									term(prop("patient", "age")),
-								),
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "int",
-									id: "age",
-									label: proseText("Age"),
-									caseWrite: { caseType: "patient", property: "age" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-						{ name: "age", label: proseText("Age"), data_type: "int" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
-			),
-		).toBe(false);
-	});
-
-	it("fires when a calculated column references an unknown property", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							calculatedColumn(
-								testUuid("col-unknown"),
-								"Unknown",
-								term(prop("patient", "ghost")),
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) =>
-					e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR" &&
-					e.message.toLowerCase().includes("unknown property"),
-			),
-		).toBe(true);
-	});
-
-	it("locates the offending column by uuid in the error details", () => {
-		// Pin the uuid-as-locator contract: the error's `columnUuid`
-		// detail carries the offending column's stable identity, not
-		// an array index, so the editor can highlight the right row
-		// after a reorder.
-		const calcUuid = testUuid("col-locator-target");
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							calculatedColumn(
-								calcUuid,
-								"Unknown",
-								term(prop("patient", "ghost")),
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		const hits = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+	it.each(["case_name", "nickname"])(
+		"reports both nonnumeric operands from %s with stable identity and AST paths",
+		(property) => {
+			const expression = arith(
+				"+",
+				term(prop("patient", property)),
+				term(prop("patient", property)),
+			);
+			const column = calculatedColumn(id, "Bad arithmetic", expression, {
+				visibleInList: false,
+				visibleInDetail: false,
+			});
+			const errors = findings(withColumns(base(), [column]));
+			expect(errors.map((error) => error.code)).toEqual([
+				"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+				"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+			]);
+			expect(errors.map((error) => error.details)).toEqual([
+				{ index: "0", columnUuid: id, path: "left" },
+				{ index: "0", columnUuid: id, path: "right" },
+			]);
+		},
+	);
+	it("identifies an unknown property without a redundant ordinary-column error", () => {
+		const errors = findings(
+			withColumns(base(), [
+				calculatedColumn(id, "Unknown", term(prop("patient", "ghost"))),
+			]),
 		);
-		expect(hits.length).toBeGreaterThan(0);
-		expect(hits.every((e) => e.details?.columnUuid === calcUuid)).toBe(true);
-	});
-
-	// ── Augmentation regression coverage ─────────────────────────
-	//
-	// Pin the rule-set-wide admission model for value expressions:
-	// a calculated column referencing a writer-derived OR standard
-	// property must NOT spuriously fire "Unknown property", and the
-	// implicit type of standard properties must drive operator
-	// selection.
-
-	it("admits a writer-derived-only property in a calculated column (no spurious unknown)", () => {
-		// `nickname` is written via `caseWrite` but NOT declared
-		// on `ct.properties[]`. The augmented case-type list adds it as
-		// `text`, so `term(prop("patient", "nickname"))` type-checks
-		// cleanly.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							calculatedColumn(
-								testUuid("col-nickname"),
-								"Nickname",
-								term(prop("patient", "nickname")),
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-								f({
-									kind: "text",
-									id: "nickname",
-									label: proseText("Nickname"),
-									caseWrite: { caseType: "patient", property: "nickname" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [
-				{
-					name: "patient",
-					properties: [
-						{ name: "case_name", label: proseText("Name"), data_type: "text" },
-					],
-				},
-			],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
-			),
-		).toBe(false);
-	});
-
-	it("admits a standard-only property in a calculated column (no spurious unknown)", () => {
-		// `case_name` is implicitly text. A calculated column reading
-		// it should type-check cleanly without an "Unknown property"
-		// error.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							calculatedColumn(
-								testUuid("col-display-name"),
-								"Display name",
-								term(prop("patient", "case_name")),
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
-			),
-		).toBe(false);
-	});
-
-	it("rejects arith on a standard text-typed property (implicit type drives the check)", () => {
-		// `case_name` is implicitly text. `arith` requires numeric
-		// operands — the standard property's implicit `text` type
-		// must surface here as a type error. If the augmentation
-		// missed the standard arm, this would either pass silently
-		// (fall-through to text via some default) or fail with
-		// "Unknown property". We want the exact "numeric" error.
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: {
-						columns: [
-							plainColumn(testUuid("col-name"), "case_name", "Name"),
-							calculatedColumn(
-								testUuid("col-bad-arith"),
-								"Bad",
-								arith(
-									"+",
-									term(prop("patient", "case_name")),
-									term(prop("patient", "case_name")),
-								),
-							),
-						],
-						searchInputs: [],
-					},
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		const errors = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
-		// The property exists (so no "Unknown property"); the type
-		// rule fires (so we see "numeric" / "arith" in the message).
-		const hits = errors.filter(
-			(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
-		);
-		expect(hits.length).toBeGreaterThan(0);
-		expect(hits.some((e) => /unknown property/i.test(e.message))).toBe(false);
-		expect(hits.some((e) => /arith|numeric/i.test(e.message))).toBe(true);
-	});
-
-	it("short-circuits cleanly when no calculated columns are declared", () => {
-		const doc = buildDoc({
-			appName: "Test",
-			modules: [
-				{
-					name: "Mod",
-					caseType: "patient",
-					caseListConfig: caseListConfig([
-						{ field: "case_name", header: "Name" },
-					]),
-					forms: [
-						{
-							name: "Reg",
-							type: "registration",
-							fields: [
-								f({
-									kind: "text",
-									id: "case_name",
-									label: proseText("Name"),
-									caseWrite: { caseType: "patient", property: "case_name" },
-								}),
-							],
-						},
-					],
-				},
-			],
-			caseTypes: [{ name: "patient", properties: [] }],
-		});
-		expect(
-			runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).some(
-				(e) => e.code === "CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
-			),
-		).toBe(false);
+		expect(errors.map((error) => error.code)).toEqual([
+			"CASE_LIST_CALCULATED_COLUMN_TYPE_ERROR",
+		]);
+		expect(errors[0].details?.columnUuid).toBe(id);
+		expect(errors[0].message).toContain("Unknown property 'ghost'");
 	});
 });

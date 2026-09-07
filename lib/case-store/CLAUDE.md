@@ -41,6 +41,16 @@ the column required for every future writer.
 
 ## The atomic submission envelope — `applySubmission`
 
+A worker-record write resolves exactly one open `commcare-user` row by
+`hq_user_id` inside the bound app and Project before any submission effects.
+Its owner must match the acting worker. Missing, closed, wrong-owner or duplicate
+records refuse; an ordinary case whose id equals the worker id is never a
+substitute. The resolved case id, which may be historical, also identifies the
+worker row in the transaction-captured device patch and durable replay. No
+submission reconstructs it from the acting user id or creates a missing record.
+
+Arithmetic operands are explicitly cast to `numeric`, including bound form answers, so PostgreSQL cannot select a text operator such as pg_trgm `%`. Declared integer division uses `trunc` to preserve the domain's truncation toward zero without imposing an int4/int8 limit on intermediate expressions. The committed form supplies `formFieldTypes` with its operation program; expressions retain the current case scope and lookup-column definitions. Native numeric precision and zero-division errors remain PostgreSQL behavior, independently of Core's floating-point runtime.
+
 Every `applySubmission` transaction first claims the
 `(app, Project, actor, entry_key)` idempotency row under the entry advisory
 lock, independently of attachment presence. A new claim checks the committed
@@ -380,7 +390,11 @@ type's ACTIVE JSON Schema (the row in `case_type_schemas` with
 `is_active = true`) via `ajv`
 BEFORE the write reaches Postgres. The schema row is fetched on
 demand and the compiled validator is cached per
-`(appId, caseType, schemaContent)`.
+`(appId, caseType, schemaContent)`. Numeric strictness stays enabled even
+though AJV permits annotation keywords: `NaN` and infinities are refused
+before JSON serialization could turn them into null. This includes numeric
+JSON tokens such as `1e400` that overflow JavaScript during parsing. The same
+validator configuration owns parked-value and cast conformance.
 
 `update` merges the patch over the row's existing document and,
 before validating, SHEDS inherited keys the current schema no

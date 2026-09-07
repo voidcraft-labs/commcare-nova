@@ -1,35 +1,6 @@
-// components/builder/case-operations/__tests__/caseOperationValidByConstruction.test.ts
-//
-// The case-operation surface's headline invariant, stated once so the
-// whole class of "the editor offers what the commit gate refuses" is
-// unreachable rather than fixed three times.
-//
-// The shared editor already proves admission ⟺ type checker
-// (`shared/__tests__/validByConstruction.test.ts`) and that every
-// admitted verb build type-checks (`verbMenuBuildFuzz.test.ts`). Neither
-// can see this surface's extra law: `rules/caseOperations.ts` refuses
-// reads and shapes the TYPE CHECKER is perfectly happy with:
-//
-//   - a case property / relationship count / presence test in ANY slot
-//     unless that exact form opens with a session case, and
-//   - an `id-of` anywhere inside a RUNTIME TARGET tree, in the operation's
-//     own target and in a link's alike.
-//
-// So the oracle here is the validator rule itself, driven over registration,
-// case-first follow-up, and mixed-module follow-up forms and EVERY slot the
-// detail canvas mounts. The
-// editor's own admission functions choose the candidates: the Add-condition
-// menu's own items, the verb menu's builds, the expression kind menu's
-// seeds, and the canvas's own committed seeds. Nothing is re-derived, a
-// candidate the editor would not offer is skipped by the editor's own
-// predicate, so the test can only fail on a genuine offer-then-reject.
-//
-// Candidates are what the menus OFFER, not what the schema registry can
-// build. Driving every authorable schema's seed looked stricter and was
-// merely wrong: `match` and `within-distance` have no Add-condition item:
-// they are verb switches on an existing condition, and their registry
-// seeds are deliberately incomplete, so asserting them tested a path no
-// author can take.
+/** Finite menu/seed corpus for the case-operation surface, checked against
+ * the complete absolute commit gate. These are local editor candidates, not
+ * native device or exhaustive app proofs. No finding class is exempted. */
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
@@ -56,10 +27,11 @@ import {
 	STRUCTURE_KINDS,
 } from "@/components/builder/shared/PredicateWorkbench";
 import { defaultExpressionForSlot } from "@/components/builder/shared/primitives/ExpressionPicker";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
-import { validateCaseOperations } from "@/lib/commcare/validator/rules/caseOperations";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { evaluateCommit } from "@/lib/commcare/validator/gate";
 import { formFieldEntriesFor } from "@/lib/doc/formFieldEntries";
 import { isReservedCaseOperationProperty } from "@/lib/doc/identifierVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type BlueprintDoc,
 	CASE_LOADING_FORM_TYPES,
@@ -73,7 +45,6 @@ import {
 import {
 	actingUser,
 	admitsValueExpressionKind,
-	type CheckError,
 	checkExpression,
 	checkPredicate,
 	checkValueExpression,
@@ -84,7 +55,6 @@ import {
 	type ResolvedType,
 	type SlotConstraint,
 	storageAssignmentConstraint,
-	type TypeContext,
 	term,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
@@ -145,7 +115,13 @@ function fixture(kind: FixtureKind): {
 					{
 						name: "Register",
 						type: "registration" as const,
-						fields: [],
+						fields: [
+							f({
+								kind: "text",
+								id: "name",
+								caseWrite: { caseType: "patient", property: "case_name" },
+							}),
+						],
 					},
 				]
 			: []),
@@ -154,10 +130,13 @@ function fixture(kind: FixtureKind): {
 			type: formType,
 			fields: [
 				f({
-					uuid: SUBJECT,
+					uuid: testUuid("case-operation-subject-answer"),
 					kind: "text",
 					id: "subject",
 					label: proseText("Subject"),
+					...(formType === "registration" && {
+						caseWrite: { caseType: "patient", property: "case_name" },
+					}),
 				}),
 				f({
 					uuid: TEXT,
@@ -216,12 +195,15 @@ function fixture(kind: FixtureKind): {
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "nickname", header: "Nickname" },
+				]),
 				forms,
 			},
 		],
 	});
-	const mutableDoc = doc as { userProperties?: Record<string, UserProperty> };
-	mutableDoc.userProperties = { [WORKER_PROPERTY]: WORKER };
+	doc.userProperties = { [WORKER_PROPERTY]: WORKER };
+	doc.userPropertyOrder = [WORKER_PROPERTY];
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][forms.length - 1];
 	return {
@@ -271,9 +253,8 @@ function priorCreate(): CaseOperation {
 
 /**
  * The operation under test. It targets the earlier create rather than
- * the session so the BASELINE is valid in both module shapes, a session
- * target is itself unavailable without a case-first module, and that
- * refusal would mask every finding this test is looking for.
+ * the session so the baseline also works in a registration form, which
+ * has no selected case before its primary case is created.
  */
 function subjectOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 	return {
@@ -296,41 +277,13 @@ function gateFindings(
 		priorCreate(),
 		operation,
 	];
-	return validateCaseOperations(
-		built.doc,
-		built.formUuid,
-		built.moduleUuid,
-	).map((error) => `${error.code}: ${error.message}`);
-}
-
-/**
- * The one COMPLETENESS state the shared editor deliberately leaves for
- * the author to fill: an unpicked property. It is decided against the
- * EDITOR's own type context, so a candidate is skipped only when the
- * editor itself knows it is unfinished, never because the gate happened
- * to disagree.
- *
- * `match-value-empty` used to be tolerated here too, and that tolerance
- * is exactly why the test built to catch offer-then-refuse missed an
- * empty match value on its own surface. Nothing unfinished may be
- * committed: the gate has no tolerant class, `gate.ts` gates
- * completeness like soundness, so the editor must not OFFER a gesture
- * that lands one. The verb menu now disables a switch to `match` until
- * something carryable exists, which is what makes dropping this safe.
- */
-function isCompletenessOnly(errors: readonly CheckError[]): boolean {
-	return errors.every((error) => error.code === "unknown-property");
-}
-
-function unfinished(
-	candidate: Predicate | ValueExpression,
-	typeCtx: TypeContext,
-	isPredicate: boolean,
-): boolean {
-	const result = isPredicate
-		? checkPredicate(candidate as Predicate, typeCtx)
-		: checkValueExpression(candidate as ValueExpression, typeCtx);
-	return !result.ok && isCompletenessOnly(result.errors);
+	const verdict = evaluateCommit({
+		nextDoc: built.doc,
+		lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
+	});
+	return verdict.ok
+		? []
+		: verdict.findings.map((error) => `${error.code}: ${error.message}`);
 }
 
 // ── The slots ──────────────────────────────────────────────────────────
@@ -354,16 +307,7 @@ interface ExpressionSlot {
 	 * (`CaseOperationDetailCanvas.tsx:441`) and never exercised at all.
 	 */
 	readonly ownerValues: boolean;
-	/**
-	 * A name / rename / owner slot, where `validateTextExpression` refuses a
-	 * BLANK literal on top of the type rule: a constraint `SlotConstraint`
-	 * has no axis for, so the picker's typed literal seed is an empty string
-	 * there. That is a COMPLETENESS state ("type the name") of exactly the
-	 * kind the editor leaves elsewhere, and the gate spells it that way; it
-	 * is tolerated below by the same structural test the validator applies
-	 * (a literal directly in the slot), so nothing about scope or `id-of`
-	 * can hide behind it.
-	 */
+	/** Place one already-admitted expression in its actual operation facet. */
 	readonly place: (candidate: ValueExpression) => CaseOperation;
 }
 
@@ -478,7 +422,7 @@ describe("case-operation fixtures", () => {
 
 // ── 1. Predicate slots ─────────────────────────────────────────────────
 
-describe("every condition the editor offers is admitted by the commit gate", () => {
+describe("offered condition corpus passes the complete commit gate", () => {
 	it.each(SHAPES)("$label", ({ kind }) => {
 		const shape = fixture(kind);
 		const vocabulary = editorVocabulary(shape);
@@ -541,7 +485,9 @@ describe("every condition the editor offers is admitted by the commit gate", () 
 
 		for (const slot of PREDICATE_SLOTS) {
 			for (const candidate of candidates) {
-				if (unfinished(candidate.value, typeCtx, true)) continue;
+				expect(checkPredicate(candidate.value, typeCtx), candidate.why).toEqual(
+					{ ok: true },
+				);
 				expect(
 					gateFindings(shape, slot.place(candidate.value)),
 					`${slot.name}: ${candidate.why}`,
@@ -553,11 +499,10 @@ describe("every condition the editor offers is admitted by the commit gate", () 
 
 // ── 2. Expression slots ────────────────────────────────────────────────
 
-describe("every value the editor offers is admitted by the commit gate", () => {
+describe("offered value corpus passes the complete commit gate", () => {
 	it.each(SHAPES)("$label", ({ kind }) => {
 		const shape = fixture(kind);
 		const vocabulary = editorVocabulary(shape);
-		const _typeCtx = buildEditorTypeContext(vocabulary);
 
 		for (const slot of EXPRESSION_SLOTS) {
 			const scope = slot.runtimeTarget
@@ -593,7 +538,10 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 				) {
 					continue;
 				}
-				if (unfinished(candidate, slotTypeCtx, false)) continue;
+				expect(
+					checkValueExpression(candidate, slotTypeCtx),
+					`${slot.name}: ${schema.kind}`,
+				).toEqual({ ok: true });
 				expect(
 					gateFindings(shape, slot.place(candidate)),
 					`${slot.name}: value kind "${schema.kind}"`,
@@ -643,7 +591,7 @@ describe("every value the editor offers is admitted by the commit gate", () => {
 // intermediate state for them to be merely unfinished in, so they are
 // held to the whole gate with no tolerance at all.
 
-describe("every seed the canvas commits is accepted outright", () => {
+describe("canvas seed corpus passes the complete commit gate", () => {
 	it.each(SHAPES)("$label", ({ kind }) => {
 		const shape = fixture(kind);
 		const vocabulary = editorVocabulary(shape);

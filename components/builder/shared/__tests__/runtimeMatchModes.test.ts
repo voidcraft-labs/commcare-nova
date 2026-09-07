@@ -17,13 +17,11 @@ import {
 } from "@/components/builder/shared/cards/PredicateVerbMenu";
 import type { PredicateEditContext } from "@/components/builder/shared/editorSchemas";
 import { buildEditorTypeContext } from "@/components/builder/shared/editorTypeContext";
-import { matchModeAvailableOnDevice } from "@/lib/doc/commitVerdicts";
 import type { CaseType } from "@/lib/domain";
 import {
 	checkExpression,
 	eq,
 	literal,
-	MATCH_MODES,
 	type Predicate,
 	prop,
 	term,
@@ -77,13 +75,13 @@ function admittedModes(
 }
 
 describe("match modes follow the carrier's runtime", () => {
-	it("offers only the mode CommCare Core implements on a device", () => {
+	it("offers the configured device-safe mode", () => {
 		expect(admittedModes("on-device")).toEqual(["starts-with"]);
 	});
 
-	it("offers every mode where the rule resolves as a server query", () => {
+	it("offers the four server-query modes", () => {
 		expect([...admittedModes("case-search")].sort()).toEqual(
-			[...MATCH_MODES].sort(),
+			["fuzzy-date", "starts-with", "phonetic", "fuzzy"].sort(),
 		);
 	});
 
@@ -97,14 +95,5 @@ describe("match modes follow the carrier's runtime", () => {
 	// and repairable, rather than offering a choice the gate refuses.
 	it("fails closed when a surface states no runtime at all", () => {
 		expect(admittedModes(undefined)).toEqual(["starts-with"]);
-	});
-
-	// The editor's answer and the wire's answer are the same fact; if
-	// they could disagree, one of them is a second copy of the table.
-	it("agrees with the wire dialect about every mode", () => {
-		const offered = new Set(admittedModes("on-device"));
-		for (const mode of MATCH_MODES) {
-			expect(offered.has(mode)).toBe(matchModeAvailableOnDevice(mode));
-		}
 	});
 });

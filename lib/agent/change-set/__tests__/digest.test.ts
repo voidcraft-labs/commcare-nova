@@ -10,6 +10,7 @@
  * silently replay an old receipt.
  */
 
+import { createHash } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
 	canonicalJsonDigest,
@@ -18,11 +19,9 @@ import {
 	workspaceCallInputDigest,
 } from "@/lib/agent/change-set/digest";
 import {
-	canonicalJsonDigest as leafDigest,
-	canonicalJsonText as leafText,
-} from "@/lib/utils/canonicalJson";
-
-const HEX_64 = /^[a-f0-9]{64}$/;
+	persistModelValue,
+	rehydrateModelValue,
+} from "@/lib/agent/modelMessagePersistence";
 
 /** Keys chosen so code-point order (`Z` < `_x` < `a` < `b`) differs from both
  *  insertion order and any locale-aware collation. */
@@ -34,7 +33,7 @@ const FIXTURE = {
 };
 
 describe("canonicalJsonText", () => {
-	it("sorts every object's keys by UTF-16 code point, recursively, leaving array order alone", () => {
+	it("sorts ordinary string keys by UTF-16 code unit, recursively, leaving array order alone", () => {
 		expect(canonicalJsonText(FIXTURE)).toBe(
 			'{"Z":{"x":"x","y":"y"},"_x":null,"a":1,"b":[3,{"c":[5,{"e":7,"f":6}],"d":4}]}',
 		);
@@ -61,18 +60,45 @@ describe("canonicalJsonText", () => {
 	it("refuses a value that serializes to nothing rather than digesting an absence", () => {
 		expect(() => canonicalJsonText(undefined)).toThrow(/serializes to nothing/);
 	});
-
-	it("is the one shared implementation the change-set vocabulary re-exports", () => {
-		expect(canonicalJsonText).toBe(leafText);
-		expect(canonicalJsonDigest).toBe(leafDigest);
-	});
 });
 
 describe("canonicalJsonDigest", () => {
-	it("is 64 lowercase hex characters", () => {
-		expect(canonicalJsonDigest(FIXTURE)).toMatch(HEX_64);
-		expect(canonicalJsonDigest(null)).toMatch(HEX_64);
-		expect(canonicalJsonDigest([])).toMatch(HEX_64);
+	it("hashes the exact canonical UTF-8 bytes", () => {
+		const bytes =
+			'{"Z":{"x":"x","y":"y"},"_x":null,"a":1,"b":[3,{"c":[5,{"e":7,"f":6}],"d":4}]}';
+		expect(canonicalJsonDigest(FIXTURE)).toBe(
+			createHash("sha256").update(bytes, "utf8").digest("hex"),
+		);
+	});
+	it.each([
+		'{"__proto__":{"x":1},"a":2}',
+		'{"nested":{"__proto__":{"x":1},"a":2}}',
+		'[{"__proto__":{"x":1},"a":2}]',
+	])("preserves own __proto__ JSON member in %s", (json) => {
+		const value = JSON.parse(json);
+		expect(canonicalJsonText(value)).toBe(json);
+		expect(canonicalJsonDigest(value)).toBe(
+			createHash("sha256").update(json, "utf8").digest("hex"),
+		);
+	});
+	it("distinguishes an own prototype-named key from an absent key", () => {
+		expect(
+			canonicalJsonDigest(JSON.parse('{"__proto__":{"x":1},"a":2}')),
+		).not.toBe(canonicalJsonDigest({ a: 2 }));
+	});
+
+	it("keeps existing encoded model-value digest bytes stable for customer prototype-named keys", () => {
+		const customerValue = JSON.parse('{"__proto__":"kept"}');
+		const persisted = persistModelValue(customerValue);
+		// These were already the stored bytes before own JSON-key preservation:
+		// customer keys are strings in entries, never object property names.
+		const bytes =
+			'{"encoding":"nova-model-value-v1","value":{"entries":[["__proto__",{"kind":"string","value":"kept"}]],"kind":"object"}}';
+		expect(canonicalJsonText(persisted)).toBe(bytes);
+		expect(canonicalJsonDigest(persisted)).toBe(
+			createHash("sha256").update(bytes, "utf8").digest("hex"),
+		);
+		expect(rehydrateModelValue(persisted)).toEqual(customerValue);
 	});
 
 	it("separates values that differ only in content", () => {
@@ -139,9 +165,5 @@ describe("workspaceCallInputDigest", () => {
 				projectedInput: { items: [{ label: "Name" }], formUuid: "f" },
 			}),
 		).toBe(workspaceCallInputDigest(base));
-	});
-
-	it("is 64 lowercase hex characters", () => {
-		expect(workspaceCallInputDigest(base)).toMatch(HEX_64);
 	});
 });

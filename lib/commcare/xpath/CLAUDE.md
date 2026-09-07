@@ -12,11 +12,8 @@ CommCare's XPath dialect: the Lezer grammar + generated parser, the carrier capa
 - `carriers.ts` — the canonical walk of every persisted `XPathExpression`, paired with its closed execution profile. Field expressions are Preview-form-owned, form-link expressions are Preview-session-owned, Connect expressions are wire-form-only, and case-property catalog constraints are wire-catalog-only. Scanners and validators consume this inventory instead of maintaining their own slot lists.
 - `compatibility.ts` — the privacy-safe carrier admission verdict. Its source-only pass composes executable language checks with function, signature, and context capabilities for the carrier profile. Its instance pass admits only stable structural ids in raw XPath. Lookup tables stay in UUID-bearing typed carriers because their tags live outside `BlueprintDoc` and can be renamed. Both passes return stable codes and constant prose, never authored source.
 - `javaRosaLowering.ts` — the production raw-XPath wire lowerer. It walks the Lezer CST and currently lowers only `normalize-space(value)` to JavaRosa-native `replace()` calls over the XML whitespace set. XForm real attributes, Vellum shadows, suite XPath, and XPath-bearing HQ JSON all cross this boundary before serialization.
-- `transpiler.ts` — experimental `transpile(source)` entry point. No production emitter calls it.
-- `typeInfer.ts` — internal bottom-up type inference over the Lezer CST.
-- `passes/` — internal transform passes, each shaped `(tree, types, source) → SourceEdit[]`.
 - `detectUnquotedStringLiteral.ts` — standalone parser-backed check for the "bare word where a string literal was intended" authoring mistake. Used by the deep validator's form + field rules.
-- `index.ts` — public barrel: `parser`, parser term constants, `analyzeXPathCompatibility`, `lowerXPathForJavaRosa`, `transpile`, `detectUnquotedStringLiteral`. Internals (`typeInfer`, `passes`) are not exported.
+- `index.ts` — public barrel: `parser`, parser term constants, `analyzeXPathCompatibility`, `lowerXPathForJavaRosa`, `detectUnquotedStringLiteral`.
 
 ## Production compatibility boundary
 
@@ -47,20 +44,4 @@ needs XForm-initialization proof and artifact tests that find no unlowered call;
 CSQL needs an explicit decision only when the expression can reach a CSQL
 carrier.
 
-`lowerXPathForJavaRosa` preserves all source bytes outside the replacement ranges and applies nested edits from the CST; never replace function text with regex. Malformed input passes through because the commit validator owns syntax. Production emitters must not call the experimental transpiler: activating an unrelated pass changes already-valid app semantics.
-
-## Experimental transpiler pipeline
-
-Parse → type inference → pass pipeline → source edits → output string. Single stage: every pass sees the original tree; edits are merged and applied once at the end. Passes must produce non-overlapping ranges; the pipeline throws on overlap.
-
-## Type inference keys by Lezer's `NodeWeakMap`, not offsets
-
-Nested nodes can share a start offset — e.g. `AddExpr` and `GreaterThanExpr` both start at 0 in `today() + 7 > today()` — so offset-based keying collides. `NodeWeakMap` keys by Lezer's internal buffer identity, which is unique per node instance.
-
-## Adding a pass or extending type inference
-
-A pass has the shape `(tree, types, source) → SourceEdit[]`. Register new passes in the `PASSES` array in `transpiler.ts`; extend type inference by adding entries to the `FUNCTION_TYPES` table in `typeInfer.ts`.
-
-## Current passes
-
-- **dateArithmetic** — wraps date-typed `+`/`-` expressions in `date()`. Skips date-date subtraction (produces a number) and expressions already inside `date()`.
+`lowerXPathForJavaRosa` preserves all source bytes outside the replacement ranges and applies nested edits from the CST; never replace function text with regex. Malformed input passes through because the commit validator owns syntax. An additional source transformation requires its own native runtime equivalence proof; unrelated arithmetic rewrites change already-valid app semantics.

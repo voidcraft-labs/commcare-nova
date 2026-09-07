@@ -1,18 +1,14 @@
-/**
- * A choice's stored value has to be something the wire can carry.
- *
- * The facts behind the two rules are the runtime's: CommCare Android throws
- * on any select whose value contains a space
- * (`QuestionWidget.java::getSelectChoices`), a multi-select answer is a
- * space-joined token list (`selected()` splits on spaces), and the case
- * list compares a select property inside an XPath literal
- * (`field = 'value'`), which a quote breaks. An empty value saves nothing.
- */
+// Exercises Nova's option diagnostics through the complete validation runner.
+// Invalid candidates deliberately bypass construction admission; accepted
+// neighbors also pass the persisted schema and commit gate. This is not an
+// Android or native JavaRosa execution test.
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, type FieldSpec, f } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { plainColumn } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { runValidation } from "../runner";
 
@@ -48,9 +44,10 @@ function fieldFindings(field: FieldSpec) {
 			},
 		],
 	});
-	return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-		(e) => e.code === FIELD_CODE,
-	);
+	const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+	expect(findings.every((finding) => finding.code === FIELD_CODE)).toBe(true);
+	if (findings.length === 0) expectAdmittedDoc(doc);
+	return findings;
 }
 
 describe("SELECT_OPTION_VALUE_INVALID", () => {
@@ -189,13 +186,35 @@ describe("CASE_PROPERTY_OPTION_VALUE_INVALID", () => {
 				{
 					name: "Clients",
 					caseType: "client",
-					forms: [{ name: "Register", type: "registration", fields: [] }],
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("catalog-name-column"), "case_name", "Name"),
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Register",
+							type: "registration",
+							fields: [
+								f({
+									kind: "text",
+									id: "name",
+									label: "Name",
+									caseWrite: { caseType: "client", property: "case_name" },
+								}),
+							],
+						},
+					],
 				},
 			],
 		});
-		return runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE).filter(
-			(e) => e.code === CATALOG_CODE,
+		const findings = runValidation(doc, LOOKUP_CONTEXT_UNAVAILABLE);
+		expect(findings.every((finding) => finding.code === CATALOG_CODE)).toBe(
+			true,
 		);
+		if (findings.length === 0) expectAdmittedDoc(doc);
+		return findings;
 	}
 
 	it("says nothing about a catalog whose values are slugs", () => {

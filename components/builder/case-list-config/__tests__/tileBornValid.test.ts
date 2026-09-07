@@ -9,10 +9,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import { columnSnapshotMutations } from "@/lib/doc/caseListColumnMutations";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import type { Mutation } from "@/lib/doc/types";
+import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
 	type Column,
@@ -65,18 +66,24 @@ function docWithColumns(columns: readonly Column[]): {
 	});
 	const moduleUuid = doc.moduleOrder[0];
 	if (moduleUuid === undefined) throw new Error("no module");
+	assertAdmittedDoc(doc);
 	return { doc, moduleUuid };
 }
 
-function column(field: string, header: string, slots: Partial<Column> = {}) {
-	return {
-		...plainColumn(testUuid(`col-${field}`), field, header),
-		...slots,
-	} as Column;
+function column(
+	field: string,
+	header: string,
+	slots: Parameters<typeof plainColumn>[3] = {},
+) {
+	return plainColumn(testUuid(`col-${field}`), field, header, slots);
 }
 
 function accepts(doc: BlueprintDoc, mutations: readonly Mutation[]) {
-	return mutationCommitVerdict(doc, mutations, LOOKUP_CONTEXT_UNAVAILABLE);
+	assertAdmittedDoc(doc);
+	const wire = mutations.map((m) =>
+		mutationSchema.parse(JSON.parse(JSON.stringify(m))),
+	);
+	return mutationCommitVerdict(doc, wire, LOOKUP_CONTEXT_UNAVAILABLE);
 }
 
 describe("turning the tile on", () => {
@@ -225,8 +232,8 @@ describe("joining Results while it is a tile", () => {
 			enabled.nextDoc,
 			columnSnapshotMutations(moduleUuid, hidden, {
 				...hidden,
-				visibleInList: undefined,
-			} as Column),
+				visibleInList: true,
+			}),
 		);
 		expect(stale.ok).toBe(false);
 
@@ -241,9 +248,9 @@ describe("joining Results while it is a tile", () => {
 			enabled.nextDoc,
 			columnSnapshotMutations(moduleUuid, hidden, {
 				...hidden,
-				visibleInList: undefined,
+				visibleInList: true,
 				tile: place,
-			} as Column),
+			}),
 		);
 		expect(revealed.ok).toBe(true);
 	});
@@ -263,7 +270,7 @@ describe("joining Results while it is a tile", () => {
 				column: {
 					...column("village", "Village"),
 					tile: place,
-				} as Column,
+				},
 				afterInList: null,
 				afterInDetail: null,
 			},

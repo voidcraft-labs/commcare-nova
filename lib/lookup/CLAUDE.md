@@ -135,6 +135,13 @@ remain allowed while referenced and do not rewrite edges.
 
 ## Values, ordering, and limits
 
+Table-tag admission reserves the runtime instance names in `constants.ts`,
+including the case-insensitive `selected_cases` family with optional case-type
+suffixes and repeated `parent_` prefixes, plus `search_selected_cases`. Column
+wire names do not share this restriction. Existing table identities are never
+renamed automatically; the compiler refuses a referenced historical collision
+with the table named so an authorized caller can explicitly change its tag.
+
 - Missing UUID key means a missing cell. JSON `null`, booleans, arrays, objects,
   unknown column ids, NUL, and unpaired UTF-16 surrogates are invalid. Empty text
   is valid for typed writes; an empty CSV cell omits the key.

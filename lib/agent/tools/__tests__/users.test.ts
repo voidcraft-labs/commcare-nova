@@ -1,7 +1,14 @@
+/** Shared user commands through real input admission, planners, reducer and
+ * workspace. The writer returns controlled candidates: persistence, place
+ * existence and case-row preservation require native SQL suites. */
+
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
+import { expectAdmittedDoc } from "@/lib/agent/__tests__/admittedFixture";
 import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 import {
@@ -27,7 +34,7 @@ import {
 } from "../users";
 
 function makeHarness(doc: BlueprintDoc) {
-	return makeToolWorkspaceHarness(doc, {
+	return makeToolWorkspaceHarness(expectAdmittedDoc(doc), {
 		appId: "app-users",
 		userId: "member",
 		runId: "run",
@@ -70,7 +77,7 @@ describe("user authoring tools", () => {
 		).toBe(true);
 	});
 
-	it("uses the same XML-safe worker-property grammar on the SA and MCP schema", () => {
+	it("admits and refuses concrete worker-property spellings at the input schema", () => {
 		for (const slug of ["2fa_region", "-area"]) {
 			expect(
 				addUserPropertiesInputSchema.safeParse({
@@ -86,32 +93,27 @@ describe("user authoring tools", () => {
 		).toBe(true);
 	});
 
-	it("states the initial-build ordering contract at the tool boundary", () => {
-		expect(addUserPropertiesTool.description).toContain("immediately after");
-		expect(addUserPropertiesTool.description).toContain("before");
-		expect(addUserPropertiesTool.description).toContain("createModule");
-	});
-
-	it("states that each update carries one UUID-addressed value patch", () => {
+	it("generated update schemas accept one value clear and reject the removed whole-values dialect", () => {
+		const ajv = new Ajv({ strict: false });
+		addFormats(ajv);
 		for (const schema of [
 			updateUserTypeInputSchema,
 			updatePersonaInputSchema,
 		]) {
-			const json = z.toJSONSchema(schema, {
-				target: "draft-7",
-				io: "input",
-			}) as {
-				properties?: { valuePatch?: { description?: string } };
+			const validate = ajv.compile(
+				z.toJSONSchema(schema, { target: "draft-7", io: "input" }),
+			);
+			const payload = {
+				uuid: testUuid("schema-target"),
+				valuePatch: {
+					userPropertyUuid: testUuid("schema-property"),
+					value: null,
+				},
 			};
-			expect(json.properties?.valuePatch?.description).toContain(
-				"One UUID-addressed value edit",
-			);
-			expect(json.properties?.valuePatch?.description).toContain(
-				"clear only the named property",
-			);
+			expect(schema.safeParse(payload).success).toBe(true);
+			expect(validate(payload), JSON.stringify(validate.errors)).toBe(true);
+			expect(validate({ ...payload, values: [] })).toBe(false);
 		}
-		expect(updateUserTypeTool.description).toContain("valuePatch");
-		expect(updatePersonaTool.description).toContain("valuePatch");
 	});
 
 	it("bridges returned property uuids into role and persona value records", async () => {
@@ -526,56 +528,37 @@ describe("user authoring tools", () => {
 			[regionUuid]: "south",
 			[cadreUuid]: "community",
 		});
-	});
-
-	it("preserves unmentioned values when one value is patched", async () => {
-		const harness = makeHarness(emptyDoc());
-		const properties = await harness.runTool(addUserPropertiesTool, {
-			properties: [
-				{ slug: "region", label: "Region" },
-				{ slug: "cadre", label: "Cadre" },
-			],
-		});
-		if (!("uuids" in properties.result)) throw new Error("setup failed");
-		const [regionUuid, cadreUuid] = properties.result.uuids;
-		const role = await harness.runTool(addUserTypesTool, {
-			userTypes: [
+		const persona = await harness.runTool(addPersonasTool, {
+			personas: [
 				{
-					name: "CHW",
+					name: "Asha",
+					userTypeUuid: role.result.uuids[0],
 					values: [
-						{ userPropertyUuid: regionUuid, value: "north" },
-						{ userPropertyUuid: cadreUuid, value: "community" },
+						{ userPropertyUuid: regionUuid, value: "east" },
+						{ userPropertyUuid: cadreUuid, value: "supervisor" },
 					],
 				},
 			],
 		});
-		if (!("uuids" in role.result)) throw new Error("setup failed");
-
-		const updated = await harness.runTool(updateUserTypeTool, {
-			uuid: role.result.uuids[0],
-			valuePatch: { userPropertyUuid: regionUuid, value: "south" },
+		if (!("uuids" in persona.result)) throw new Error("persona setup failed");
+		const cleared = await harness.runTool(updatePersonaTool, {
+			uuid: persona.result.uuids[0],
+			valuePatch: { userPropertyUuid: regionUuid, value: null },
 		});
-
+		expect(cleared.result).not.toHaveProperty("error");
+		expect(
+			harness.currentDoc().personas?.[persona.result.uuids[0]]?.values,
+		).toEqual({ [cadreUuid]: "supervisor" });
 		expect(
 			harness.currentDoc().userTypes?.[role.result.uuids[0]]?.values,
-		).toEqual({
-			[regionUuid]: "south",
-			[cadreUuid]: "community",
-		});
-		expect(
-			updated.mutations.some(
-				(mutation) =>
-					"valuePatch" in mutation &&
-					mutation.valuePatch?.userPropertyUuid === cadreUuid &&
-					mutation.valuePatch.value === null,
-			),
-		).toBe(false);
+		).toEqual({ [regionUuid]: "south", [cadreUuid]: "community" });
+		expectAdmittedDoc(harness.currentDoc());
 	});
 
 	it.each([
 		{ kind: "role", tool: updateUserTypeTool },
 		{ kind: "persona", tool: updatePersonaTool },
-	])("does not resolve an inherited $kind target", async ({ tool }) => {
+	])("refuses a missing $kind UUID without a write", async ({ tool }) => {
 		const harness = makeHarness(emptyDoc());
 
 		const result = await harness.runTool(tool, {
@@ -658,7 +641,7 @@ describe("user tool schemas", () => {
 		).toBe(false);
 		expect(
 			updateUserPropertyInputSchema.safeParse({
-				uuid: "property",
+				uuid: testUuid("property"),
 				choices: ["north", "north"],
 			}).success,
 		).toBe(false);

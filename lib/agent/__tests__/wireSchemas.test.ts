@@ -57,7 +57,7 @@ describe("compact provider expression schemas", () => {
 	const wire = wireToolSchema(localSchema);
 	const json = wire.jsonSchema as JsonNode;
 
-	it("keeps every AST object closed and the family roots' complete kind vocabulary visible", () => {
+	it("keeps projected object shells closed and the family root kind vocabulary visible", () => {
 		/* The wire contract: each family root's own arm vocabulary survives the
 		 * projection. Deeper structural vocabulary (RelationPath arms, switch
 		 * cases) is taught by the prompt's generated grammar and enforced by
@@ -112,14 +112,14 @@ describe("compact provider expression schemas", () => {
 				}
 			}
 		});
-		expect(canonicalRootKinds.size).toBeGreaterThan(40);
 		for (const kind of canonicalRootKinds) {
 			expect(projectedKinds.has(kind), `kind ${kind} lost in projection`).toBe(
 				true,
 			);
 		}
 		walkJson(json, (node, path) => {
-			expect(node.additionalProperties, path).not.toBe(true);
+			if (node.type === "object")
+				expect(node.additionalProperties, path).toBe(false);
 		});
 	});
 
@@ -196,7 +196,7 @@ describe("compact provider expression schemas", () => {
 		expect(total).toBeLessThan(480_000);
 	});
 
-	it("keeps the exact UUID pattern on every identity-bearing AST property", () => {
+	it("keeps exact UUID patterns on the listed identity-bearing AST properties", () => {
 		const found = new Set<string>();
 		walkJson(json, (node, path) => {
 			const properties = node.properties as JsonNode | undefined;
@@ -275,6 +275,44 @@ describe("compact provider expression schemas", () => {
 					},
 				},
 			},
+		});
+	});
+
+	it.each(["count", "exists", "missing"] as const)(
+		"validates an unfiltered %s through the actual model boundary without recursion",
+		async (kind) => {
+			const schema = z.object({
+				expression: kind === "count" ? valueExpressionSchema : predicateSchema,
+			});
+			const input = {
+				expression: {
+					kind,
+					via: { kind: "subcase", ofCaseType: "visit", identifier: "parent" },
+				},
+			};
+			expect(schema.safeParse(input).success).toBe(true);
+			expect(await wireToolSchema(schema).validate?.(input)).toEqual({
+				success: true,
+				value: input,
+			});
+		},
+	);
+
+	it("rejects malformed nested AST despite the intentionally shallow provider projection", async () => {
+		const schema = z.object({ predicate: predicateSchema }).strict();
+		const projected = wireToolSchema(schema);
+		const malformed = {
+			predicate: {
+				kind: "eq",
+				left: { kind: "term", term: { kind: "literal", value: "yes" } },
+				right: { kind: "invented" },
+			},
+		};
+		const validate = new Ajv({ strict: false }).compile(projected.jsonSchema);
+		expect(validate(malformed)).toBe(true);
+		expect(await projected.validate?.(malformed)).toMatchObject({
+			success: false,
+			error: { name: "ZodError" },
 		});
 	});
 

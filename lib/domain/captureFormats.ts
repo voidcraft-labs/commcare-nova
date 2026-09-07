@@ -211,7 +211,9 @@ export function captureAcceptAttribute(kind: CaptureFieldKind): string {
  * allowlist is the gate, and the content type is only a transport label.
  */
 export function captureContentType(extension: string): string {
-	return CAPTURE_CONTENT_TYPES[extension] ?? "application/octet-stream";
+	return Object.hasOwn(CAPTURE_CONTENT_TYPES, extension)
+		? CAPTURE_CONTENT_TYPES[extension]
+		: "application/octet-stream";
 }
 
 const CAPTURE_CONTENT_TYPES: Readonly<Record<string, string>> = {

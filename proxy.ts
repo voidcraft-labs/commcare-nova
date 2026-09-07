@@ -310,12 +310,13 @@ export function proxy(request: NextRequest): NextResponse {
 			/* Both `/mcp` and `/mcp/` rewrite to the same internal target
 			 * `/api/mcp` (no trailing slash) — Next's route handler lives
 			 * at `app/api/mcp/route.ts`, so the canonical internal path
-			 * is dash-free. Use `nextUrl.clone()` and mutate `pathname`
+			 * is dash-free. Use a native `URL` and mutate `pathname`
 			 * so the search string (e.g. `?session=…`, `?code=…`) survives
-			 * the rewrite — `new URL("/api/mcp", request.url)` would
+			 * the rewrite without NextURL retaining the incoming trailing slash.
+			 * `new URL("/api/mcp", request.url)` would
 			 * discard it. The MCP endpoint is JSON-RPC; return immediately
 			 * so it never picks up CSP headers or the auth redirect. */
-			const target = request.nextUrl.clone();
+			const target = new URL(request.nextUrl.href);
 			target.pathname = "/api/mcp";
 			return NextResponse.rewrite(target, {
 				request: { headers: requestHeaders },

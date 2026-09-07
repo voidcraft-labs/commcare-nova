@@ -16,6 +16,7 @@ import {
 import { whileBlocked } from "@/__tests__/helpers/postgresBarrier";
 import { testMediaAssetId } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import { nestedMenuWireFixture } from "@/lib/commcare/__tests__/nestedMenuWireFixture";
 import { decrypt } from "@/lib/commcare/encryption";
 import { setupAppStateTestDb } from "@/lib/db/__tests__/appStateTestDb";
 import { publishAppToHq, refreshDeployment } from "@/lib/deployment/service";
@@ -98,6 +99,26 @@ function document() {
 		],
 	});
 }
+
+it.each(["parent-multiple", "same-smaller"] as const)(
+	"refuses the admitted %s HQ selection loss through persisted SDK publishing before remote writes",
+	async (scenario) => {
+		await seed(nestedMenuWireFixture(scenario));
+		await withHttpPeer(async (peer) => {
+			await asUser(async (client) => {
+				const refusal = body(await call(client), true);
+				expect(refusal.error_type).toBe("invalid_input");
+				expect(refusal.message).toContain(
+					scenario === "parent-multiple" ? "parent cases" : "4 selected cases",
+				);
+				const target = await state();
+				expect(target).toBeNull();
+			});
+			expect(requests(peer)).toEqual([]);
+			expect(downloadAssetBytes).not.toHaveBeenCalled();
+		});
+	},
+);
 async function seed(doc: BlueprintDoc = document()) {
 	await h.seedAppWithBlueprint(doc, {
 		id: APP,

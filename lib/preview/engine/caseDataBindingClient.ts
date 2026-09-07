@@ -353,7 +353,7 @@ export function mapPopulateSampleCasesError(
 	}
 	return {
 		kind: "error",
-		message: err instanceof Error ? err.message : "Failed to seed cases.",
+		message: "We couldn't add sample data. Try again.",
 	};
 }
 
@@ -372,7 +372,7 @@ export function mapFilterPreviewError(err: unknown): LoadFilterPreviewResult {
 	}
 	return {
 		kind: "error",
-		message: err instanceof Error ? err.message : "Failed to load preview.",
+		message: "We couldn't load the preview. Try again.",
 	};
 }
 
@@ -410,7 +410,7 @@ export function mapSubmitFormError(err: unknown): SubmissionResult {
 	}
 	return {
 		kind: "error",
-		message: err instanceof Error ? err.message : "Failed to submit form.",
+		message: "We couldn't submit this form. Try again.",
 	};
 }
 

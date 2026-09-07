@@ -225,8 +225,38 @@ describe("useCaseWriteChoiceVerdicts", () => {
 		});
 		await expect(first).resolves.toBeUndefined();
 		expect(workers[0].terminate).toHaveBeenCalledOnce();
+		const cancelledLoad = new ErrorEvent("error", {
+			cancelable: true,
+			message: "importScripts request was cancelled",
+		});
+		workers[0].onerror?.(cancelledLoad);
+		expect(cancelledLoad.defaultPrevented).toBe(true);
 		unmount();
 		await expect(next).resolves.toBeUndefined();
 		expect(workers[1].onmessage).toBeNull();
+		const unmountedLoad = new ErrorEvent("error", {
+			cancelable: true,
+			message: "importScripts request was cancelled",
+		});
+		workers[1].onerror?.(unmountedLoad);
+		expect(unmountedLoad.defaultPrevented).toBe(true);
+	});
+
+	it("owns a cancelled module-load error when an unused warm worker unmounts", () => {
+		const { field, wrapper } = setup();
+		const { unmount } = renderHook(
+			() => useCaseWriteChoiceVerdicts(field, EMPTY_CANDIDATES, true),
+			{ wrapper },
+		);
+		const worker = workers[0];
+		expect(worker.postMessage).not.toHaveBeenCalled();
+		unmount();
+		expect(worker.terminate).toHaveBeenCalledOnce();
+		const error = new ErrorEvent("error", {
+			cancelable: true,
+			message: "warm module load cancelled",
+		});
+		worker.onerror?.(error);
+		expect(error.defaultPrevented).toBe(true);
 	});
 });

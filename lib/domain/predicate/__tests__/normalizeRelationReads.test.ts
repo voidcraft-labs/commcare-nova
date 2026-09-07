@@ -1,14 +1,9 @@
 // lib/domain/predicate/__tests__/normalizeRelationReads.test.ts
 //
-// Acceptance tests for CSQL's relation-read adapter. On-device XPath keeps
-// PropertyRef node-sets intact and Preview/Postgres mirrors their pairwise
-// comparison semantics directly; CSQL needs explicit query-function envelopes.
-//
-// Non-grammar value expressions (`if`, `switch`, `arith`, `concat`,
-// `coalesce`, `format-date`, non-LHS `count`, ancestor / any-relation
-// `count`) inline as runtime on-device XPath fragments at the CSQL
-// emitter — they do NOT rewrite the AST. Tests for that inline
-// behaviour live in `csqlEmitter.test.ts`.
+// Structural tests for the CSQL relation-read adapter. They exercise the
+// transform at its own boundary; native consumer tests own wire acceptance.
+// The shared evaluation-scope pass runs before this grammar adapter in public
+// compilation, so direct candidate tests here need not represent full apps.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -19,9 +14,11 @@ import {
 	between,
 	eq,
 	exists,
+	gt,
 	gte,
 	isBlank,
 	literal,
+	lt,
 	lte,
 	match,
 	multiSelectAll,
@@ -61,6 +58,16 @@ describe("normalizeRelationPropertyReads", () => {
 				eq(prop("patient", "case_name"), literal("Alice")),
 			),
 		);
+	});
+
+	it("reverses an ordered comparison when lifting its right operand", () => {
+		const via = subcasePath("parent", "patient");
+		const authored = gt(literal(18), prop("household", "age", via));
+		const before = structuredClone(authored);
+		expect(normalizeRelationPropertyReads(authored)).toEqual(
+			exists(via, lt(prop("patient", "age"), literal(18))),
+		);
+		expect(authored).toEqual(before);
 	});
 
 	it("rewrites is-blank with subcase via on its left operand into exists envelope", () => {
@@ -215,16 +222,10 @@ describe("normalizeRelationPropertyReads", () => {
 		expect(second).toEqual(first);
 	});
 
-	it("returns a fresh predicate when nothing lifts", () => {
-		// A predicate composed of only via-free property references
-		// flows through the walker without any transformations. The
-		// output is a fresh allocation so the caller can mutate
-		// either copy without disturbing the other.
+	it("preserves a predicate with no relation walk", () => {
 		const p = eq(prop("patient", "case_name"), literal("Alice"));
 		const result = normalizeRelationPropertyReads(p);
 		expect(result).toEqual(p);
-		// Identity-preserving leaf shapes are allowed — the walker
-		// only allocates fresh nodes when something changes.
 	});
 });
 

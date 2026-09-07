@@ -1,12 +1,10 @@
 // lib/domain/predicate/__tests__/slotConstraints.test.ts
 //
-// Pins the inverse "valid choices" helpers against the forward type
-// checker they invert. The editor offers exactly what these admit, so
-// these tests are the guarantee that the offered-set never drifts from
-// the checker's accept-set.
+// Exercises selector constraints with concrete type and AST examples, including
+// real checker admission. This finite corpus does not establish exhaustiveness.
 
 import { describe, expect, it } from "vitest";
-import type { CaseType } from "@/lib/domain";
+import { caseTypeSchema } from "@/lib/domain";
 import {
 	ALL_RESOLVED_TYPES,
 	ANY_TYPE,
@@ -19,43 +17,41 @@ import {
 	comparisonOperatorsFor,
 	comparisonSubjectConstraint,
 	compatibleTypesFor,
+	concat,
 	dateAddOperandConstraint,
 	eq,
 	gt,
+	ifExpr,
 	inSubjectConstraint,
 	literal,
-	MATCH_MODES,
-	MATCH_PROPERTY_TYPES_BY_MODE,
+	match,
+	matchAll,
 	matchModesFor,
 	matchValueConstraint,
 	ORDERED_TYPES,
+	predicateSchema,
 	prop,
 	type ResolvedType,
 	storageAssignmentConstraint,
-	typesCompatible,
-	type ValueExpression,
-	valueExpressionKindResultClass,
+	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 
-// The real case-property data types exclude `_any`, the null-literal
-// sentinel that cannot resolve from a property/subject.
-const REAL_TYPES = ALL_RESOLVED_TYPES.filter(
-	(t) => t !== ANY_TYPE,
-) as ResolvedType[];
-
+// The selector tests compare authored rule examples with the actual checker.
+// They do not recompute expected sets by invoking the helpers being tested.
 describe("compatibleTypesFor", () => {
-	it("is exactly { u : typesCompatible(t, u) } for every t", () => {
-		for (const t of ALL_RESOLVED_TYPES) {
-			const expected = new Set(
-				ALL_RESOLVED_TYPES.filter((u) => typesCompatible(t, u)),
-			);
-			expect(compatibleTypesFor(t)).toEqual(expected);
-		}
+	it.each([
+		["int", ["int", "decimal", "_any"]],
+		["date", ["date", "_any"]],
+		["single_select", ["text", "single_select", "_any"]],
+		["geopoint", ["geopoint", "_any"]],
+	] as const)("keeps the supported comparisons for %s", (type, accepted) => {
+		expect(compatibleTypesFor(type)).toEqual(new Set(accepted));
 	});
-
-	it("admits the whole alphabet for an unresolved subject", () => {
-		expect(compatibleTypesFor(undefined)).toEqual(new Set(ALL_RESOLVED_TYPES));
+	it("leaves an unresolved subject open until the checker can resolve it", () => {
+		expect(compatibleTypesFor(undefined).has("date")).toBe(true);
+		expect(compatibleTypesFor(undefined).has("multi_select")).toBe(true);
+		expect(compatibleTypesFor(undefined).has("geopoint")).toBe(true);
 	});
 });
 
@@ -79,8 +75,8 @@ describe("comparisonOperatorsFor", () => {
 	});
 
 	it("agrees with the checker: gt resolves on int, rejects on text", () => {
-		const caseTypes: CaseType[] = [
-			{
+		const caseTypes = [
+			caseTypeSchema.parse({
 				name: "patient",
 				properties: [
 					{ name: "age", label: proseText("Age"), data_type: "int" },
@@ -90,7 +86,7 @@ describe("comparisonOperatorsFor", () => {
 						data_type: "text",
 					},
 				],
-			} as CaseType,
+			}),
 		];
 		const ctx = { caseTypes, knownInputs: [], currentCaseType: "patient" };
 
@@ -111,20 +107,34 @@ describe("comparisonOperatorsFor", () => {
 });
 
 describe("left-subject constraints", () => {
-	it("inverts each comparison operator's checker rules", () => {
-		for (const kind of ["eq", "neq", "gt", "gte", "lt", "lte"] as const) {
-			const constraint = comparisonSubjectConstraint(kind);
-			expect(constraint.accepts).not.toBe("any");
-			if (constraint.accepts === "any") continue;
-
-			for (const type of ALL_RESOLVED_TYPES) {
-				const expected = comparisonOperatorsFor(type).has(kind);
-				expect(
-					constraint.accepts.has(type),
-					`${kind} subject admission for ${type}`,
-				).toBe(expected);
-			}
-		}
+	it.each([
+		["gt", "int", true],
+		["gt", "text", false],
+		["eq", "text", true],
+		["eq", "geopoint", true],
+		["lte", "datetime", true],
+		["lte", "multi_select", false],
+	] as const)("offers %s subject %s: %s", (kind, type, offered) => {
+		const constraint = comparisonSubjectConstraint(kind);
+		expect(constraint.accepts === "any" || constraint.accepts.has(type)).toBe(
+			offered,
+		);
+		const caseTypes = [
+			caseTypeSchema.parse({
+				name: "patient",
+				properties: [
+					{ name: "value", label: proseText("Value"), data_type: type },
+				],
+			}),
+		];
+		const candidate = predicateSchema.parse({
+			kind,
+			left: term(prop("patient", "value")),
+			right: term(prop("patient", "value")),
+		});
+		expect(checkPredicate(candidate, { caseTypes, knownInputs: [] }).ok).toBe(
+			offered,
+		);
 	});
 
 	it("keeps scalar membership broad and ordered ranges narrow", () => {
@@ -175,48 +185,35 @@ describe("storage assignment constraints", () => {
 });
 
 describe("matchModesFor", () => {
-	it("inverts MATCH_PROPERTY_TYPES_BY_MODE for every concrete type", () => {
-		for (const t of REAL_TYPES) {
-			const expected = new Set(
-				MATCH_MODES.filter((m) => MATCH_PROPERTY_TYPES_BY_MODE[m].has(t)),
+	it.each([
+		["text", ["fuzzy", "phonetic", "fuzzy-date", "starts-with"]],
+		["date", ["fuzzy-date"]],
+		["datetime", ["fuzzy-date"]],
+		["int", []],
+		["geopoint", []],
+	] as const)("offers supported modes for %s", (type, modes) => {
+		expect(matchModesFor(type)).toEqual(new Set(modes));
+		const caseTypes = [
+			caseTypeSchema.parse({
+				name: "patient",
+				properties: [
+					{ name: "value", label: proseText("Value"), data_type: type },
+				],
+			}),
+		];
+		for (const mode of [
+			"fuzzy",
+			"phonetic",
+			"fuzzy-date",
+			"starts-with",
+		] as const) {
+			const candidate = predicateSchema.parse(
+				match(prop("patient", "value"), literal("sample"), mode),
 			);
-			expect(matchModesFor(t)).toEqual(expected);
+			expect(checkPredicate(candidate, { caseTypes, knownInputs: [] }).ok).toBe(
+				modes.some((allowed) => allowed === mode),
+			);
 		}
-	});
-
-	it("admits all modes for an unresolved subject", () => {
-		expect(matchModesFor(undefined)).toEqual(new Set(MATCH_MODES));
-	});
-});
-
-describe("valueExpressionKindResultClass", () => {
-	const KINDS: ValueExpression["kind"][] = [
-		"term",
-		"arith",
-		"double",
-		"concat",
-		"format-date",
-		"today",
-		"now",
-		"date-add",
-		"date-coerce",
-		"datetime-coerce",
-		"count",
-		"if",
-		"switch",
-		"coalesce",
-	];
-
-	it("classifies every kind without throwing", () => {
-		for (const k of KINDS) {
-			expect(() => valueExpressionKindResultClass(k)).not.toThrow();
-		}
-	});
-
-	it("distinguishes fixed temporal coercions from adaptable date-add", () => {
-		expect(valueExpressionKindResultClass("date-add")).toBe("date-or-datetime");
-		expect(valueExpressionKindResultClass("date-coerce")).toBe("date");
-		expect(valueExpressionKindResultClass("datetime-coerce")).toBe("datetime");
 	});
 });
 
@@ -248,11 +245,44 @@ describe("admitsValueExpressionKind", () => {
 		}
 	});
 
-	it("a term-only slot (match.value) admits only a term", () => {
-		const c = matchValueConstraint("fuzzy");
-		expect(admitsValueExpressionKind("term", c).admitted).toBe(true);
-		expect(admitsValueExpressionKind("concat", c).admitted).toBe(false);
-		expect(admitsValueExpressionKind("if", c).admitted).toBe(false);
+	it("offers composed match values admitted by the real checker", () => {
+		const context = { caseTypes: [], knownInputs: [] };
+		const caseType = caseTypeSchema.parse({
+			name: "patient",
+			properties: [
+				{ name: "case_name", label: proseText("Name"), data_type: "text" },
+			],
+		});
+		const matchContext = {
+			...context,
+			caseTypes: [caseType],
+			currentCaseType: "patient",
+		};
+		for (const value of [
+			concat(term(literal("Al")), term(literal("ice"))),
+			ifExpr(matchAll(), term(literal("Alice")), term(literal("Bob"))),
+		]) {
+			const candidate = predicateSchema.parse(
+				match(prop("patient", "case_name"), value, "starts-with"),
+			);
+			expect(checkPredicate(candidate, matchContext)).toEqual({ ok: true });
+			expect(
+				admitsValueExpressionKind(
+					value.kind,
+					matchValueConstraint("starts-with"),
+				).admitted,
+			).toBe(true);
+		}
+		expect(
+			checkPredicate(
+				match(prop("patient", "case_name"), literal(""), "starts-with"),
+				matchContext,
+			).ok,
+		).toBe(false);
+		expect(
+			admitsValueExpressionKind("arith", matchValueConstraint("starts-with"))
+				.admitted,
+		).toBe(false);
 	});
 
 	it("admits fixed temporal coercions only where their actual result fits", () => {

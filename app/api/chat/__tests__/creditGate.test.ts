@@ -9,8 +9,11 @@ import {
  * Minimal `UIMessage` whose only load-bearing field for the gate is `role`:
  * `isChargeableTurn` reads the last message's role and nothing else.
  */
-const message = (role: "user" | "assistant"): UIMessage =>
-	({ id: "m", role, parts: [{ type: "text", text: "x" }] }) as UIMessage;
+const message = (role: "user" | "assistant"): UIMessage => ({
+	id: "m",
+	role,
+	parts: [{ type: "text", text: "x" }],
+});
 
 describe("creditGateDecision", () => {
 	it("pre-flights a new build at the full 100 when the last raw message is a user instruction", () => {
@@ -62,7 +65,7 @@ describe("creditGateDecision", () => {
 });
 
 describe("typedMessageResumesDesignWait", () => {
-	const waitAssistant = {
+	const waitAssistant: UIMessage = {
 		id: "assistant-wait",
 		role: "assistant",
 		parts: [
@@ -75,7 +78,7 @@ describe("typedMessageResumesDesignWait", () => {
 				output: { ok: true, awaitingInput: true },
 			},
 		],
-	} as UIMessage;
+	};
 
 	it("recognizes a new user message immediately after a completed trailing wait", () => {
 		expect(
@@ -92,5 +95,38 @@ describe("typedMessageResumesDesignWait", () => {
 		expect(typedMessageResumesDesignWait([superseded, message("user")])).toBe(
 			false,
 		);
+	});
+	it.each([
+		{ ok: false, awaitingInput: true },
+		{ ok: true, awaitingInput: false },
+		{ ok: "true", awaitingInput: true },
+		null,
+	])("refuses a non-successful wait output: %j", (output) => {
+		const failedWait: UIMessage = {
+			...waitAssistant,
+			parts: [
+				{
+					type: "tool-waitForInput",
+					toolCallId: "wait-1",
+					state: "output-available",
+					input: {},
+					output,
+				},
+			],
+		};
+		expect(typedMessageResumesDesignWait([failedWait, message("user")])).toBe(
+			false,
+		);
+	});
+	it("does not reuse an older wait across an intervening message", () => {
+		expect(
+			typedMessageResumesDesignWait([
+				waitAssistant,
+				message("assistant"),
+				message("user"),
+			]),
+		).toBe(false);
+		expect(typedMessageResumesDesignWait([waitAssistant])).toBe(false);
+		expect(typedMessageResumesDesignWait([])).toBe(false);
 	});
 });

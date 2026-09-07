@@ -1,5 +1,7 @@
 /**
- * Case-property rename over the Predicate / ValueExpression ASTs.
+ * Structural case-property rename over Predicate / ValueExpression candidates.
+ * Contextual type compatibility and whole-app rename admission are tested at
+ * their owning boundaries; these shapes isolate the rewriter.
  *
  * The matcher's contract (see `rewrite.ts` header): a `PropertyRef`
  * is renamed iff its property name matches AND the case type the
@@ -34,6 +36,7 @@ import {
 } from "../builders";
 import {
 	type CasePropertyRename,
+	mapCasePropertiesInPredicate,
 	relationDestinationCaseType,
 	renameCasePropertyInExpression,
 	renameCasePropertyInPredicate,
@@ -212,6 +215,32 @@ describe("renameCasePropertyInExpression", () => {
 			count(
 				subcasePath("parent", "patient"),
 				eq(prop("patient", "years"), literal("1")),
+			),
+		);
+	});
+});
+
+describe("simultaneous property mapping", () => {
+	it("swaps two property identities in one pass without changing string values", () => {
+		const predicate = and(
+			eq(prop("patient", "age"), literal("years")),
+			eq(prop("patient", "years"), literal("age")),
+		);
+		expect(
+			mapCasePropertiesInPredicate(predicate, (caseType, name) =>
+				caseType !== "patient"
+					? undefined
+					: name === "age"
+						? "years"
+						: name === "years"
+							? "age"
+							: undefined,
+			),
+		).toBe(2);
+		expect(predicate).toEqual(
+			and(
+				eq(prop("patient", "years"), literal("years")),
+				eq(prop("patient", "age"), literal("age")),
 			),
 		);
 	});

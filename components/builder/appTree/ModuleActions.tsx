@@ -6,6 +6,7 @@ import tablerArrowUp from "@iconify-icons/tabler/arrow-up";
 import tablerDotsVertical from "@iconify-icons/tabler/dots-vertical";
 import tablerHierarchy from "@iconify-icons/tabler/hierarchy";
 import tablerLayoutGrid from "@iconify-icons/tabler/layout-grid";
+import { useIsPresent } from "motion/react";
 import {
 	placementAtEnd,
 	siblingMovePlacement,
@@ -56,6 +57,7 @@ export function ModuleActions({
 	onPlacementCommitted,
 }: ModuleActionsProps) {
 	const canEdit = useCanEdit();
+	const isPresent = useIsPresent();
 	const { moveModule } = useBlueprintMutations();
 	if (!canEdit || locked) return null;
 
@@ -83,7 +85,9 @@ export function ModuleActions({
 			<DropdownMenuTrigger
 				render={<Button type="button" variant="ghost" size="icon" />}
 				aria-label={`Module actions for ${moduleName}`}
-				data-module-actions={moduleUuid}
+				// AnimatePresence can retain the old row during a reparent. Only
+				// the live row may receive the tree's post-placement focus.
+				data-module-actions={isPresent ? moduleUuid : undefined}
 				className="text-nova-text-muted not-disabled:hover:text-nova-text"
 			>
 				<Icon icon={tablerDotsVertical} />

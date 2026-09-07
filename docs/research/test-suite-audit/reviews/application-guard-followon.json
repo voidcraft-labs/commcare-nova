@@ -1,0 +1,52 @@
+{
+	"owner": "application",
+	"kind": "final-unit-integration-supplement",
+	"baselineOwnership": "Original root full-method review and baseline ownership remain authoritative. This is a bounded worker-orchestration follow-up after aggregate-unit failure, with no new baseline rows.",
+	"files": [],
+	"supplementalReviews": [
+		{
+			"file": "lib/db/__tests__/applyBlueprintChangeGuard.test.ts",
+			"priorReviewedSha256": "609b57a60ab57ba85aff857e40d86c287804e380279c318f7e04d2e6dab125b1",
+			"reviewedSha256": "80012dd3467aad1b99521aefee0bc6fd6a88af3a48dd000d3c80386846d49c8d",
+			"previousLines": 850,
+			"currentLines": 805,
+			"originalWholeMethodReview": "Root manifest status revised; review: Reset mock implementations; remove duplicate authorization checks; assert warning/error routing and no retry for each schema fault. Original review hash609b57a60ab57ba85aff857e40d86c287804e380279c318f7e04d2e6dab125b1 retained in prior registry.",
+			"review": "Read the complete worker-sweep group, its fixtures and mock setup, actual post-commit sweep/findUsercaseRow/sync methods, native sync and cross-app identity evidence, and prior root whole-method report. Removed duplicate fake close-by-persona-id and rename lifecycle claims instead of changing the empty-query mock to manufacture a row. Retained only a real pre-I/O composition fast path and committed-result best-effort failure policy. Both remaining fixtures pass the actual document gate; their proposed mutations now match the supplied committed changes, without as-unknown BlueprintDoc fixture casts. Failure test verifies returned committed document identity, one query, no store writes/retry, exactly one warning and no error."
+		}
+	],
+	"changedPaths": ["lib/db/__tests__/applyBlueprintChangeGuard.test.ts"],
+	"sourcePaths": [
+		"lib/db/applyBlueprintChange.ts",
+		"lib/db/syncUsercaseRow.ts",
+		"lib/db/__tests__/usercaseIdentity.postgres.test.ts",
+		"lib/db/__tests__/syncUsercaseRow.postgres.test.ts"
+	],
+	"checks": [
+		{
+			"command": "Full existing applyBlueprintChangeGuard.test.ts",
+			"result": "15 passed;1.63 seconds, no async diagnostics",
+			"log": "/tmp/nova-test-audit-parallel/application/apply-blueprint-guard-followon.log"
+		},
+		{
+			"command": "Scoped Biome",
+			"result": "passed"
+		}
+	],
+	"replacementEvidence": [
+		{
+			"file": "lib/db/__tests__/syncUsercaseRow.postgres.test.ts",
+			"proof": "Existing actual genesis/guarded addPersona/updatePersona/removePersona test verifies persisted case name/property changes, retained row identity and closed status. All six suite methods already passed in integration; no repeat needed."
+		},
+		{
+			"file": "lib/db/__tests__/usercaseIdentity.postgres.test.ts",
+			"proof": "Actual guarded removal of a shared persona UUID in one of two admitted apps closes only that app resolved worker row and preserves the other app row. Nine native cases already passed."
+		}
+	],
+	"status": "complete; no production change",
+	"sourceHashes": {
+		"lib/db/applyBlueprintChange.ts": "2f32a13de70015b10398f255b721d54a8e2eeeee2c35f84b86ed2773cb5b123c",
+		"lib/db/syncUsercaseRow.ts": "46a37b7df96e0835797eebffce9a193c0dac4b45e3a1e5130b47bcca415f2696",
+		"lib/db/__tests__/usercaseIdentity.postgres.test.ts": "b731af47e379762861256d2fc2d41323760fd8e93e071f592f4bf7d6e73c93d7",
+		"lib/db/__tests__/syncUsercaseRow.postgres.test.ts": "84e0350ef85ce78676db490d7ee5c096861ba5758b103b2b79920b2d58542c60"
+	}
+}

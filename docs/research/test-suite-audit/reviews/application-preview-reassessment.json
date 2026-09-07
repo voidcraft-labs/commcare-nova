@@ -1,0 +1,150 @@
+{
+	"owner": "application",
+	"kind": "final-preview-method-reassessment",
+	"baselineOwnership": "Supplement only. Root and Preview retain original baseline ownership; no baseline rows added or reassigned. Prior full-file reviewed hashes are retained below.",
+	"files": [],
+	"supplementalReviews": [
+		{
+			"file": "components/preview/__tests__/PreviewShell.integration.test.tsx",
+			"previousLines": 156,
+			"reviewedSha256": null,
+			"action": "removed",
+			"review": "Read full 156-line current file. Removed fake-DOM URL/canvas navigation with stubbed running screens. Actual Results/Search/Details authoring, scroll restoration, Preview flips and return paths are exercised by the existing full-browser case workspace journey in authed.spec.ts (1303-2095).",
+			"priorReviewedSha256": "9b9ad6f6308db1d8aa129a03b937af051d3ae861de24a1a4b52de3a42a958cac"
+		},
+		{
+			"file": "components/preview/__tests__/PreviewShell.test.tsx",
+			"previousLines": 617,
+			"reviewedSha256": null,
+			"action": "removed",
+			"review": "Read full 617-line current file. Removed mock-controlled routing/session/identity and stub-screen attribute visibility dispatch matrix. Domain admission is now directly exercised through actual locationToPreviewScreen over an admitted hierarchy. Native Shell tests cover committed two-page persona removal/recovery and cancellation of real parent selection with browser Back. Existing native condition, selected-case/deep-link, case-workspace and parent-first workflows remain the actual component wiring evidence. There is no retained React-only obligation in the removed fake-DOM methods.",
+			"priorReviewedSha256": "3fefd792fd7671344afbf37737304c046b3e43703a28ce2fac7d24e5fe58e2c7"
+		},
+		{
+			"file": "components/preview/form/__tests__/InteractiveFormRenderer.a11y.test.tsx",
+			"previousLines": 338,
+			"reviewedSha256": null,
+			"action": "removed",
+			"review": "Read full 338-line current file. Removed repeated-input and accessible-label fake-DOM workflow tests that mocked the engine hook, Maps and visibility. Native Chromium now mounts the actual provider/controller/recursive renderer, queries computed accessible names, verifies distinct referenced label nodes, native structural relationships and exact retained input DOM identity/value after removing an earlier instance. Same-label capture questions prove section and repeat context.",
+			"priorReviewedSha256": "f51d7849bc6b1162d1595350d4bcf800e1a4d665c4b179ca3e667362777ccd56"
+		}
+	],
+	"changedPaths": [
+		"components/preview/__tests__/PreviewShell.integration.test.tsx",
+		"components/preview/__tests__/PreviewShell.test.tsx",
+		"components/preview/form/__tests__/InteractiveFormRenderer.a11y.test.tsx",
+		"lib/preview/__tests__/screenProjection.test.ts",
+		"e2e/lib/preview-repeats-client.tsx",
+		"e2e/tests/preview-repeats-audit.spec.ts",
+		"e2e/tests/preview-shell-audit.spec.ts"
+	],
+	"newFiles": [
+		{
+			"file": "lib/preview/__tests__/screenProjection.test.ts",
+			"reviewedSha256": "58a82830af2d66e3f5c796ffdb5ff2e29a2fd4b9ce04d6e18d123eecc967e6e7"
+		},
+		{
+			"file": "e2e/lib/preview-repeats-client.tsx",
+			"reviewedSha256": "2906e3b6392c5f07b9a569ca49b93ee033e9174a9fd6eb9215076e3ceb2eae3b"
+		},
+		{
+			"file": "e2e/tests/preview-repeats-audit.spec.ts",
+			"reviewedSha256": "c3d42fed5768cd0ba59ab76710d0e976db0ea8df09df9a334fca738eb48291af"
+		},
+		{
+			"file": "e2e/tests/preview-shell-audit.spec.ts",
+			"reviewedSha256": "85b33600d49cef236ba384c663ee1dcdd6ea9f73bf2cef50223ecec23ce490ac"
+		}
+	],
+	"sourcePaths": [
+		"components/preview/PreviewShell.tsx",
+		"components/preview/form/InteractiveFormRenderer.tsx",
+		"components/preview/form/fields/GroupField.tsx",
+		"components/preview/form/fields/RepeatField.tsx",
+		"components/preview/form/fields/attachment/AttachmentField.tsx",
+		"lib/preview/screenProjection.ts",
+		"lib/preview/menuProjection.ts",
+		"lib/preview/hooks/usePreviewScreenForLocation.ts",
+		"lib/preview/hooks/useSelectedPreviewIdentity.ts",
+		"lib/preview/engine/provider.tsx",
+		"e2e/tests/authed.spec.ts",
+		"e2e/tests/deep-links.spec.ts",
+		"e2e/tests/builder-session-controls.spec.ts",
+		"e2e/lib/componentPeer.ts"
+	],
+	"sourceHashes": {
+		"components/preview/PreviewShell.tsx": "1990f6b1a20087b89df8cc76c5dabac15ab88085dd61298942963fb90f7613d1",
+		"components/preview/form/InteractiveFormRenderer.tsx": "0a3afcaaa2bf922bd2910d2fe69ec212451037cda1fe282668d539f855cc0a8d",
+		"components/preview/form/fields/GroupField.tsx": "1da7aa74449dcdea5f1fe5a2e9c74a2bdcbba5bba4cae70eb65dd3c31caf1dc9",
+		"components/preview/form/fields/RepeatField.tsx": "80ce7b3b4081266d3313e36ab572027ec6c054f99bfa8c38b9302dd9f5f731eb",
+		"components/preview/form/fields/attachment/AttachmentField.tsx": "53658a020eb0e386dedac63ef7f822e8c8c7938a236674b4c4d14849f8e1b7a9",
+		"lib/preview/screenProjection.ts": "ce7198ef5a678f7a575e7f1e553103897b3007b05a77dc80dca1db3b9837501e",
+		"lib/preview/menuProjection.ts": "863835f464659310ede12bc6af642dd854bd43949eb59eb85bb0696aa4d97a0c",
+		"lib/preview/hooks/usePreviewScreenForLocation.ts": "9fc38428958ff0908e261ff99a8e25024ce5925a1fd37cd47e84918fb4a816fe",
+		"lib/preview/hooks/useSelectedPreviewIdentity.ts": "0c01407f5fa2e42b5af43ffdcc2cb9603984a01f190d475a5b73aa6acd5858a8",
+		"lib/preview/engine/provider.tsx": "a3a4a65cd5543022aeb9a3b533d1f7d9499894a404d74a6d36047dccff9a8b47",
+		"e2e/tests/authed.spec.ts": "34dcf5bc928771c55a2c0a814098552d857dedeb8a8dce1ed608f8eed97fa098",
+		"e2e/tests/deep-links.spec.ts": "64af107cf9c821eb4faf21ed94ada47b25f54077593175d28c9d480d67b73c87",
+		"e2e/tests/builder-session-controls.spec.ts": "31cac6ad4d243e9ce42cf63465eb90b888183ec304594966f8b0e4eccc9dad89",
+		"e2e/lib/componentPeer.ts": "4bc2069e3f454d2f32185fa6b9b75aee5e7084a351e6f96d261d5b50b7cbc230"
+	},
+	"coverage": [
+		{
+			"replacement": "lib/preview/__tests__/screenProjection.test.ts",
+			"method": "Native Node calls to actual production projection and inherited visibility using schema/gate-admitted hierarchy. Four tests pair admitted controls with identity refusal, hidden/pending structural parent refusal, case-parent admission and condition evaluation locus. No renderer, mocked hook, source assertion or copied transition implementation."
+		},
+		{
+			"replacement": "e2e/tests/preview-repeats-audit.spec.ts",
+			"method": "Actual production provider/controller/InteractiveFormRenderer in Chromium. Only auth HTTP responds null and Google public build configuration is explicitly unconfigured. All components, real native DOM and controller semantics remain. Two identically labelled groups plus a repeat prove computed accessible names, unique label targets, aria-controls and exact retained native input/value across earlier-instance removal. Root/controller/attachment work joins at teardown."
+		},
+		{
+			"replacement": "e2e/tests/preview-shell-audit.spec.ts",
+			"method": "Actual production Next build, local migrated PostgreSQL, authoritative per-attempt app fixture, real peer Builder mutation and multiplayer. Persona add/select/remove is followed through actual missing-identity Shell refusal and explicit recovery. A second fresh app proves browser Back cancels child parent-selection and the next selection opens the parent workflow."
+		},
+		{
+			"replacement": "e2e/tests/authed.spec.ts and e2e/tests/deep-links.spec.ts",
+			"method": "Existing full-native owner journeys verified against exact methods: Results/Search/Details and scroll restoration (authed 1303+); module condition Preview/edit return (2097+); tile/grouped list selected case and deep-link reload (2388+); real parent-first case navigation (3730+); separate deep-links spec selects intended persisted case rather than distractor before real form launch. These are retained evidence, not a new execution claim in this supplement."
+		}
+	],
+	"checks": [
+		{
+			"command": "Native Node screenProjection.test.ts",
+			"result": "4 passed",
+			"log": "/tmp/nova-test-audit-parallel/application/screen-projection.log"
+		},
+		{
+			"command": "Native Chromium preview-repeats-audit.spec.ts",
+			"result": "1 passed; 940ms interaction, 1.3s run",
+			"log": "/tmp/nova-test-audit-parallel/application/preview-repeats-sixth.log"
+		},
+		{
+			"command": "Fresh production-build preview-shell-audit.spec.ts first scenario",
+			"result": "Complete persona workflow passed in first fresh-build run; first run failed only the guessed final identity label. Corrected scenario separately passed before the final two-scenario run.",
+			"log": "/tmp/nova-test-audit-parallel/application/preview-shell-second.log"
+		},
+		{
+			"command": "Final native full-app preview-shell-audit.spec.ts",
+			"result": "2 passed; actual persona recovery 4.4 seconds, parent-selector cancellation 3.3 seconds, total11.5 seconds. Freshly admitted per-attempt app fixtures, actual production Next server, real Postgres and two native pages. Scoped reuse of the build produced for first verification; final aggregate fresh build remains root-owned.",
+			"log": "/tmp/nova-test-audit-parallel/application/preview-shell-fifth.log"
+		},
+		{
+			"command": "Scoped Biome new four TypeScript files",
+			"result": "4 files passed"
+		}
+	],
+	"limitations": [
+		"Component-peer repeat proof does not claim server attachment persistence or live Google services; it covers actual renderer/controller/native accessibility and identity.",
+		"Root owns final aggregate typecheck/full-unit/fresh-build browser verification. No Application production changes in this reassessment.",
+		"Parent-case direct URL admission is pure production projection evidence; the full-browser parent selection/cancellation methods cover real routing and component composition."
+	],
+	"sharedChanges": "Domain/root own componentPeer Google build defines and root owns Playwright discovery additions; this report does not claim ownership of those changes.",
+	"findings": [
+		{
+			"finding": "Native Users Add persona button was enabled before lookup-catalog admission; an actual click produced no persona editor. First repeated two-scenario run exposed this at the real Builder/commit boundary.",
+			"ownership": "Root independently confirmed the missing shared write-admission UI gate in PersonasSubsection/Subsection and assigned the bounded Users/personas-family fix plus deterministic held-real-read native proof to Builder. Application does not own or claim that fix.",
+			"applicationTest": "Shell scenario explicitly waits for the real lookup catalog to become ready because its subject is selected-persona recovery. The independent Builder regression owns readiness refusal and transition.",
+			"evidence": "/tmp/nova-test-audit-parallel/application/preview-shell-third.log"
+		}
+	],
+	"status": "complete; all scoped native and Node checks passed"
+}

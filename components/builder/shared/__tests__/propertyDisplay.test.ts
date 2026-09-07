@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { type ProseTemplate, proseText } from "@/lib/domain/prose";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import {
+	type ProseTemplate,
+	projectProseTemplate,
+	proseText,
+} from "@/lib/domain/prose";
 import {
 	friendlyPropertyDisambiguator,
 	propertyDisplayLabel,
@@ -7,10 +12,9 @@ import {
 	propertyFallbackDisplayLabel,
 } from "../primitives/propertyDisplay";
 
-/** These fixtures carry plain text labels, so concatenating the text runs is
- *  the exact projection a document would produce. */
-const stubProject = (label: ProseTemplate): string =>
-	label.parts.map((part) => (part.kind === "text" ? part.text : "")).join("");
+const doc = buildDoc();
+const project = (label: ProseTemplate): string =>
+	projectProseTemplate(label, doc).text;
 
 describe("propertyDisplayLabel", () => {
 	it("uses friendly system labels instead of stored identifiers", () => {
@@ -20,13 +24,13 @@ describe("propertyDisplayLabel", () => {
 					name: "external_id",
 					label: proseText("external_id"),
 				},
-				stubProject,
+				project,
 			),
 		).toBe("External ID");
 		expect(
 			propertyDisplayLabel(
 				{ name: "status", label: proseText("Status") },
-				stubProject,
+				project,
 			),
 		).toBe("Case status (open or closed)");
 	});
@@ -38,7 +42,7 @@ describe("propertyDisplayLabel", () => {
 					name: "case_name",
 					label: proseText("Patient name"),
 				},
-				stubProject,
+				project,
 			),
 		).toBe("Patient name");
 		expect(
@@ -47,7 +51,7 @@ describe("propertyDisplayLabel", () => {
 					name: "current_status",
 					label: proseText("Workflow stage"),
 				},
-				stubProject,
+				project,
 			),
 		).toBe("Workflow stage");
 	});
@@ -71,7 +75,7 @@ describe("propertyDisplayLabel", () => {
 						data_type: "text",
 					},
 				],
-				stubProject,
+				project,
 			),
 		).toBe("External ID");
 	});
@@ -90,7 +94,7 @@ describe("propertyDisplayLabel", () => {
 			},
 		];
 		expect(
-			friendlyPropertyDisambiguator(properties[0], properties, stubProject),
+			friendlyPropertyDisambiguator(properties[0], properties, project),
 		).toBe(undefined);
 	});
 
@@ -108,10 +112,10 @@ describe("propertyDisplayLabel", () => {
 			},
 		];
 		expect(
-			friendlyPropertyDisambiguator(properties[0], properties, stubProject),
+			friendlyPropertyDisambiguator(properties[0], properties, project),
 		).toBe("Home region");
 		expect(
-			friendlyPropertyDisambiguator(properties[1], properties, stubProject),
+			friendlyPropertyDisambiguator(properties[1], properties, project),
 		).toBe("Work region");
 	});
 });

@@ -45,7 +45,11 @@ import {
 	completeAndSettleRun,
 } from "@/lib/db/apps";
 import { materializeCaseStoreSchemas } from "@/lib/db/materializeCaseStoreSchemas";
-import { persistResponseSnapshot, upsertThreadTurn } from "@/lib/db/threads";
+import {
+	loadThread,
+	persistResponseSnapshot,
+	upsertThreadTurn,
+} from "@/lib/db/threads";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { proseText } from "@/lib/domain/prose";
 import { createLookupRow, createLookupTable } from "@/lib/lookup/service";
@@ -99,6 +103,7 @@ import {
 	reactProfileInitialRoute,
 	reactProfileRoute,
 } from "./lib/reactProfileSeed";
+import { discoveredScenarioAttempts } from "./lib/scenarioSeeds";
 import {
 	buildSearchFirstBlueprint,
 	SEARCH_FIRST_SEED,
@@ -229,6 +234,75 @@ function tallThreadHistory(prefix: string, firstUserText: string): UIMessage[] {
 	return messages;
 }
 
+/** Each assistant response must first be written by its owning server run.
+ * Incoming history is untrusted, so a fresh thread deliberately drops it. */
+async function seedTallThreadTurn(args: {
+	appId: string;
+	threadId: string;
+	prefix: string;
+	firstUserText: string;
+	threadType: "build" | "edit";
+	projectId: string;
+}) {
+	const history = tallThreadHistory(args.prefix, args.firstUserText);
+	for (let index = 0; index < history.length; index += 2) {
+		const streamId = randomUUID();
+		const runId = randomUUID();
+		const claimed = await claimAndReserveRun(
+			args.appId,
+			args.threadType,
+			runId,
+			SEED.userId,
+			0,
+			args.projectId,
+		);
+		const written = await upsertThreadTurn({
+			target: { kind: "app", appId: args.appId },
+			threadId: args.threadId,
+			runId,
+			streamId,
+			holderNonce: claimed.holderNonce,
+			threadType: args.threadType,
+			messages: history.slice(0, index + 1),
+			expectedProjectId: args.projectId,
+		});
+		if (!written) throw new Error("e2e/seed.ts: thread turn seed write failed");
+		const responseMessage = history[index + 1];
+		if (responseMessage === undefined) return { streamId, runId, claimed };
+		await persistResponseSnapshot({
+			target: { kind: "app", appId: args.appId },
+			threadId: args.threadId,
+			streamId,
+			expectedProjectId: args.projectId,
+			responseMessage,
+			clearMarker: true,
+		});
+		const released =
+			args.threadType === "build"
+				? await completeAndSettleRun(args.appId, runId, claimed.holderNonce)
+				: await clearRunLockAndSettle(args.appId, runId, claimed.holderNonce);
+		if (released !== "owned")
+			throw new Error(`e2e/seed.ts: thread history lost holder (${released})`);
+	}
+	throw new Error("e2e/seed.ts: tall history must end with a user message");
+}
+
+async function assertTallThreadStored(appId: string, threadId: string) {
+	const thread = await loadThread(
+		{ kind: "app", appId },
+		threadId,
+		SEED.userId,
+	);
+	if (
+		thread?.messages.length !== 16 ||
+		thread.messages.filter((message) => message.role === "assistant").length !==
+			8
+	)
+		throw new Error(
+			"e2e/seed.ts: tall transcript did not retain every server-authored response",
+		);
+}
+
 async function seedSettledThread(args: {
 	appId: string;
 	threadId: string;
@@ -238,27 +312,7 @@ async function seedSettledThread(args: {
 	threadType: "build" | "edit";
 	projectId: string;
 }): Promise<void> {
-	const streamId = randomUUID();
-	const runId = randomUUID();
-	const claimed = await claimAndReserveRun(
-		args.appId,
-		args.threadType,
-		runId,
-		SEED.userId,
-		0,
-		args.projectId,
-	);
-	const written = await upsertThreadTurn({
-		target: { kind: "app", appId: args.appId },
-		threadId: args.threadId,
-		runId,
-		streamId,
-		holderNonce: claimed.holderNonce,
-		threadType: args.threadType,
-		messages: tallThreadHistory(args.prefix, args.firstUserText),
-		expectedProjectId: args.projectId,
-	});
-	if (!written) throw new Error("e2e/seed.ts: thread seed write failed");
+	const { streamId, runId, claimed } = await seedTallThreadTurn(args);
 	const releaseOutcome =
 		args.threadType === "build"
 			? await completeAndSettleRun(args.appId, runId, claimed.holderNonce)
@@ -278,6 +332,7 @@ async function seedSettledThread(args: {
 			parts: [{ type: "text", text: args.finalAssistantText }],
 		},
 	});
+	await assertTallThreadStored(args.appId, args.threadId);
 }
 
 function requireEnv(name: string): string {
@@ -486,41 +541,46 @@ async function main(): Promise<void> {
 			status: "complete",
 		},
 	);
-	const reactProfile =
-		process.env.NOVA_REACT_PROFILE === "1"
-			? await (async () => {
-					const { appId, baseSeq } = await createExplicitBlankApp(
-						SEED.userId,
-						seedProjectId,
-						randomUUID(),
-						{
-							name: "React profile large app",
-							status: "complete",
-						},
-					);
-					const fixture = buildReactProfileBlueprint(appId, {
-						casePropertyCount:
-							process.env.NOVA_REACT_PROFILE_CASE_PROPERTIES === undefined
-								? undefined
-								: Number(process.env.NOVA_REACT_PROFILE_CASE_PROPERTIES),
-					});
-					await appendSyntheticBatch({
-						appId,
-						expectedBaseSeq: baseSeq,
-						targetDoc: toPersistableDoc(fixture.doc),
-						authority: { kind: "user", actorUserId: SEED.userId },
-					});
-					return {
-						appId,
-						moduleUuid: fixture.moduleUuid,
-						initialFormUuid: fixture.initialFormUuid,
-						initialRoute: reactProfileInitialRoute(appId, fixture),
-						targetFormUuid: fixture.targetFormUuid,
-						targetFieldUuid: fixture.targetFieldUuid,
-						targetRoute: reactProfileRoute(appId, fixture),
-					};
-				})()
-			: undefined;
+	async function seedReactProfile() {
+		const { appId, baseSeq } = await createExplicitBlankApp(
+			SEED.userId,
+			seedProjectId,
+			randomUUID(),
+			{
+				name: "React profile large app",
+				status: "complete",
+			},
+		);
+		const fixture = buildReactProfileBlueprint(appId, {
+			casePropertyCount:
+				process.env.NOVA_REACT_PROFILE_CASE_PROPERTIES === undefined
+					? undefined
+					: Number(process.env.NOVA_REACT_PROFILE_CASE_PROPERTIES),
+		});
+		await appendSyntheticBatch({
+			appId,
+			expectedBaseSeq: baseSeq,
+			targetDoc: toPersistableDoc(fixture.doc),
+			authority: { kind: "user", actorUserId: SEED.userId },
+		});
+		return {
+			appId,
+			moduleUuid: fixture.moduleUuid,
+			initialFormUuid: fixture.initialFormUuid,
+			initialRoute: reactProfileInitialRoute(appId, fixture),
+			targetFormUuid: fixture.targetFormUuid,
+			targetFieldUuid: fixture.targetFieldUuid,
+			targetRoute: reactProfileRoute(appId, fixture),
+		};
+	}
+	const reactProfileScenarios: Record<
+		string,
+		Awaited<ReturnType<typeof seedReactProfile>>
+	> = {};
+	for (const key of discoveredScenarioAttempts("react-profile")) {
+		reactProfileScenarios[key] = await seedReactProfile();
+	}
+
 	const organizationAppIds: string[] = [];
 	const organizationCaseChangeRoutes: string[] = [];
 	for (let i = 0; i < ORGANIZATION_FIXTURE_COUNT; i++) {
@@ -555,141 +615,180 @@ async function main(): Promise<void> {
 		);
 	}
 
-	/* Full Search / Results / Details visual-QA fixture. The authored ids and
-	 * patient values are stable; the app + case ids are minted by their real
-	 * stores and written into seed.json for exact deep links. Materialize before
-	 * inserting so the fixture exercises the same schema gate as live case data. */
-	const { appId: caseWorkspaceAppId, baseSeq: caseWorkspaceGenesisSeq } =
-		await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
-			name: CASE_WORKSPACE_SEED.appName,
-			status: "complete",
+	async function seedCaseWorkspace(workspaceProjectId: string) {
+		/* Full Search / Results / Details visual-QA fixture. The authored ids and
+		 * patient values are stable; the app + case ids are minted by their real
+		 * stores and written into seed.json for exact deep links. Materialize before
+		 * inserting so the fixture exercises the same schema gate as live case data. */
+		const { appId: caseWorkspaceAppId, baseSeq: caseWorkspaceGenesisSeq } =
+			await createExplicitBlankApp(
+				SEED.userId,
+				workspaceProjectId,
+				randomUUID(),
+				{
+					name: CASE_WORKSPACE_SEED.appName,
+					status: "complete",
+				},
+			);
+		const caseWorkspaceDoc = toPersistableDoc(
+			buildCaseWorkspaceBlueprint(caseWorkspaceAppId),
+		);
+		await appendSyntheticBatch({
+			appId: caseWorkspaceAppId,
+			expectedBaseSeq: caseWorkspaceGenesisSeq,
+			targetDoc: caseWorkspaceDoc,
+			authority: { kind: "user", actorUserId: SEED.userId },
 		});
-	const caseWorkspaceDoc = toPersistableDoc(
-		buildCaseWorkspaceBlueprint(caseWorkspaceAppId),
-	);
-	await appendSyntheticBatch({
-		appId: caseWorkspaceAppId,
-		expectedBaseSeq: caseWorkspaceGenesisSeq,
-		targetDoc: caseWorkspaceDoc,
-		authority: { kind: "user", actorUserId: SEED.userId },
-	});
-	await materializeCaseStoreSchemas({
-		appId: caseWorkspaceAppId,
-		blueprint: caseWorkspaceDoc,
-		syncedSeq: caseWorkspaceGenesisSeq + 1,
-	});
+		await materializeCaseStoreSchemas({
+			appId: caseWorkspaceAppId,
+			blueprint: caseWorkspaceDoc,
+			syncedSeq: caseWorkspaceGenesisSeq + 1,
+		});
+		const caseStore = await withProjectContext(
+			workspaceProjectId,
+			SEED.userId,
+			SEED.userId,
+		);
+		const caseWorkspaceCaseIds: string[] = [];
+		for (const row of caseWorkspaceCaseRows()) {
+			const inserted = await caseStore.insert({
+				appId: caseWorkspaceAppId,
+				row,
+			});
+			caseWorkspaceCaseIds.push(inserted.caseId);
+		}
+		const firstCaseId = caseWorkspaceCaseIds[0];
+		if (!firstCaseId) {
+			throw new Error("e2e/seed.ts: patient workspace seeded no case rows");
+		}
+		/* The grouped module's own population. Households land first so their
+		 * minted ids can be the visits' `parent` connection — the same edge
+		 * `string(./index/parent)` reads on the device. */
+		const householdIds: string[] = [];
+		for (const row of caseWorkspaceHouseholdRows()) {
+			const inserted = await caseStore.insert({
+				appId: caseWorkspaceAppId,
+				row,
+			});
+			householdIds.push(inserted.caseId);
+		}
+		for (const row of caseWorkspaceVisitRows(householdIds)) {
+			await caseStore.insert({ appId: caseWorkspaceAppId, row });
+		}
+		/* One Project data table for the smoke's primary gesture: open the
+		 * workspace, open the table, then bind a select to a column of it. Written
+		 * through the real service so its counters, order keys, and revisions are
+		 * the ones a live table has — a hand-inserted row would let the workspace
+		 * read a table no writer could have produced. */
+		const lookupScope = {
+			projectId: workspaceProjectId,
+			actorId: SEED.userId,
+			role: "owner" as const,
+		};
+		const referralTable = await createLookupTable(lookupScope, {
+			name: CASE_WORKSPACE_SEED.lookupTableName,
+			tag: CASE_WORKSPACE_SEED.lookupTableTag,
+			columns: [
+				{
+					wireName: "code",
+					label: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
+					dataType: "text",
+				},
+				{
+					wireName: "destination",
+					label: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
+					dataType: "text",
+				},
+				{
+					wireName: "opening_time",
+					label: CASE_WORKSPACE_SEED.lookupTimeColumnLabel,
+					dataType: "time",
+				},
+				{
+					wireName: "last_verified",
+					label: CASE_WORKSPACE_SEED.lookupDatetimeColumnLabel,
+					dataType: "datetime",
+				},
+			],
+		});
+		const referralColumns = referralTable.columns;
+		let referralRevision = referralTable.tableRevision;
+		for (const [code, destination] of [
+			["chc", "Community health centre"],
+			["dh", "District hospital"],
+		] as const) {
+			const receipt = await createLookupRow(lookupScope, {
+				tableId: referralTable.id,
+				expectedTableRevision: referralRevision,
+				toIndex: 0,
+				values: {
+					[referralColumns[0].id]: code,
+					[referralColumns[1].id]: destination,
+					[referralColumns[2].id]: "09:30:00.125+05:30",
+					[referralColumns[3].id]: "2026-07-26T14:45:00-04:00",
+				},
+			});
+			referralRevision = receipt.tableRevision;
+		}
+		/* A second, intentionally row-less table guards the zero-row authoring
+		 * contract: its schema remains visible and selectable even before the
+		 * first row is added. */
+		await createLookupTable(lookupScope, {
+			name: CASE_WORKSPACE_SEED.emptyLookupTableName,
+			tag: CASE_WORKSPACE_SEED.emptyLookupTableTag,
+			columns: [
+				{
+					wireName: "tier",
+					label: CASE_WORKSPACE_SEED.emptyLookupColumnLabel,
+					dataType: "text",
+				},
+			],
+		});
+
+		const caseWorkspace = {
+			appId: caseWorkspaceAppId,
+			moduleUuid: CASE_WORKSPACE_SEED.moduleUuid,
+			caseType: CASE_WORKSPACE_SEED.caseType,
+			columnUuids: CASE_WORKSPACE_SEED.columns,
+			searchInputUuids: CASE_WORKSPACE_SEED.searchInputs,
+			tile: CASE_WORKSPACE_SEED.tile,
+			caseIds: caseWorkspaceCaseIds,
+			caseCount: caseWorkspaceCaseIds.length,
+			routes: caseWorkspaceRoutes(caseWorkspaceAppId, firstCaseId),
+		};
+		return caseWorkspace;
+	}
+	const caseWorkspace = await seedCaseWorkspace(seedProjectId);
+	const caseWorkspaceScenarios: Record<string, typeof caseWorkspace> = {};
+	for (const key of discoveredScenarioAttempts("case-workspace")) {
+		const workspaceProjectId = randomUUID();
+		await ctx.adapter.create({
+			model: "organization",
+			forceAllowId: true,
+			data: {
+				id: workspaceProjectId,
+				name: "Case workspace scenario",
+				slug: `case-workspace-${workspaceProjectId}`,
+				createdAt: now,
+			},
+		});
+		await ctx.adapter.create({
+			model: "member",
+			data: {
+				organizationId: workspaceProjectId,
+				userId: SEED.userId,
+				role: "owner",
+				createdAt: now,
+			},
+		});
+		caseWorkspaceScenarios[key] = await seedCaseWorkspace(workspaceProjectId);
+	}
+
 	const caseStore = await withProjectContext(
 		seedProjectId,
 		SEED.userId,
 		SEED.userId,
 	);
-	const caseWorkspaceCaseIds: string[] = [];
-	for (const row of caseWorkspaceCaseRows()) {
-		const inserted = await caseStore.insert({
-			appId: caseWorkspaceAppId,
-			row,
-		});
-		caseWorkspaceCaseIds.push(inserted.caseId);
-	}
-	const firstCaseId = caseWorkspaceCaseIds[0];
-	if (!firstCaseId) {
-		throw new Error("e2e/seed.ts: patient workspace seeded no case rows");
-	}
-	/* The grouped module's own population. Households land first so their
-	 * minted ids can be the visits' `parent` connection — the same edge
-	 * `string(./index/parent)` reads on the device. */
-	const householdIds: string[] = [];
-	for (const row of caseWorkspaceHouseholdRows()) {
-		const inserted = await caseStore.insert({
-			appId: caseWorkspaceAppId,
-			row,
-		});
-		householdIds.push(inserted.caseId);
-	}
-	for (const row of caseWorkspaceVisitRows(householdIds)) {
-		await caseStore.insert({ appId: caseWorkspaceAppId, row });
-	}
-	/* One Project data table for the smoke's primary gesture: open the
-	 * workspace, open the table, then bind a select to a column of it. Written
-	 * through the real service so its counters, order keys, and revisions are
-	 * the ones a live table has — a hand-inserted row would let the workspace
-	 * read a table no writer could have produced. */
-	const lookupScope = {
-		projectId: seedProjectId,
-		actorId: SEED.userId,
-		role: "owner" as const,
-	};
-	const referralTable = await createLookupTable(lookupScope, {
-		name: CASE_WORKSPACE_SEED.lookupTableName,
-		tag: CASE_WORKSPACE_SEED.lookupTableTag,
-		columns: [
-			{
-				wireName: "code",
-				label: CASE_WORKSPACE_SEED.lookupValueColumnLabel,
-				dataType: "text",
-			},
-			{
-				wireName: "destination",
-				label: CASE_WORKSPACE_SEED.lookupLabelColumnLabel,
-				dataType: "text",
-			},
-			{
-				wireName: "opening_time",
-				label: CASE_WORKSPACE_SEED.lookupTimeColumnLabel,
-				dataType: "time",
-			},
-			{
-				wireName: "last_verified",
-				label: CASE_WORKSPACE_SEED.lookupDatetimeColumnLabel,
-				dataType: "datetime",
-			},
-		],
-	});
-	const referralColumns = referralTable.columns;
-	let referralRevision = referralTable.tableRevision;
-	for (const [code, destination] of [
-		["chc", "Community health centre"],
-		["dh", "District hospital"],
-	] as const) {
-		const receipt = await createLookupRow(lookupScope, {
-			tableId: referralTable.id,
-			expectedTableRevision: referralRevision,
-			toIndex: 0,
-			values: {
-				[referralColumns[0].id]: code,
-				[referralColumns[1].id]: destination,
-				[referralColumns[2].id]: "09:30:00.125+05:30",
-				[referralColumns[3].id]: "2026-07-26T14:45:00-04:00",
-			},
-		});
-		referralRevision = receipt.tableRevision;
-	}
-	/* A second, intentionally row-less table guards the zero-row authoring
-	 * contract: its schema remains visible and selectable even before the
-	 * first row is added. */
-	await createLookupTable(lookupScope, {
-		name: CASE_WORKSPACE_SEED.emptyLookupTableName,
-		tag: CASE_WORKSPACE_SEED.emptyLookupTableTag,
-		columns: [
-			{
-				wireName: "tier",
-				label: CASE_WORKSPACE_SEED.emptyLookupColumnLabel,
-				dataType: "text",
-			},
-		],
-	});
-
-	const caseWorkspace = {
-		appId: caseWorkspaceAppId,
-		moduleUuid: CASE_WORKSPACE_SEED.moduleUuid,
-		caseType: CASE_WORKSPACE_SEED.caseType,
-		columnUuids: CASE_WORKSPACE_SEED.columns,
-		searchInputUuids: CASE_WORKSPACE_SEED.searchInputs,
-		tile: CASE_WORKSPACE_SEED.tile,
-		caseIds: caseWorkspaceCaseIds,
-		caseCount: caseWorkspaceCaseIds.length,
-		routes: caseWorkspaceRoutes(caseWorkspaceAppId, firstCaseId),
-	};
 	/* The case-changes journey mutates both its blueprint and saved rows. Seed a
 	 * complete, isolated universe for every possible Playwright attempt so a
 	 * retry never inherits the prior attempt's reordered operations, added
@@ -701,7 +800,13 @@ async function main(): Promise<void> {
 		caseId: string;
 		viewerStateFile: string;
 	}[] = [];
-	for (let attempt = 0; attempt < CASE_CHANGES_FIXTURE_COUNT; attempt++) {
+	const caseChangeScenarioKeys = discoveredScenarioAttempts("case-changes");
+	for (
+		let attempt = 0;
+		attempt <
+		Math.max(CASE_CHANGES_FIXTURE_COUNT, caseChangeScenarioKeys.length);
+		attempt++
+	) {
 		const { appId: caseChangesAppId, baseSeq: caseChangesGenesisSeq } =
 			await createExplicitBlankApp(SEED.userId, seedProjectId, randomUUID(), {
 				name: CASE_CHANGES_SEED.appName,
@@ -1063,32 +1168,14 @@ async function main(): Promise<void> {
 	});
 	const scrollQuestionThreadId = randomUUID();
 	{
-		const streamId = randomUUID();
-		const runId = randomUUID();
-		const claimed = await claimAndReserveRun(
-			scrollAppId,
-			"edit",
-			runId,
-			SEED.userId,
-			0,
-			seedProjectId,
-		);
-		const written = await upsertThreadTurn({
-			target: { kind: "app", appId: scrollAppId },
+		const { streamId, runId, claimed } = await seedTallThreadTurn({
+			appId: scrollAppId,
 			threadId: scrollQuestionThreadId,
-			runId,
-			streamId,
-			holderNonce: claimed.holderNonce,
+			prefix: "smoke-scroll-q",
+			firstUserText: SEED.scrollQuestionThreadUserText,
 			threadType: "edit",
-			messages: tallThreadHistory(
-				"smoke-scroll-q",
-				SEED.scrollQuestionThreadUserText,
-			),
-			expectedProjectId: seedProjectId,
+			projectId: seedProjectId,
 		});
-		if (!written) {
-			throw new Error("e2e/seed.ts: scroll question thread seed write failed");
-		}
 		const releaseOutcome = await clearRunLockAndSettle(
 			scrollAppId,
 			runId,
@@ -1141,6 +1228,7 @@ async function main(): Promise<void> {
 				],
 			} as UIMessage,
 		});
+		await assertTallThreadStored(scrollAppId, scrollQuestionThreadId);
 	}
 	const scrollThreadId = randomUUID();
 	await seedSettledThread({
@@ -1247,11 +1335,15 @@ async function main(): Promise<void> {
 			{
 				...SEED,
 				openAppId,
-				reactProfile,
+				reactProfileScenarios,
 				organizationAppIds,
 				organizationCaseChangeRoutes,
 				caseWorkspace,
+				caseWorkspaceScenarios,
 				caseChanges,
+				caseChangesScenarios: Object.fromEntries(
+					caseChangeScenarioKeys.map((key, index) => [key, caseChanges[index]]),
+				),
 				formLinks,
 				deepLinks,
 				searchFirst,
@@ -1283,7 +1375,26 @@ async function main(): Promise<void> {
 		writeFile,
 		pathJoin: path.join,
 	});
-	await writeFile(MULTIPLAYER_FILE, JSON.stringify(multiplayer, null, 2));
+	const multiplayerScenarios: Record<string, typeof multiplayer> = {};
+	for (const key of discoveredScenarioAttempts("multiplayer")) {
+		multiplayerScenarios[key] = await seedMultiplayerFixture({
+			ctx,
+			secret,
+			baseUrl,
+			authDir: AUTH_DIR,
+			writeFile,
+			pathJoin: path.join,
+			scenarioKey: key,
+		});
+	}
+	await writeFile(
+		MULTIPLAYER_FILE,
+		JSON.stringify(
+			{ ...multiplayer, scenarios: multiplayerScenarios },
+			null,
+			2,
+		),
+	);
 
 	console.log(
 		`[seed] user=${SEED.userId} viewer=${SEED.viewerUserId} openApp=${openAppId} deleteApps=${deleteAppIds.length}\n[seed] caseWorkspace app=${caseWorkspace.appId} cases=${caseWorkspace.caseCount} results=${caseWorkspace.routes.results}\n[seed] wrote ${path.relative(process.cwd(), STATE_FILE)} + ${path.relative(process.cwd(), VIEWER_STATE_FILE)} + ${path.relative(process.cwd(), SEED_FILE)}\n[seed] multiplayer app=${multiplayer.appId} project=shared users=${multiplayer.userA.id},${multiplayer.userB.id}`,

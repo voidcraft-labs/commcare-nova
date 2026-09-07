@@ -56,7 +56,7 @@ describe("target refusals", () => {
 	it("still reads when a form in the chain has no name", () => {
 		expect(
 			targetRefusalReason(
-				{ ok: false, reason: "cycle", chain: ["gone" as Uuid, ME] },
+				{ ok: false, reason: "cycle", chain: [testUuid("gone"), ME] },
 				nameOf,
 			),
 		).toBe("Going there would lead back here: “another form” → this form.");

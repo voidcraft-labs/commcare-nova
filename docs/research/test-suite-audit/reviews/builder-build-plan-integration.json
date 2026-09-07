@@ -1,0 +1,29 @@
+{
+	"owner": "builder",
+	"baselineOwner": "root",
+	"scope": "Integration correction requested by root to its already-audited buildPlan baseline; not added to original135 or the one-file graph audit counts.",
+	"files": [
+		{
+			"file": "lib/agent/design/__tests__/buildPlan.test.ts",
+			"status": "revised",
+			"review": "Inspected complete failing external prerequisite fixture, adjacent readiness test, current construction gate, deriveBuildPlan/projected-plan validation, stored BuildPlan schema, and insertDesignBuildPlan admission ordering. Former test relied on bypassing unresolved current-contract questions to derive a blocked plan. It now checks precise early refusal at openQuestions.0, successful derivation once both prerequisite and question are resolved, and independent receipt-producer refusal of a schema-admitted legacy-compatible blocked plan payload with exact action identity. No production code changed; no claim of persistence or provider execution.",
+			"reviewedSha256": "5ae543af18f295175c42588886b70f1903000c5e2a65f028dec29265c093e006"
+		}
+	],
+	"changedPaths": ["lib/agent/design/__tests__/buildPlan.test.ts"],
+	"checks": [
+		{
+			"command": "scoped buildPlan.test.ts and designGraph.test.ts, unit project, maxWorkers1, through run-check.py",
+			"log": "/tmp/nova-test-audit-parallel/builder/build-plan-integration.log",
+			"result": "2 files, 80 tests passed in audit worktree (30 build-plan and 50 design-graph)."
+		},
+		{
+			"command": "mise exec -- npx biome check --write lib/agent/design/__tests__/buildPlan.test.ts",
+			"log": "/tmp/nova-test-audit-parallel/builder/build-plan-integration-biome.log",
+			"result": "One file checked and formatted; no remaining diagnostics."
+		}
+	],
+	"bugs": [],
+	"blockedBy": [],
+	"relatedReportRefresh": "Added four serving source paths identified in application/builder-production-review.json to working original135 report changedPaths; original frozen report unchanged."
+}
