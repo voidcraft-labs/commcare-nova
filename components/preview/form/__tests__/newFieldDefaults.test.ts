@@ -30,15 +30,17 @@ describe("NEW_FIELD_BUILDERS — every kind's starter field is schema-valid", ()
 		expect("label" in built).toBe(false);
 	});
 
-	it("births a hidden field in keep-in-step mode with exactly one value source", () => {
-		// The inert `''` lands in `calculate`, never beside a default: a
-		// hidden field carries one value source, and most hidden values track
-		// other answers, so the slot the user types into is already active.
+	it("births a hidden field set once with the inert default as its only value source", () => {
+		// The inert `''` lands in `default_value`, never in `calculate`: a
+		// hidden field carries one value source, and an inert calculation on
+		// a writer to the loaded case would write nothing over the case's
+		// value on every submission, where an inert default is replaced by
+		// that value before anyone reads it.
 		const built = NEW_FIELD_BUILDERS.hidden("new_hidden", "ignored");
-		expect(built.kind === "hidden" ? built.calculate : undefined).toEqual({
+		expect(built.kind === "hidden" ? built.default_value : undefined).toEqual({
 			parts: [{ kind: "text", text: "''" }],
 		});
-		expect("default_value" in built).toBe(false);
+		expect("calculate" in built).toBe(false);
 	});
 
 	it("births a page's repeat count-bound at one, schema-valid", () => {

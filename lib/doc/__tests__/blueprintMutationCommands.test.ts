@@ -1148,20 +1148,24 @@ describe("Builder mutation commands", () => {
 				expect(opt.uuid).toBeTruthy();
 			}
 		});
-		it("births text → hidden in keep-in-step mode with the inert calculation", () => {
+		it("births text → hidden set once with the inert default, never an inert calculation", () => {
 			// HIDDEN_NO_VALUE would reject a bare convert; the gesture seeds
-			// the same `''` calculation a picker-inserted hidden is born with
-			// (in the SAME gated batch, after the kind swap, because the text
-			// source declares no `calculate` slot), so every offered target
-			// lands and the user replaces the expression in the inspector.
-			// It must NOT also carry a default: a hidden field holds exactly
-			// one value source.
+			// the same `''` default a picker-inserted hidden is born with (in
+			// the SAME gated batch, after the kind swap), so every offered
+			// target lands and the user replaces the expression in the
+			// inspector. The seed must be a default and not a calculation: a
+			// converted field keeps its case writer, and an inert calculation
+			// on a writer to the loaded case would write nothing over the
+			// case's value on every submission. It must NOT carry both: a
+			// hidden field holds exactly one value source.
 			const { mutations, store } = setup(bp);
 			mutations.convertField(Q_A, "hidden");
 			const converted = store.getState().fields[Q_A];
 			expect(converted?.kind).toBe("hidden");
 			expect(
-				converted && "calculate" in converted ? converted.calculate : undefined,
+				converted && "default_value" in converted
+					? converted.default_value
+					: undefined,
 			).toEqual({
 				parts: [
 					{
@@ -1171,9 +1175,7 @@ describe("Builder mutation commands", () => {
 				],
 			});
 			expect(
-				converted && "default_value" in converted
-					? converted.default_value
-					: undefined,
+				converted && "calculate" in converted ? converted.calculate : undefined,
 			).toBeUndefined();
 			expect(
 				converted && "label" in converted ? converted.label : undefined,

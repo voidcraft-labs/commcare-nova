@@ -9,6 +9,16 @@
  * names BOTH slots so the document can never hold the pair the validator
  * refuses. These helpers are pure so the mode, the hint, and the exact patch
  * each gesture dispatches are pinned without mounting CodeMirror.
+ *
+ * One asymmetry runs through every helper: the inert placeholder
+ * (`HIDDEN_INERT_VALUE`) may sit in `default_value` and never in
+ * `calculate`. A calculation runs after the loaded case's value is seeded,
+ * so on a hidden field that writes the loaded case's own type an inert
+ * calculation writes nothing over the case's saved value on every
+ * submission, where an inert default is replaced by that value before
+ * anyone reads it. Keep in step therefore always holds an authored
+ * expression: entering it with nothing to carry is a request for one, not a
+ * write, and emptying it returns the field to set once with nothing.
  */
 
 import {
@@ -27,23 +37,17 @@ export const HIDDEN_VALUE_MODES: ReadonlyArray<{
 	{ value: "default_value", label: "Set once" },
 ];
 
-function otherMode(mode: HiddenValueMode): HiddenValueMode {
-	return mode === "calculate" ? "default_value" : "calculate";
-}
-
 /**
- * Which slot the control edits. A calculation present means keep in step,
- * including a historical field holding both slots (the calculation is what
- * runs on the wire, so it is the honest one to show). A default alone means
- * set once. Neither means keep in step: the born state of a hidden field,
- * and the mode a field with no value would most likely want next.
+ * Which slot the stored field is in. A calculation present means keep in
+ * step, including a historical field holding both slots (the calculation is
+ * what runs on the wire, so it is the honest one to show). Otherwise set
+ * once: the born state of a hidden field, and the only state a field with
+ * no authored value can honestly be in.
  */
 export function activeHiddenValueMode(
 	field: Pick<HiddenField, "calculate" | "default_value">,
 ): HiddenValueMode {
-	if (field.calculate !== undefined) return "calculate";
-	if (field.default_value !== undefined) return "default_value";
-	return "calculate";
+	return field.calculate !== undefined ? "calculate" : "default_value";
 }
 
 /**
@@ -74,38 +78,70 @@ export type HiddenValuePatch = {
 	default_value: XPathExpression | null;
 };
 
+/** The patch that leaves a hidden field set once with nothing authored. */
+export const HIDDEN_VALUE_EMPTY_PATCH: HiddenValuePatch = {
+	calculate: null,
+	default_value: HIDDEN_INERT_VALUE,
+};
+
 /**
- * Save `expression` into `mode` and clear the other slot. An empty save
- * (the editor committed nothing) keeps the field valid by writing the inert
- * placeholder rather than leaving the field with no value source.
+ * Save `expression` into `mode` and clear the other slot. An empty save (the
+ * editor committed nothing) is the same write in either mode: the field
+ * returns to set once with the inert placeholder, because "no calculation"
+ * has exactly one honest spelling and it is not an empty calculation.
  */
 export function hiddenValueSavePatch(
 	mode: HiddenValueMode,
 	expression: XPathExpression | undefined,
 ): HiddenValuePatch {
-	return {
-		[mode]: expression ?? HIDDEN_INERT_VALUE,
-		[otherMode(mode)]: null,
-	} as HiddenValuePatch;
+	if (expression === undefined) return HIDDEN_VALUE_EMPTY_PATCH;
+	return mode === "calculate"
+		? { calculate: expression, default_value: null }
+		: { calculate: null, default_value: expression };
 }
 
+export type HiddenValueModeSwitch =
+	/** `next` is already the stored mode: nothing to write. */
+	| { readonly kind: "unchanged" }
+	/** One write moves the expression across. */
+	| { readonly kind: "commit"; readonly patch: HiddenValuePatch }
+	/**
+	 * Keep in step was chosen with nothing to carry. The control shows the
+	 * new mode with an open editor and commits only a typed calculation;
+	 * leaving the editor empty leaves the field as it was.
+	 */
+	| { readonly kind: "await-calculation" };
+
 /**
- * Move the current expression into `next` and clear the slot it left. The
- * expression carries across because switching how a value is set is not a
- * decision to throw the value away; a field with no expression to carry
- * starts the new mode with the inert placeholder. `null` when `next` is
- * already the active mode: there is nothing to write.
+ * What choosing `next` on the mode switch does. An authored expression
+ * carries across because switching how a value is set is not a decision to
+ * throw the value away. Toward set once, a field with nothing authored
+ * lands on the inert placeholder; toward keep in step it cannot, so the
+ * switch waits for a calculation instead.
  */
-export function hiddenValueModeSwitchPatch(
+export function hiddenValueModeSwitch(
 	field: Pick<HiddenField, "calculate" | "default_value">,
 	next: HiddenValueMode,
-): HiddenValuePatch | null {
+): HiddenValueModeSwitch {
 	const current = activeHiddenValueMode(field);
-	if (current === next) return null;
+	if (current === next) return { kind: "unchanged" };
+	if (next === "default_value") {
+		return {
+			kind: "commit",
+			patch: {
+				calculate: null,
+				default_value: field.calculate ?? HIDDEN_INERT_VALUE,
+			},
+		};
+	}
+	const carried = field.default_value;
+	if (carried === undefined || isInertHiddenValue(carried)) {
+		return { kind: "await-calculation" };
+	}
 	return {
-		[next]: field[current] ?? HIDDEN_INERT_VALUE,
-		[current]: null,
-	} as HiddenValuePatch;
+		kind: "commit",
+		patch: { calculate: carried, default_value: null },
+	};
 }
 
 /**

@@ -66,6 +66,7 @@ import {
 	fieldKindDeclaresKey,
 	fieldKinds,
 	fieldRegistry,
+	hiddenFieldCarriesBothValueSources,
 	isCaptureFieldKind,
 	lookupOptionsSourceSchema,
 	proseTemplateSchema,
@@ -451,8 +452,9 @@ function gateHiddenValueSources(
 	calculate: unknown,
 	default_value: unknown,
 ): void {
-	if (kind !== "hidden") return;
-	if (calculate == null || default_value == null) return;
+	if (!hiddenFieldCarriesBothValueSources({ kind, calculate, default_value })) {
+		return;
+	}
 	ctx.addIssue({
 		code: "custom",
 		path: ["default_value"],

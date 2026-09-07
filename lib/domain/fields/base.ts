@@ -293,14 +293,17 @@ export function isMintedSelectOptionPlaceholder(
 
 /**
  * The inert value a builder-born hidden field starts with: the XPath
- * empty-string literal, seeded into `calculate` so the field is in
- * keep-in-step mode and satisfies the `HIDDEN_NO_VALUE` rule while reading
- * as "no value yet". Shared by every surface that mints or re-seeds a hidden
- * value without an authored expression: the builder's insert picker, the
- * builder's convert-to-hidden gesture, and the inspector's Value control
- * when a slot is emptied or a mode is entered with nothing to carry (the SA
- * passes a real expression instead). One constant so the born shapes can't
- * drift.
+ * empty-string literal, seeded into `default_value` so the field satisfies
+ * the `HIDDEN_NO_VALUE` rule while reading as "no value yet". It lives in
+ * `default_value` and never in `calculate`, because a calculation runs after
+ * the loaded case's value is seeded: on a hidden field that writes the
+ * loaded case's own type, an inert calculation would write nothing over the
+ * case's saved value on every submission, where an inert default is replaced
+ * by that value before anyone can read it. Shared by every surface that
+ * mints or re-seeds a hidden value without an authored expression: the
+ * builder's insert picker, the builder's convert-to-hidden gesture, and the
+ * inspector's Value control when an expression is emptied (the SA passes a
+ * real expression instead). One constant so the born shapes can't drift.
  */
 export const HIDDEN_INERT_VALUE: XPathExpression = {
 	parts: [{ kind: "text", text: "''" }],

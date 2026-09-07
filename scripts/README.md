@@ -185,12 +185,12 @@ operator decision instead of automatic recovery.
 
 A hidden field carries exactly one value source. The form evaluates every
 `calculate` after it seeds every `default_value`, so a hidden field holding
-both has a default nobody could ever see. The validator rule
-`HIDDEN_VALUE_BOTH_SOURCES` refuses that pair one release from now; because
-every app read runs the absolute commit gate and the deploy migration probe
-audits every `apps` row, the fleet must be clean BEFORE that release ships.
-The scan and the writer share the domain recognizer with the future rule
-(`hiddenFieldCarriesBothValueSources`), and both include soft-deleted apps.
+both has a default nobody could ever see. Every authoring surface now refuses
+to write that pair; these two scripts find and clear it in documents written
+before they did. The scan and the writer share the domain recognizer
+(`hiddenFieldCarriesBothValueSources`) with the tool boundary, and both
+include soft-deleted apps. The release sequencing this repair is part of is
+`docs/plans/hidden-value-one-source.md`.
 
 ```bash
 # Read-only inventory: stable app/form/field identities and counts only.
@@ -208,8 +208,9 @@ npx tsx --conditions=react-server scripts/migrate-hidden-value-both-sources.ts -
 
 The writer drops exactly the dead `default_value` on each offender and lands it
 as one `blueprint-migration` history row per app under the system actor
-`system:hidden-value-both-sources`; open builder tabs reload. An app the gate
+`system:hidden-value-both-sources`; open builder tabs reload. Without
+`--execute` the same walk runs and writes nothing: the report carries
+`dryRun: true` and its counts are the repairs the write would make. An app the gate
 still refuses for an unrelated finding is reported in `blockedApps` and left
 untouched while the next app proceeds. The production sequence and the Job
 command live in `docs/architecture/deployment.md` under "Historical repairs".
-Both scripts are removed once the rule is live.

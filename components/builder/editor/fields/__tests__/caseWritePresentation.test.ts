@@ -36,7 +36,6 @@ describe("actual case-write guidance projection", () => {
 	it("explains blank writes in the selected primary-case scope", () => {
 		expect(caseWriteGuidance(ordinary, scope, ordinary.caseWrite)).toEqual({
 			writesEverySelectedCase: true,
-			preloadsFromLoadedCase: false,
 			warning: false,
 			help: "This question starts blank. Any answer someone enters updates this information on every selected case. Leaving it blank keeps each case's current value.",
 		});
@@ -87,7 +86,6 @@ describe("actual case-write guidance projection", () => {
 		])
 			expect(caseWriteGuidance(ordinary, context, ordinary.caseWrite)).toEqual({
 				writesEverySelectedCase: false,
-				preloadsFromLoadedCase: false,
 				help: undefined,
 				warning: false,
 			});
@@ -132,7 +130,6 @@ describe("what the destination does when the form opens", () => {
 		);
 		expect(guidance).toEqual({
 			writesEverySelectedCase: false,
-			preloadsFromLoadedCase: true,
 			help: "Opens with this case's current value.",
 			warning: false,
 		});
@@ -149,7 +146,6 @@ describe("what the destination does when the form opens", () => {
 	it("case_name preloads like any other property", () => {
 		const name = { caseType: "patient", property: "case_name" };
 		const guidance = caseWriteGuidance(ordinary, oneCaseFollowup, name);
-		expect(guidance.preloadsFromLoadedCase).toBe(true);
 		expect(guidance.help).toBe("Opens with this case's current value.");
 	});
 	it("a hidden calculated writer: the calculation sets the value", () => {
@@ -158,7 +154,6 @@ describe("what the destination does when the form opens", () => {
 			oneCaseFollowup,
 			hiddenCalculated.caseWrite,
 		);
-		expect(guidance.preloadsFromLoadedCase).toBe(true);
 		expect(guidance.help).toBe("The calculation sets this value.");
 		expect(guidance.warning).toBe(false);
 	});
@@ -181,19 +176,20 @@ describe("what the destination does when the form opens", () => {
 			);
 			expect(guidance).toEqual({
 				writesEverySelectedCase: false,
-				preloadsFromLoadedCase: false,
 				help: "Creates a new Visit case on each submission.",
 				warning: false,
 			});
 		}
 	});
-	it("child type on a several-case form still says it creates a case", () => {
+	it("child type on a several-case form names the fan-out: one child per selected case", () => {
 		expect(
 			caseWriteGuidance(ordinary, scope, {
 				caseType: "visit",
 				property: "notes",
 			}).help,
-		).toBe("Creates a new Visit case on each submission.");
+		).toBe(
+			"Creates a new Visit case for every selected case on each submission.",
+		);
 	});
 	it("the worker's own record says nothing", () => {
 		expect(
@@ -203,7 +199,6 @@ describe("what the destination does when the form opens", () => {
 			}),
 		).toEqual({
 			writesEverySelectedCase: false,
-			preloadsFromLoadedCase: false,
 			help: undefined,
 			warning: false,
 		});
@@ -214,7 +209,6 @@ describe("what the destination does when the form opens", () => {
 			property: "photo",
 			mode: "url",
 		});
-		expect(guidance.preloadsFromLoadedCase).toBe(false);
 		expect(guidance.help).toBeUndefined();
 	});
 	it("a registration or survey own-type writer says nothing", () => {
@@ -231,7 +225,6 @@ describe("what the destination does when the form opens", () => {
 	it("no destination says nothing", () => {
 		expect(caseWriteGuidance(ordinary, oneCaseFollowup, undefined)).toEqual({
 			writesEverySelectedCase: false,
-			preloadsFromLoadedCase: false,
 			help: undefined,
 			warning: false,
 		});

@@ -44,7 +44,9 @@ export function destinationRef(caseType: string, property: string): string {
  *      preload still happens; the calculation replaces it before anyone
  *      reads it).
  *   3. A writer to a child type, on any form type: each submission creates a
- *      new case of that type, so the question always opens blank.
+ *      new case of that type, so the question always opens blank. On a
+ *      several-case form the XForm creates one child per selected case
+ *      (`lib/commcare/session.ts`), and the line says so.
  *   4. Anything else says nothing.
  *
  * `current` is the destination the chooser is showing, which during a
@@ -61,7 +63,6 @@ export function caseWriteGuidance(
 	current: CaseWrite | CaptureCaseWrite | undefined,
 ): {
 	writesEverySelectedCase: boolean;
-	preloadsFromLoadedCase: boolean;
 	help: string | undefined;
 	warning: boolean;
 } {
@@ -72,11 +73,11 @@ export function caseWriteGuidance(
 		context === null
 			? "none"
 			: caseWriteDestinationClass(current, context.module);
-	const writesEverySelectedCase =
+	const opensSeveralCases =
 		context !== null &&
-		destination === "own" &&
 		CASE_LOADING_FORM_TYPES.has(context.form.type) &&
 		caseSelectionCardinality(context.module) === "multiple";
+	const writesEverySelectedCase = opensSeveralCases && destination === "own";
 	const preloadsFromLoadedCase =
 		context !== null &&
 		current !== undefined &&
@@ -98,7 +99,6 @@ export function caseWriteGuidance(
 				: "This question starts blank. Any answer someone enters updates this information on every selected case. Leaving it blank keeps each case's current value.";
 		return {
 			writesEverySelectedCase,
-			preloadsFromLoadedCase,
 			help,
 			warning: savesAttachment || hasStartingAnswer,
 		};
@@ -107,7 +107,6 @@ export function caseWriteGuidance(
 		const calculated = field.kind === "hidden" && field.calculate !== undefined;
 		return {
 			writesEverySelectedCase,
-			preloadsFromLoadedCase,
 			help: calculated
 				? "The calculation sets this value."
 				: "Opens with this case's current value.",
@@ -115,16 +114,17 @@ export function caseWriteGuidance(
 		};
 	}
 	if (destination === "child" && current !== undefined) {
+		const type = humanizeId(current.caseType);
 		return {
 			writesEverySelectedCase,
-			preloadsFromLoadedCase,
-			help: `Creates a new ${humanizeId(current.caseType)} case on each submission.`,
+			help: opensSeveralCases
+				? `Creates a new ${type} case for every selected case on each submission.`
+				: `Creates a new ${type} case on each submission.`,
 			warning: false,
 		};
 	}
 	return {
 		writesEverySelectedCase,
-		preloadsFromLoadedCase,
 		help: undefined,
 		warning: false,
 	};

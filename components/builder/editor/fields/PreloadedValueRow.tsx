@@ -9,7 +9,9 @@
  * A field that still holds an expression there (written before the rail
  * said this, or carried over from another kind) shows it read-only with
  * the truth about it and one way to clear it, because a stored expression
- * that never runs is a promise the form does not keep.
+ * that never runs is a promise the form does not keep. An expression whose
+ * reference no longer resolves is named as such, with the same way out: it
+ * is stored, it is dead, and the row must still let someone remove it.
  *
  * The wrapper's `data-field-id` is the slot's key so undo focus and the
  * inspector's element lookup land on this row exactly as they would on the
@@ -21,35 +23,41 @@ import {
 	INSPECTOR_LABEL_CLS,
 	InspectorHint,
 } from "@/components/builder/inspector/inspectorChrome";
+import { RejectionInline } from "@/components/builder/RejectionNotice";
 import { XPathField } from "@/components/builder/XPathField";
 import { Button } from "@/components/shadcn/button";
 import { useXPathProjection } from "@/lib/doc/hooks/useXPathSlots";
-import type { Field, XPathExpression } from "@/lib/domain";
+import type {
+	Field,
+	XPathExpression,
+	XPathProjectionResult,
+} from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
 	XPathExpressionKeys,
 } from "@/lib/domain/kinds";
 
-export const PRELOADED_VALUE_HINT = "Opens with this case's current value.";
-export const DEAD_EXPRESSION_HINT =
+const PRELOADED_VALUE_HINT = "Opens with this case's current value.";
+const DEAD_EXPRESSION_HINT =
 	"This expression never runs here. The case's value replaces it when the form opens.";
+const DEAD_UNRESOLVED_HINT =
+	"This expression refers to something that no longer exists, and it never runs here anyway. The case's value replaces it when the form opens.";
 
 export function PreloadedValueRow({
 	label,
 	keyName,
-	storedText,
+	stored,
 	onRemoveStored,
 }: {
 	/** The row's label; omitted when a parent control already names it. */
 	readonly label?: string;
 	/** The slot this row stands in for (`default_value`); becomes `data-field-id`. */
 	readonly keyName: string;
-	/** The projected text of a stored expression that never runs here. */
-	readonly storedText?: string;
-	/** Clears the stored expression. Offered only when `storedText` is set. */
-	readonly onRemoveStored?: () => void;
+	/** The projection of an authored expression that never runs here, when one is stored. */
+	readonly stored?: XPathProjectionResult;
+	/** Clears the stored expression. */
+	readonly onRemoveStored: () => void;
 }) {
-	const hasStored = storedText !== undefined && storedText !== "";
 	return (
 		<div>
 			{label !== undefined && (
@@ -57,15 +65,19 @@ export function PreloadedValueRow({
 			)}
 			<div data-field-id={keyName} className="space-y-2">
 				<InspectorHint>{PRELOADED_VALUE_HINT}</InspectorHint>
-				{hasStored && (
+				{stored !== undefined && (
 					<>
-						<XPathField value={storedText} />
-						<InspectorHint>{DEAD_EXPRESSION_HINT}</InspectorHint>
-						{onRemoveStored !== undefined && (
-							<Button type="button" variant="ghost" onClick={onRemoveStored}>
-								Remove expression
-							</Button>
+						{stored.ok ? (
+							<>
+								<XPathField value={stored.text} />
+								<InspectorHint>{DEAD_EXPRESSION_HINT}</InspectorHint>
+							</>
+						) : (
+							<RejectionInline message={DEAD_UNRESOLVED_HINT} />
 						)}
+						<Button type="button" variant="ghost" onClick={onRemoveStored}>
+							Remove expression
+						</Button>
 					</>
 				)}
 			</div>
@@ -83,12 +95,13 @@ export function PreloadedDefaultValueEditor<
 	F extends Field,
 	K extends XPathExpressionKeys<F>,
 >({ value, onChange, label, keyName }: FieldEditorComponentProps<F, K>) {
-	const projection = useXPathProjection(value as XPathExpression | undefined);
+	const expression = value as XPathExpression | undefined;
+	const projection = useXPathProjection(expression);
 	return (
 		<PreloadedValueRow
 			label={label}
 			keyName={keyName}
-			storedText={projection.ok ? projection.text : undefined}
+			stored={expression === undefined ? undefined : projection}
 			onRemoveStored={() => onChange(undefined as F[K])}
 		/>
 	);

@@ -1103,13 +1103,15 @@ export function createBlueprintMutations(
 				// authoring step. A field that already carries a default or a
 				// calculation keeps it (a carried default is a set-once
 				// value). Otherwise the converted field is born the way a
-				// picker-inserted hidden is: in keep-in-step mode, with the
-				// inert `''` calculation the user replaces in the inspector.
-				// The seed is pushed AFTER the conversion plan because the
-				// source kind declares no `calculate` slot; the gate judges
-				// the batch's end state, so the valueless intermediate is
-				// never seen.
-				const seedHiddenCalculate =
+				// picker-inserted hidden is: set once, with the inert `''`
+				// default the user replaces in the inspector. The seed lives
+				// in `default_value`, never `calculate`: a case-bound field
+				// converted to hidden keeps its writer, and an inert
+				// calculation there would write nothing over the case's
+				// value on every submission. It is pushed AFTER the
+				// conversion plan so the seed is judged as part of the
+				// hidden field's end state.
+				const seedHiddenDefault =
 					toKind === "hidden" &&
 					!("default_value" in field && field.default_value) &&
 					!("calculate" in field && field.calculate);
@@ -1144,12 +1146,12 @@ export function createBlueprintMutations(
 					};
 				}
 				batch.push(...plan.mutations);
-				if (seedHiddenCalculate) {
+				if (seedHiddenDefault) {
 					batch.push({
 						kind: "updateField",
 						uuid,
 						targetKind: "hidden",
-						patch: { calculate: HIDDEN_INERT_VALUE },
+						patch: { default_value: HIDDEN_INERT_VALUE },
 					});
 				}
 				return toOutcome(guardedApply(batch));

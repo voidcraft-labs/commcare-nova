@@ -22,10 +22,11 @@
 import { appendSyntheticBatch } from "../../lib/db/apps";
 import { BlueprintCommitRejectedError } from "../../lib/db/commitGuard";
 import { getAppDb } from "../../lib/db/pg";
-import type { PersistableDoc } from "../../lib/domain";
-import { safePersistedSequence } from "../../lib/utils/persistedSequence";
 import { planHiddenValueBothSourcesRepair } from "./hiddenValueBothSourcesScan";
-import { loadPersistedBlueprintReadOnly } from "./loadPersistedBlueprint";
+import {
+	loadPersistedBlueprintSnapshot,
+	type PersistedBlueprintSnapshot,
+} from "./loadPersistedBlueprint";
 
 const REPAIR_ACTOR = "system:hidden-value-both-sources" as const;
 const REPAIR_BATCH_PREFIX = "hidden-value-both-sources-v1";
@@ -47,41 +48,9 @@ export async function listHiddenValueBothSourcesCandidateAppIds(): Promise<
 	return rows.map((row) => row.id);
 }
 
-export interface HiddenValueBothSourcesRepairSnapshot {
-	readonly appId: string;
-	readonly appName: string;
-	readonly mutationSeq: number;
-	readonly blueprint: PersistableDoc;
-}
-
-export async function loadHiddenValueBothSourcesRepairSnapshot(
-	appId: string,
-): Promise<HiddenValueBothSourcesRepairSnapshot | null> {
-	const db = await getAppDb();
-	return db
-		.transaction()
-		.setIsolationLevel("repeatable read")
-		.setAccessMode("read only")
-		.execute(async (tx) => {
-			const row = await tx
-				.selectFrom("apps")
-				.select(["id", "app_name", "mutation_seq"])
-				.where("id", "=", appId)
-				.executeTakeFirst();
-			if (row === undefined) return null;
-			const blueprint = await loadPersistedBlueprintReadOnly(tx, appId);
-			if (blueprint === null) return null;
-			return {
-				appId,
-				appName: row.app_name,
-				mutationSeq: safePersistedSequence(
-					row.mutation_seq,
-					`apps.mutation_seq for app ${appId}`,
-				),
-				blueprint,
-			};
-		});
-}
+export type HiddenValueBothSourcesRepairSnapshot = PersistedBlueprintSnapshot;
+export const loadHiddenValueBothSourcesRepairSnapshot =
+	loadPersistedBlueprintSnapshot;
 
 /**
  * An app this repair could not converge: the gate still refuses the repaired
@@ -110,8 +79,15 @@ export interface HiddenValueBothSourcesRepairReport {
  * per-app results over unreadable data would mislead. The CLI exits nonzero
  * when any app remains blocked.
  */
+/**
+ * Walk every candidate app and clear the pair. `dryRun` performs the same
+ * snapshot and plan but writes nothing, so its counts are exactly what the
+ * write would touch; `repairedApps` / `clearedFields` then count planned
+ * repairs.
+ */
 export async function runHiddenValueBothSourcesRepair(
 	appIds: readonly string[],
+	options: { readonly dryRun?: boolean } = {},
 ): Promise<HiddenValueBothSourcesRepairReport> {
 	let scannedApps = 0;
 	let repairedApps = 0;
@@ -123,6 +99,11 @@ export async function runHiddenValueBothSourcesRepair(
 		scannedApps++;
 		const plan = planHiddenValueBothSourcesRepair(snapshot.blueprint);
 		if (plan.cleared.length === 0) continue;
+		if (options.dryRun) {
+			repairedApps++;
+			clearedFields += plan.cleared.length;
+			continue;
+		}
 		try {
 			const result = await appendSyntheticBatch({
 				appId,

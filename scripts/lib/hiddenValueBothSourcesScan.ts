@@ -157,13 +157,15 @@ export interface HiddenValueBothSourcesRepairPlan {
 /**
  * Plan the repair for one document. Pure: the returned `targetDoc` is a deep
  * copy with exactly the dead `default_value` removed from each offender and
- * every other byte untouched; `doc` is not modified. `appendSyntheticBatch`
- * derives the removed key as `updateField { default_value: null }`.
+ * every other byte untouched (`doc` itself when there is nothing to remove);
+ * `doc` is not modified. `appendSyntheticBatch` derives the removed key as
+ * `updateField { default_value: null }`.
  */
 export function planHiddenValueBothSourcesRepair(
 	doc: PersistableDoc,
 ): HiddenValueBothSourcesRepairPlan {
 	const cleared = scanHiddenValueBothSources(hydratePersistedBlueprint(doc));
+	if (cleared.length === 0) return { targetDoc: doc, cleared };
 	const target = structuredClone(doc);
 	for (const finding of cleared) {
 		const field = target.fields[finding.fieldUuid] as

@@ -3,7 +3,10 @@
  * document may hold only one of them. These pin the mode the control shows
  * for every slot combination and the exact patch each gesture dispatches:
  * a patch that names only one slot is the defect, because it is how a field
- * would end up holding both.
+ * would end up holding both. The other defect they pin is the inert
+ * placeholder reaching `calculate`: on a hidden writer to the loaded case
+ * that is a calculation of nothing written over the case's value on every
+ * submission, so no gesture may produce it.
  */
 
 import { describe, expect, it } from "vitest";
@@ -11,8 +14,9 @@ import { xp } from "@/lib/__tests__/docHelpers";
 import { HIDDEN_INERT_VALUE } from "@/lib/domain";
 import {
 	activeHiddenValueMode,
+	HIDDEN_VALUE_EMPTY_PATCH,
 	hiddenValueModeHint,
-	hiddenValueModeSwitchPatch,
+	hiddenValueModeSwitch,
 	hiddenValueSavePatch,
 	isInertHiddenValue,
 } from "../hiddenValueModel";
@@ -34,8 +38,8 @@ describe("activeHiddenValueMode", () => {
 			activeHiddenValueMode({ calculate: calc, default_value: seed }),
 		).toBe("calculate");
 	});
-	it("is keep in step when neither is stored", () => {
-		expect(activeHiddenValueMode({})).toBe("calculate");
+	it("is set once when neither is stored", () => {
+		expect(activeHiddenValueMode({})).toBe("default_value");
 	});
 });
 
@@ -65,14 +69,16 @@ describe("hiddenValueSavePatch", () => {
 			calculate: null,
 		});
 	});
-	it("substitutes the inert placeholder for an empty save", () => {
-		expect(hiddenValueSavePatch("calculate", undefined)).toEqual({
-			calculate: HIDDEN_INERT_VALUE,
-			default_value: null,
-		});
-		expect(hiddenValueSavePatch("default_value", undefined)).toEqual({
-			default_value: HIDDEN_INERT_VALUE,
+	it("lands an empty save as set once with the inert placeholder in either mode", () => {
+		expect(hiddenValueSavePatch("calculate", undefined)).toEqual(
+			HIDDEN_VALUE_EMPTY_PATCH,
+		);
+		expect(hiddenValueSavePatch("default_value", undefined)).toEqual(
+			HIDDEN_VALUE_EMPTY_PATCH,
+		);
+		expect(HIDDEN_VALUE_EMPTY_PATCH).toEqual({
 			calculate: null,
+			default_value: HIDDEN_INERT_VALUE,
 		});
 	});
 	it("saving on a historical both-present field clears the dead default", () => {
@@ -82,37 +88,74 @@ describe("hiddenValueSavePatch", () => {
 	});
 });
 
-describe("hiddenValueModeSwitchPatch", () => {
-	it("carries the expression into the new mode and clears the old slot", () => {
-		expect(
-			hiddenValueModeSwitchPatch({ calculate: calc }, "default_value"),
-		).toEqual({ default_value: calc, calculate: null });
-		expect(
-			hiddenValueModeSwitchPatch({ default_value: seed }, "calculate"),
-		).toEqual({ calculate: seed, default_value: null });
+describe("hiddenValueModeSwitch", () => {
+	it("carries an authored expression into the new mode and clears the old slot", () => {
+		expect(hiddenValueModeSwitch({ calculate: calc }, "default_value")).toEqual(
+			{
+				kind: "commit",
+				patch: { default_value: calc, calculate: null },
+			},
+		);
+		expect(hiddenValueModeSwitch({ default_value: seed }, "calculate")).toEqual(
+			{
+				kind: "commit",
+				patch: { calculate: seed, default_value: null },
+			},
+		);
 	});
-	it("substitutes the inert placeholder when there is nothing to carry", () => {
-		expect(hiddenValueModeSwitchPatch({}, "default_value")).toEqual({
-			default_value: HIDDEN_INERT_VALUE,
-			calculate: null,
+	it("waits for a calculation toward keep in step when there is nothing to carry", () => {
+		expect(
+			hiddenValueModeSwitch({ default_value: HIDDEN_INERT_VALUE }, "calculate"),
+		).toEqual({ kind: "await-calculation" });
+		expect(hiddenValueModeSwitch({}, "calculate")).toEqual({
+			kind: "await-calculation",
 		});
 	});
-	it("is null when the mode is already active", () => {
-		expect(hiddenValueModeSwitchPatch({ calculate: calc }, "calculate")).toBe(
-			null,
-		);
+	it("is unchanged when the mode is already stored", () => {
+		expect(hiddenValueModeSwitch({ calculate: calc }, "calculate")).toEqual({
+			kind: "unchanged",
+		});
 		expect(
-			hiddenValueModeSwitchPatch({ default_value: seed }, "default_value"),
-		).toBe(null);
-		expect(hiddenValueModeSwitchPatch({}, "calculate")).toBe(null);
+			hiddenValueModeSwitch({ default_value: seed }, "default_value"),
+		).toEqual({ kind: "unchanged" });
+		expect(hiddenValueModeSwitch({}, "default_value")).toEqual({
+			kind: "unchanged",
+		});
 	});
 	it("switching a historical both-present field to set once carries the calculation and drops the default", () => {
 		expect(
-			hiddenValueModeSwitchPatch(
+			hiddenValueModeSwitch(
 				{ calculate: calc, default_value: seed },
 				"default_value",
 			),
-		).toEqual({ default_value: calc, calculate: null });
+		).toEqual({
+			kind: "commit",
+			patch: { default_value: calc, calculate: null },
+		});
+	});
+	it("never places the inert placeholder in calculate", () => {
+		const fields = [
+			{},
+			{ default_value: HIDDEN_INERT_VALUE },
+			{ default_value: seed },
+			{ calculate: calc },
+			{ calculate: calc, default_value: seed },
+		];
+		for (const field of fields) {
+			for (const next of ["calculate", "default_value"] as const) {
+				const verdict = hiddenValueModeSwitch(field, next);
+				if (verdict.kind === "commit") {
+					expect(isInertHiddenValue(verdict.patch.calculate ?? undefined)).toBe(
+						false,
+					);
+				}
+			}
+		}
+		expect(
+			isInertHiddenValue(
+				hiddenValueSavePatch("calculate", undefined).calculate ?? undefined,
+			),
+		).toBe(false);
 	});
 });
 

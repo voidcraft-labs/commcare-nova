@@ -65,6 +65,18 @@ it("writes one blueprint-migration row under the system actor that clears exactl
 	const id = await h.seedAppWithBlueprint(fixture(), { id: "repair" });
 	const baseSeq = Number((await h.readAppRow(id))?.mutation_seq);
 
+	// The dry run counts exactly what the write would touch and writes nothing.
+	expect(await runHiddenValueBothSourcesRepair([id], { dryRun: true })).toEqual(
+		{
+			scannedApps: 1,
+			repairedApps: 1,
+			clearedFields: 1,
+			blockedApps: [],
+		},
+	);
+	expect(await changeRows()).toHaveLength(0);
+	expect(Number((await h.readAppRow(id))?.mutation_seq)).toBe(baseSeq);
+
 	const report = await runHiddenValueBothSourcesRepair([id]);
 	expect(report).toEqual({
 		scannedApps: 1,

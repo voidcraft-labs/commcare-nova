@@ -61,7 +61,7 @@ import type {
 	TimeField,
 	VideoField,
 } from "@/lib/domain";
-import { writerPreloadsFromLoadedCase } from "@/lib/domain";
+import { writerPreloadsInContext } from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
 	FieldEditorContext,
@@ -180,10 +180,10 @@ const PreloadedDefaultValueEditor = dynamic(
 function DefaultValueEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 	props: FieldEditorComponentProps<F, K>,
 ) {
-	const context = useSelectedFormContext();
-	const preloads =
-		context !== null &&
-		writerPreloadsFromLoadedCase(props.field, context.module, context.form);
+	const preloads = writerPreloadsInContext(
+		props.field,
+		useSelectedFormContext(),
+	);
 	return createElement(
 		preloads
 			? (PreloadedDefaultValueEditor as ComponentType<
@@ -251,9 +251,7 @@ function defaultValueEntry<F extends Field & { default_value?: unknown }>(): {
 		label: "Default value",
 		addable: true,
 		visible: (field, context) =>
-			hasParts(field.default_value) ||
-			(context !== null &&
-				writerPreloadsFromLoadedCase(field, context.module, context.form)),
+			hasParts(field.default_value) || writerPreloadsInContext(field, context),
 	};
 }
 

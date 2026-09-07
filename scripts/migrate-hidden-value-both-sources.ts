@@ -11,10 +11,8 @@ import { Command } from "commander";
 import { closeCaseStoreDatabase } from "@/lib/case-store/postgres/connection";
 import {
 	listHiddenValueBothSourcesCandidateAppIds,
-	loadHiddenValueBothSourcesRepairSnapshot,
 	runHiddenValueBothSourcesRepair,
 } from "@/scripts/lib/hiddenValueBothSourcesRepair";
-import { planHiddenValueBothSourcesRepair } from "@/scripts/lib/hiddenValueBothSourcesScan";
 import { runMain } from "@/scripts/lib/main";
 import { targetProdDb } from "@/scripts/lib/prodDb";
 
@@ -56,31 +54,15 @@ runMain(async () => {
 		if (options.app !== undefined && appIds.length === 0) {
 			throw new Error("No app matched --app.");
 		}
-		if (options.execute) {
-			const report = await runHiddenValueBothSourcesRepair(appIds);
-			console.log(JSON.stringify(report));
-			if (report.blockedApps.length > 0) process.exitCode = 1;
-			return;
+		const report = await runHiddenValueBothSourcesRepair(appIds, {
+			dryRun: !options.execute,
+		});
+		console.log(JSON.stringify({ dryRun: !options.execute, ...report }));
+		if (
+			options.execute ? report.blockedApps.length > 0 : report.repairedApps > 0
+		) {
+			process.exitCode = 1;
 		}
-		let appsNeedingRepair = 0;
-		let fieldsNeedingRepair = 0;
-		for (const appId of appIds) {
-			const snapshot = await loadHiddenValueBothSourcesRepairSnapshot(appId);
-			if (snapshot === null) continue;
-			const { cleared } = planHiddenValueBothSourcesRepair(snapshot.blueprint);
-			if (cleared.length > 0) {
-				appsNeedingRepair++;
-				fieldsNeedingRepair += cleared.length;
-			}
-		}
-		console.log(
-			JSON.stringify({
-				scannedApps: appIds.length,
-				appsNeedingRepair,
-				fieldsNeedingRepair,
-			}),
-		);
-		if (appsNeedingRepair > 0) process.exitCode = 1;
 	} finally {
 		await closeCaseStoreDatabase();
 	}

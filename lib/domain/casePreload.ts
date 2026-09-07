@@ -24,6 +24,7 @@
  * predicate answers for the field's destination, not its instance count.
  */
 
+import { fieldCaseWrite } from "./caseTypes";
 import type { CaptureCaseWrite, CaseWrite, Field } from "./fields";
 import { isCaptureField } from "./fields";
 import { CASE_LOADING_FORM_TYPES, type Form, type FormType } from "./forms";
@@ -56,8 +57,25 @@ export function writerPreloadsFromLoadedCase(
 	}
 	if (module.caseType === undefined) return false;
 	if (isCaptureField(field)) return false;
-	const write = "caseWrite" in field ? field.caseWrite : undefined;
-	return write !== undefined && write.caseType === module.caseType;
+	return fieldCaseWrite(field)?.caseType === module.caseType;
+}
+
+/**
+ * `writerPreloadsFromLoadedCase` over the inspector's nullable context. With
+ * no context nothing is known about the form the field sits in, so nothing
+ * is claimed to preload.
+ */
+export function writerPreloadsInContext(
+	field: Field,
+	context: {
+		readonly module: Pick<Module, "caseType" | "caseListConfig">;
+		readonly form: Pick<Form, "type">;
+	} | null,
+): boolean {
+	return (
+		context !== null &&
+		writerPreloadsFromLoadedCase(field, context.module, context.form)
+	);
 }
 
 /**
