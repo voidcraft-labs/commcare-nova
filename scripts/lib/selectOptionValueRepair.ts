@@ -45,8 +45,10 @@ import {
 	casePropertyOptionOccurrence,
 	casePropertyOptionTranslationUnitId,
 } from "../../lib/domain/translationUnits";
-import { safePersistedSequence } from "../../lib/utils/persistedSequence";
-import { loadPersistedBlueprintReadOnly } from "./loadPersistedBlueprint";
+import {
+	loadPersistedBlueprintSnapshot,
+	type PersistedBlueprintSnapshot,
+} from "./loadPersistedBlueprint";
 
 const REPAIR_ACTOR = "system:select-option-value-grammar" as const;
 const REPAIR_BATCH_PREFIX = "select-option-value-grammar-v1";
@@ -512,12 +514,9 @@ function rewriteLiteralReferences(
 	return { rewritten, remaining };
 }
 
-export interface SelectOptionValueRepairSnapshot {
-	readonly appId: string;
-	readonly appName: string;
-	readonly mutationSeq: number;
-	readonly blueprint: PersistableDoc;
-}
+export type SelectOptionValueRepairSnapshot = PersistedBlueprintSnapshot;
+export const loadSelectOptionValueRepairSnapshot =
+	loadPersistedBlueprintSnapshot;
 
 /** Every live app, oldest first. */
 export async function listRepairCandidateAppIds(): Promise<string[]> {
@@ -530,35 +529,6 @@ export async function listRepairCandidateAppIds(): Promise<string[]> {
 		.orderBy("id")
 		.execute();
 	return rows.map((row) => row.id);
-}
-
-export async function loadSelectOptionValueRepairSnapshot(
-	appId: string,
-): Promise<SelectOptionValueRepairSnapshot | null> {
-	const db = await getAppDb();
-	return db
-		.transaction()
-		.setIsolationLevel("repeatable read")
-		.setAccessMode("read only")
-		.execute(async (tx) => {
-			const row = await tx
-				.selectFrom("apps")
-				.select(["id", "app_name", "mutation_seq"])
-				.where("id", "=", appId)
-				.executeTakeFirst();
-			if (row === undefined) return null;
-			const blueprint = await loadPersistedBlueprintReadOnly(tx, appId);
-			if (blueprint === null) return null;
-			return {
-				appId,
-				appName: row.app_name,
-				mutationSeq: safePersistedSequence(
-					row.mutation_seq,
-					`apps.mutation_seq for app ${appId}`,
-				),
-				blueprint,
-			};
-		});
 }
 
 /**

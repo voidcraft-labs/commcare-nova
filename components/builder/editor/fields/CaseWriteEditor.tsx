@@ -179,7 +179,7 @@ export function CaseWriteEditor<F extends Field>(
 	const newNameId = useId();
 	const newTypeId = useId();
 	const modeId = useId();
-	const severalCaseHelpId = useId();
+	const contextHelpId = useId();
 	const triggerRef = useRef<HTMLButtonElement>(null);
 	const newNameRef = useRef<HTMLInputElement>(null);
 	const [open, setOpen] = useState(false);
@@ -227,8 +227,8 @@ export function CaseWriteEditor<F extends Field>(
 			: "url";
 	const {
 		writesEverySelectedCase,
-		help: severalCaseHelp,
-		warning: severalCaseHelpIsWarning,
+		help: contextHelp,
+		warning: contextHelpIsWarning,
 	} = caseWriteGuidance(field, context, current);
 	const destinationFor = useCallback(
 		(
@@ -535,7 +535,7 @@ export function CaseWriteEditor<F extends Field>(
 					}
 					aria-label={`${label}: ${displayLabel}, ${displayDetail}`}
 					aria-describedby={
-						severalCaseHelp === undefined ? undefined : severalCaseHelpId
+						contextHelp === undefined ? undefined : contextHelpId
 					}
 				>
 					<span className="flex min-w-0 flex-1 items-start gap-2">
@@ -662,16 +662,16 @@ export function CaseWriteEditor<F extends Field>(
 				</ComboboxContent>
 			</Combobox>
 
-			{severalCaseHelp !== undefined && (
+			{contextHelp !== undefined && (
 				<p
-					id={severalCaseHelpId}
+					id={contextHelpId}
 					className={
-						severalCaseHelpIsWarning
+						contextHelpIsWarning
 							? "rounded-xl border border-nova-amber/25 bg-nova-amber/[0.05] p-2.5 text-[13px] leading-5 text-nova-text-secondary"
 							: "text-[13px] leading-5 text-nova-text-muted"
 					}
 				>
-					{severalCaseHelp}
+					{contextHelp}
 				</p>
 			)}
 

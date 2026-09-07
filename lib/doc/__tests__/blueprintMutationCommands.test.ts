@@ -1,6 +1,10 @@
 import { afterEach, assert, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	buildDoc,
+	resolveCaseListConfig,
+	xp,
+} from "@/lib/__tests__/docHelpers";
 import {
 	type AddCommitOutcome,
 	createBlueprintMutations,
@@ -1144,11 +1148,16 @@ describe("Builder mutation commands", () => {
 				expect(opt.uuid).toBeTruthy();
 			}
 		});
-		it("seeds the picker's inert default on text → hidden with no value source", () => {
+		it("births text → hidden set once with the inert default, never an inert calculation", () => {
 			// HIDDEN_NO_VALUE would reject a bare convert; the gesture seeds
 			// the same `''` default a picker-inserted hidden is born with (in
-			// the SAME gated batch), so every offered target lands and the
-			// user authors the real calculate in the inspector afterwards.
+			// the SAME gated batch, after the kind swap), so every offered
+			// target lands and the user replaces the expression in the
+			// inspector. The seed must be a default and not a calculation: a
+			// converted field keeps its case writer, and an inert calculation
+			// on a writer to the loaded case would write nothing over the
+			// case's value on every submission. It must NOT carry both: a
+			// hidden field holds exactly one value source.
 			const { mutations, store } = setup(bp);
 			mutations.convertField(Q_A, "hidden");
 			const converted = store.getState().fields[Q_A];
@@ -1166,7 +1175,53 @@ describe("Builder mutation commands", () => {
 				],
 			});
 			expect(
+				converted && "calculate" in converted ? converted.calculate : undefined,
+			).toBeUndefined();
+			expect(
 				converted && "label" in converted ? converted.label : undefined,
+			).toBeUndefined();
+		});
+		it("keeps a carried starting value as the converted hidden field's only source", () => {
+			// A text field with a default converts into a set-once hidden
+			// value: the default carries across and no calculation is seeded
+			// beside it, so the converted field never holds both slots.
+			const withDefault = buildDoc({
+				appId: "t",
+				appName: "Test",
+				modules: [
+					{
+						uuid: MOD1,
+						name: "M0",
+						forms: [
+							{
+								uuid: FORM1,
+								name: "F0",
+								type: "survey",
+								fields: [
+									{
+										uuid: Q_A,
+										kind: "text",
+										id: "a",
+										label: "A",
+										default_value: xp("'seed'"),
+									},
+								],
+							},
+						],
+					},
+				],
+			});
+			const { mutations, store } = setup(withDefault);
+			mutations.convertField(Q_A, "hidden");
+			const converted = store.getState().fields[Q_A];
+			expect(converted?.kind).toBe("hidden");
+			expect(
+				converted && "default_value" in converted
+					? converted.default_value
+					: undefined,
+			).toEqual(xp("'seed'"));
+			expect(
+				converted && "calculate" in converted ? converted.calculate : undefined,
 			).toBeUndefined();
 		});
 		it("no-ops silently when uuid is unknown", () => {

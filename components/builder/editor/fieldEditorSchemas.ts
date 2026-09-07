@@ -22,8 +22,10 @@ import {
 	useSyncExternalStore,
 } from "react";
 import { CaseWriteEditor } from "@/components/builder/editor/fields/CaseWriteEditor";
+import type { HiddenValueEditor as HiddenValueEditorComponent } from "@/components/builder/editor/fields/HiddenValueEditor";
 import type { MediaSlotEditor as MediaSlotEditorComponent } from "@/components/builder/editor/fields/MediaSlotEditor";
 import type { OptionsSourceEditor as OptionsSourceEditorComponent } from "@/components/builder/editor/fields/OptionsSourceEditor";
+import type { PreloadedDefaultValueEditor as PreloadedDefaultValueEditorComponent } from "@/components/builder/editor/fields/PreloadedValueRow";
 import type { TextEditor as TextEditorComponent } from "@/components/builder/editor/fields/TextEditor";
 import type { XPathEditor as XPathEditorComponent } from "@/components/builder/editor/fields/XPathEditor";
 import {
@@ -59,11 +61,14 @@ import type {
 	TimeField,
 	VideoField,
 } from "@/lib/domain";
+import { writerPreloadsInContext } from "@/lib/domain";
 import type {
 	FieldEditorComponentProps,
+	FieldEditorContext,
 	FieldEditorSchema,
 	XPathExpressionKeys,
 } from "@/lib/domain/kinds";
+import { useSelectedFormContext } from "@/lib/routing/hooks";
 import { requiredEntry } from "./requiredEntry";
 
 function EditorLoading() {
@@ -147,6 +152,48 @@ function WarmXPathEditor<F extends Field, K extends XPathExpressionKeys<F>>(
 }
 const XPathEditor = WarmXPathEditor as typeof XPathEditorComponent;
 
+/* The hidden field's single Value control and the preloaded-value row both
+ * render CodeMirror, so they ride the same lazy boundary the XPath editor
+ * does rather than joining Builder startup. */
+const HiddenValueEditor = dynamic(
+	() =>
+		import("@/components/builder/editor/fields/HiddenValueEditor").then(
+			(module) => module.HiddenValueEditor,
+		),
+	{ loading: EditorLoading },
+) as typeof HiddenValueEditorComponent;
+const PreloadedDefaultValueEditor = dynamic(
+	() =>
+		import("@/components/builder/editor/fields/PreloadedValueRow").then(
+			(module) => module.PreloadedDefaultValueEditor,
+		),
+	{ loading: EditorLoading },
+) as typeof PreloadedDefaultValueEditorComponent;
+
+/**
+ * The `default_value` editor. On a field the form opens with the loaded
+ * case's current value there is no starting value to author, so the row
+ * says so (and shows any stored expression read-only with a way to clear
+ * it); everywhere else it is the ordinary XPath editor. Same predicate the
+ * entry's `visible` reads, so the forced-visible row and this branch agree.
+ */
+function DefaultValueEditor<F extends Field, K extends XPathExpressionKeys<F>>(
+	props: FieldEditorComponentProps<F, K>,
+) {
+	const preloads = writerPreloadsInContext(
+		props.field,
+		useSelectedFormContext(),
+	);
+	return createElement(
+		preloads
+			? (PreloadedDefaultValueEditor as ComponentType<
+					FieldEditorComponentProps<F, K>
+				>)
+			: (XPathEditor as ComponentType<FieldEditorComponentProps<F, K>>),
+		props,
+	);
+}
+
 // ── Shared entry factories ──────────────────────────────────────────────
 //
 // Every kind's logic section repeats the same "addable + visible iff
@@ -171,16 +218,40 @@ function xpathEntry<F extends Field, K extends keyof F & string>(
 		component: XPathEditor,
 		label,
 		addable: true,
-		visible: (field) => {
-			const value = field[key];
-			return (
-				value !== undefined &&
-				typeof value === "object" &&
-				value !== null &&
-				"parts" in value &&
-				(value as ProseTemplate).parts.length > 0
-			);
-		},
+		visible: (field) => hasParts(field[key]),
+	};
+}
+
+function hasParts(value: unknown): boolean {
+	return (
+		value !== undefined &&
+		typeof value === "object" &&
+		value !== null &&
+		"parts" in value &&
+		(value as ProseTemplate).parts.length > 0
+	);
+}
+
+// The `default_value` entry. Addable like any optional XPath slot, and
+// ALSO forced visible, as the read-only preloaded row, on a field the form
+// opens with the loaded case's current value: the person needs to see what
+// happens at form open there, and offering an "Add default value" pill for
+// an expression that could never run would be a promise the form does not
+// keep. Forced-visible means the active row; it is never a pill.
+function defaultValueEntry<F extends Field & { default_value?: unknown }>(): {
+	key: "default_value";
+	component: typeof XPathEditor;
+	label: string;
+	addable: true;
+	visible: (field: F, context: FieldEditorContext) => boolean;
+} {
+	return {
+		key: "default_value",
+		component: DefaultValueEditor as typeof XPathEditor,
+		label: "Default value",
+		addable: true,
+		visible: (field, context) =>
+			hasParts(field.default_value) || writerPreloadsInContext(field, context),
 	};
 }
 
@@ -287,7 +358,7 @@ const textFieldEditorSchema: FieldEditorSchema<TextField> = {
 			"Validation message media",
 		),
 		xpathEntry<TextField, "relevant">("relevant", "Show when"),
-		xpathEntry<TextField, "default_value">("default_value", "Default value"),
+		defaultValueEntry<TextField>(),
 	],
 	ui: [
 		mediaEntry<TextField, "label_media">("label_media", "Label media"),
@@ -308,7 +379,7 @@ const intFieldEditorSchema: FieldEditorSchema<IntField> = {
 			"Validation message media",
 		),
 		xpathEntry<IntField, "relevant">("relevant", "Show when"),
-		xpathEntry<IntField, "default_value">("default_value", "Default value"),
+		defaultValueEntry<IntField>(),
 	],
 	ui: [
 		mediaEntry<IntField, "label_media">("label_media", "Label media"),
@@ -329,7 +400,7 @@ const decimalFieldEditorSchema: FieldEditorSchema<DecimalField> = {
 			"Validation message media",
 		),
 		xpathEntry<DecimalField, "relevant">("relevant", "Show when"),
-		xpathEntry<DecimalField, "default_value">("default_value", "Default value"),
+		defaultValueEntry<DecimalField>(),
 	],
 	ui: [
 		mediaEntry<DecimalField, "label_media">("label_media", "Label media"),
@@ -350,7 +421,7 @@ const dateFieldEditorSchema: FieldEditorSchema<DateField> = {
 			"Validation message media",
 		),
 		xpathEntry<DateField, "relevant">("relevant", "Show when"),
-		xpathEntry<DateField, "default_value">("default_value", "Default value"),
+		defaultValueEntry<DateField>(),
 	],
 	ui: [
 		mediaEntry<DateField, "label_media">("label_media", "Label media"),
@@ -371,7 +442,7 @@ const timeFieldEditorSchema: FieldEditorSchema<TimeField> = {
 			"Validation message media",
 		),
 		xpathEntry<TimeField, "relevant">("relevant", "Show when"),
-		xpathEntry<TimeField, "default_value">("default_value", "Default value"),
+		defaultValueEntry<TimeField>(),
 	],
 	ui: [
 		mediaEntry<TimeField, "label_media">("label_media", "Label media"),
@@ -392,10 +463,7 @@ const datetimeFieldEditorSchema: FieldEditorSchema<DatetimeField> = {
 			"Validation message media",
 		),
 		xpathEntry<DatetimeField, "relevant">("relevant", "Show when"),
-		xpathEntry<DatetimeField, "default_value">(
-			"default_value",
-			"Default value",
-		),
+		defaultValueEntry<DatetimeField>(),
 	],
 	ui: [
 		mediaEntry<DatetimeField, "label_media">("label_media", "Label media"),
@@ -416,7 +484,7 @@ const secretFieldEditorSchema: FieldEditorSchema<SecretField> = {
 			"Validation message media",
 		),
 		xpathEntry<SecretField, "relevant">("relevant", "Show when"),
-		xpathEntry<SecretField, "default_value">("default_value", "Default value"),
+		defaultValueEntry<SecretField>(),
 	],
 	ui: [
 		mediaEntry<SecretField, "label_media">("label_media", "Label media"),
@@ -437,7 +505,7 @@ const barcodeFieldEditorSchema: FieldEditorSchema<BarcodeField> = {
 			"Validation message media",
 		),
 		xpathEntry<BarcodeField, "relevant">("relevant", "Show when"),
-		xpathEntry<BarcodeField, "default_value">("default_value", "Default value"),
+		defaultValueEntry<BarcodeField>(),
 	],
 	ui: [
 		mediaEntry<BarcodeField, "label_media">("label_media", "Label media"),
@@ -455,10 +523,7 @@ const geopointFieldEditorSchema: FieldEditorSchema<GeopointField> = {
 	logic: [
 		requiredEntry<GeopointField>(),
 		xpathEntry<GeopointField, "relevant">("relevant", "Show when"),
-		xpathEntry<GeopointField, "default_value">(
-			"default_value",
-			"Default value",
-		),
+		defaultValueEntry<GeopointField>(),
 	],
 	ui: [
 		mediaEntry<GeopointField, "label_media">("label_media", "Label media"),
@@ -486,10 +551,7 @@ const singleSelectFieldEditorSchema: FieldEditorSchema<SingleSelectField> = {
 			"Validation message media",
 		),
 		xpathEntry<SingleSelectField, "relevant">("relevant", "Show when"),
-		xpathEntry<SingleSelectField, "default_value">(
-			"default_value",
-			"Default value",
-		),
+		defaultValueEntry<SingleSelectField>(),
 	],
 	ui: [
 		mediaEntry<SingleSelectField, "label_media">("label_media", "Label media"),
@@ -517,10 +579,7 @@ const multiSelectFieldEditorSchema: FieldEditorSchema<MultiSelectField> = {
 			"Validation message media",
 		),
 		xpathEntry<MultiSelectField, "relevant">("relevant", "Show when"),
-		xpathEntry<MultiSelectField, "default_value">(
-			"default_value",
-			"Default value",
-		),
+		defaultValueEntry<MultiSelectField>(),
 	],
 	ui: [
 		mediaEntry<MultiSelectField, "label_media">("label_media", "Label media"),
@@ -594,8 +653,13 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 	],
 };
 
-// Hidden's value comes from `calculate` OR `default_value`, both optional,
-// both addable (the `HIDDEN_NO_VALUE` validator enforces at least one). No
+// Hidden's value comes from exactly ONE of `calculate` (keep in step) or
+// `default_value` (set once), so the rail shows one Value control with a
+// mode switch rather than two slots. The entry is keyed on `calculate` for
+// its mount and `data-field-id` plumbing, but `HiddenValueEditor` writes
+// both slots on every gesture; it is always visible and never a pill (a
+// hidden field with no value is refused by `HIDDEN_NO_VALUE`, so there is
+// always something to show). No separate `default_value` entry. No
 // `required` entry: a hidden field is never shown, so it can't be required
 // (the `requiredOnHidden` validator enforces this, mirroring Vellum's
 // DataBindOnly). No `ui` section (hidden fields have no label, no label
@@ -603,8 +667,7 @@ const signatureFieldEditorSchema: FieldEditorSchema<SignatureField> = {
 const hiddenFieldEditorSchema: FieldEditorSchema<HiddenField> = {
 	data: [caseWriteEntry<HiddenField>()],
 	logic: [
-		xpathEntry<HiddenField, "calculate">("calculate", "Calculate"),
-		xpathEntry<HiddenField, "default_value">("default_value", "Default value"),
+		{ key: "calculate", component: HiddenValueEditor, label: "Value" },
 		xpathEntry<HiddenField, "relevant">("relevant", "Show when"),
 	],
 	ui: [],

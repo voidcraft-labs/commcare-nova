@@ -443,6 +443,11 @@ const CONSTRAINT_AREAS: Readonly<
 	SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET: [],
 	DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS: ["navigation", "users", "case-list"],
 	ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY: ["forms", "case-operations"],
+	REPEATED_EVENTS_ARE_CHILD_RECORDS: [
+		"case-catalog",
+		"forms",
+		"case-operations",
+	],
 };
 
 function checklistRequirement(

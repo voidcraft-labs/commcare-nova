@@ -11,6 +11,7 @@ export * from "./builtinIcons";
 export * from "./caseOperationIdentifiers";
 export * from "./caseOperationIdentity";
 export * from "./caseOperationScope";
+export * from "./casePreload";
 export * from "./casePropertyName";
 export * from "./casePropertyTypes";
 export * from "./caseRetype";

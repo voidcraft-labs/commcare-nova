@@ -158,6 +158,14 @@ identity when a table tag changes. Raw XPath can use the stable `casedb` and
 `commcaresession` instances, but it cannot name a lookup table by its mutable
 wire tag.
 
+A hidden value has one expression and a choice of when it runs. **Keep in
+step** recalculates whenever a value it uses changes, and every time the form
+opens, including when a worker resumes a saved form. **Set once** runs when the
+form first opens and never again, which suits a timestamp or a fixed value.
+Switching between them keeps your expression. A hidden value that saves to the
+case the form opened is set by its calculation, so the case's stored value
+never overrides it.
+
 A form's [After submit](/docs/form-links) links decide where the app goes once
 the form is submitted, and their conditions run after the form has closed.
 They can use the case the form just saved and worker information, but they

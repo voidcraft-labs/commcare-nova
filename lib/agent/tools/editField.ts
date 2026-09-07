@@ -540,6 +540,39 @@ export const editFieldTool = {
 						id: newId,
 					}),
 			};
+			// A hidden field carries exactly ONE value source: the form
+			// evaluates every `calculate` after it seeds every `default_value`,
+			// so a default beside a calculate could never be seen. The schema
+			// refuses both in one call; this is the cross-call case, where the
+			// field already holds one slot and the patch sets the other without
+			// mentioning it. Clear the held slot in the SAME patch (one gate
+			// evaluation, one undo entry) and say so in the result. A patch
+			// that names the other slot itself (`Object.hasOwn`, null included)
+			// already states its intent and is left alone. This is also what
+			// keeps a same-call text-to-hidden conversion plus `calculate` from
+			// landing both: the conversion carries the source's `default_value`
+			// across, and `currentField` is the post-convert field.
+			let valueSourceSwap:
+				| { readonly set: "calculate"; readonly cleared: "default_value" }
+				| { readonly set: "default_value"; readonly cleared: "calculate" }
+				| undefined;
+			if (currentField.kind === "hidden") {
+				if (
+					propertyUpdates.calculate != null &&
+					!Object.hasOwn(propertyUpdates, "default_value") &&
+					currentField.default_value !== undefined
+				) {
+					propertyUpdates.default_value = null;
+					valueSourceSwap = { set: "calculate", cleared: "default_value" };
+				} else if (
+					propertyUpdates.default_value != null &&
+					!Object.hasOwn(propertyUpdates, "calculate") &&
+					currentField.calculate !== undefined
+				) {
+					propertyUpdates.calculate = null;
+					valueSourceSwap = { set: "default_value", cleared: "calculate" };
+				}
+			}
 			if (Object.keys(propertyUpdates).length > 0) {
 				const patch = editPatchToFieldPatch(
 					propertyUpdates,
@@ -612,6 +645,13 @@ export const editFieldTool = {
 						(k !== "id" || newId !== currentId),
 				)
 				.map(([k, v]) => (v === null ? `${k} (cleared)` : k));
+			if (valueSourceSwap !== undefined) {
+				changedKeys.push(`${valueSourceSwap.cleared} (cleared)`);
+			}
+			const valueSourceNote =
+				valueSourceSwap === undefined
+					? ""
+					: ` Set ${valueSourceSwap.set} and cleared ${valueSourceSwap.cleared}: a hidden field carries one value source, and a calculate re-evaluates after the default is seeded, so the default could never be seen.`;
 			const renameNote =
 				newId && newId !== currentId ? ` (renamed from "${currentId}")` : "";
 			// `resolved` already carries the form's uuid — read the display
@@ -639,7 +679,7 @@ export const editFieldTool = {
 				kind: "mutate" as const,
 				mutations: commit.mutations,
 				result: {
-					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.${conversionNote}`,
+					message: `Successfully updated "${finalId}"${renameNote} in "${formName}". ${changeNote} Current label: "${label}", kind: ${kind}.${conversionNote}${valueSourceNote}`,
 					...(preparedOptionsSource?.kind === "inline" && {
 						options: preparedOptionsSource.options.map((option) => ({
 							uuid: option.uuid,

@@ -43,6 +43,7 @@ export const PLATFORM_CONSTRAINT_CODES = [
 	"SEVERAL_CASE_FORMS_SHARE_ONE_ANSWER_SET",
 	"DISPLAY_CONDITIONS_ARE_UX_NOT_ACCESS",
 	"ON_DEVICE_DATE_ADD_FIXED_DURATION_ONLY",
+	"REPEATED_EVENTS_ARE_CHILD_RECORDS",
 ] as const;
 
 export type PlatformConstraintCode = (typeof PLATFORM_CONSTRAINT_CODES)[number];
@@ -186,5 +187,11 @@ export const PLATFORM_CONSTRAINTS: Record<
 			"On-device date arithmetic can faithfully add fixed seconds through weeks to a date. Calendar-relative months or years, and date-add over a datetime, are rejected because JavaRosa cannot preserve their semantics; a design that requires true calendar milestones must resolve that requirement instead of lowering it to hand-built leap-year arithmetic or an unstated day approximation.",
 		sourceAnchor:
 			"lib/commcare/expression/onDeviceCompatibility.ts::onDeviceDateAddIssue",
+	},
+	REPEATED_EVENTS_ARE_CHILD_RECORDS: {
+		code: "REPEATED_EVENTS_ARE_CHILD_RECORDS",
+		statement:
+			"A case property holds one value and the running app exposes no per-case history. In a one-case selected-record or close form, every input that writes to the loaded record's own type is seeded from that record when the form opens, so writing an event's fields directly onto the parent replaces the previous event's values and reopens pre-filled with them. Inputs that write to a child type are never seeded and create one new record per submission, so each occurrence of a repeated event (a visit, a meeting, a delivery) is a child record created from that form, and the parent record holds only derived rollups.",
+		sourceAnchor: "lib/commcare/deriveCaseConfig.ts::deriveCaseConfig",
 	},
 };

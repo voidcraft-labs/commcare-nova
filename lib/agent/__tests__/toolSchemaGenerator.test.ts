@@ -260,6 +260,61 @@ describe("toolSchemaGenerator", () => {
 		).toBe(true);
 	});
 
+	it("rejects a hidden field carrying both calculate and default_value, at the default_value slot", () => {
+		// The form evaluates every calculate after it seeds defaults, so the
+		// pair is a dead default. Both tool boundaries refuse it at parse and
+		// point at `default_value`, the slot the model drops or nulls.
+		const added = generated.addFieldsItemSchema.safeParse({
+			id: "h",
+			kind: "hidden",
+			calculate: xp("today()"),
+			default_value: xp("today()"),
+		});
+		expect(added.success).toBe(false);
+		if (added.success) throw new Error("expected rejection");
+		expect(added.error.issues.map((issue) => issue.path)).toEqual([
+			["default_value"],
+		]);
+		expect(added.error.issues[0]?.message).toContain(
+			"exactly one value source",
+		);
+
+		const edited = generated.editFieldUpdatesSchema.safeParse({
+			kind: "hidden",
+			calculate: xp("today()"),
+			default_value: xp("today()"),
+		});
+		expect(edited.success).toBe(false);
+		if (edited.success) throw new Error("expected rejection");
+		expect(edited.error.issues.map((issue) => issue.path)).toEqual([
+			["default_value"],
+		]);
+
+		// Setting one slot while explicitly clearing the other is the stated
+		// single-source edit and parses.
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "hidden",
+				calculate: xp("today()"),
+				default_value: null,
+			}).success,
+		).toBe(true);
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "hidden",
+				calculate: null,
+				default_value: xp("today()"),
+			}).success,
+		).toBe(true);
+		// A visible kind with a default_value is untouched by the hidden rule.
+		expect(
+			generated.editFieldUpdatesSchema.safeParse({
+				kind: "text",
+				default_value: xp("today()"),
+			}).success,
+		).toBe(true);
+	});
+
 	it("requires a non-empty label on visible kinds, none on hidden", () => {
 		// Visible kind with empty label → rejected (min(1)).
 		expect(

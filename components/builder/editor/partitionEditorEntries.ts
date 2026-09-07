@@ -10,8 +10,11 @@
  *
  * The partition rules:
  *   1. If the entry is currently pending activation OR its
- *      `visible(field)` predicate returns truthy (default: true when
- *      no predicate), it goes into the `visible` bucket.
+ *      `visible(field, context)` predicate returns truthy (default: true
+ *      when no predicate), it goes into the `visible` bucket. `context` is
+ *      the module + form the field is selected in (or `null`), so an
+ *      entry can be forced visible by where the field lives, not only by
+ *      what it holds.
  *   2. Otherwise, if the entry is `addable`, it goes into the
  *      `pills` bucket (rendered as an Add Property button).
  *   3. Otherwise, it's silently dropped: a hidden non-addable entry
@@ -30,7 +33,7 @@
  */
 
 import type { Field } from "@/lib/domain";
-import type { FieldEditorEntry } from "@/lib/domain/kinds";
+import type { FieldEditorContext, FieldEditorEntry } from "@/lib/domain/kinds";
 
 /** A visible entry plus the flags that drive focus + activation-clear
  *  decisions in the section renderer. */
@@ -71,6 +74,9 @@ export interface PartitionedEntries<F extends Field> {
  * @param field - The field value: passed to each entry's `visible(field)`
  *   predicate.
  * @param entries - The section's entry list from the per-kind schema.
+ * @param context - The module + form the field is selected in, handed to
+ *   each entry's `visible(field, context)`; `null` when the panel is
+ *   mounted without a form location.
  * @param isPending - Optional predicate answering "is this entry currently
  *   pending activation?" The section passes a real predicate here; the
  *   panel passes a no-op (pending doesn't change card-visibility
@@ -81,6 +87,7 @@ export interface PartitionedEntries<F extends Field> {
 export function partitionEditorEntries<F extends Field>(
 	field: F,
 	entries: readonly FieldEditorEntry<F>[],
+	context: FieldEditorContext,
 	isPending: (key: string) => boolean = () => false,
 ): PartitionedEntries<F> {
 	const visible: VisiblePartitionedEntry<F>[] = [];
@@ -89,7 +96,9 @@ export function partitionEditorEntries<F extends Field>(
 
 	for (const entry of entries) {
 		const pending = isPending(entry.key as string);
-		const independentlyVisible = entry.visible ? entry.visible(field) : true;
+		const independentlyVisible = entry.visible
+			? entry.visible(field, context)
+			: true;
 		if (independentlyVisible || pending) {
 			visible.push({
 				entry,
@@ -125,7 +134,8 @@ export function partitionEditorEntries<F extends Field>(
 export function sectionHasContent<F extends Field>(
 	field: F,
 	entries: readonly FieldEditorEntry<F>[],
+	context: FieldEditorContext,
 ): boolean {
-	const { visible, pills } = partitionEditorEntries(field, entries);
+	const { visible, pills } = partitionEditorEntries(field, entries, context);
 	return visible.length > 0 || pills.length > 0;
 }

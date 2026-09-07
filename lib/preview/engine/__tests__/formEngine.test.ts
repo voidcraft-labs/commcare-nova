@@ -22,7 +22,11 @@ import type {
 	Uuid,
 	XPathExpression,
 } from "@/lib/domain";
-import { fieldSchema, USERCASE_CASE_TYPE } from "@/lib/domain";
+import {
+	fieldSchema,
+	USERCASE_CASE_TYPE,
+	writerPreloadsFromLoadedCase,
+} from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import { createInProcessXPathWorkerFactory } from "../../xpath/inProcessWorkerClient";
 import { XPathRuntime } from "../../xpath/workerClient";
@@ -787,6 +791,101 @@ describe("FormEngine", () => {
 			expect(engine.getState("/data/age").value).toBe("30");
 		});
 
+		it("seeds exactly the root fields the shared preload predicate names", () => {
+			// The builder's inspector tells a person what a case-bound field
+			// does when the form opens by asking `writerPreloadsFromLoadedCase`;
+			// the engine decides what actually happens here. Every destination
+			// class appears once, the loaded case holds a value under every
+			// property any of them writes, and the set of fields that opened
+			// with that value must equal the set the predicate says preload.
+			// Root fields only: inside a repeat the engine seeds the first
+			// instance, which is a fact about instances, not destinations.
+			const fields: DField[] = [
+				{
+					id: "phone",
+					kind: "text",
+					caseWrite: { caseType: "patient", property: "phone" },
+				},
+				{
+					id: "name",
+					kind: "text",
+					caseWrite: { caseType: "patient", property: "case_name" },
+				},
+				{
+					id: "visit_name",
+					kind: "text",
+					caseWrite: { caseType: "visit", property: "case_name" },
+				},
+				{
+					id: "visit_notes",
+					kind: "text",
+					caseWrite: { caseType: "visit", property: "notes" },
+				},
+				{
+					id: "photo",
+					kind: "image",
+					caseWrite: {
+						caseType: "patient",
+						property: "photo",
+						mode: "url",
+					} as unknown as CaseWrite,
+				},
+				{
+					id: "region",
+					kind: "text",
+					caseWrite: { caseType: USERCASE_CASE_TYPE, property: "region" },
+				},
+				{ id: "scratch", kind: "text" },
+			];
+			const REGION = testUuid("worker-property-region");
+			const input: FormEngineInput = {
+				...dTree(fields, "followup", [
+					{
+						name: "patient",
+						properties: [
+							{ name: "phone", label: proseText("Phone") },
+							{ name: "photo", label: proseText("Photo") },
+						],
+					},
+					{
+						name: "visit",
+						parent_type: "patient",
+						properties: [{ name: "notes", label: proseText("Notes") }],
+					},
+				]),
+				userProperties: {
+					[REGION]: { uuid: REGION, slug: "region", label: "Region" },
+				},
+			};
+			const SENTINEL = "from-the-case";
+			const caseData = caseDataFor(
+				"patient",
+				["phone", "case_name", "notes", "photo", "region"].map(
+					(property) => [property, SENTINEL] as [string, string],
+				),
+			);
+			const engine = new FormEngine(input, "patient", caseData);
+
+			const module = { caseType: "patient" };
+			const form = { type: "followup" as const };
+			const seeded = fields
+				.filter(
+					(field) => engine.getState(`/data/${field.id}`).value === SENTINEL,
+				)
+				.map((field) => field.id);
+			const predicted = fields
+				.filter((field) =>
+					writerPreloadsFromLoadedCase(
+						input.fields[testUuid(`form.${field.id}`) as string] as Field,
+						module,
+						form,
+					),
+				)
+				.map((field) => field.id);
+			expect(seeded).toEqual(["phone", "name"]);
+			expect(predicted).toEqual(seeded);
+		});
+
 		it.each(["followup", "close"] as const)(
 			"does not preload a representative case into an authored several-case %s form",
 			(formType) => {
@@ -998,7 +1097,11 @@ describe("FormEngine", () => {
 			);
 		});
 
-		it("overrides preloaded case data with default_value on followup forms", () => {
+		it("lets the loaded case win over a default_value on a preloaded writer, as the device does", () => {
+			// On the wire both are xforms-ready setvalues and the preload is
+			// spliced after the default (lib/commcare/xform/caseBlocks.ts), so a
+			// default on a writer to the loaded case never shows on a device.
+			// Preview must agree, case_name included.
 			const input = dTree(
 				[
 					{
@@ -1010,6 +1113,19 @@ describe("FormEngine", () => {
 							"concat(#patient/age, ' - ', #patient/case_name)",
 						),
 					},
+					{
+						id: "nickname",
+						kind: "text",
+						label: proseText("Nickname"),
+						caseWrite: { caseType: "patient", property: "nickname" },
+						default_value: xp("'suggested'"),
+					},
+					{
+						id: "note",
+						kind: "text",
+						label: proseText("Note"),
+						default_value: xp("'fresh'"),
+					},
 				],
 				"followup",
 			);
@@ -1019,11 +1135,15 @@ describe("FormEngine", () => {
 			]);
 			const engine = new FormEngine(input, "patient", caseData);
 
-			// default_value should win over case preload
-			expect(engine.getState("/data/case_name").value).toBe("30 - Alice");
+			expect(engine.getState("/data/case_name").value).toBe("Alice");
+			// The case holds no nickname yet: the device seeds an empty string
+			// from the empty nodeset, so the default still never shows.
+			expect(engine.getState("/data/nickname").value).toBe("");
+			// A form-only field is not preloaded, so its default applies.
+			expect(engine.getState("/data/note").value).toBe("fresh");
 		});
 
-		it("overrides preloaded case data after reset()", () => {
+		it("keeps the loaded case's value over a default after reset()", () => {
 			const input = dTree(
 				[
 					{
@@ -1062,7 +1182,7 @@ describe("FormEngine", () => {
 
 			engine.setValue("/data/case_name", "user typed this");
 			engine.reset();
-			expect(engine.getState("/data/case_name").value).toBe("30 - Alice");
+			expect(engine.getState("/data/case_name").value).toBe("Alice");
 		});
 	});
 

@@ -54,7 +54,6 @@ import type {
 } from "@/lib/domain";
 import {
 	asUuid,
-	CASE_LOADING_FORM_TYPES,
 	type CaseWriteField,
 	type ContainerField,
 	caseDataTypeForFieldKind,
@@ -62,6 +61,7 @@ import {
 	deriveCaseWriteInventory,
 	expressionSource,
 	fieldProseTemplate,
+	formOpensWithOneCase,
 	isCaptureFieldKind,
 	isContainer,
 	isReadableTemporalValue,
@@ -553,9 +553,8 @@ export class FormEngine {
 		this.instance.initFromFields(this.tree);
 		this.dag = new TriggerDag();
 
-		if (this.shouldPreloadPrimaryCase()) {
-			this.preloadCaseData(this.tree);
-		}
+		const seeded = this.seededWriters();
+		if (seeded !== undefined) this.preloadCaseData(this.tree, seeded);
 		if (this.asyncRuntime) return;
 
 		/* JavaRosa materializes count/query-bound repeats once while the form
@@ -569,7 +568,7 @@ export class FormEngine {
 		 * The results are written to the Zustand store in one atomic setState. */
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
-		this.applyDefaultsInto(states, this.tree);
+		this.applyDefaultsInto(states, this.tree, seeded);
 		this.store.setState(states);
 		this.evaluateAllInto();
 	}
@@ -696,7 +695,12 @@ export class FormEngine {
 		this.dag.build(this.tree, this.printDoc);
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
-		await this.applyDefaultsIntoAsync(states, this.tree, evaluateAsync);
+		await this.applyDefaultsIntoAsync(
+			states,
+			this.tree,
+			evaluateAsync,
+			this.seededWriters(),
+		);
 		this.store.setState(states, true);
 		await this.evaluatePathsIntoAsync(this.getAllPaths(), evaluateAsync);
 	}
@@ -2745,9 +2749,8 @@ export class FormEngine {
 		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
 
-		if (this.shouldPreloadPrimaryCase()) {
-			this.preloadCaseData(this.tree);
-		}
+		const seeded = this.seededWriters();
+		if (seeded !== undefined) this.preloadCaseData(this.tree, seeded);
 		this.initializeBoundRepeats(this.tree);
 
 		this.dag = new TriggerDag();
@@ -2762,7 +2765,7 @@ export class FormEngine {
 		/* Rebuild into a local record (doesn't touch the store yet) */
 		const newStates: EngineStoreState = {};
 		this.initStatesInto(newStates, this.tree);
-		this.applyDefaultsInto(newStates, this.tree);
+		this.applyDefaultsInto(newStates, this.tree, seeded);
 
 		/* Temporarily write to store so evaluateAllInto can read current state
 		 * via getState(). Use replace mode — we'll fix references below. */
@@ -2794,14 +2797,13 @@ export class FormEngine {
 		this.instance = new DataInstance(this.formRootAttributes);
 		this.instance.initFromFields(this.tree);
 
-		if (this.shouldPreloadPrimaryCase()) {
-			this.preloadCaseData(this.tree);
-		}
+		const seeded = this.seededWriters();
+		if (seeded !== undefined) this.preloadCaseData(this.tree, seeded);
 		this.initializeBoundRepeats(this.tree);
 
 		const states: EngineStoreState = {};
 		this.initStatesInto(states, this.tree);
-		this.applyDefaultsInto(states, this.tree);
+		this.applyDefaultsInto(states, this.tree, seeded);
 		this.store.setState(states, true);
 		this.evaluateAllInto();
 	}
@@ -3483,8 +3485,7 @@ export class FormEngine {
 	 */
 	private shouldPreloadPrimaryCase(): boolean {
 		return (
-			isCaseLoadingFormType(this.formType) &&
-			this.caseSelectionCardinality === "single" &&
+			formOpensWithOneCase(this.formType, this.caseSelectionCardinality) &&
 			this.caseData.size > 0
 		);
 	}
@@ -3506,12 +3507,22 @@ export class FormEngine {
 		return this.caseData.get(this.moduleCaseType);
 	}
 
+	/**
+	 * The writers this form seeds from the loaded case, keyed by field uuid,
+	 * or `undefined` when it seeds none (a form that does not open one case,
+	 * no case data, or a retyped module whose data no longer matches). One
+	 * map per init/rebuild/reset feeds both the preload and the default pass,
+	 * so the two cannot disagree about which fields the case supplies.
+	 */
+	private seededWriters(): ReadonlyMap<Uuid, CaseWriteField> | undefined {
+		if (!this.shouldPreloadPrimaryCase()) return undefined;
+		if (this.ownCaseData() === undefined) return undefined;
+		return this.primaryCaseWritesByField();
+	}
+
 	private preloadCaseData(
 		tree: FieldTreeNode[],
-		writesByField: ReadonlyMap<
-			Uuid,
-			CaseWriteField
-		> = this.primaryCaseWritesByField(),
+		writesByField: ReadonlyMap<Uuid, CaseWriteField>,
 		prefix = "/data",
 	): void {
 		const own = this.ownCaseData();
@@ -3594,12 +3605,17 @@ export class FormEngine {
 		states: EngineStoreState,
 		tree: readonly FieldTreeNode[],
 		evaluateAsync: FormEngineAsyncEvaluator,
+		seeded: ReadonlyMap<Uuid, CaseWriteField> | undefined,
 		prefix = "/data",
 	): Promise<void> {
 		for (const node of tree) {
 			const field = node.field;
 			const path = `${prefix}/${field.id}`;
-			const value = await this.computeDefaultAsync(field, path, evaluateAsync);
+			/* Same law as `applyDefaultsInto`: the loaded case's value wins
+			 * over a default on every writer the case seeds. */
+			const value = seeded?.has(field.uuid)
+				? undefined
+				: await this.computeDefaultAsync(field, path, evaluateAsync);
 			if (value !== undefined) {
 				this.instance.set(path, value);
 				const state = states[path];
@@ -3616,6 +3632,7 @@ export class FormEngine {
 						states,
 						node.children,
 						evaluateAsync,
+						seeded,
 						`${path}[${index}]`,
 					);
 				}
@@ -3624,6 +3641,7 @@ export class FormEngine {
 					states,
 					node.children,
 					evaluateAsync,
+					seeded,
 					path,
 				);
 			}
@@ -3634,12 +3652,27 @@ export class FormEngine {
 	private applyDefaultsInto(
 		states: EngineStoreState,
 		tree: FieldTreeNode[],
+		seeded: ReadonlyMap<Uuid, CaseWriteField> | undefined,
 		prefix = "/data",
 	): void {
 		for (const node of tree) {
 			const f = node.field;
 			const path = `${prefix}/${f.id}`;
-			const value = this.computeDefault(f, path);
+			/* On the device both the field's own `default_value` and the case
+			 * preload are `xforms-ready` setvalues, and the preload is spliced
+			 * after the default in document order, so the loaded case's value
+			 * wins for every primary writer, even when the case holds no such
+			 * property yet (an empty nodeset seeds an empty string). A default
+			 * on a preloaded writer therefore never shows on a device, and
+			 * Preview must not show it either. `lib/domain/casePreload.ts` is
+			 * the shared statement of which writers those are; the inventory's
+			 * primary bucket is the same set with capture writers dropped, and
+			 * `seeded` is that map only when the case data actually seeded
+			 * (`seededWriters`), so a default is skipped only where a value
+			 * replaced it. */
+			const value = seeded?.has(f.uuid)
+				? undefined
+				: this.computeDefault(f, path);
 			if (value !== undefined) {
 				this.instance.set(path, value);
 				const state = states[path];
@@ -3654,10 +3687,15 @@ export class FormEngine {
 						index < this.instance.getRepeatCount(path);
 						index += 1
 					) {
-						this.applyDefaultsInto(states, node.children, `${path}[${index}]`);
+						this.applyDefaultsInto(
+							states,
+							node.children,
+							seeded,
+							`${path}[${index}]`,
+						);
 					}
 				} else {
-					this.applyDefaultsInto(states, node.children, path);
+					this.applyDefaultsInto(states, node.children, seeded, path);
 				}
 			}
 		}
@@ -4083,11 +4121,6 @@ interface ChildBucket {
 	caseName?: string;
 	externalId?: string;
 	properties: JsonObject;
-}
-
-/** Domain-typed membership check for the engine's active form type. */
-function isCaseLoadingFormType(formType: FormType): boolean {
-	return CASE_LOADING_FORM_TYPES.has(formType);
 }
 
 /**

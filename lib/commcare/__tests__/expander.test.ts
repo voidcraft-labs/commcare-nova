@@ -3261,10 +3261,10 @@ describe("nested container expansion", () => {
 		expect(one(xml, "vitals").attribs).toEqual({});
 		for (const id of ["temperature", "heart_rate"])
 			expect(
-				one(xml, "bind", { nodeset: "/data/visits/vitals/" + id }).attribs[
+				one(xml, "bind", { nodeset: `/data/visits/vitals/${id}` }).attribs[
 					"vellum:nodeset"
 				],
-			).toBe("#form/visits/vitals/" + id);
+			).toBe(`#form/visits/vitals/${id}`);
 		const repeat = one(xml, "repeat", { nodeset: "/data/visits" });
 		expect(
 			findAll((element) => element.name === "group", repeat.children).map(
@@ -3350,10 +3350,10 @@ describe("field rename through mutation and export", () => {
 			const xml = Object.values(app._attachments)[0];
 			expect(
 				one(xml, "bind", { nodeset: "/data/risk" }).attribs.calculate,
-			).toBe("if(/data/" + id + " > 65, 'high', 'low')");
+			).toBe(`if(/data/${id} > 65, 'high', 'low')`);
 			expect(
-				one(xml, "bind", { nodeset: "/data/" + id }).attribs["vellum:nodeset"],
-			).toBe("#form/" + id);
+				one(xml, "bind", { nodeset: `/data/${id}` }).attribs["vellum:nodeset"],
+			).toBe(`#form/${id}`);
 		}
 		expect(renamed.fields[field.uuid].uuid).toBe(field.uuid);
 	});
@@ -3921,8 +3921,8 @@ describe("expandDoc HQ JSON projection — column kinds", () => {
 		const [column] = expandDoc(doc).modules[0].case_details.short.columns;
 		expect(column.enum).toEqual(
 			Array.from({ length: 11 }, (_, index) => ({
-				key: "nova_text_" + String(index).padStart(10, "0"),
-				value: { en: "Tag " + index },
+				key: `nova_text_${String(index).padStart(10, "0")}`,
+				value: { en: `Tag ${index}` },
 			})),
 		);
 		// Actual HQ XPathEnum replacement and Core rendering are exercised by

@@ -2,11 +2,15 @@ import {
 	CASE_LOADING_FORM_TYPES,
 	type CaptureCaseWrite,
 	type CaseWrite,
+	caseSelectionCardinality,
+	caseWriteDestinationClass,
 	type Field,
 	type Form,
+	humanizeId,
 	isCaptureField,
 	type Module,
 	USERCASE_CASE_TYPE,
+	writerPreloadsFromLoadedCase,
 } from "@/lib/domain";
 /**
  * The hashtag an author would write for one destination.
@@ -24,7 +28,32 @@ export function destinationRef(caseType: string, property: string): string {
 		: `#${caseType}/${property}`;
 }
 
-/** Presentation for the actual write destination and selected-case scope. This does not authorize a write. */
+/**
+ * What the chosen destination means when the form opens and when it submits.
+ *
+ * The line under the Saves to chooser is the one place the rail says what a
+ * case-bound field DOES rather than where it lands, and it has to agree with
+ * the running form: `writerPreloadsFromLoadedCase` is the same predicate the
+ * preview engine seeds from. Priority, first match wins:
+ *
+ *   1. A several-case form writing the module's own type: the shared-answer
+ *      copy (a warning when a starting value or attachment makes the write
+ *      unconditional), unchanged from before the other lines existed.
+ *   2. A writer the form preloads: it opens with the case's current value,
+ *      unless it is a hidden field whose calculation owns the value (the
+ *      preload still happens; the calculation replaces it before anyone
+ *      reads it).
+ *   3. A writer to a child type, on any form type: each submission creates a
+ *      new case of that type, so the question always opens blank. On a
+ *      several-case form the XForm creates one child per selected case
+ *      (`lib/commcare/session.ts`), and the line says so.
+ *   4. Anything else says nothing.
+ *
+ * `current` is the destination the chooser is showing, which during a
+ * selection is not yet the one stored on the field, so the preload predicate
+ * reads the shown pair rather than the stored one. This does not authorize a
+ * write.
+ */
 export function caseWriteGuidance(
 	field: Field,
 	context: {
@@ -32,33 +61,71 @@ export function caseWriteGuidance(
 		form: Pick<Form, "type">;
 	} | null,
 	current: CaseWrite | CaptureCaseWrite | undefined,
-) {
+): {
+	writesEverySelectedCase: boolean;
+	help: string | undefined;
+	warning: boolean;
+} {
 	const savesAttachment = isCaptureField(field);
 	const currentMode =
 		current !== undefined && "mode" in current ? current.mode : "url";
-	const writesEverySelectedCase =
+	const destination =
+		context === null
+			? "none"
+			: caseWriteDestinationClass(current, context.module);
+	const opensSeveralCases =
 		context !== null &&
 		CASE_LOADING_FORM_TYPES.has(context.form.type) &&
-		context.module.caseListConfig?.selection?.kind === "multiple" &&
+		caseSelectionCardinality(context.module) === "multiple";
+	const writesEverySelectedCase = opensSeveralCases && destination === "own";
+	const preloadsFromLoadedCase =
+		context !== null &&
 		current !== undefined &&
-		current.caseType === context.module.caseType;
+		writerPreloadsFromLoadedCase(
+			{ ...field, caseWrite: current } as Field,
+			context.module,
+			context.form,
+		);
 	const hasStartingAnswer =
 		("default_value" in field && field.default_value !== undefined) ||
 		("calculate" in field && field.calculate !== undefined);
-	const severalCaseHelp = !writesEverySelectedCase
-		? undefined
-		: savesAttachment
+	if (writesEverySelectedCase) {
+		const help = savesAttachment
 			? currentMode === "url"
 				? "This attachment starts blank. When someone submits a file, its stored link updates this information on every selected case. Preview leaves each case's current value because it does not create that stored link."
 				: "This attachment starts blank. When someone submits a file, it updates this information on every selected case. Preview leaves each case's current attachment because it does not create case attachments."
 			: hasStartingAnswer
 				? "This question has a starting value or calculation. When it produces an answer, that answer updates this information on every selected case, even if no one changes it."
 				: "This question starts blank. Any answer someone enters updates this information on every selected case. Leaving it blank keeps each case's current value.";
-	const severalCaseHelpIsWarning =
-		severalCaseHelp !== undefined && (savesAttachment || hasStartingAnswer);
+		return {
+			writesEverySelectedCase,
+			help,
+			warning: savesAttachment || hasStartingAnswer,
+		};
+	}
+	if (preloadsFromLoadedCase) {
+		const calculated = field.kind === "hidden" && field.calculate !== undefined;
+		return {
+			writesEverySelectedCase,
+			help: calculated
+				? "The calculation sets this value."
+				: "Opens with this case's current value.",
+			warning: false,
+		};
+	}
+	if (destination === "child" && current !== undefined) {
+		const type = humanizeId(current.caseType);
+		return {
+			writesEverySelectedCase,
+			help: opensSeveralCases
+				? `Creates a new ${type} case for every selected case on each submission.`
+				: `Creates a new ${type} case on each submission.`,
+			warning: false,
+		};
+	}
 	return {
 		writesEverySelectedCase,
-		help: severalCaseHelp,
-		warning: severalCaseHelpIsWarning,
+		help: undefined,
+		warning: false,
 	};
 }

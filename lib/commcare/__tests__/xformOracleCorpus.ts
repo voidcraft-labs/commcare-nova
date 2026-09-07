@@ -46,11 +46,11 @@ export const xformOracleCases: readonly XformOracleCase[] = [
 	fixture("basic", wireForm()),
 	fixture(
 		"root-attribute-bind",
-		wireForm(data + '<bind nodeset="/data/@version"/>'),
+		wireForm(`${data}<bind nodeset="/data/@version"/>`),
 	),
 	fixture(
 		"wrong-root-bind",
-		wireForm(data + bind + '<bind nodeset="/wrong/q"/>'),
+		wireForm(`${data + bind}<bind nodeset="/wrong/q"/>`),
 		["XFORM_DANGLING_BIND"],
 		true,
 		"nova-contract",
@@ -78,18 +78,18 @@ export const xformOracleCases: readonly XformOracleCase[] = [
 		),
 	),
 	fixture("missing-instance", wireForm(bind), ["XFORM_NO_INSTANCE"]),
-	fixture("empty-instance", wireForm("<instance/>" + bind), [
+	fixture("empty-instance", wireForm(`<instance/>${bind}`), [
 		"XFORM_NO_INSTANCE",
 	]),
-	fixture("bind-without-nodeset", wireForm(data + '<bind type="string"/>'), [
+	fixture("bind-without-nodeset", wireForm(`${data}<bind type="string"/>`), [
 		"XFORM_BIND_NO_NODESET",
 	]),
-	fixture("nonpath-bind", wireForm(data + '<bind nodeset="count(/data/q)"/>'), [
+	fixture("nonpath-bind", wireForm(`${data}<bind nodeset="count(/data/q)"/>`), [
 		"XFORM_NON_PATH_NODESET",
 	]),
 	fixture(
 		"dangling-bind",
-		wireForm(data + bind + '<bind nodeset="/data/absent"/>'),
+		wireForm(`${data + bind}<bind nodeset="/data/absent"/>`),
 		["XFORM_DANGLING_BIND"],
 		true,
 		"nova-contract",
@@ -98,7 +98,7 @@ export const xformOracleCases: readonly XformOracleCase[] = [
 		(attr) =>
 			fixture(
 				`invalid-${attr}`,
-				wireForm(data + `<bind nodeset="/data/q" ${attr}="1 +"/>`),
+				wireForm(`${data}<bind nodeset="/data/q" ${attr}="1 +"/>`),
 				["XFORM_INVALID_BIND_EXPRESSION"],
 			),
 	),
@@ -106,13 +106,13 @@ export const xformOracleCases: readonly XformOracleCase[] = [
 		(attr) =>
 			fixture(
 				`empty-${attr}`,
-				wireForm(data + `<bind nodeset="/data/q" ${attr}=""/>`),
+				wireForm(`${data}<bind nodeset="/data/q" ${attr}=""/>`),
 				["XFORM_INVALID_BIND_EXPRESSION"],
 			),
 	),
 	fixture(
 		"valid-relevant",
-		wireForm(data + '<bind nodeset="/data/q" relevant="/data/other &gt; 5"/>'),
+		wireForm(`${data}<bind nodeset="/data/q" relevant="/data/other &gt; 5"/>`),
 	),
 	fixture(
 		"external-bind-invalid-expression",
@@ -221,7 +221,7 @@ export const xformOracleCases: readonly XformOracleCase[] = [
 		),
 		["XFORM_TEXT_BAD_CHILD"],
 	),
-	fixture("itext-no-translation", wireForm(data + bind + "<itext/>"), [
+	fixture("itext-no-translation", wireForm(`${data + bind}<itext/>`), [
 		"XFORM_TRANSLATION_NONE",
 	]),
 	fixture(
@@ -314,7 +314,7 @@ export const xformOracleCases: readonly XformOracleCase[] = [
 	),
 	fixture(
 		"setvalue-no-target",
-		wireForm(data + bind + '<setvalue event="xforms-ready" value="\'x\'"/>'),
+		wireForm(`${data + bind}<setvalue event="xforms-ready" value="'x'"/>`),
 		["XFORM_SETVALUE_NO_TARGET"],
 	),
 	fixture(
@@ -338,7 +338,7 @@ export const xformOracleCases: readonly XformOracleCase[] = [
 	fixture(
 		"setvalue-invalid-event",
 		wireForm(
-			data + bind + '<setvalue event="on-load" ref="/data/q" value="\'x\'"/>',
+			`${data + bind}<setvalue event="on-load" ref="/data/q" value="'x'"/>`,
 		),
 		["XFORM_INVALID_ACTION_EVENT"],
 	),
@@ -362,7 +362,7 @@ export const xformOracleCases: readonly XformOracleCase[] = [
 	fixture(
 		"setvalue-empty-value",
 		wireForm(
-			data + bind + '<setvalue event="xforms-ready" ref="/data/q" value=""/>',
+			`${data + bind}<setvalue event="xforms-ready" ref="/data/q" value=""/>`,
 		),
 		["XFORM_INVALID_SETVALUE"],
 	),
