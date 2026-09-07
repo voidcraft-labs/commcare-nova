@@ -1159,7 +1159,7 @@ export async function POST(req: Request) {
 	 * still reading. A run the process can't finish (hard kill) is settled by the
 	 * stale-`generating` reaper.
 	 *
-	 * The same rule bans `onEnd`/`onFinish` on this stream: the SDK fires them
+	 * The same rule bans `onEnd` on this stream: the SDK fires it
 	 * through the response stream's `cancel()` hook too, so a mid-run refresh
 	 * would run that teardown while the agent is still streaming, sealing the
 	 * chunk log and flushing a zero-usage accumulator against a live run, which
@@ -1170,7 +1170,7 @@ export async function POST(req: Request) {
 	 * The BARRIER FOLD inside execute is the sanctioned home for those
 	 * callbacks: a second, server-internal `createUIMessageStream` that no
 	 * client ever holds. The route itself drains it, and only `finalizeRun`
-	 * (or the prelude-throw net) closes it, so its `onStepEnd`/`onFinish` are
+	 * (or the prelude-throw net) closes it, so its `onStepEnd`/`onEnd` are
 	 * driven by the run's true progress — never by a client's pull or cancel. */
 	const stream = createUIMessageStream({
 		execute: async ({ writer: rawWriter }) => {
@@ -1291,7 +1291,7 @@ export async function POST(req: Request) {
 						clearMarker: false,
 					});
 				},
-				onFinish: async ({ responseMessage }) => {
+				onEnd: async ({ responseMessage }) => {
 					if (foldOutcome === "skip") return;
 					foldMessageId = responseMessage.id;
 					foldFinalMessage = responseMessage;
@@ -3264,7 +3264,7 @@ export async function POST(req: Request) {
 				/* Last-resort safety net for a throw in the execute PRELUDE (before
 				 * the main try) that skips `finalizeRun`: e.g. the serialize-wait /
 				 * reacquire / thread-upsert / seed-build stretch. It lives in
-				 * execute's OWN `finally`: never an SDK `onEnd`/`onFinish`, which
+				 * execute's OWN `finally`: never an SDK `onEnd`, which
 				 * also fire on client cancel and would run this teardown against a
 				 * live run mid-refresh (see the disconnect-handling note above the
 				 * stream). On every path that DID finalize it degrades to no-ops:

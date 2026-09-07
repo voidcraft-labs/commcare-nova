@@ -215,6 +215,23 @@ describe("strictWireJsonSchema over the production pipeline schemas", () => {
 		});
 	});
 
+	it("admits null for an optional primitive union as one compact type array", async () => {
+		const schema = z.object({
+			value: z.union([z.string(), z.number()]).optional(),
+		});
+		const projected = strictWireJsonSchema(schema);
+		const slot = (projected.properties as Record<string, unknown>).value;
+		expect(slot).toEqual({ type: ["string", "number", "null"] });
+		const validate = new Ajv({ strict: false }).compile(projected);
+		for (const value of [{ value: null }, { value: "a" }, { value: 1 }]) {
+			expect(validate(value), JSON.stringify(validate.errors)).toBe(true);
+		}
+		expect(validate({ value: true })).toBe(false);
+		expect(
+			await strictStructuredSchema(schema).validate?.({ value: null }),
+		).toEqual({ success: true, value: {} });
+	});
+
 	it("refuses an open-key record at local request construction", () => {
 		expect(() =>
 			strictWireJsonSchema(z.object({ bag: z.record(z.string(), z.number()) })),

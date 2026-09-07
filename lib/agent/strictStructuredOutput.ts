@@ -41,12 +41,20 @@ function nullUnion(node: unknown): unknown {
 		// Enum and const restrict null independently of type, so retain those
 		// schemas as a separate anyOf arm. A plain type can use the compact array.
 		if (
-			typeof node.type === "string" &&
 			node.anyOf === undefined &&
 			node.enum === undefined &&
 			node.const === undefined
 		) {
-			return { ...node, type: [node.type, "null"] };
+			if (typeof node.type === "string") {
+				return { ...node, type: [node.type, "null"] };
+			}
+			// A union of primitives already compacted to a type array.
+			if (Array.isArray(node.type)) {
+				const types = node.type as unknown[];
+				return types.includes("null")
+					? node
+					: { ...node, type: [...types, "null"] };
+			}
 		}
 		// A union (incl. one this transform just rewrote) gains a null arm.
 		if (Array.isArray(node.anyOf)) {

@@ -2734,7 +2734,7 @@ test.describe("authenticated builder", () => {
 
 			await test.step("selection replaces history and Back restores the same field and language", async () => {
 				const historyLength = await page.evaluate(() => window.history.length);
-				const idInput = page.locator('[data-field-id="id"] input:visible');
+				const idInput = page.locator('[data-field-id="id"] input').visible();
 				for (const [uuid, id] of [
 					[identity.firstNameUuid, "first_name"],
 					[identity.noteUuid, "note"],
@@ -2803,7 +2803,7 @@ test.describe("authenticated builder", () => {
 				await page.goto(
 					`${fixture.identityProjectionRoute}/${identity.firstNameUuid}`,
 				);
-				const idInput = page.locator('[data-field-id="id"] input:visible');
+				const idInput = page.locator('[data-field-id="id"] input').visible();
 				await expect(idInput).toHaveValue("first_name", { timeout: 20_000 });
 				// Editing owns printable keys and Escape. The same P key belongs to
 				// the Builder only after the input releases focus.
@@ -2918,7 +2918,7 @@ test.describe("authenticated builder", () => {
 				const firstNameRow = page.locator(
 					`main [data-field-uuid="${identity.firstNameUuid}"]`,
 				);
-				const idInput = page.locator('[data-field-id="id"] input:visible');
+				const idInput = page.locator('[data-field-id="id"] input').visible();
 				await firstNameRow
 					.getByRole("button", { name: "Select field", exact: true })
 					.press("Enter");
@@ -4490,7 +4490,7 @@ test.describe("authenticated builder", () => {
 		await expect(deleteHeadings).toHaveCount(before);
 		await page.reload();
 		await expect(deleteHeadings).toHaveCount(before);
-		await expect(page.locator(`a[href="${href}"]:visible`)).toBeVisible();
+		await expect(page.locator(`a[href="${href}"]`).visible()).toBeVisible();
 	});
 
 	/**

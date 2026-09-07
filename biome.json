@@ -281,7 +281,10 @@
 				"noFloatingPromises": "error",
 				"noMisusedPromises": "error"
 			},
-			"preset": "recommended"
+			"preset": "recommended",
+			"style": {
+				"noDescendingSpecificity": "off"
+			}
 		}
 	}
 }

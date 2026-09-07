@@ -412,14 +412,11 @@ describe("strict field shape and semantic backstops", () => {
 			const parsed = fieldSchema.safeParse(doc.fields[q]);
 			expect(parsed.success).toBe(false);
 			if (parsed.success) throw new Error("invalid field admitted");
+			/* The kind's strict branch is the only one that fails purely on an
+			 * undeclared key, so zod reports that branch's issue as the parse
+			 * failure instead of wrapping every branch in `invalid_union`. */
 			expect(parsed.error.issues).toMatchObject([
-				{
-					code: "invalid_union",
-					errors: [
-						[{ code: "unrecognized_keys", keys: [slot] }],
-						expect.any(Array),
-					],
-				},
+				{ code: "unrecognized_keys", keys: [slot] },
 			]);
 			findings(doc, [code]);
 		},
