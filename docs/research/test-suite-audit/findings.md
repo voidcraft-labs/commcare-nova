@@ -2464,3 +2464,29 @@ All 27 final tests pass in `/tmp/nova-root-execution-brief-reviewed.log` without
 async diagnostics. These prove deterministic execution context, not live model
 interpretation or persisted executor dispatch. Public authoring steps are
 unchanged; the nearest design contract now describes the corrected lowering.
+
+### Answered-question claim projection
+
+Read the entire original 88-line claim test, 100-line seeder, question input
+schema, actual card result producer, metadata admission and orchestration
+caller. The old test wrapped answers in an invented `answers` field; the card
+actually emits a flat question-index map. The revised tests use that output,
+compare every claim statement and message/part coordinate, check UUIDv5 against
+the independent installed `uuid` implementation, and prove cumulative JSON
+replay without changing earlier identities or answer text.
+
+Ten malformed completed-looking cards pass `validateChatMessages`, whose
+contract deliberately leaves SDK tool parts alone. Before the fix, malformed
+question containers crashed `.map`, while missing/nonstring/empty answers
+became claims saying the user answered. `/tmp/nova-root-claim-seeding-before.log`
+records all ten failures. The seeder now parses the actual question input and
+requires a nonempty string answer for every question before emitting evidence.
+Complete cards retain the historical statement bytes and fixed UUID namespace.
+This restores the documented defensive projection; it does not add authority
+to client-supplied source material.
+
+All 22 final cases pass without async diagnostics in
+`/tmp/nova-root-claim-seeding-final.log`. Full integration typecheck12 has no
+root errors; its six contemporaneous collaborator-fixture errors were routed
+to the owning lanes. Authenticated POST and live model interpretation remain
+separate methods.

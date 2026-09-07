@@ -248,7 +248,11 @@ valid direct Builder or MCP edit.
   bounded transcript messages, Project-authorized attachment extracts, and
   digest-bound images for the model while persisting references and
   content-free proof hashes rather than copied source bodies. Historical
-  answered-question claims remain source-package reconstruction metadata; they
+  Answered-question claims require the actual question input shape and a
+  nonempty string answer for every question in the flat client result map.
+  Malformed or unfinished cards seed nothing; complete cards retain their
+  original UUID namespace, statement spelling and transcript coordinates.
+  These claims remain source-package reconstruction metadata; they
   are not part of the Design Contract or build coverage model.
   Asset metadata must be ready and match the attached kind before projection.
   Package reconstruction uses the earliest prefix containing the original

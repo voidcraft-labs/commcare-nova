@@ -622,3 +622,10 @@ layout lowering, and lossless rendered JSON. Record-key cases include full
 UUID-suffix collisions, reserved names, truncation, and catalog-order changes.
 These are deterministic compiler-input proofs; serializing a mocked tool map
 or finding a phrase in a prompt does not prove executor behavior.
+
+Answered-question claim fixtures use the actual card's flat index-to-answer
+result. They compare full statements and transcript coordinates, independent
+UUIDv5 output, replay and cumulative extension; malformed completed cards pass
+through the real metadata gate before the defensive seeder is exercised.
+This is source projection, not proof that an authenticated POST or model
+correctly interprets the answer.

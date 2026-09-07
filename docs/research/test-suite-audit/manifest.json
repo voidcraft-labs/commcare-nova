@@ -2491,7 +2491,9 @@
 			"file": "lib/agent/design/loop/__tests__/claimSeeding.test.ts",
 			"lines": 88,
 			"ciMs": 145,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete claim seeder, actual AskQuestionsCard producer, question schema, chat metadata admission and orchestrator caller. Replaced wrapped fake answers and shape-only UUID regex with actual flat question-index output, full statements/coordinates, independent uuid.v5, cumulative JSON replay and changed-answer identity checks. Ten malformed completed client cards passed the route metadata gate and either crashed projection or became false source claims. Seeder now parses actual question input and requires every nonempty answer before seeding, preserving valid statement bytes and namespace. All22 scoped tests pass with no async diagnostics. Does not claim authenticated POST or model judgment.",
+			"reviewedSha256": "d24475649955714f7dc8eb47062f9ed48c13ad20883d393dcaa44cb0b7a42cb6"
 		},
 		{
 			"file": "lib/agent/design/loop/__tests__/designAgentCompaction.test.ts",

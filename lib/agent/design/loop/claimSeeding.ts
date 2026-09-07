@@ -22,6 +22,7 @@ import { createHash } from "node:crypto";
 import type { UIMessage } from "ai";
 import { sourceClaimSchema } from "@/lib/agent/design/evidence";
 import type { SourceClaimSeed } from "@/lib/agent/design/sourcePackage";
+import { askQuestionsInputSchema } from "@/lib/agent/tools/askQuestions";
 
 /** The fixed namespace every seeded-claim id derives under. Changing it
  *  changes every derived id, which breaks package-rebuild byte identity for
@@ -67,15 +68,31 @@ export function seedClaimsFromAnsweredRounds(
 			) {
 				continue;
 			}
-			const input = (part as { input?: unknown }).input as
-				| { questions?: Array<{ question?: string }> }
-				| undefined;
-			const output = (part as { output?: unknown }).output as
-				| { answers?: unknown }
-				| unknown;
+			const input = askQuestionsInputSchema.safeParse(
+				(part as { input?: unknown }).input,
+			);
+			const output = (part as { output?: unknown }).output;
+			// The client publishes the flat answer map only after the whole card is
+			// answered. A tool state alone is not evidence that answers arrived.
+			if (
+				!input.success ||
+				input.data.questions.length === 0 ||
+				typeof output !== "object" ||
+				output === null ||
+				Array.isArray(output) ||
+				!input.data.questions.every((_question, index) => {
+					const answer = (output as Record<string, unknown>)[String(index)];
+					return (
+						Object.hasOwn(output, String(index)) &&
+						typeof answer === "string" &&
+						answer.trim().length > 0
+					);
+				})
+			)
+				continue;
 			const statement = `The user answered the design questions ${JSON.stringify(
-				input?.questions?.map((question) => question.question) ?? [],
-			)} with ${JSON.stringify(output ?? null)}.`;
+				input.data.questions.map((question) => question.question),
+			)} with ${JSON.stringify(output)}.`;
 			claims.push(
 				sourceClaimSchema.parse({
 					id: deterministicDesignId(
