@@ -2256,7 +2256,10 @@
 			"file": "lib/agent/build/__tests__/executorWireSchemas.test.ts",
 			"lines": 314,
 			"ciMs": 2764,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read entire executor schema projection and runtime declaration guard plus consumers. Replaced handle-arm/source-text counts with complete AJV-admitted nested creation, canonical versus handled references, exact nested declaration errors, replacement options/columns, canonical-only media and accepted lookup references. Tests original chat JSON grammar and actual canonical parser, including nested projection mutation isolation; catalog defaults use fully admitted doc.16 scoped tests pass without diagnostics; offline grammar not provider decoding/persistence.",
+			"reviewedSha256": "94e62e2b6dc7882e59a956bf2732364f25464fed54b5b2ff93bf0dd888d75b3a",
+			"baselineSha256": "cce4710c45725cd4fab94ed01850657200ef734c3f47e96e44fdacda46350788"
 		},
 		{
 			"file": "lib/agent/build/__tests__/externalActions.postgres.test.ts",
@@ -2510,7 +2513,10 @@
 			"file": "lib/agent/design/loop/__tests__/toolWireSchemas.test.ts",
 			"lines": 188,
 			"ciMs": 1907,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read full design wire projection/identity resolver and strict parse seam, semantic input schemas and original tests. Replaced marker counts/copied arms with19 complete AJV-admitted actor/root/record/property/inspection/disposition payload cases through actual handle resolution, null stripping and Zod parse. Covers strict optional null spelling, same-key designed versus existing lookup identity families and metadata refusal. Raw design UUID grammar acceptance is separate from server policy.19 scoped tests pass without diagnostics; corrected stale source marker comment only.",
+			"reviewedSha256": "47fb4bfc8190c9ebe3c3a8c50b3936189b4fa79176efecc01cd022569fffb47e",
+			"baselineSha256": "dda5fc55d58298877ac8b9aaf268f433bede86641bfe33d7e8a1bc364fd7c8a8"
 		},
 		{
 			"file": "lib/agent/tools/__tests__/addFields.guard.test.ts",

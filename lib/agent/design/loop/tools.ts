@@ -342,10 +342,9 @@ function isDesignIdStringNode(node: Record<string, unknown>): boolean {
  * reference — widens to `uuid | { handle }` (plus a null arm where the slot
  * was optional) so the strict provider grammar can express a handle; a slot
  * left bare would pin the model to raw UUIDs the server then refuses.
- * Persisted schemas remain UUID-only. Design IDs are the only
- * canonical-UUID-pattern strings in these tool schemas — a Blueprint or media
- * UUID slot added here would widen too and must first grow a distinguishable
- * emission; `toolWireSchemas.test.ts` pins the widened inventory. */
+ * Persisted schemas remain UUID-only. Only explicitly marked DesignId leaves
+ * widen; same-named Project table/column identity slots remain canonical.
+ * Tests admit complete semantic payloads through both grammar and parse seam. */
 function widenDesignIdsToHandles(node: unknown): unknown {
 	if (Array.isArray(node)) return node.map(widenDesignIdsToHandles);
 	if (!isJsonObject(node)) return node;

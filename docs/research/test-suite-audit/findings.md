@@ -2408,3 +2408,30 @@ tests passed with the scoped async detector and no diagnostics in
 `/tmp/nova-root-build-plan-unit-complete.log` and
 `/tmp/nova-root-build-plan-writer-after.log`. These prove deterministic planning
 and persistence, not model quality or app construction execution.
+
+## Tool grammar tests now admit complete calls
+
+Executor schema tests previously counted handle arms, searched serialized
+schema text and accepted a defined schema object as evidence. The replacement
+validates complete nested module creation, replacement columns/options, entity
+references, media and both lookup-source families with AJV, proves raw/missing/
+malformed creation handles fail, and checks actual shared handle declarations.
+It separately validates canonical chat payloads and ensures mutating a private
+projection's nested node cannot mutate cached chat grammar. The catalog-default
+guard uses a schema- and commit-gate-admitted app. Full payload validation caught
+fixture mistakes: plain labels instead of ProseTemplate, an absent case catalog,
+and the HQ property spelling `name` rather than Nova's `case_name`; these were
+corrected without changing product behavior.
+
+Design grammar tests replace marker-count equality and copied schema arms with
+complete actor, record/property, root/charter, inspection and disposition calls,
+including required/optional handles and canonical-only external lookup IDs.
+The actual handle resolver, null normalizer and canonical Zod parser receive
+these calls. The provider grammar intentionally permits raw design UUIDs; the
+server's separate identity policy remains responsible for refusing them where
+required. Offline tests do not claim live constrained decoding or persistence.
+The stale source comment claiming every UUID pattern widened was corrected.
+
+Checks: 35 tests passed without async diagnostics in
+`/tmp/nova-root-both-wire-complete.log`; the further nested-cache mutation check
+passed all 16 executor cases in `/tmp/nova-root-executor-wire-final.log`.

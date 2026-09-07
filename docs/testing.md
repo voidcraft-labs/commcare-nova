@@ -607,3 +607,11 @@ calling the writer; a correct digest alone cannot prove accepted semantics.
 Dependency tests include dense DAGs, disconnected cycles and nodes leading to
 cycles, with exact diagnostic coordinates. Historical plan reads remain a
 separate compatibility contract.
+
+Executor and design-tool grammar tests validate complete payloads with an
+independent JSON Schema validator, then exercise the actual canonical parse
+seam. Creation handles, nested options, existing references, external lookup
+identities, strict null spelling and semantic refinements have separate
+assertions. Counting widened schema nodes does not prove any complete call
+is expressible. These offline tests do not claim provider acceptance or
+persisted dispatch; native loop and artifact tests own those boundaries.
