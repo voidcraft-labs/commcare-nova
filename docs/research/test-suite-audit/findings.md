@@ -2536,3 +2536,33 @@ The pure tracker cases independently exercise diagnostic sets, validation
 stages, per-tool counters, sequence resets, staging progress, retained fatal
 errors and trimmed/deduplicated user questions. All 33 final cases pass without
 async diagnostics in `/tmp/nova-root-gates-final.log`.
+
+### Durable model-context evidence and recovery
+
+Read the complete context ledger, message encoder, actual design/executor
+completion producers, orchestration recovery consumers and migration. The old
+six cases supplied invented response digests and described an image object
+round trip as executable without sending it through the SDK. The replacement
+uses actual digest producers, a valid inline PNG and two real SDK requests to
+a loopback Responses server across a PostgreSQL recovery boundary.
+
+Four native counterexamples in `/tmp/nova-root-model-context-before.log`
+exposed unverified step evidence: changed usage, request and response digests
+were returned on recovery, and a completion accepted a digest unrelated to
+its messages. Recovery now verifies every current and predecessor event before
+deriving spend or completion state; one verified query replaces the three
+former step reads. Completion binds its declared digest to exact messages
+before writing. Existing stored event format is unchanged.
+
+Native transactions also prove exact and conflicting retries with later
+suffixes, independent concurrent completions, every provider-contract change,
+stale writer fencing, both holder and membership revocation after the actual
+session lock wait, cross-session isolation, corrupted item refusal and rollback
+when completion or revision writes fail after response inserts. Usage identities
+stay distinct across generations and deduplicate exact replays.
+
+All 30 cases pass in `/tmp/nova-root-model-context-complete.log`. The async
+detector reports 11 SDK PROMISE-only diagnostics; stream aggregates, HTTP
+responses and the private peer transport are awaited and closed. No live model
+request is made. Integration typecheck16 reports no errors in this method;
+concurrent application and validator fixture errors remain separately assigned.

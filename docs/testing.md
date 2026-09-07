@@ -643,3 +643,12 @@ new input, historical plans and rejected-load recovery must observe the rows
 those owners produce. Pure repair-accounting tests separately cover exact
 diagnostic-set equality, independent budgets, reset boundaries and fatal-state
 retention.
+
+Durable model-context tests use migrated PostgreSQL and actual independent
+connections blocked at the session authority row. Test exact replay with later
+suffixes, changed append bytes, generation changes and revoked authority, and
+inject late SQL faults to prove that response items, completion and revision
+commit atomically. Corrupt the fields bound by existing event digests before
+recovery and verify refusal. A real SDK request to a local Responses server
+proves that recovered file URLs and decoded response messages can be sent
+again; an object-shape assertion alone does not prove provider serialization.

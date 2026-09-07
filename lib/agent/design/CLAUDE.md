@@ -428,7 +428,10 @@ the model's to bake in.
 The ordinary history and every complete step response append to
 `design_model_context_items` atomically with its usage-bearing
 `design_model_steps` completion event; the step ledger brackets provider calls
-with payload-free request/response evidence. A durable provider-call start
+with payload-free request/response evidence. Completion verifies that its
+declared response digest binds the exact persisted messages. Recovery verifies
+every current and predecessor step event against its stored digest before using
+request counts, completion state or usage for accounting. A durable provider-call start
 consumes the design step budget even when infrastructure interrupts its
 response, and recovery derives prior spend from those starts before another
 request is allowed. Every browser user turn

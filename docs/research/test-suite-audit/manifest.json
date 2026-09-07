@@ -2281,7 +2281,9 @@
 			"file": "lib/agent/build/__tests__/modelContextStore.postgres.test.ts",
 			"lines": 401,
 			"ciMs": 4063,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read the entire durable context owner, actual executor/design/orchestrator producers, persistence encoding and migration. Replaced canned response digests and image-shape-only proof with real serialized digests and two actual SDK/Responses requests through migrated PostgreSQL. Added whole-row invariance for exact/changed retries with later suffixes, every provider-contract rollover and stale writer, independent concurrent completions observed behind a native row lock, all authority entry points after holder/membership revocation, cross-session fencing, corrupted item/event evidence, late SQL rollback and cross-generation usage identity. Four red native digest-binding cases now fail closed. 30 native cases pass; 11 SDK PROMISE-only detector diagnostics remain, with actual streams/getters and peer transport awaited; no live provider calls.",
+			"reviewedSha256": "c92a6f33403e7defac1a581afd9fa0158d449f15a1acbdddfe18deec353eed3f"
 		},
 		{
 			"file": "lib/agent/build/__tests__/orchestrationKinds.test.ts",
