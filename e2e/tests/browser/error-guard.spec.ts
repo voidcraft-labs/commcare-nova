@@ -3,7 +3,7 @@
 import { createServer } from "node:http";
 import type { Socket } from "node:net";
 import { expect, test } from "@playwright/test";
-import { attachErrorGuard } from "../../lib/errorGuard";
+import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 
 async function startReceiver() {
 	const reports: string[] = [];
@@ -81,10 +81,7 @@ for (const departure of ["reload", "close"] as const) {
 				else {
 					// Default close may destroy the target without running pagehide.
 					// This test needs the native unload lifecycle and its completed close.
-					await Promise.all([
-						page.waitForEvent("close"),
-						page.close({ runBeforeUnload: true }),
-					]);
+					await closePageWithUnload(page);
 				}
 				await expect
 					.poll(() => receiver.reports)

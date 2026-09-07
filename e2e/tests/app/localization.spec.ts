@@ -7,7 +7,7 @@ import {
 	proseText,
 } from "@/lib/domain";
 import { expect, seedFor, test } from "../../lib/appFixtures";
-import { attachErrorGuard } from "../../lib/errorGuard";
+import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { LOCALIZATION_SEED } from "../../lib/localizationSeed";
 
 const snapshotSchema = z.object({
@@ -199,10 +199,10 @@ test(
 			await expect(
 				page.getByRole("button", { name: "Worker language: English" }),
 			).toBeVisible();
-			await peer.close();
+			await closePageWithUnload(peer);
 			await peerGuard.assertNoErrors();
 		} finally {
-			await peer.close();
+			await closePageWithUnload(peer);
 		}
 		await page.reload();
 		await expect(

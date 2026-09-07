@@ -16,6 +16,16 @@ export interface ErrorGuard {
 	assertNoErrors(): Promise<void>;
 }
 
+/** Run the app's pagehide cleanup before checking its departing error evidence.
+ * Playwright's default close can destroy the target without that lifecycle. */
+export async function closePageWithUnload(page: Page): Promise<void> {
+	if (page.isClosed()) return;
+	await Promise.all([
+		page.waitForEvent("close"),
+		page.close({ runBeforeUnload: true }),
+	]);
+}
+
 export async function attachErrorGuard(
 	page: Page,
 	baseURL: string | undefined,

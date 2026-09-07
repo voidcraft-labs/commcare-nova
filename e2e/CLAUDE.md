@@ -32,7 +32,8 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   `console.error` / `pageerror` / same-origin 5xx or client error report
   (`e2e/lib/fixtures.ts`, no benign-error
   allowlist). To provoke an error on purpose, scope a local handler in that test.
-  Await `attachErrorGuard` before navigation. The fixture closes its page before
+  Await `attachErrorGuard` before navigation. The fixture and explicit guarded
+  pages use `closePageWithUnload`, which runs native pagehide cleanup before
   the final async assertion; explicit contexts assert after page close and before
   context close. Live `/api/log/error` requests provide details, and a forwarding
   beacon/fetch observer records attempts synchronously in per-page localStorage
@@ -41,6 +42,11 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   receiver across reload/close, plus origin scope and page isolation. A test that
   requires native unload delivery closes with `runBeforeUnload: true` and awaits
   the `close` event; the default close can destroy the target without pagehide.
+  Persistence assertions must distinguish the intended final state from an
+  earlier identical state still being saved. The organization journey confirms
+  two saved persona places before removing one and waiting for the final one.
+  A deliberately rejected save must finish its visible rollback before a test
+  navigates again; the refusal message can arrive before recovery has completed.
 - **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes the `auth_user`
   + `auth_session` rows into the local **Postgres** (auth and app state both live
   there); `lib/auth/sessionCookie.ts` signs the cookie exactly like

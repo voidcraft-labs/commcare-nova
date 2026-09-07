@@ -1,6 +1,6 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { CASE_CHANGES_SEED } from "../../lib/caseChangesSeed";
-import { attachErrorGuard } from "../../lib/errorGuard";
+import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 
 // Its own admitted application and real Project rows are allocated by native
 // Playwright discovery. The peer tab edits through the actual Builder mutation and multiplayer flow.
@@ -88,7 +88,7 @@ test(
 			).toHaveCount(1);
 		} finally {
 			try {
-				await peer.close();
+				await closePageWithUnload(peer);
 			} finally {
 				await guard.assertNoErrors();
 			}

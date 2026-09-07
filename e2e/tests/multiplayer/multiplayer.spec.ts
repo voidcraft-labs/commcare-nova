@@ -8,7 +8,7 @@ import {
 	test,
 } from "@playwright/test";
 import { Pool } from "pg";
-import { attachErrorGuard } from "../../lib/errorGuard";
+import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { requireScenarioSeed } from "../../lib/scenarioSeeds";
 import { createSmokeContext } from "../../lib/smokeNetwork";
 import {
@@ -156,7 +156,7 @@ async function openBuilder(
 	const guard = await attachErrorGuard(page, mp.baseUrl);
 	const close = async () => {
 		try {
-			await page.close();
+			await closePageWithUnload(page);
 			await guard.assertNoErrors();
 		} finally {
 			try {

@@ -1,4 +1,5 @@
-import type { Page, Request } from "@playwright/test";
+import { readFileSync } from "node:fs";
+import type { Page, Request, Route } from "@playwright/test";
 import { CROSS_PROJECT_MOVE_DISCLOSURE } from "../../../lib/projects/moveTargets";
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import {
@@ -10,7 +11,7 @@ import {
 	CASE_WORKSPACE_SEED,
 	SEEDED_TEMPORAL_DISPLAY,
 } from "../../lib/caseWorkspaceSeed";
-import { attachErrorGuard } from "../../lib/errorGuard";
+import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { FORM_LINKS_SEED } from "../../lib/formLinksSeed";
 import { FORM_SECTIONS_SEED } from "../../lib/formSectionsSeed";
 import { SEARCH_FIRST_SEED } from "../../lib/searchFirstSeed";
@@ -713,6 +714,30 @@ test.describe("authenticated builder", () => {
 
 			await page.goto(`/build/${appId}/setup/users`);
 			const personas = page.getByRole("region", { name: "Personas" });
+			const persistedPersonaPlaceCount = async () => {
+				const response = await page.request.get(`/api/apps/${appId}`);
+				if (!response.ok()) return -1;
+				const body = (await response.json()) as {
+					blueprint?: {
+						personas?: Record<
+							string,
+							{
+								name?: string;
+								locations?: {
+									primaryUuid?: string;
+									additionalUuids?: string[];
+								};
+							}
+						>;
+					};
+				};
+				const asha = Object.values(body.blueprint?.personas ?? {}).find(
+					(persona) => persona.name === "Asha",
+				);
+				return asha?.locations?.primaryUuid === undefined
+					? 0
+					: 1 + (asha.locations.additionalUuids?.length ?? 0);
+			};
 			await personas.getByRole("button", { name: "Add persona" }).click();
 			await expect(personas.getByLabel("Name")).toBeFocused();
 			const role = personas.getByRole("combobox", { name: "Role" });
@@ -738,6 +763,9 @@ test.describe("authenticated builder", () => {
 			await page.getByRole("option", { name: "Kilifi District" }).click();
 			await personas.getByLabel("Add a place").click();
 			await page.getByRole("option", { name: "Mombasa District" }).click();
+			// Establish the two-place state before removing one. A later count of
+			// one must not match the earlier add that is still being saved.
+			await expect.poll(persistedPersonaPlaceCount).toBe(2);
 			await personas.getByRole("button", { name: "Make main" }).click();
 			await expect(
 				personas
@@ -757,32 +785,7 @@ test.describe("authenticated builder", () => {
 			// authoritative document before opening Organization, or this journey can
 			// race the autosave debounce and briefly offer a cross-store-invalid level
 			// gesture that the committed Blueprint does not know is invalid yet.
-			await expect
-				.poll(async () => {
-					const response = await page.request.get(`/api/apps/${appId}`);
-					if (!response.ok()) return -1;
-					const body = (await response.json()) as {
-						blueprint?: {
-							personas?: Record<
-								string,
-								{
-									name?: string;
-									locations?: {
-										primaryUuid?: string;
-										additionalUuids?: string[];
-									};
-								}
-							>;
-						};
-					};
-					const asha = Object.values(body.blueprint?.personas ?? {}).find(
-						(persona) => persona.name === "Asha",
-					);
-					return asha?.locations?.primaryUuid === undefined
-						? 0
-						: 1 + (asha.locations.additionalUuids?.length ?? 0);
-				})
-				.toBe(1);
+			await expect.poll(persistedPersonaPlaceCount).toBe(1);
 			// The database can commit just before the browser receives the PUT
 			// response. Wait for the reconciler acknowledgement too, or navigation can
 			// abort that response and leave the next page holding its stale local doc.
@@ -816,8 +819,50 @@ test.describe("authenticated builder", () => {
 			if (caseChangesRoute === undefined) {
 				throw new Error("organization case-change route missing");
 			}
-			await page.goto(caseChangesRoute);
-			await page.getByRole("button", { name: "Add a change" }).click();
+			// Hold the real catalog request at this fresh route entry. An add
+			// verdict must not promise a write that the readiness gate will refuse.
+			const manifest = JSON.parse(
+				readFileSync(".next/server/server-reference-manifest.json", "utf8"),
+			) as { node: Record<string, { filename: string; exportedName: string }> };
+			const catalogActionIds = new Set(
+				Object.entries(manifest.node)
+					.filter(
+						([, entry]) =>
+							entry.filename === "lib/lookup/actions.ts" &&
+							entry.exportedName === "getAllLookupDefinitionsAction",
+					)
+					.map(([id]) => id),
+			);
+			expect(catalogActionIds.size).toBeGreaterThan(0);
+			const releaseCatalog = Promise.withResolvers<void>();
+			let catalogHeld = false;
+			const holdCatalog = async (route: Route) => {
+				const actionId = route.request().headers()["next-action"];
+				if (!actionId || !catalogActionIds.has(actionId))
+					return route.continue();
+				catalogHeld = true;
+				await releaseCatalog.promise;
+				await route.continue();
+			};
+			await page.route("**/build/**", holdCatalog);
+			try {
+				await page.goto(caseChangesRoute);
+				await expect.poll(() => catalogHeld).toBe(true);
+				await page.getByRole("button", { name: "Add a change" }).click();
+				await expect(
+					page.getByRole("button", {
+						name: "Update the case this form opened",
+					}),
+				).toBeDisabled();
+				await expect(
+					page.getByRole("button", {
+						name: "Close the case this form opened",
+					}),
+				).toBeDisabled();
+			} finally {
+				releaseCatalog.resolve();
+				await page.unrouteAll({ behavior: "wait" });
+			}
 			await page
 				.getByRole("button", { name: "Update the case this form opened" })
 				.click();
@@ -949,10 +994,10 @@ test.describe("authenticated builder", () => {
 						name: /Coast draft kept locally/,
 					}),
 				).toBeVisible();
-				await peerPage.close();
+				await closePageWithUnload(peerPage);
 				await peerGuard.assertNoErrors();
 			} finally {
-				await peerPage.close();
+				await closePageWithUnload(peerPage);
 			}
 
 			await page.goto(`/build/${appId}/setup/organization`);
@@ -1003,6 +1048,9 @@ test.describe("authenticated builder", () => {
 				await barrierLevels.getByLabel("Level name").fill("Barrier level");
 				await barrierLevels.getByLabel("Level name").press("Enter");
 				await rejectedSaveStarted;
+				await expect(
+					barrierLevels.getByRole("button", { name: /Barrier level/ }),
+				).toBeVisible();
 				await barrierPlaces.getByRole("button", { name: "Add place" }).click();
 				// The form initially opens at Region, whose active reverse-hop rule also
 				// renders a required District branch. Name the root explicitly before
@@ -1033,6 +1081,14 @@ test.describe("authenticated builder", () => {
 				await page.unrouteAll({ behavior: "wait" });
 				page.off("request", countPlaceWrites);
 			}
+			// The refusal starts an authoritative reload. Observe its rollback before
+			// navigating, so this journey verifies recovery instead of aborting it.
+			await expect(
+				barrierLevels.filter({
+					has: page.getByRole("button", { name: /District/ }),
+					hasNot: page.getByRole("button", { name: /Barrier level/ }),
+				}),
+			).toBeVisible();
 			await page.reload();
 			await expect(
 				barrierPlaces.getByRole("button", { name: BLOCKED_PLACE_NAME }),
@@ -3772,7 +3828,7 @@ test.describe("authenticated builder", () => {
 							),
 						).toBeVisible();
 					} finally {
-						await viewerPage.close();
+						await closePageWithUnload(viewerPage);
 						await viewerGuard.assertNoErrors();
 					}
 				} finally {
@@ -3844,7 +3900,7 @@ test.describe("authenticated builder", () => {
 				);
 				expect(restore.status()).toBe(200);
 				await restore.json();
-				await viewerPage.close();
+				await closePageWithUnload(viewerPage);
 				await guard.assertNoErrors();
 			}
 		} finally {
@@ -4439,7 +4495,7 @@ test.describe("authenticated builder", () => {
 					);
 					expect(restoredScope.status()).toBe(200);
 					await restoredScope.json();
-					await viewerPage.close();
+					await closePageWithUnload(viewerPage);
 					await viewerGuard.assertNoErrors();
 				} finally {
 					await viewerContext.close();
@@ -5227,7 +5283,8 @@ test.describe("authenticated builder", () => {
 				).toBeVisible();
 			} finally {
 				try {
-					for (const ownedPage of peerContext.pages()) await ownedPage.close();
+					for (const ownedPage of peerContext.pages())
+						await closePageWithUnload(ownedPage);
 					await peerGuard?.assertNoErrors();
 				} finally {
 					await peerContext.close();
@@ -5344,7 +5401,7 @@ test.describe("authenticated builder", () => {
 		} finally {
 			try {
 				for (const ownedPage of recoveryContext.pages())
-					await ownedPage.close();
+					await closePageWithUnload(ownedPage);
 				await recoveryGuard?.assertNoErrors();
 			} finally {
 				await recoveryContext.close();

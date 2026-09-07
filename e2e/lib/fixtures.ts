@@ -1,5 +1,5 @@
 import { test as base, expect } from "@playwright/test";
-import { attachErrorGuard } from "./errorGuard";
+import { attachErrorGuard, closePageWithUnload } from "./errorGuard";
 import { smokeNetworkHeaders } from "./smokeNetwork";
 
 /**
@@ -30,7 +30,7 @@ export const test = base.extend({
 	page: async ({ page, baseURL }, use) => {
 		const guard = await attachErrorGuard(page, baseURL);
 		await use(page);
-		await page.close();
+		await closePageWithUnload(page);
 		await guard.assertNoErrors();
 	},
 });

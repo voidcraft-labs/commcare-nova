@@ -1,6 +1,6 @@
 import { expect, seedFor, test } from "../../lib/appFixtures";
 import { DEEP_LINKS_SEED } from "../../lib/deepLinksSeed";
-import { attachErrorGuard } from "../../lib/errorGuard";
+import { attachErrorGuard, closePageWithUnload } from "../../lib/errorGuard";
 import { createSmokeContext } from "../../lib/smokeNetwork";
 
 test(
@@ -125,7 +125,7 @@ test(
 						}),
 					).toHaveCount(0);
 				} finally {
-					await viewerPage.close();
+					await closePageWithUnload(viewerPage);
 					await guard.assertNoErrors();
 				}
 			} finally {
