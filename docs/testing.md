@@ -279,10 +279,7 @@ after their sockets, readers and result work have settled. Record those
 async-hooks diagnostics honestly; an exit code of zero does not make the run
 leak-clean. Do not replace the SDK with a mock, exclude its dependencies, or
 isolate the test in a child merely to hide allocations. Verify completion,
-transport failure and cancellation through observable resource ownership. The
-[native Node multipart evidence](research/test-suite-audit/native-node/report.md)
-reproduces retained fetch promises and completed Blob reader diagnostics with
-both a controlled dispatcher and a real HTTP socket, outside the SDK and Vitest.
+transport failure and cancellation through observable resource ownership.
 
 ## Database fixtures
 
@@ -531,8 +528,8 @@ contributors, followed by Core's actual query manager, selection nodesets,
 claim parameters/relevance and detail templates on both export paths. Retained
 pre-fix manual-link suites are native negative controls for source-context
 binding. These checks establish engine values and declared request behavior;
-they do not claim an HTTP request or Android screen. See the fixture READMEs
-and `docs/research/test-suite-audit/native-{hq,core}-search.json`.
+they do not claim an HTTP request or Android screen. Reproduction commands live
+in `scripts/fixtures/hq/README.md` and `scripts/fixtures/javarosa/README.md`.
 
 Search prompt acceptance adds three fully admitted fixtures. The native query
 manager consumes both generated suites and the emitted lookup rows, then checks
@@ -697,13 +694,6 @@ actual emitted chunks. A held PostgreSQL authority row proves orchestration cann
 return while its heartbeat still writes, even after the model throws. These checks
 retain the SDK's reported PROMISE diagnostics and Bluebird's inert import probe;
 HTTP sockets, streams, timers and database operations are explicitly drained.
-
-The full-suite audit's original-file ledger is
-`docs/research/test-suite-audit/manifest.json`. Its linked review records retain
-method decisions, replaced/deleted suites, exact source hashes and reproducible
-checks; additional tests are listed separately from the baseline denominator.
-A file's reviewed status establishes direct method review, not a substitute for
-final type, build, browser and database integration checks.
 
 For the actual AI SDK, keep protocol conversion and streaming adapters real.
 A private Responses HTTP peer can emit ordered tools, valid structured output,

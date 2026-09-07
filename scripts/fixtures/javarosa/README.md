@@ -100,8 +100,7 @@ case ID fails because a missing target becomes an accepted unlink.
 
 This proof does not establish rollback: Core's in-memory test storage applies
 records as the parser visits them. It also does not run Android or HQ's server
-case processor. `docs/research/test-suite-audit/native-core-operations.json`
-records the passing methods, native sources and exact exported form hashes.
+case processor.
 
 ## XML text execution
 
