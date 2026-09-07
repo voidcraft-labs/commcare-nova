@@ -137,7 +137,10 @@ valid direct Builder or MCP edit.
   lookup area is also inherited through a workflow input's referenced record
   property, not only a form-local inline choice declaration. The
   model cannot choose ownership, omit accepted work, or author a separate
-  lowering graph. Plan validation proves exact workflow/group coverage, one
+  lowering graph. New-plan admission compares the complete slices and external
+  actions with the deterministic projection of the accepted contract, including
+  identities, names, goals, ordered ownership, areas, dependencies and risk.
+  Plan validation also proves one
   materialization root, an acyclic dependency graph, and supported external-
   action timing (a `blocked` action is refused at admission until a durable
   receipt producer exists). A construction group cannot reference an
@@ -216,7 +219,9 @@ valid direct Builder or MCP edit.
   reads also compare its relational finding/status with the payload. Artifact
   readers compare relational identity, predecessor and source/digest metadata
   with the sealed body before returning a record. A plan belongs to the same
-  session, source package and exact accepted revision. Its raw payload digest
+  session, source package and exact accepted revision. The writer checks its
+  complete construction semantics against that revision inside the same
+  authority transaction, after verifying any lookup receipt. Its raw payload digest
   is verified before historical additive fields are normalized. Private
   workspace finalization belongs only to contract/revision authoring; the
   deterministic planner has no workspace.

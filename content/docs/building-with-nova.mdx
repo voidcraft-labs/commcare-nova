@@ -64,7 +64,8 @@ Nova saves completed parts of a large design as it works. If the connection,
 server process, or model context is interrupted, it resumes from that exact
 saved work instead of rewriting completed sections. Only a complete, checked
 design advances to review or construction. Nova derives construction work from
-the accepted workflows, so it can't silently omit part of the design.
+the accepted workflows and checks that the saved construction plan preserves
+that work, including its required setup actions.
 
 If the final check reveals that an included workflow still needs a decision
 from you, Nova returns to the question card and keeps the design in progress.

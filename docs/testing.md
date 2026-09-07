@@ -599,3 +599,11 @@ application. Tests prove new blocked plans are refused, then explicitly seed
 verified historical plan envelopes to exercise the retained receipt reader.
 Typed raw receipt fixtures prove scope and evidence matching, not an external
 operation or user-confirmation workflow that the product does not implement.
+
+Build-plan tests admit complete contract graphs before planning and compare
+independent construction ownership and area expectations. Native persistence
+tests use real source/review/accepted lineage and reseal altered plans before
+calling the writer; a correct digest alone cannot prove accepted semantics.
+Dependency tests include dense DAGs, disconnected cycles and nodes leading to
+cycles, with exact diagnostic coordinates. Historical plan reads remain a
+separate compatibility contract.

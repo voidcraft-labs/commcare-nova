@@ -2396,7 +2396,10 @@
 			"file": "lib/agent/design/__tests__/buildPlan.test.ts",
 			"lines": 749,
 			"ciMs": 987,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole planning source and original tests. Replaced graph-invalid positive fixtures with admitted queue-born parent, selected-record and standalone forms plus complete layout references; independent exact group ownership/areas, dense DAG and exact cycle reachability replace partial/self-confirming checks. Native lineage writer reproduced ten correctly sealed but semantically altered plans persisting; writer now validates deterministic slices/actions under authority transaction, replaces partial parallel validator. Memoized cycle graph reduced observed 24-workflow/276-edge planning from648ms to11ms.30 pure and84 native tests pass without async diagnostics. Historical read compatibility preserved.",
+			"reviewedSha256": "ca9356bd3a11b89dba2676d31d91cae746f158d44f4dd6876cca469fb918c5e5",
+			"baselineSha256": "11a092cf5c30fcac76a4a7f70102981d99538d0147e13081c6b54db629361bcf"
 		},
 		{
 			"file": "lib/agent/design/__tests__/capabilityCatalog.test.ts",

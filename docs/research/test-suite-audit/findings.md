@@ -2378,3 +2378,33 @@ exposes accepted revisions separately so tests need not invent plan lineage.
 diagnostics. The existing 45-test orchestration suite also passed with the
 refactored fixture in `/tmp/nova-root-external-actions-method.log`; that first
 combined run failed only the newly authored external fixtures described above.
+
+## Build plans were digest-bound but not sealed to accepted construction semantics
+
+The artifact writer verified revision lineage and lookup receipts, but never
+called the accepted-contract plan validator. Ten altered yet correctly sealed
+plans persisted: duplicated elements, wrong group kinds, omitted or extra
+areas, removed external actions/references, changed external descriptions or
+timing, changed slice identities and changed risk. Native before evidence is
+`/tmp/nova-root-build-plan-semantics-before.log`; changing only the validator
+still left all ten writes accepted, as recorded in the intermediate after log.
+The writer now checks the complete deterministic slice/action projection
+inside its existing authority transaction. The projection replaces a partial
+parallel ownership validator; lookup receipt admission remains authoritative.
+Historical reads retain their generic schema for compatibility.
+
+The old planning suite also used five graph-invalid positive fixtures. Their
+replacements model actual queue-born parents, selected-record forms, valid
+standalone layouts and placed lookup inputs. Complete independent ownership
+expectations replace subset assertions and self-confirming schema checks.
+Cycle tests cover DAGs, self loops, disconnected cycles and incoming paths.
+A graph-admitted 24-workflow, 276-edge plan took 648 ms before because cycle
+validation revisited shared paths exponentially. Memoizing reachability reduced
+the same planning probe to about 11 ms; this is a local observation, not a CI
+performance budget. Both benchmark logs are under `/tmp/nova-root-build-plan-dense-*.log`.
+
+Final checks: 30 pure planning tests and 84 native artifact/external-action
+tests passed with the scoped async detector and no diagnostics in
+`/tmp/nova-root-build-plan-unit-complete.log` and
+`/tmp/nova-root-build-plan-writer-after.log`. These prove deterministic planning
+and persistence, not model quality or app construction execution.

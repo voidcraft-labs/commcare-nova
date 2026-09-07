@@ -26,6 +26,7 @@ import { z } from "zod";
 import type { BuildPlan } from "@/lib/agent/design/buildPlan";
 import {
 	buildPlanSchema,
+	buildPlanSchemaFor,
 	newPlanAdmissionMessages,
 	normalizeStoredBuildPlan,
 } from "@/lib/agent/design/buildPlan";
@@ -1121,6 +1122,8 @@ export async function insertDesignBuildPlan(args: {
 				);
 			}
 		}
+
+		buildPlanSchemaFor(acceptedContract).parse(plan);
 
 		await tx
 			.insertInto("design_build_plans")
