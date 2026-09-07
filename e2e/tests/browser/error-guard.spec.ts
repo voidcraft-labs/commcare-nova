@@ -78,7 +78,14 @@ for (const departure of ["reload", "close"] as const) {
 					});
 				}, transport);
 				if (departure === "reload") await page.reload();
-				else await page.close();
+				else {
+					// Default close may destroy the target without running pagehide.
+					// This test needs the native unload lifecycle and its completed close.
+					await Promise.all([
+						page.waitForEvent("close"),
+						page.close({ runBeforeUnload: true }),
+					]);
+				}
 				await expect
 					.poll(() => receiver.reports)
 					.toEqual([

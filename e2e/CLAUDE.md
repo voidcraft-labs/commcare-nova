@@ -38,7 +38,9 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
   beacon/fetch observer records attempts synchronously in per-page localStorage
   because Chromium can deliver teardown reports without emitting network events.
   `error-guard.spec.ts` proves native delivery and detection with a real local HTTP
-  receiver across reload/close, plus origin scope and page isolation.
+  receiver across reload/close, plus origin scope and page isolation. A test that
+  requires native unload delivery closes with `runBeforeUnload: true` and awaits
+  the `close` event; the default close can destroy the target without pagehide.
 - **Auth is a forged cookie, not real OAuth.** `e2e/seed.ts` writes the `auth_user`
   + `auth_session` rows into the local **Postgres** (auth and app state both live
   there); `lib/auth/sessionCookie.ts` signs the cookie exactly like
