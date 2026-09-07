@@ -593,3 +593,9 @@ cause properties. JSON.stringify omits nonenumerable Error fields and cannot
 prove sensitive text was removed. Disposed runtime tests own pending watches,
 queued edits, subscriptions and reader cancellation instead of relying on
 unmount alone to hide unfinished work.
+
+External-action receipts have no registered completion producer in this
+application. Tests prove new blocked plans are refused, then explicitly seed
+verified historical plan envelopes to exercise the retained receipt reader.
+Typed raw receipt fixtures prove scope and evidence matching, not an external
+operation or user-confirmation workflow that the product does not implement.

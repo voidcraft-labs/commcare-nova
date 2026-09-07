@@ -2262,7 +2262,9 @@
 			"file": "lib/agent/build/__tests__/externalActions.postgres.test.ts",
 			"lines": 126,
 			"ciMs": 1984,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read whole receipt owner, orchestrator caller, new-plan admission, plan producer, persisted receipt schema and actual writers (none registered). Replaced empty raw lineage plus unrelated mutated in-memory plan with full source/reviewed revision/derived sealed plan. Proves current blocked-plan writer refusal, then explicitly seeds verified historical plans to test retained reader scope/evidence policy; current nonblocking plans use writer.22 native cases cover all five scope/digest coordinates, outcome/kind combinations, malformed evidence and pre-app/app filtering. No live external operation or current receipt-producer claim. Shared accepted-revision fixture refactored; existing45 orchestration tests pass.",
+			"reviewedSha256": "f1033a7f1a28112b4762e5b4e9712713b7ca590535b475ebf5b12539155ebe04"
 		},
 		{
 			"file": "lib/agent/build/__tests__/lookupPlanReferences.test.ts",

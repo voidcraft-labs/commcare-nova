@@ -2353,3 +2353,28 @@ The integration compiler run `/tmp/nova-root-integration-typecheck-8.log` has no
 document/collaboration diagnostics; its only two diagnostics were in a newly
 added Preview browser fixture. This checkpoint does not claim the remaining
 Builder case-list workspace or the whole repository is finished.
+
+## External-action tests distinguish current admission from historical reads
+
+The old receipt test used empty lineage payloads and then changed an unrelated
+in-memory plan to point at their IDs. It claimed to block before an attempt
+without going through orchestration. The replacement persists actual sources,
+reviewed revisions and complete derived plan envelopes, proves the current
+writer refuses blocked actions because no completion producer is registered,
+and explicitly inserts those schema-valid envelopes as historical records for
+the retained receipt reader. Nonblocking current plans use the actual writer.
+
+The native reader checks missing evidence, unrelated root slices, completed
+operation/external-system evidence, manual user confirmation, incompatible
+outcome/kind pairs, malformed evidence, and session/plan/Project/app/action/
+digest separation. Pre-app versus app-specific receipt queries are tested as
+scope semantics, without claiming a new receipt producer or actual external
+completion. Full fixture admission exposed a missing blocking question and a
+second app seed's duplicate default ID; those were fixture errors, both fixed.
+No production behavior changed in this batch. The shared persisted fixture now
+exposes accepted revisions separately so tests need not invent plan lineage.
+
+`/tmp/nova-root-external-actions-final.log` passes 22 native tests without async
+diagnostics. The existing 45-test orchestration suite also passed with the
+refactored fixture in `/tmp/nova-root-external-actions-method.log`; that first
+combined run failed only the newly authored external fixtures described above.
