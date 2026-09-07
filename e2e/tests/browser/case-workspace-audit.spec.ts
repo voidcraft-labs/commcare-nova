@@ -356,6 +356,9 @@ test("native malformed-value guidance opens from keyboard and a touch target", a
 	const trigger = page.getByRole("button", {
 		name: "not-a-date. More information",
 	});
+	// Document load can precede React's first commit. Tab must exercise the
+	// rendered control's natural tab order, not an empty document.
+	await expect(trigger).toBeVisible();
 	await page.keyboard.press("Tab");
 	await expect(trigger).toBeFocused();
 	await page.keyboard.press("Enter");

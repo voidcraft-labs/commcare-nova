@@ -94,8 +94,11 @@ Action and asserts the chat DOCKS on the returned canonical survey starter
 - **Browser component tests own local peers and contexts.** `e2e/tests/browser/`
   runs in Chromium against ephemeral component peers, using production CSS and the
   emitted XPath worker. It starts no Nova server or Postgres. Only immutable build
-  artifacts are reused. `e2e/tests/app/` runs real public/authenticated journeys
-  against the production standalone server and one fresh database per job.
+  artifacts are reused. Raw `page.keyboard` input has no locator auto-wait:
+  establish that its starting control has rendered before the first key, since
+  document load can precede React's first commit. `e2e/tests/app/` runs real
+  public/authenticated journeys against the production standalone server and one
+  fresh database per job.
 - **Chat sends are stubbed at the network layer.** The chat-scroll tests answer
   `POST /api/chat` from `page.route` with a canned UI-message SSE stream
   (`stubChatSends` in `authed.spec.ts`, chunk shapes pinned by
