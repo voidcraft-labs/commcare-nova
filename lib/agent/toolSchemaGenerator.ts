@@ -128,17 +128,15 @@ const FIELD_DOCS = {
 	validate_msg: "Error shown when `validate` fails.",
 	relevant: "XPath condition that shows/hides the field.",
 	calculate:
-		"XPath recomputed whenever a referenced field changes, and again on " +
-		"every form load. hidden fields only — for a value fixed at load, use " +
-		"default_value. Never together with default_value on a hidden field: " +
-		"the calculate re-evaluates after the default is seeded, so the " +
-		"default could never be seen.",
+		"XPath recomputed whenever a referenced field changes and on every " +
+		"form load. hidden fields only — for a value fixed at load, use " +
+		"default_value, never both: the calculate re-runs after the default is " +
+		"seeded, so the default never shows.",
 	default_value:
 		"XPath evaluated ONCE when a new form instance opens, never " +
-		"recomputed. For values that must track other fields, use calculate. " +
-		"Never together with calculate on a hidden field: the calculate " +
-		"re-evaluates after the default is seeded, so the default could never " +
-		"be seen.",
+		"recomputed. For values that must track other fields, use calculate, " +
+		"never both on a hidden field: the calculate re-runs after the " +
+		"default is seeded, so the default never shows.",
 	optionsSource:
 		'Choice source. Use kind "inline" with at least 2 options, or kind ' +
 		'"lookup" with stable table/column UUIDs and an optional canonical filter. ' +
@@ -155,15 +153,12 @@ const FIELD_DOCS = {
 		"saves a link to the attached file, and cannot write `case_name` or " +
 		"`external_id`. The link is the only way back to the file: CommCare " +
 		"never displays a case attachment inside the app, on either client. " +
-		"Every other kind must leave `mode` out. What the field does when its " +
-		"form opens follows from the destination: on a form that opens ONE " +
-		"existing case, a writer to that case's own type opens showing the " +
-		"property's current value and edits it in place (`case_name` " +
-		"included; a `default_value` there never shows); a writer to a child " +
-		"type opens blank and creates a new child case on every submission; " +
-		"a several-case form opens every writer blank. Each instance of a " +
-		"repeated thing (a visit, a meeting, a delivery) belongs on a child " +
-		"type, never overwritten on the loaded case.",
+		"Every other kind must leave `mode` out. On a form that opens ONE " +
+		"existing case, a writer to that case's type opens with the current " +
+		"value and edits it in place (`case_name` too; a `default_value` there " +
+		"never shows); a child-type writer opens blank and creates a child case " +
+		"per submission; several-case forms open blank. Repeated events (a " +
+		"visit, a meeting) are child cases, never overwritten on the loaded case.",
 	repeat_mode:
 		'"user_controlled" — user adds/removes rows at fill. "count_bound" ' +
 		'— row count from `count`. "query_bound" — one row per case id ' +

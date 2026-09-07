@@ -191,9 +191,13 @@ describe("compact provider expression schemas", () => {
 		 * 447k before the Search prompts grew to seven arms, which put the
 		 * three search-input tools at 460k with their slot descriptions
 		 * already cut to a clause each). The four explicit entry-point tools
-		 * bring the measured registry to 477,803 chars; keep their deliberate
-		 * growth bounded without relaxing cycle or AST isolation checks. */
-		expect(total).toBeLessThan(480_000);
+		 * brought the measured registry to 477,803 chars. Stating on the
+		 * caseWrite, calculate, and default_value slots what a field does when
+		 * its form opens (#571: the edit-in-place rule, and that a hidden field
+		 * carries one value source) is repeated across every field-writing
+		 * tool and measures 480,363 chars; keep that deliberate growth bounded
+		 * without relaxing cycle or AST isolation checks. */
+		expect(total).toBeLessThan(485_000);
 	});
 
 	it("keeps exact UUID patterns on the listed identity-bearing AST properties", () => {
