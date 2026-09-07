@@ -44,6 +44,16 @@ function tsType(node: JsonNode | undefined, indent: string): string {
 	if (Array.isArray(node.enum))
 		return node.enum.map((v) => JSON.stringify(v)).join(" | ");
 	if (node.const !== undefined) return JSON.stringify(node.const);
+	// A union of primitives arrives compacted to a type array
+	// (`type: ["string", "number", "null"]`); print it as the same union.
+	if (Array.isArray(node.type)) {
+		const parts = [
+			...new Set(
+				(node.type as string[]).map((type) => tsType({ type }, indent)),
+			),
+		];
+		return parts.join(" | ");
+	}
 	switch (node.type) {
 		case "string":
 			return "string";

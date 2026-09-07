@@ -37,7 +37,7 @@ test("Back navigation refreshes a member's changed role", async ({ page }) => {
 		originalRole = membership.rows[0].role;
 		expect(originalRole).toBe("editor");
 		await page.goto(`/build/${fixture.appId}/${fixture.moduleUuid}`);
-		const title = page.locator('[data-testid="editable-title"]:visible');
+		const title = page.locator('[data-testid="editable-title"]').visible();
 		await expect(title).toBeEditable();
 		const address = away.address();
 		if (!address || typeof address === "string")

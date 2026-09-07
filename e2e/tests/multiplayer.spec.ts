@@ -207,24 +207,24 @@ async function openCrew(
 /**
  * The module/form-name title input on the CURRENTLY VISIBLE screen (EditableTitle).
  *
- * Scoped to `:visible` on purpose: React 19's `<Activity>` keeps previously
+ * Scoped to `.visible()` on purpose: React 19's `<Activity>` keeps previously
  * visited screens MOUNTED but hidden (`display:none`), so `ModuleScreen` and
  * `FormScreen` can both have an `editable-title` in the DOM at once (only one
  * visible). A bare `.first()` would match the hidden one in DOM order, so the
- * `:visible` filter pins the selector to the screen actually on view — one match.
+ * `.visible()` filter pins the selector to the screen actually on view — one match.
  */
 function titleInput(page: Page) {
-	return page.locator('[data-testid="editable-title"]:visible');
+	return page.locator('[data-testid="editable-title"]').visible();
 }
 
 /**
  * The field-id `<input>` in the inspector rail's Field-ID section, scoped to the
  * VISIBLE inspector (same `<Activity>`-retention reason as `titleInput` — only
- * the on-view surface's inspector is mounted, but `:visible` keeps the selector
+ * the on-view surface's inspector is mounted, but `.visible()` keeps the selector
  * a single match even if a hidden surface's rail lingers in the DOM).
  */
 function fieldIdInput(page: Page) {
-	return page.locator('[data-field-id="id"] input:visible');
+	return page.locator('[data-field-id="id"] input').visible();
 }
 
 /** Follow-a-peer roster avatar in the header (PresenceRoster). */

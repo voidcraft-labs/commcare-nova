@@ -430,7 +430,9 @@ test("native Search dependency review follows exact editors and recomputes peer 
 		.getByRole("button", { name: /Cases available.*2 places.*Review/ })
 		.click();
 	await expect(page).toHaveURL(/\/results$/);
-	const activeBody = page.locator("[data-case-workspace-scroll-body]:visible");
+	const activeBody = page
+		.locator("[data-case-workspace-scroll-body]")
+		.visible();
 	const focused = activeBody.locator("[data-workbench-active-heading]");
 	await expect(focused).toBeFocused();
 	await expect(

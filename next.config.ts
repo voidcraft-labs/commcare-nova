@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { withSentryConfig } from "@sentry/nextjs";
+import { withSentryConfig } from "@sentry/nextjs/config";
 import { createMDX } from "fumadocs-mdx/next";
 import type { NextConfig } from "next";
 import { docsRedirects } from "./config/docsRedirects";

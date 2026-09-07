@@ -245,7 +245,9 @@ export type FlatFieldResult =
  * discriminated unions, so the genuinely-useful issue is nested inside an
  * `invalid_union`'s per-branch `errors`; the top-level issue is just a
  * generic "Invalid input" and the wrong-branch attempts say "No matching
- * discriminator". Skip that noise and surface the real leaf messages.
+ * discriminator". Skip that noise and surface the real leaf messages. A
+ * field that fails only on an undeclared key arrives already flattened to
+ * that branch's `unrecognized_keys` issue, which the same walk surfaces.
  */
 function describeFieldFailure(
 	error: z.ZodError,
