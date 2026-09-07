@@ -2235,7 +2235,9 @@
 			"file": "lib/agent/build/__tests__/executionBrief.test.ts",
 			"lines": 757,
 			"ciMs": 7194,
-			"status": "pending"
+			"status": "revised",
+			"review": "Read complete execution brief, capability catalog and accepted-plan consumers. All positive contracts now pass the actual full graph schema. Replaced tool-map JSON census and partial locality checks with exact workflow/record/property/menu closure, ordered layout lowerings, lossless rendered JSON, lineage digest and immutability assertions. Valid designs reproduced provisioning/deployment guidance selected by obsolete indices and a generated record key colliding with another display-name slug. Named prerequisites and complete-catalog collision resolution fix both; 27 offline projection tests pass without async diagnostics. No claim of live model interpretation or persisted executor dispatch.",
+			"reviewedSha256": "46d34058f01f35db03944dc4674dd34415ebcfe320826fe6fcd4b4da989ea85b"
 		},
 		{
 			"file": "lib/agent/build/__tests__/executorCacheConfig.test.ts",

@@ -2435,3 +2435,32 @@ The stale source comment claiming every UUID pattern widened was corrected.
 Checks: 35 tests passed without async diagnostics in
 `/tmp/nova-root-both-wire-complete.log`; the further nested-cache mutation check
 passed all 16 executor cases in `/tmp/nova-root-executor-wire-final.log`.
+
+### Workflow execution brief: accepted projection and identity collisions
+
+Read the complete 757-line original test and 1,059-line production brief,
+capability catalog, and accepted construction/selection consumers. Every
+positive fixture now passes the actual full design contract schema. The old
+13-workflow loop rebuilt and stringified the entire tool map on every slice;
+that proved neither execution nor locality. It now checks complete workflow,
+record/property, form, prerequisite and menu-placement projections and their
+immutability. Render checks parse each emitted JSON context section and verify
+omission of absent work. Layout cases exercise grouped and flat input,
+guidance and record-summary lowering, including exact parent record keys.
+
+Two admitted regressions failed the original production implementation in
+`/tmp/nova-root-execution-brief-before.log`. The brief selected external
+prerequisites by obsolete array positions: worker context received HQ steps,
+while linked deployment context had no matching array entry. Named catalog
+entries now select the correct existing guidance without changing catalog
+wording or order. Three records named `Risk review`, `Risk-review`, and the
+first record's generated suffixed key received only two distinct keys. The
+complete accepted catalog now resolves collisions until every record has a
+distinct key; unaffected names retain their previous spelling. Tests include
+reserved names, digit prefixes, empty slugs, truncation at 255 characters and
+record-order reversal. No persisted artifact is rewritten.
+
+All 27 final tests pass in `/tmp/nova-root-execution-brief-reviewed.log` without
+async diagnostics. These prove deterministic execution context, not live model
+interpretation or persisted executor dispatch. Public authoring steps are
+unchanged; the nearest design contract now describes the corrected lowering.

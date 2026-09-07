@@ -192,12 +192,18 @@ valid direct Builder or MCP edit.
   children (never a `section` field, which is a page: the contract carries no
   page decision); guidance and record
   summaries lower to `label` fields with UUID-backed prose references.
-  Semantic record names lower once into exact Blueprint case-type keys; schema,
+  Semantic record names lower once across the complete accepted catalog into
+  distinct, bounded Blueprint case-type keys. Collisions receive the full record
+  UUID suffix, including when another display name resembles a generated key;
+  this mapping is independent of catalog order. Schema,
   parent, module, field-write, and case-operation calls reuse those keys rather
   than treating a display name as another record identity. Every newly owned
   case module also carries one exact `requiredInitialResultsColumn`, a visible
   plain `case_name` column derived from its host record. This compiler input
   makes the module's birth call valid without turning Results into form fields.
+  External prerequisite guidance selects named capability entries: media upload
+  for media references, worker/resource provisioning for users or organization
+  shape, and person-operated HQ deployment for a linked deployment requirement.
   The executor admits module creation, reuse, forms, updates, and moves only
   through that exact handle and accepted placement, and `finishWorkflow`
   proves the committed module identity, parent, and sibling order before

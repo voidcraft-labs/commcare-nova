@@ -32,6 +32,13 @@ import { fieldKinds } from "@/lib/domain/fields";
 import { AUTOMATIC_TRANSLATION_LAUNCH_LANGUAGES } from "@/lib/translation/capabilityPolicy";
 import { canonicalJsonDigest } from "@/lib/utils/canonicalJson";
 
+export const EXTERNAL_PREREQUISITES = {
+	media: "uploading or recording media before Nova can attach it",
+	provisioning: "provisioning workers and shared resources",
+	deployment:
+		"CommCare HQ feature, build, release, and deployment steps that require a person",
+} as const;
+
 export interface CatalogToolEntry {
 	readonly saName: string;
 	readonly mcpName: string;
@@ -92,11 +99,7 @@ export function buildCapabilityCatalog(): CapabilityCatalog {
 			"ready media assets already uploaded to the current Project",
 			"existing organization levels, places, workers, roles, and user properties",
 		],
-		externalPrerequisites: [
-			"uploading or recording media before Nova can attach it",
-			"provisioning workers and shared resources",
-			"CommCare HQ feature, build, release, and deployment steps that require a person",
-		],
+		externalPrerequisites: Object.values(EXTERNAL_PREREQUISITES),
 		unsupported: [
 			"creating more than one app in one design session",
 			"creating or choosing Projects or CommCare HQ project spaces",

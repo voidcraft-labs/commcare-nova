@@ -615,3 +615,10 @@ identities, strict null spelling and semantic refinements have separate
 assertions. Counting widened schema nodes does not prove any complete call
 is expressible. These offline tests do not claim provider acceptance or
 persisted dispatch; native loop and artifact tests own those boundaries.
+
+Execution-brief tests admit full design contracts, then assert workflow-local
+records and properties, construction order, menu placement context, exact
+layout lowering, and lossless rendered JSON. Record-key cases include full
+UUID-suffix collisions, reserved names, truncation, and catalog-order changes.
+These are deterministic compiler-input proofs; serializing a mocked tool map
+or finding a phrase in a prompt does not prove executor behavior.
