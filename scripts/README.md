@@ -180,3 +180,36 @@ npx tsx scripts/scan-legacy-preplan-builds.ts --prod
 The Cloud Run Job is dry-run by default. Held rows remain untouched until the
 run finishes or the reaper releases them; empty rows require an explicit
 operator decision instead of automatic recovery.
+
+## Hidden value-source repair
+
+A hidden field carries exactly one value source. The form evaluates every
+`calculate` after it seeds every `default_value`, so a hidden field holding
+both has a default nobody could ever see. The validator rule
+`HIDDEN_VALUE_BOTH_SOURCES` refuses that pair one release from now; because
+every app read runs the absolute commit gate and the deploy migration probe
+audits every `apps` row, the fleet must be clean BEFORE that release ships.
+The scan and the writer share the domain recognizer with the future rule
+(`hiddenFieldCarriesBothValueSources`), and both include soft-deleted apps.
+
+```bash
+# Read-only inventory: stable app/form/field identities and counts only.
+npx tsx scripts/scan-hidden-value-both-sources.ts
+npx tsx scripts/scan-hidden-value-both-sources.ts --app <appId>
+npx tsx scripts/scan-hidden-value-both-sources.ts --prod
+
+# The writer is a dry run unless --execute is present. --prod is read only;
+# production writes go through the maintenance Job named in its --help. It
+# reaches the app-state writer, which imports `server-only`, so it needs the
+# react-server condition (the maintenance bundle already carries it).
+npx tsx --conditions=react-server scripts/migrate-hidden-value-both-sources.ts
+npx tsx --conditions=react-server scripts/migrate-hidden-value-both-sources.ts --app <appId> --execute
+```
+
+The writer drops exactly the dead `default_value` on each offender and lands it
+as one `blueprint-migration` history row per app under the system actor
+`system:hidden-value-both-sources`; open builder tabs reload. An app the gate
+still refuses for an unrelated finding is reported in `blockedApps` and left
+untouched while the next app proceeds. The production sequence and the Job
+command live in `docs/architecture/deployment.md` under "Historical repairs".
+Both scripts are removed once the rule is live.

@@ -511,11 +511,13 @@ A hidden field carries its value through one of two mechanisms, and they differ 
 
 The test: the moment a hidden value must read another field that can change, it's a \`calculate\`; a fixed value or a load-stamp is a \`default_value\`. Reaching for \`calculate\` on a constant puts it in the recalculation graph for no reason — extra work the platform redoes on every change, on top of being the wrong semantic for a value that was never going to change.
 
+A hidden field carries exactly ONE of the two, never both: the form re-evaluates every \`calculate\` after it seeds defaults, so a \`default_value\` beside a \`calculate\` could never be seen, and \`editField\` setting one slot clears the other and says so in its result.
+
 ### Forms that open existing cases — how saved fields behave
 
 These two platform mechanics govern a followup or close form when its module opens one case at a time, and both are invisible unless you design for them:
 
-1. **Case-bound fields open PRE-FILLED with the case's current value.** The platform preloads every field that saves to the loaded case — so a \`default_value\` on such a field never shows (the preload always wins). The one exception is the \`case_name\` field: it is NOT preloaded, so a form that edits the name gives that field an explicit default containing a \`case-ref\` for the loaded type's \`case_name\`.
+1. **Case-bound fields open PRE-FILLED with the case's current value.** The platform preloads every field that saves to the loaded case, \`case_name\` included — so a \`default_value\` on such a field never shows (the preload always wins), and a name-editing field needs no default at all. A hidden case-bound writer is preloaded too, but its \`calculate\` runs after the preload and owns the value, so preload never changes what a calculated writer submits. Fields that save to a CHILD case type are not preloaded: each submission creates a new case, so those questions open blank every time — which is why something that happens repeatedly (a visit, a meeting, a delivery) is modeled as a child case created from the parent's followup form, with the parent keeping only rollups such as the latest date or status. Writing an event's fields directly onto the parent replaces the previous event and reopens with it next visit.
 2. **A field hidden by \`relevant\` does NOT update its case property.** When its condition is false at submit, the update is skipped and the case KEEPS its previous value — deliberately, so a conditionally-hidden question never wipes preserved data.
 
 A several-case form is deliberately different. Its primary case-bound questions start blank instead of preloading one selected case, then each nonblank answer updates every selected case while blank preserves each case's current value. Do not apply the one-case preload rule or add a hidden blank-preserving workaround to that shared-answer form.

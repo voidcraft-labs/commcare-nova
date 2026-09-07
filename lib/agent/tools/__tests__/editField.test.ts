@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, f, xp } from "@/lib/__tests__/docHelpers";
 import type { BlueprintDoc, Field } from "@/lib/domain";
 import { proseTemplateText, proseText } from "@/lib/domain/prose";
 import { expectAdmittedDoc } from "../../__tests__/admittedFixture";
@@ -355,5 +355,192 @@ describe("editField — wholesale option-source replacement keeps identity", () 
 		expect("error" in result.result && result.result.error).toContain(FIELD);
 		expect(result.mutations).toEqual([]);
 		expect(h.recordMutationStages).not.toHaveBeenCalled();
+	});
+});
+
+/* --- Hidden value sources: exactly one of calculate / default_value ---- */
+
+const HIDDEN = testUuid("77777777-7777-7777-7777-777777777777");
+
+/** `makeDoc` plus a top-level field with the given spec (a hidden field with
+ *  one value slot, or a text field carrying a `default_value`). */
+function makeValueSourceDoc(spec: Parameters<typeof f>[0]): BlueprintDoc {
+	return expectAdmittedDoc(
+		buildDoc({
+			appName: "Clinic",
+			modules: [
+				{
+					uuid: MOD,
+					id: "patient",
+					name: "Patient",
+					forms: [
+						{
+							uuid: FORM,
+							id: "enroll",
+							name: "Enroll",
+							type: "survey",
+							fields: [
+								f({
+									uuid: FIELD,
+									id: "patient_name",
+									kind: "text",
+									label: proseText("Patient name"),
+								}),
+								f({ ...spec, uuid: HIDDEN }),
+							],
+						},
+					],
+				},
+			],
+		}),
+	);
+}
+
+function valueSlotsOf(doc: BlueprintDoc): {
+	kind: string | undefined;
+	calculate: boolean;
+	default_value: boolean;
+} {
+	const field = doc.fields[HIDDEN];
+	return {
+		kind: field?.kind,
+		calculate: field !== undefined && "calculate" in field,
+		default_value: field !== undefined && "default_value" in field,
+	};
+}
+
+const HIDDEN_ADDRESS = { moduleUuid: MOD, formUuid: FORM, fieldUuid: HIDDEN };
+
+describe("editField — a hidden field carries one value source", () => {
+	it("setting calculate on a default-only hidden field clears the default in the same patch and says so", async () => {
+		const h = makeToolWorkspaceHarness(
+			makeValueSourceDoc({
+				id: "stamp",
+				kind: "hidden",
+				default_value: "today()",
+			}),
+		);
+		const result = await h.runTool(editFieldTool, {
+			...HIDDEN_ADDRESS,
+			updates: { kind: "hidden", calculate: xp("concat('a', 'b')") },
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(valueSlotsOf(h.currentDoc())).toEqual({
+			kind: "hidden",
+			calculate: true,
+			default_value: false,
+		});
+		expect(result.result.message).toContain(
+			"Changed: calculate, default_value (cleared).",
+		);
+		expect(result.result.message).toContain(
+			"Set calculate and cleared default_value",
+		);
+		// ONE staged commit: the clear rides the same updateField patch.
+		expect(h.recordMutationStages).toHaveBeenCalledTimes(1);
+	});
+
+	it("setting default_value on a calculate-only hidden field clears the calculate and says so", async () => {
+		const h = makeToolWorkspaceHarness(
+			makeValueSourceDoc({
+				id: "stamp",
+				kind: "hidden",
+				calculate: "#form/patient_name",
+			}),
+		);
+		const result = await h.runTool(editFieldTool, {
+			...HIDDEN_ADDRESS,
+			updates: { kind: "hidden", default_value: xp("today()") },
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(valueSlotsOf(h.currentDoc())).toEqual({
+			kind: "hidden",
+			calculate: false,
+			default_value: true,
+		});
+		expect(result.result.message).toContain(
+			"Changed: default_value, calculate (cleared).",
+		);
+		expect(result.result.message).toContain(
+			"Set default_value and cleared calculate",
+		);
+	});
+
+	it("converting text with a default to hidden while setting calculate lands calculate alone", async () => {
+		// The conversion carries the source's `default_value` across; without
+		// the normalization this one call would leave both slots on the field.
+		const h = makeToolWorkspaceHarness(
+			makeValueSourceDoc({
+				id: "stage",
+				kind: "text",
+				label: proseText("Stage"),
+				default_value: '"intake"',
+			}),
+		);
+		const result = await h.runTool(editFieldTool, {
+			...HIDDEN_ADDRESS,
+			updates: { kind: "hidden", calculate: xp("concat('a', 'b')") },
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(valueSlotsOf(h.currentDoc())).toEqual({
+			kind: "hidden",
+			calculate: true,
+			default_value: false,
+		});
+		expect(result.result.message).toContain("default_value (cleared)");
+	});
+
+	it("an explicit same-call default_value: null is honored as the one clear, not doubled", async () => {
+		const h = makeToolWorkspaceHarness(
+			makeValueSourceDoc({
+				id: "stamp",
+				kind: "hidden",
+				default_value: "today()",
+			}),
+		);
+		const result = await h.runTool(editFieldTool, {
+			...HIDDEN_ADDRESS,
+			updates: {
+				kind: "hidden",
+				calculate: xp("concat('a', 'b')"),
+				default_value: null,
+			},
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expectAdmittedDoc(h.currentDoc());
+		expect(valueSlotsOf(h.currentDoc())).toEqual({
+			kind: "hidden",
+			calculate: true,
+			default_value: false,
+		});
+		expect(result.result.message).toContain(
+			"Changed: calculate, default_value (cleared).",
+		);
+		// The caller stated the clear; the tool adds no second note for it.
+		expect(result.result.message).not.toContain("Set calculate and cleared");
+	});
+
+	it("leaves the held slot alone when the patch touches neither value source", async () => {
+		const h = makeToolWorkspaceHarness(
+			makeValueSourceDoc({
+				id: "stamp",
+				kind: "hidden",
+				default_value: "today()",
+			}),
+		);
+		const result = await h.runTool(editFieldTool, {
+			...HIDDEN_ADDRESS,
+			updates: { kind: "hidden", relevant: xp("true()") },
+		});
+		if ("error" in result.result) throw new Error(result.result.error);
+		expect(valueSlotsOf(h.currentDoc())).toEqual({
+			kind: "hidden",
+			calculate: false,
+			default_value: true,
+		});
+		expect(result.result.message).not.toContain("cleared");
 	});
 });

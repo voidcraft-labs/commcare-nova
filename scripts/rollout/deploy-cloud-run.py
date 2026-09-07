@@ -515,7 +515,7 @@ def _effective_execution_args(
         tools = {
             "language-identity-repair.cjs", "case-status-filter-repair.cjs",
             "better-auth-account-identity.cjs", "better-auth-oauth-clients.cjs",
-            "select-option-value-repair.cjs",
+            "select-option-value-repair.cjs", "hidden-value-both-sources-repair.cjs",
         }
         if requested[:1] and requested[0] in tools:
             if len(requested) == 1 or requested[1:] == ("--execute",):

@@ -115,6 +115,10 @@ RUN npx esbuild scripts/migrate-select-option-values.ts \
       --bundle --platform=node --target=node24 --format=cjs \
       --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
       --outfile=select-option-value-repair.cjs
+RUN npx esbuild scripts/migrate-hidden-value-both-sources.ts \
+      --bundle --platform=node --target=node24 --format=cjs \
+      --conditions=react-server --tsconfig=tsconfig.json --external:pg-native \
+      --outfile=hidden-value-both-sources-repair.cjs
 
 FROM ${NODE_IMAGE} AS maintenance
 WORKDIR /app

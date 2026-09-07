@@ -128,11 +128,17 @@ const FIELD_DOCS = {
 	validate_msg: "Error shown when `validate` fails.",
 	relevant: "XPath condition that shows/hides the field.",
 	calculate:
-		"XPath recomputed whenever a referenced field changes. hidden " +
-		"fields only — for a value fixed at load, use default_value.",
+		"XPath recomputed whenever a referenced field changes, and again on " +
+		"every form load. hidden fields only — for a value fixed at load, use " +
+		"default_value. Never together with default_value on a hidden field: " +
+		"the calculate re-evaluates after the default is seeded, so the " +
+		"default could never be seen.",
 	default_value:
-		"XPath evaluated ONCE at form load, never recomputed. For values " +
-		"that must track other fields, use calculate.",
+		"XPath evaluated ONCE when a new form instance opens, never " +
+		"recomputed. For values that must track other fields, use calculate. " +
+		"Never together with calculate on a hidden field: the calculate " +
+		"re-evaluates after the default is seeded, so the default could never " +
+		"be seen.",
 	optionsSource:
 		'Choice source. Use kind "inline" with at least 2 options, or kind ' +
 		'"lookup" with stable table/column UUIDs and an optional canonical filter. ' +
@@ -149,7 +155,15 @@ const FIELD_DOCS = {
 		"saves a link to the attached file, and cannot write `case_name` or " +
 		"`external_id`. The link is the only way back to the file: CommCare " +
 		"never displays a case attachment inside the app, on either client. " +
-		"Every other kind must leave `mode` out.",
+		"Every other kind must leave `mode` out. What the field does when its " +
+		"form opens follows from the destination: on a form that opens ONE " +
+		"existing case, a writer to that case's own type opens showing the " +
+		"property's current value and edits it in place (`case_name` " +
+		"included; a `default_value` there never shows); a writer to a child " +
+		"type opens blank and creates a new child case on every submission; " +
+		"a several-case form opens every writer blank. Each instance of a " +
+		"repeated thing (a visit, a meeting, a delivery) belongs on a child " +
+		"type, never overwritten on the loaded case.",
 	repeat_mode:
 		'"user_controlled" — user adds/removes rows at fill. "count_bound" ' +
 		'— row count from `count`. "query_bound" — one row per case id ' +
@@ -427,6 +441,37 @@ function gateRepeatSlot(
 }
 
 /**
+ * A hidden field carries exactly ONE value source. JavaRosa seeds every
+ * `default_value` at `xforms-ready` and then re-evaluates every `calculate`,
+ * so a default beside a calculate is overwritten before anyone could read
+ * it. Refuse the pair at the tool boundary, on the `default_value` path,
+ * so the model learns the fix in the rejection: keep the one that matches
+ * what the value should do and leave the other out (or, on an edit, pass
+ * it as null). `editField` normalizes the cross-call case, where the field
+ * already holds one slot and the patch sets the other.
+ */
+function gateHiddenValueSources(
+	ctx: z.RefinementCtx,
+	kind: FieldKind,
+	calculate: unknown,
+	default_value: unknown,
+): void {
+	if (kind !== "hidden") return;
+	if (calculate == null || default_value == null) return;
+	ctx.addIssue({
+		code: "custom",
+		path: ["default_value"],
+		message:
+			"A hidden field carries exactly one value source. You passed both " +
+			"`calculate` and `default_value`, and the calculate re-evaluates " +
+			"after the default is seeded, so the default could never be seen. " +
+			"Keep `calculate` for a value that tracks other fields, or " +
+			"`default_value` for a value fixed when the form opens, and leave " +
+			"the other out.",
+	});
+}
+
+/**
  * The `addFields` item shape (also embedded by `createForm` / `createModule`
  * for their `fields` arrays). Each item carries an optional stable `fieldUuid`
  * plus a `parentUuid`, so same-call construction uses the final identity
@@ -514,6 +559,12 @@ function buildAddFieldsItemSchema(kinds: readonly FieldKind[]) {
 			}
 			gateCaseWriteMode(ctx, item.kind, item.caseWrite);
 			gateRepeatSlot(ctx, item.kind, item.repeat);
+			gateHiddenValueSources(
+				ctx,
+				item.kind,
+				item.calculate,
+				item.default_value,
+			);
 		});
 }
 
@@ -579,6 +630,12 @@ function buildEditFieldUpdatesSchema(kinds: readonly FieldKind[]) {
 			}
 			gateCaseWriteMode(ctx, patch.kind, patch.caseWrite);
 			gateRepeatSlot(ctx, patch.kind, patch.repeat);
+			gateHiddenValueSources(
+				ctx,
+				patch.kind,
+				patch.calculate,
+				patch.default_value,
+			);
 		});
 }
 

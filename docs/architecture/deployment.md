@@ -173,6 +173,41 @@ python3 scripts/rollout/deploy-cloud-run.py --execute-job \
   --execution-arg=language-identity-repair.cjs --execution-arg=--execute
 ```
 
+The hidden value-source repair is the current open pair. It drops the dead
+`default_value` from every hidden field that also carries a `calculate` (the
+form evaluates every calculate after it seeds defaults, so only the calculate
+ever took effect) and must converge the whole fleet, soft-deleted apps
+included, BEFORE the release that activates the validator rule
+`HIDDEN_VALUE_BOTH_SOURCES`: every app read runs the absolute commit gate and
+the migration probe audits every `apps` row, so a release carrying the rule
+while offenders exist fails admission. The sequence, each step gated on the
+one before it, is the read-only scan, the maintenance image, the Job plan and
+apply, the Job dry run, the Job execute (a production write; confirm first),
+and the scan again as the postcondition:
+
+```bash
+npx tsx scripts/scan-hidden-value-both-sources.ts --prod
+docker buildx build --target maintenance --push -t "$NOVA_MAINTENANCE_IMAGE" .
+python3 scripts/infra/manage-deployment.py job --job commcare-nova-historical-repair --image "$NOVA_MAINTENANCE_IMAGE"
+python3 scripts/infra/manage-deployment.py job --job commcare-nova-historical-repair --image "$NOVA_MAINTENANCE_IMAGE" --apply
+python3 scripts/rollout/deploy-cloud-run.py --execute-job \
+  --project=commcare-nova --region=us-central1 \
+  --job=commcare-nova-historical-repair \
+  --image="$NOVA_MAINTENANCE_IMAGE" --wait-seconds=3060 \
+  --execution-arg=hidden-value-both-sources-repair.cjs
+python3 scripts/rollout/deploy-cloud-run.py --execute-job \
+  --project=commcare-nova --region=us-central1 \
+  --job=commcare-nova-historical-repair \
+  --image="$NOVA_MAINTENANCE_IMAGE" --wait-seconds=3060 \
+  --execution-arg=hidden-value-both-sources-repair.cjs --execution-arg=--execute
+npx tsx scripts/scan-hidden-value-both-sources.ts --prod
+```
+
+The execute report must show `blockedApps: []` and the final scan must print
+`CLEAN` with exit code 0. A blocked app needs its own owned repair before the
+rule ships. Once the rule is live, the scripts, the bundle line, the Job
+allowlist entry, and this paragraph are removed.
+
 Use each scanner's `--help` for its paired Job and arguments. The maintenance
 image must be supplied explicitly; the service image contains no Job
 bundles. Worker case schemas are valid derived storage even when absent from
