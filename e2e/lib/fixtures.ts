@@ -1,5 +1,6 @@
 import { test as base, expect } from "@playwright/test";
 import { attachErrorGuard } from "./errorGuard";
+import { smokeNetworkHeaders } from "./smokeNetwork";
 
 /**
  * Shared Playwright `test` with a strict error guard wired into the `page`
@@ -23,6 +24,9 @@ import { attachErrorGuard } from "./errorGuard";
  * (e.g. a `MetadataLookupWarning`) is not a browser error and is out of scope.
  */
 export const test = base.extend({
+	extraHTTPHeaders: async ({ baseURL, extraHTTPHeaders }, use) => {
+		await use({ ...extraHTTPHeaders, ...smokeNetworkHeaders(baseURL) });
+	},
 	page: async ({ page, baseURL }, use) => {
 		const guard = await attachErrorGuard(page, baseURL);
 		await use(page);

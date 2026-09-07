@@ -1,21 +1,47 @@
 import { readFileSync } from "node:fs";
+import type { JSONReport } from "@playwright/test/reporter";
+import { profileFromTags } from "./smokeProfiles";
+import type { SmokeProfile } from "./smokeSeedFactory";
 
 /** Playwright's discovery report is the authority for selected scenario IDs,
  * repeats and retry limits. Fixtures are allocated before the app server starts. */
-interface DiscoveryReport {
-	config: { projects: { id: string; repeatEach: number; retries: number }[] };
-	suites: DiscoverySuite[];
-}
-interface DiscoverySuite {
-	suites?: DiscoverySuite[];
-	specs?: {
-		id: string;
-		file: string;
-		tags: string[];
-		tests: { projectId: string }[];
-	}[];
+export interface DiscoveryReport extends JSONReport {
+	attempts: NativeAttempt[];
 }
 
+export interface NativeAttempt {
+	testId: string;
+	projectId: string;
+	file: string;
+	tags: string[];
+	repeatEachIndex: number;
+	retries: number;
+}
+
+export function readDiscoveryReport(file: string): DiscoveryReport {
+	return {
+		...JSON.parse(readFileSync(file, "utf8")),
+		attempts: JSON.parse(readFileSync(`${file}.attempts.json`, "utf8")),
+	};
+}
+
+/** Public TestCase identities include the selected repeat and per-test retries. */
+export function discoveredSmokeScenarios(
+	report: DiscoveryReport,
+): { key: string; profile: SmokeProfile }[] {
+	const requests = new Map<string, SmokeProfile>();
+	for (const test of report.attempts) {
+		if (test.projectId !== "authed") continue;
+		const profile = profileFromTags(test.tags);
+		for (let retry = 0; retry <= test.retries; retry++) {
+			const key = scenarioAttemptKey({ ...test, retry });
+			if (requests.has(key))
+				throw new Error(`Duplicate smoke fixture identity: ${key}`);
+			requests.set(key, profile);
+		}
+	}
+	return [...requests].map(([key, profile]) => ({ key, profile }));
+}
 export function scenarioAttemptKey(info: {
 	testId: string;
 	repeatEachIndex: number;
@@ -24,42 +50,29 @@ export function scenarioAttemptKey(info: {
 	return `${info.testId}:${info.repeatEachIndex}:${info.retry}`;
 }
 
+export function selectedDiscoveryProjects(
+	report: DiscoveryReport,
+): Set<string> {
+	return new Set(report.attempts.map((test) => test.projectId));
+}
+
 export function discoveredScenarioAttempts(
-	kind: "case-workspace" | "case-changes" | "react-profile" | "multiplayer",
+	kind: "react-profile" | "multiplayer",
 ): string[] {
 	const file = process.env.NOVA_E2E_DISCOVERY_MANIFEST;
 	if (!file) return [];
-	const report = JSON.parse(readFileSync(file, "utf8")) as DiscoveryReport;
+	const report = readDiscoveryReport(file);
 	const keys = new Set<string>();
-	const visit = (suite: DiscoverySuite) => {
-		for (const spec of suite.specs ?? []) {
-			const selected =
-				kind !== "react-profile"
-					? spec.tags.some((tag) => tag.replace(/^@/, "") === kind)
-					: /builder-(load|scale)\.spec\.ts$/.test(spec.file);
-			if (!selected) continue;
-			for (const test of spec.tests) {
-				const project = report.config.projects.find(
-					(item) => item.id === test.projectId,
-				);
-				if (!project)
-					throw new Error(`Discovery project missing: ${test.projectId}`);
-				for (
-					let repeatEachIndex = 0;
-					repeatEachIndex < project.repeatEach;
-					repeatEachIndex++
-				) {
-					for (let retry = 0; retry <= project.retries; retry++) {
-						keys.add(
-							scenarioAttemptKey({ testId: spec.id, repeatEachIndex, retry }),
-						);
-					}
-				}
-			}
-		}
-		for (const child of suite.suites ?? []) visit(child);
-	};
-	for (const suite of report.suites) visit(suite);
+	for (const test of report.attempts) {
+		const selected =
+			kind === "multiplayer"
+				? test.projectId === "multiplayer"
+				: test.projectId === "react-profile" &&
+					/builder-(load|scale)\.spec\.ts$/.test(test.file);
+		if (!selected) continue;
+		for (let retry = 0; retry <= test.retries; retry++)
+			keys.add(scenarioAttemptKey({ ...test, retry }));
+	}
 	return [...keys];
 }
 

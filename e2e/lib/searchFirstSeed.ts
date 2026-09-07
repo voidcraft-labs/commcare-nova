@@ -15,8 +15,7 @@
  * whose hidden field reads `#search/search_time`.
  *
  * The journey registers a case, so every Playwright attempt gets its own
- * app and seeded row: `SEARCH_FIRST_FIXTURE_COUNT` in `e2e/lib/config.ts`,
- * selected by `seed.searchFirst[testInfo.retry]`.
+ * app and seeded row through its native `search-first` profile.
  */
 
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";

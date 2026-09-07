@@ -118,7 +118,7 @@ docker compose exec -T postgres psql -U nova -d nova_react_profile \
 echo "[react-profile] applying migrations and seeding the Builder fixture"
 npm run db:migrate
 export NOVA_E2E_DISCOVERY_MANIFEST="$profile_state_dir/discovery.json"
-node_modules/.bin/playwright test --config=e2e/react-profile/playwright.config.ts "$@" --list --reporter=json > "$NOVA_E2E_DISCOVERY_MANIFEST"
+node_modules/.bin/playwright test --config=e2e/react-profile/playwright.config.ts "$@" --list --reporter=json,./scripts/ci/smoke-discovery-reporter.ts > "$NOVA_E2E_DISCOVERY_MANIFEST"
 node_modules/.bin/tsx --conditions=react-server e2e/seed.ts
 
 mkdir -p "$(dirname "$NOVA_REACT_PROFILE_OUTPUT")"

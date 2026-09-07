@@ -1304,3 +1304,9 @@ it; tests that do care construct exactly the schema they need.
 ### Fixtures
 
 The `db` fixture is the transactional Kysely handle; `pgClient` is the escape hatch for queries Kysely can't compile (`EXPLAIN ANALYZE`, extension probes, `SET`). Both share one connection, so they see each other's writes within the test transaction.
+
+Pending-index drains at the app-state boundary use the same bounded transient
+retry as additive schema updates. Separate apps still build indexes on the shared
+`cases` table, so concurrent DDL can deadlock. Recovery rereads durable pending
+work and rebuilds invalid indexes; exhausted transient failures and deterministic
+faults still propagate to the caller. It never retries a case-data write.

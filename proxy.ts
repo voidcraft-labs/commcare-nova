@@ -120,8 +120,8 @@ function deriveTrustedClientIp(xff: string | null): string | null {
  *   2. Set the header to the proxy-derived trusted IP when XFF is
  *      present and parseable. When no trusted IP can be derived the
  *      header stays absent — readers handle that as "no attribution"
- *      (return `"unknown"` for audit logs, skip per-IP rate-limit
- *      attribution).
+ *      (return `"unknown"` for audit logs; Better Auth uses one shared
+ *      per-path rate-limit bucket).
  */
 function deriveProxyHeaders(request: NextRequest): Headers {
 	const requestHeaders = new Headers(request.headers);

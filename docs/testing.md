@@ -327,13 +327,21 @@ skipping tests, or reducing assertions is not a performance fix.
 
 The CI wall-time target is five minutes from workflow start to completion,
 including setup and fan-in jobs. Compare actual hosted runs; local timings and
-runner CPU totals do not establish that target. Smoke shards use separate
-Postgres instances so destructive browser scenarios cannot race across shards.
-The smoke harness balances the complete native discovery list by measured cost,
-then asks Playwright to rediscover each selected list and checks exact identities
-before seeding. Long full-app journeys are spread across six jobs, each with
-one worker. Discovery remains authoritative for fixture repeats and retries.
-Flaky browser results fail CI even when a diagnostic retry passes.
+runner CPU totals do not establish that target. Smoke has two explicit lanes:
+component peers in real Chromium without an app server/database, and app journeys
+against the production server with one database per job. Each authenticated test,
+repeat and retry owns separate accounts, sessions, Projects and mutable data.
+Managed local browser contexts also own a distinct client network identity through
+the production proxy contract; the real auth limiter remains enabled.
+The public Playwright reporter supplies exact attempt identities; the ordinary
+JSON report supplies native CLI selectors for cost-balanced lane partitions.
+Every selected list is rediscovered and verified before seeding.
+`config/smoke-execution.json` controls job/worker defaults; the CI workflow's manual
+inputs compare four/six jobs with one/two workers. Job allocation is proportional
+to measured lane costs, with at least one job per lane. Flaky browser results fail
+CI even when a diagnostic retry passes. Choose defaults using three hosted runs
+per candidate and five consecutive complete green runs at the chosen setting;
+include setup, fan-in, runner time and resource observations in the comparison.
 The checked-in `e2e/smoke-timings.json` only estimates placement: it cannot
 select tests. New or renamed tests get a five-second estimate. Refresh timings
 from passing first attempts in each uploaded browser report's `timings.json`,

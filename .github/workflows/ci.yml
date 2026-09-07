@@ -11,10 +11,22 @@ name: CI
 # independently and never waited on this workflow.
 on:
   pull_request:
+  workflow_dispatch:
+    inputs:
+      smoke_jobs:
+        description: Total smoke jobs for a controlled comparison
+        type: choice
+        options: [default, '4', '6']
+        default: default
+      smoke_workers:
+        description: Workers per smoke job
+        type: choice
+        options: [default, '1', '2']
+        default: default
 
 # A newer push to the same branch/PR cancels the in-flight run for it.
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.ref }}-${{ github.event_name == 'workflow_dispatch' && github.run_id || 'pr' }}
   cancel-in-progress: true
 
 # Least privilege for the GITHUB_TOKEN: every job here only reads the repo to
@@ -203,12 +215,27 @@ jobs:
           export NEXT_DEPLOYMENT_ID="$NOVA_CI_BUILD_ID"
           bash scripts/rollout/build-image.sh
 
+  smoke-plan:
+    name: Smoke execution plan
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: matrix
+        env:
+          SMOKE_JOBS: ${{ inputs.smoke_jobs || 'default' }}
+          SMOKE_WORKERS: ${{ inputs.smoke_workers || 'default' }}
+        run: |
+          matrix="$(node scripts/ci/smoke-matrix.mjs "$SMOKE_JOBS" "$SMOKE_WORKERS")"
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
   smoke:
-    name: Smoke shard ${{ matrix.shard }}/6
+    name: Smoke ${{ matrix.lane }} ${{ matrix.shard }}/${{ matrix.total }} (${{ matrix.workers }} workers)
+    needs: smoke-plan
     strategy:
       fail-fast: false
-      matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+      matrix: ${{ fromJSON(needs.smoke-plan.outputs.matrix) }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -230,6 +257,7 @@ jobs:
           restore-keys: npm-${{ runner.os }}-
       - run: npm ci
       - uses: ./.github/actions/pull-test-image
+        if: matrix.lane == 'app'
       # CI's public/authed projects use Chromium headless shell (no channel
       # override). Full Chrome is unused and cost 36s on the measured cold run.
       # Keep a separate cache so the old full-browser payload is not restored.
@@ -249,13 +277,28 @@ jobs:
       # gate for those.
       - name: Smoke suite
         env:
-          SMOKE_PARTITION: ${{ matrix.shard }}/6
-        run: npm run test:smoke -- --project=public --project=authed --fail-on-flaky-tests
+          SMOKE_LANE: ${{ matrix.lane }}
+          SMOKE_WORKERS: ${{ matrix.workers }}
+          SMOKE_PARTITION: ${{ matrix.shard }}/${{ matrix.total }}
+        run: |
+          mkdir -p e2e/playwright-report
+          if [ "$SMOKE_LANE" = browser ]; then
+            /usr/bin/time -v -o "$RUNNER_TEMP/smoke-resources.txt" npm run test:smoke -- --project=browser --fail-on-flaky-tests
+          else
+            /usr/bin/time -v -o "$RUNNER_TEMP/smoke-resources.txt" npm run test:smoke -- --project=public --project=authed --fail-on-flaky-tests
+          fi
+      - name: Retain resource observations
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p e2e/playwright-report
+          cp "$RUNNER_TEMP/smoke-resources.txt" e2e/playwright-report/resources.txt
+          free -m > e2e/playwright-report/runner-memory.txt
+          lscpu > e2e/playwright-report/runner-cpu.txt
       - name: Upload Playwright report
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
-          name: playwright-report-${{ matrix.shard }}
+          name: playwright-report-${{ matrix.lane }}-${{ matrix.shard }}
           path: e2e/playwright-report/
           retention-days: 7
 

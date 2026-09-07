@@ -897,9 +897,9 @@ export function createAuth(pool: Awaited<ReturnType<typeof getCaseStorePool>>) {
 		 * The single-header list is deliberate: with only this header,
 		 * a request that bypassed `proxy.ts` (tests, dev paths,
 		 * misconfiguration) yields `null` for the IP — Better Auth
-		 * skips per-IP rate-limit attribution rather than silently
-		 * falling back to a spoofable header. Fail-loud is the right
-		 * posture; "soft fallback to XFF" would re-introduce the
+		 * uses a shared per-path rate-limit bucket rather than silently
+		 * falling back to a spoofable header. It also logs a warning;
+		 * "soft fallback to XFF" would re-introduce the
 		 * spoofing surface for any path that doesn't run the proxy.
 		 */
 		advanced: {
