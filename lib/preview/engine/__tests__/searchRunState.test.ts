@@ -43,6 +43,21 @@ const answers = (name: string) => new Map([["name", name]]);
 afterEach(() => vi.useRealTimers());
 
 describe("search run commands", () => {
+	it("acknowledges an admitted draft by identity while filtering foreign keys", () => {
+		const first = initial();
+		const submitted = answers("Manual code");
+		const accepted = changeSearchRunDraft(first, first, submitted, false);
+		expect(accepted.draft).toBe(submitted);
+		const scanned = answers("BC-0042");
+		const next = changeSearchRunDraft(accepted, first, scanned, false);
+		expect(next.draft).toBe(scanned);
+		expect(submitted).toEqual(answers("Manual code"));
+		const foreign = new Map([...scanned, ["unknown", "untrusted"]]);
+		const filtered = changeSearchRunDraft(next, first, foreign, false);
+		expect(filtered.draft).toEqual(scanned);
+		expect(filtered.draft).not.toBe(foreign);
+		expect(foreign.get("unknown")).toBe("untrusted");
+	});
 	it("refreshes untouched defaults, preserves edits and treats clear as intentional until scope changes", () => {
 		const first = initial();
 		expect(first.draft).toEqual(answers("Alice"));

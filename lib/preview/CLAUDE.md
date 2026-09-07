@@ -47,6 +47,9 @@ input change. Prospective validation and the next submission resolve hidden
 values against the latest identity and lookup data, even when authored input
 shapes and visible defaults have not changed. Editing a draft preserves the
 submitted map identity so it does not reload Results.
+An admitted draft command preserves its input Map identity when no foreign keys
+need filtering. SearchInputForm uses that identity to recognize its own debounced
+acknowledgement; cloning it could overwrite a newer local answer with an older echo.
 
 The Search screen has its OWN worker runtime beside the form's. A runtime
 admits one active worker scope `(entryKey, profile)` and retires the active

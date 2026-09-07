@@ -37,7 +37,11 @@ export function changeSearchRunDraft(
 	submit: boolean,
 ): SearchRunState {
 	const base = reconcileSearchRunState(previous, desired);
-	const draft = retainAllowed(next, base.allowedKeys);
+	const admitted = retainAllowed(next, base.allowedKeys);
+	// SearchInputForm recognizes its controlled acknowledgement by identity.
+	// Copy only when admission actually removes a key, or an earlier echo can
+	// replace a newer local answer that arrived during its debounce.
+	const draft = admitted.size === next.size ? next : admitted;
 	return {
 		...base,
 		draft,
