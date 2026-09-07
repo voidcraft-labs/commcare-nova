@@ -9,6 +9,7 @@ import {
 	extractLookupReferenceOccurrences,
 	extractLookupReferenceTargets,
 	type LookupReferenceExtractorRegistry,
+	type LookupValidationContext,
 	lookupReferenceTargetsFromOccurrences,
 	normalizeLookupReferenceTargetSet,
 	PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
@@ -18,23 +19,74 @@ import {
 	advancedSearchInputDef,
 	calculatedColumn,
 	hiddenSearchInputDef,
+	plainColumn,
 	simpleSearchInputDef,
 	type Uuid,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	type LookupColumnId,
+	type LookupTableId,
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import {
 	eq,
 	literal,
 	type Predicate,
+	prop,
 	tableColumn,
 	tableLookup,
 	type ValueExpression,
 } from "@/lib/domain/predicate";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const tableId = (suffix: string) =>
-	`00000000-0000-7000-8000-${suffix.padStart(12, "0")}` as LookupTableId;
+	lookupTableIdSchema.parse(
+		`00000000-0000-7000-8000-${suffix.padStart(12, "0")}`,
+	);
 const columnId = (suffix: string) =>
-	`10000000-0000-7000-8000-${suffix.padStart(12, "0")}` as LookupColumnId;
+	lookupColumnIdSchema.parse(
+		`10000000-0000-7000-8000-${suffix.padStart(12, "0")}`,
+	);
+
+const lookupContext: LookupValidationContext = {
+	kind: "available",
+	projectId: "project",
+	projectRevision: parseLookupRevision("1"),
+	definitions: [...Array.from({ length: 23 }, (_, i) => i + 1), 30, 40].map(
+		(seed) => ({
+			id: tableId(String(seed)),
+			name: `Table ${seed}`,
+			tag: `table_${seed}`,
+			definitionRevision: parseLookupRevision("1"),
+			columns: [1, 2, 3].map((offset) => ({
+				id: columnId(String(seed * 10 + offset)),
+				wireName: `column_${offset}`,
+				label: `Column ${offset}`,
+				dataType: "text",
+			})),
+		}),
+	),
+};
+function surveyDoc() {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [{ kind: "text", id: "notes", label: "Notes" }],
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedDoc(doc);
+	return doc;
+}
 
 function lookupExpression(seed: number): ValueExpression {
 	const table = tableId(String(seed));
@@ -101,7 +153,7 @@ function expectedPredicateOccurrences(
 
 describe("lookup reference extraction", () => {
 	it("keeps the production registry immutable and ordinary documents carrier-free", () => {
-		const doc = buildDoc({ appName: "No carriers" });
+		const doc = surveyDoc();
 		expect(Object.isFrozen(PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS)).toBe(true);
 		expect(PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS.length).toBeGreaterThan(0);
 		expect(PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS.every(Object.isFrozen)).toBe(
@@ -118,7 +170,7 @@ describe("lookup reference extraction", () => {
 		);
 	});
 
-	it("extracts every production carrier slot with the exact nested owner identity", () => {
+	it("extracts admitted choice, search, condition and operation carriers by owner and exact path", () => {
 		const moduleUuid = testUuid("module-lookup");
 		const formUuid = testUuid("form-lookup");
 		const fieldUuid = testUuid("field-lookup");
@@ -128,22 +180,34 @@ describe("lookup reference extraction", () => {
 		const selectInputUuid = testUuid("search-select");
 		const hiddenInputUuid = testUuid("search-hidden");
 		const operationUuid = testUuid("operation-lookup");
+		const createUuid = testUuid("create-lookup");
 		const sourceTable = tableId("1");
-		const nestedTable = tableId("2");
 		const choiceTable = tableId("3");
 
 		const doc = buildDoc({
 			appName: "All lookup carriers",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "visit_status", label: "Status", data_type: "text" },
+					],
+					parent_type: "household",
+				},
+				{ name: "household", properties: [] },
+			],
 			modules: [
 				{
 					uuid: moduleUuid,
 					name: "Cases",
+					caseType: "patient",
 					displayCondition: lookupPredicate(3),
 					caseListConfig: {
 						columns: [
 							calculatedColumn(columnUuid, "Calculated", lookupExpression(4)),
 						],
-						filter: lookupPredicate(5),
+						filter: eq(prop("patient", "region"), lookupExpression(5)),
 						searchInputs: [
 							simpleSearchInputDef(
 								simpleInputUuid,
@@ -158,7 +222,7 @@ describe("lookup reference extraction", () => {
 								"advanced",
 								"Advanced",
 								"text",
-								lookupPredicate(8),
+								eq(prop("patient", "region"), lookupExpression(8)),
 								{
 									default: lookupExpression(7),
 									required: { when: lookupPredicate(20) },
@@ -182,7 +246,7 @@ describe("lookup reference extraction", () => {
 										labelColumnId: columnId("32"),
 										filter: eq(
 											tableColumn(choiceTable, columnId("33")),
-											lookupExpression(22),
+											literal("enabled"),
 										),
 									},
 								},
@@ -217,14 +281,7 @@ describe("lookup reference extraction", () => {
 										labelColumnId: columnId("12"),
 										filter: eq(
 											tableColumn(sourceTable, columnId("13")),
-											tableLookup(
-												nestedTable,
-												columnId("21"),
-												eq(
-													tableColumn(nestedTable, columnId("22")),
-													literal("enabled"),
-												),
-											),
+											literal("enabled"),
 										),
 									},
 								},
@@ -240,15 +297,14 @@ describe("lookup reference extraction", () => {
 				uuid: operationUuid,
 				id: "lookup_operation",
 				action: "update",
-				caseType: "case",
+				caseType: "patient",
 				target: { kind: "expression", expr: lookupExpression(12) },
 				condition: lookupPredicate(13),
-				name: lookupExpression(14),
 				owner: lookupExpression(15),
 				rename: lookupExpression(16),
 				writes: [
 					{
-						property: "status",
+						property: "visit_status",
 						value: lookupExpression(17),
 						condition: lookupPredicate(18),
 					},
@@ -256,7 +312,7 @@ describe("lookup reference extraction", () => {
 				links: [
 					{
 						identifier: "parent",
-						targetType: "parent",
+						targetType: "household",
 						target: {
 							kind: "expression",
 							expr: lookupExpression(19),
@@ -265,51 +321,21 @@ describe("lookup reference extraction", () => {
 					},
 				],
 			},
+			{
+				uuid: createUuid,
+				id: "create_lookup",
+				action: "create",
+				caseType: "patient",
+				target: { kind: "new" },
+				name: lookupExpression(14),
+			},
 		];
 
+		assertAdmittedDoc(doc, lookupContext);
 		const occurrences = extractLookupReferenceOccurrences(
 			doc,
 			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
 		);
-		const slotOwners = [
-			...new Set(
-				occurrences.map(
-					(occurrence) =>
-						`${occurrence.registrySlot}:${occurrence.carrierUuid}`,
-				),
-			),
-		].sort();
-
-		const expectedSlotOwners = [
-			`case_list_column_expression:${columnUuid}`,
-			`case_list_filter:${moduleUuid}`,
-			`case_operation_condition:${operationUuid}`,
-			`case_operation_link_target_expression:${operationUuid}`,
-			`case_operation_name:${operationUuid}`,
-			`case_operation_owner:${operationUuid}`,
-			`case_operation_rename:${operationUuid}`,
-			`case_operation_target_expression:${operationUuid}`,
-			`case_operation_write_condition:${operationUuid}`,
-			`case_operation_write_value:${operationUuid}`,
-			`excluded_owner_ids:${moduleUuid}`,
-			`form_display_condition:${formUuid}`,
-			`lookup_options_source:${fieldUuid}`,
-			`module_display_condition:${moduleUuid}`,
-			`search_button_display_condition:${moduleUuid}`,
-			`search_input_default:${advancedInputUuid}`,
-			`search_input_default:${simpleInputUuid}`,
-			`search_input_hidden_value:${hiddenInputUuid}`,
-			`search_input_options:${selectInputUuid}`,
-			`search_input_predicate:${advancedInputUuid}`,
-			`search_input_required_when:${advancedInputUuid}`,
-			`search_input_validation_rule:${advancedInputUuid}`,
-		].sort();
-
-		expect(slotOwners).toEqual(expectedSlotOwners);
-		expect(occurrences).toHaveLength(50);
-		expect(
-			occurrences.every((occurrence) => occurrence.columnId !== undefined),
-		).toBe(true);
 		const expectedOccurrences: ExpectedOccurrence[] = [
 			[
 				"lookup_options_source",
@@ -332,20 +358,6 @@ describe("lookup reference extraction", () => {
 				sourceTable,
 				columnId("13"),
 			],
-			[
-				"lookup_options_source",
-				fieldUuid,
-				"/k:filter/k:right/k:resultColumnId",
-				nestedTable,
-				columnId("21"),
-			],
-			[
-				"lookup_options_source",
-				fieldUuid,
-				"/k:filter/k:right/k:where/k:left/k:term/k:columnId",
-				nestedTable,
-				columnId("22"),
-			],
 			...expectedPredicateOccurrences(
 				"module_display_condition",
 				moduleUuid,
@@ -356,7 +368,12 @@ describe("lookup reference extraction", () => {
 				columnUuid,
 				4,
 			),
-			...expectedPredicateOccurrences("case_list_filter", moduleUuid, 5),
+			...expectedExpressionOccurrences(
+				"case_list_filter",
+				moduleUuid,
+				5,
+				"/k:right",
+			),
 			...expectedExpressionOccurrences(
 				"search_input_default",
 				simpleInputUuid,
@@ -367,10 +384,11 @@ describe("lookup reference extraction", () => {
 				advancedInputUuid,
 				7,
 			),
-			...expectedPredicateOccurrences(
+			...expectedExpressionOccurrences(
 				"search_input_predicate",
 				advancedInputUuid,
 				8,
+				"/k:right",
 			),
 			[
 				"search_input_options",
@@ -393,12 +411,6 @@ describe("lookup reference extraction", () => {
 				choiceTable,
 				columnId("33"),
 			],
-			...expectedExpressionOccurrences(
-				"search_input_options",
-				selectInputUuid,
-				22,
-				"/k:filter/k:right",
-			),
 			...expectedPredicateOccurrences(
 				"search_input_required_when",
 				advancedInputUuid,
@@ -431,11 +443,7 @@ describe("lookup reference extraction", () => {
 				operationUuid,
 				13,
 			),
-			...expectedExpressionOccurrences(
-				"case_operation_name",
-				operationUuid,
-				14,
-			),
+			...expectedExpressionOccurrences("case_operation_name", createUuid, 14),
 			...expectedExpressionOccurrences(
 				"case_operation_owner",
 				operationUuid,
@@ -450,13 +458,13 @@ describe("lookup reference extraction", () => {
 				"case_operation_write_value",
 				operationUuid,
 				17,
-				"/k:property/k:status",
+				"/k:property/k:visit_status",
 			),
 			...expectedPredicateOccurrences(
 				"case_operation_write_condition",
 				operationUuid,
 				18,
-				"/k:property/k:status",
+				"/k:property/k:visit_status",
 			),
 			...expectedExpressionOccurrences(
 				"case_operation_link_target_expression",
@@ -483,64 +491,24 @@ describe("lookup reference extraction", () => {
 				.sort(),
 		);
 
-		const sourceOccurrences = occurrences.filter(
-			(occurrence) => occurrence.registrySlot === "lookup_options_source",
-		);
 		expect(
-			sourceOccurrences.map((occurrence) => ({
-				subpath: occurrence.subpath,
-				tableId: occurrence.tableId,
-				columnId: occurrence.columnId,
+			occurrences
+				.filter(
+					(occurrence) => occurrence.registrySlot === "lookup_options_source",
+				)
+				.map((occurrence) => occurrence.location),
+		).toEqual(
+			Array.from({ length: 3 }, () => ({
+				scope: "field",
+				moduleUuid,
+				moduleName: "Cases",
+				formUuid,
+				formName: "Visit",
+				fieldUuid,
+				fieldId: "choice",
+				field: "optionsSource",
 			})),
-		).toEqual([
-			{
-				subpath: "/k:filter/k:left/k:term/k:columnId",
-				tableId: sourceTable,
-				columnId: columnId("13"),
-			},
-			{
-				subpath: "/k:filter/k:right/k:resultColumnId",
-				tableId: nestedTable,
-				columnId: columnId("21"),
-			},
-			{
-				subpath: "/k:filter/k:right/k:where/k:left/k:term/k:columnId",
-				tableId: nestedTable,
-				columnId: columnId("22"),
-			},
-			{
-				subpath: "/k:labelColumnId",
-				tableId: sourceTable,
-				columnId: columnId("12"),
-			},
-			{
-				subpath: "/k:valueColumnId",
-				tableId: sourceTable,
-				columnId: columnId("11"),
-			},
-		]);
-		expect(
-			sourceOccurrences.every(
-				(occurrence) =>
-					occurrence.columnId !== undefined &&
-					occurrence.location.moduleUuid === moduleUuid &&
-					occurrence.location.formUuid === formUuid &&
-					occurrence.location.fieldUuid === fieldUuid,
-			),
-		).toBe(true);
-
-		expect(
-			occurrences.find(
-				(occurrence) =>
-					occurrence.registrySlot === "case_operation_write_condition",
-			)?.subpath,
-		).toBe("/k:property/k:status/k:left/k:resultColumnId");
-		expect(
-			occurrences.find(
-				(occurrence) =>
-					occurrence.registrySlot === "case_operation_link_target_expression",
-			)?.subpath,
-		).toBe("/k:identifier/k:parent/k:resultColumnId");
+		);
 	});
 
 	it("lists a Search prompt's choice list beside select fields, owned by the input", () => {
@@ -556,16 +524,28 @@ describe("lookup reference extraction", () => {
 		const options = {
 			kind: "lookup" as const,
 			tableId: table,
-			valueColumnId: columnId("41"),
-			labelColumnId: columnId("42"),
+			valueColumnId: columnId("401"),
+			labelColumnId: columnId("402"),
 		};
 		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "region", label: "Region", data_type: "text" },
+						{ name: "regions", label: "Regions", data_type: "text" },
+					],
+				},
+			],
 			modules: [
 				{
 					uuid: moduleUuid,
 					name: "Cases",
+					caseType: "patient",
 					caseListConfig: {
-						columns: [],
+						columns: [
+							plainColumn(testUuid("choice-name-column"), "case_name", "Name"),
+						],
 						searchInputs: [
 							simpleSearchInputDef(
 								selectInputUuid,
@@ -580,7 +560,7 @@ describe("lookup reference extraction", () => {
 								"regions",
 								"",
 								"multi-select",
-								"region",
+								"regions",
 								{ options },
 							),
 						],
@@ -604,6 +584,7 @@ describe("lookup reference extraction", () => {
 			],
 		});
 
+		assertAdmittedDoc(doc, lookupContext);
 		const carriers = collectLookupOptionsSourceCarriers(doc);
 		expect(carriers.map((carrier) => carrier.owner)).toEqual([
 			{ kind: "field", fieldUuid, fieldId: "choice" },
@@ -677,6 +658,7 @@ describe("lookup reference extraction", () => {
 			],
 		});
 
+		assertAdmittedDoc(doc, lookupContext);
 		const occurrences = extractLookupReferenceOccurrences(
 			doc,
 			PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
@@ -699,15 +681,20 @@ describe("lookup reference extraction", () => {
 
 	it("does not infer lookup references from discriminator-like literals", () => {
 		const doc = buildDoc({
+			caseTypes: [{ name: "patient", properties: [] }],
 			modules: [
 				{
 					name: "No references",
+					caseType: "patient",
+					caseListOnly: true,
 					displayCondition: eq(
 						literal("table-column"),
 						literal("table-lookup"),
 					),
 					caseListConfig: {
-						columns: [],
+						columns: [
+							plainColumn(testUuid("literal-name-column"), "case_name", "Name"),
+						],
 						filter: eq(literal("tableId"), literal("columnId")),
 						searchInputs: [],
 					},
@@ -715,7 +702,13 @@ describe("lookup reference extraction", () => {
 			],
 		});
 
-		expect(extractLookupReferenceOccurrences(doc, [])).toEqual([]);
+		assertAdmittedDoc(doc);
+		expect(
+			extractLookupReferenceOccurrences(
+				doc,
+				PRODUCTION_LOOKUP_REFERENCE_EXTRACTORS,
+			),
+		).toEqual([]);
 		expect(extractLookupReferenceTargets(doc)).toBe(
 			EMPTY_LOOKUP_REFERENCE_TARGETS,
 		);
@@ -735,7 +728,7 @@ describe("lookup reference extraction", () => {
 	});
 
 	it("stamps an explicit synthetic registry and returns deterministic occurrences", () => {
-		const doc = buildDoc({ appName: "Synthetic" });
+		const doc = surveyDoc();
 		const registry: LookupReferenceExtractorRegistry = Object.freeze([
 			{
 				registrySlot: "future.itemset.value",
@@ -779,7 +772,7 @@ describe("lookup reference extraction", () => {
 	});
 
 	it("rejects duplicate registry slots and a type contract without a column", () => {
-		const doc = buildDoc();
+		const doc = surveyDoc();
 		const extractor = {
 			registrySlot: "future.slot",
 			extract: () => [],

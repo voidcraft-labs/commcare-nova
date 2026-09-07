@@ -13,14 +13,7 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import {
-	type BlueprintDoc,
-	type Field,
-	FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES,
-	type Form,
-	type Module,
-	type Uuid,
-} from "@/lib/domain";
+import type { BlueprintDoc, Field, Form, Module, Uuid } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
 import {
 	caseOperationIdVerdict,
@@ -32,6 +25,7 @@ import {
 	renameFieldIdVerdict,
 } from "../identifierVerdicts";
 import { mutationSchema } from "../types";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MOD = testUuid("11111111-1111-1111-1111-111111111111");
 const F1 = testUuid("22222222-2222-2222-2222-222222222222");
@@ -54,19 +48,18 @@ function makeDoc(): BlueprintDoc {
 		uuid: MOD,
 		id: "patients",
 		name: "Patients",
-		caseType: "patient",
 	};
 	const reg: Form = {
 		uuid: F1,
 		id: "register",
 		name: "Register",
-		type: "registration",
+		type: "survey",
 	};
 	const followup: Form = {
 		uuid: F2,
 		id: "visit",
 		name: "Follow Up",
-		type: "followup",
+		type: "survey",
 	};
 	const fields: Record<Uuid, Field> = {
 		[AGE]: {
@@ -74,39 +67,39 @@ function makeDoc(): BlueprintDoc {
 			id: "age",
 			kind: "int",
 			label: proseText("Age"),
-		} as Field,
+		},
 		[GRP]: {
 			uuid: GRP,
 			id: "grp",
 			kind: "group",
 			label: proseText("Group"),
-		} as Field,
+		},
 		[KID_NAME]: {
 			uuid: KID_NAME,
 			id: "kid_name",
 			kind: "text",
 			label: proseText("Kid name"),
-		} as Field,
+		},
 		[WEIGHT_F1]: {
 			uuid: WEIGHT_F1,
 			id: "weight",
 			kind: "decimal",
 			label: proseText("Weight"),
-		} as Field,
+		},
 		[WEIGHT_F2]: {
 			uuid: WEIGHT_F2,
 			id: "weight",
 			kind: "decimal",
 			label: proseText("Weight"),
-		} as Field,
+		},
 		[TARGET_F2]: {
 			uuid: TARGET_F2,
 			id: "target",
 			kind: "decimal",
 			label: proseText("Target"),
-		} as Field,
+		},
 	};
-	return {
+	const doc: BlueprintDoc = {
 		appId: "test-app",
 		appName: "Clinic",
 		connectType: null,
@@ -130,6 +123,8 @@ function makeDoc(): BlueprintDoc {
 			[TARGET_F2]: F2,
 		},
 	};
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 function codeOf(verdict: ReturnType<typeof fieldIdVerdict>): string {
@@ -336,8 +331,8 @@ describe("case-operation identifier vocabulary", () => {
 		);
 	});
 
-	it("rejects every forbidden operation-write property before mutation dispatch", () => {
-		for (const property of FORBIDDEN_CASE_OPERATION_WRITE_PROPERTIES) {
+	it("rejects standard properties owned by dedicated operation facets", () => {
+		for (const property of ["case_name", "owner_id", "date_opened", "status"]) {
 			expect(
 				caseOperationWritePropertyVerdict(property, new Set()).ok,
 				`operation writer accepted ${property}`,
@@ -391,4 +386,30 @@ describe("case-operation identifier vocabulary", () => {
 			).toBe(false);
 		},
 	);
+});
+
+describe("identifier length and duplicate boundaries", () => {
+	it("admits 255 characters and refuses 256 for case types, properties and links", () => {
+		for (const verdict of [
+			caseTypeNameVerdict,
+			caseOperationWritePropertyVerdict,
+			caseOperationLinkIdentifierVerdict,
+		]) {
+			expect(verdict("a".repeat(255), new Set()).ok).toBe(true);
+			expect(verdict("a".repeat(256), new Set()).ok).toBe(false);
+		}
+	});
+	it("refuses duplicate operation, property and link names with each owner", () => {
+		for (const verdict of [
+			caseOperationIdVerdict,
+			caseOperationWritePropertyVerdict,
+			caseOperationLinkIdentifierVerdict,
+		]) {
+			expect(verdict("visit", new Set(["visit"]))).toMatchObject({
+				ok: false,
+				code: "duplicate",
+			});
+			expect(verdict("visit", new Set(["Visit"]))).toEqual({ ok: true });
+		}
+	});
 });

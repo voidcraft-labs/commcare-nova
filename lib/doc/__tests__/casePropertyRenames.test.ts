@@ -5,11 +5,13 @@ import {
 	CasePropertyRenamePlanError,
 	type RenameCasePropertiesMutation,
 } from "@/lib/doc/casePropertyRenames";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	CasePropertySemanticProvenanceRequiredError,
 	diffDocsToMutations,
 } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type AdmittedMutationBatch,
 	admitMutationBatch,
@@ -29,6 +31,7 @@ import {
 } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MODULE = testUuid("10000000-0000-4000-8000-000000000000");
 const FORM = testUuid("20000000-0000-4000-8000-000000000000");
@@ -38,7 +41,7 @@ const FIELD_NEW = testUuid("30000000-0000-4000-8000-000000000003");
 const OPERATION = testUuid("40000000-0000-4000-8000-000000000000");
 
 function fixture(): BlueprintDoc {
-	return {
+	const doc: BlueprintDoc = {
 		appId: "app",
 		appName: "App",
 		connectType: null,
@@ -58,6 +61,14 @@ function fixture(): BlueprintDoc {
 				id: "patients",
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: {
+					...emptyCaseListConfig(),
+					columns: [
+						plainColumn(testUuid("rename-name-column"), "case_name", "Name"),
+					],
+					listColumnOrder: [testUuid("rename-name-column")],
+					detailColumnOrder: [testUuid("rename-name-column")],
+				},
 			},
 		},
 		forms: {
@@ -72,7 +83,10 @@ function fixture(): BlueprintDoc {
 						id: "update_patient",
 						action: "update",
 						caseType: "patient",
-						target: { kind: "session" },
+						target: {
+							kind: "expression",
+							expr: term(literal("other-patient")),
+						},
 						writes: [{ property: "a", value: term(literal("value")) }],
 					},
 				],
@@ -99,20 +113,20 @@ function fixture(): BlueprintDoc {
 		fieldOrder: { [FORM]: [FIELD_A, FIELD_B] },
 		fieldParent: { [FIELD_A]: FORM, [FIELD_B]: FORM },
 	};
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 function catalogOnlyFixture(): BlueprintDoc {
 	const doc = fixture();
-	return {
-		...doc,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
+	delete doc.forms[FORM].caseOperations;
+	const fieldA = doc.fields[FIELD_A];
+	const fieldB = doc.fields[FIELD_B];
+	if ("caseWrite" in fieldA) delete fieldA.caseWrite;
+	if ("caseWrite" in fieldB) delete fieldB.caseWrite;
+	doc.forms[FORM].type = "survey";
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 function rename(
@@ -131,10 +145,15 @@ function apply(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[] | AdmittedMutationBatch,
 ): BlueprintDoc {
-	const admitted = admitMutationBatch(mutations);
-	return produce(doc, (draft) => {
-		applyMutations(draft, admitted);
-	});
+	assertAdmittedDoc(doc);
+	const admitted = admitMutationBatch(JSON.parse(JSON.stringify(mutations)));
+	const verdict = mutationCommitVerdict(
+		doc,
+		admitted,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
 }
 
 function caseWriteProperty(
@@ -148,6 +167,8 @@ function caseWriteProperty(
 }
 
 function expectRoundTrip(prev: BlueprintDoc, next: BlueprintDoc): Mutation[] {
+	assertAdmittedDoc(prev);
+	assertAdmittedDoc(next);
 	const mutations = diffDocsToMutations(prev, next);
 	expect(toPersistableDoc(apply(prev, mutations))).toEqual(
 		toPersistableDoc(next),
@@ -213,7 +234,7 @@ describe("explicit app-wide case-property rename", () => {
 	});
 
 	it("preserves every translated option through a simultaneous property swap", () => {
-		const start = fixture();
+		const start = catalogOnlyFixture();
 		const patient = start.caseTypes?.[0];
 		if (patient === undefined) throw new Error("missing patient type");
 		for (const property of patient.properties) {
@@ -365,6 +386,11 @@ describe("explicit app-wide case-property rename", () => {
 		};
 		const patient = start.caseTypes?.[0];
 		if (patient === undefined) throw new Error("missing patient type");
+		patient.properties.push(
+			{ name: "start_date", label: proseText("Start date"), data_type: "date" },
+			{ name: "stop_date", label: proseText("Stop date"), data_type: "date" },
+			{ name: "event_time", label: proseText("Event time"), data_type: "time" },
+		);
 		patient.parent_type = "household";
 		patient.relationship = "child";
 		start.caseTypes = [...(start.caseTypes ?? []), parentType];
@@ -411,7 +437,7 @@ describe("explicit app-wide case-property rename", () => {
 				recipients: [
 					{
 						uuid: testUuid("rename-automation-recipient"),
-						kind: "case-property-email",
+						kind: "case-property-user-id",
 						property: "a",
 					},
 				],
@@ -421,12 +447,12 @@ describe("explicit app-wide case-property rename", () => {
 					totalIterations: 2,
 					startOffsetDays: 0,
 					startDayOfWeek: -1,
-					start: { kind: "case-property", property: "a" },
+					start: { kind: "case-property", property: "start_date" },
 					events: [
 						{
 							uuid: testUuid("rename-automation-event"),
 							day: 0,
-							timing: { kind: "case-property-time", property: "a" },
+							timing: { kind: "case-property-time", property: "event_time" },
 							content: {
 								kind: "email",
 								subject: {
@@ -487,17 +513,58 @@ describe("explicit app-wide case-property rename", () => {
 					},
 				],
 				useUserCaseForFilter: false,
-				resetCaseProperty: "a",
-				stopDateCaseProperty: "a",
+				stopDateCaseProperty: "stop_date",
 			},
 		};
-		start.automationOrder = [updateUuid, alertUuid];
+		const resetUuid = testUuid("rename-reset-alert");
+		const originalAlert = start.automations[alertUuid];
+		if (
+			originalAlert.kind !== "conditional-alert" ||
+			originalAlert.schedule.kind !== "timed"
+		)
+			throw new Error("Expected timed alert");
+		start.automations[resetUuid] = {
+			...originalAlert,
+			uuid: resetUuid,
+			name: "Resettable alert",
+			recipients: [
+				{
+					uuid: testUuid("rename-reset-recipient"),
+					kind: "case-property-user-id",
+					property: "a",
+				},
+			],
+			userDataFilters: [],
+			resetCaseProperty: "a",
+			schedule: {
+				...originalAlert.schedule,
+				start: { kind: "rule-trigger" },
+				events: [
+					{
+						...originalAlert.schedule.events[0],
+						uuid: testUuid("rename-reset-event"),
+					},
+				],
+			},
+		};
+		start.automationOrder = [updateUuid, alertUuid, resetUuid];
+		start.userProperties = {
+			[testUuid("rename-worker-property")]: {
+				uuid: testUuid("rename-worker-property"),
+				slug: "team",
+				label: "Team",
+			},
+		};
+		start.userPropertyOrder = [testUuid("rename-worker-property")];
 		start.refIndex = buildReferenceIndex(start);
 
 		const next = apply(
 			start,
 			admittedRename(
 				{ caseType: "patient", from: "a", to: "fresh" },
+				{ caseType: "patient", from: "start_date", to: "new_start" },
+				{ caseType: "patient", from: "stop_date", to: "new_stop" },
+				{ caseType: "patient", from: "event_time", to: "new_time" },
 				{ caseType: "household", from: "parent_a", to: "parent_fresh" },
 			),
 		);
@@ -515,8 +582,10 @@ describe("explicit app-wide case-property rename", () => {
 			value: { source: { scope: "case", property: "fresh" } },
 		});
 		expect(alert.recipients[0]).toMatchObject({ property: "fresh" });
-		expect(alert.resetCaseProperty).toBe("fresh");
-		expect(alert.stopDateCaseProperty).toBe("fresh");
+		expect(next.automations?.[resetUuid]).toMatchObject({
+			resetCaseProperty: "fresh",
+		});
+		expect(alert.stopDateCaseProperty).toBe("new_stop");
 		expect(alert.userDataFilters[0]?.values).toEqual([
 			{ kind: "literal", value: "literal {a}" },
 			{
@@ -528,11 +597,11 @@ describe("explicit app-wide case-property rename", () => {
 		if (alert.schedule.kind !== "timed") throw new Error("wrong schedule");
 		expect(alert.schedule.start).toEqual({
 			kind: "case-property",
-			property: "fresh",
+			property: "new_start",
 		});
 		expect(alert.schedule.events[0]?.timing).toEqual({
 			kind: "case-property-time",
-			property: "fresh",
+			property: "new_time",
 		});
 		const content = alert.schedule.events[0]?.content;
 		if (content?.kind !== "email") throw new Error("wrong content");
@@ -694,12 +763,22 @@ describe("explicit app-wide case-property rename", () => {
 	] as const)(
 		"rejects a non-bijective or inadmissible relation: %s",
 		(reason, entries) => {
-			expect(() => apply(fixture(), admittedRename(...entries))).toThrowError(
+			// The reducer throws its structured planner issue; the outer gate returns a refusal.
+			const doc = fixture();
+			const command = admittedRename(...entries);
+			expect(() =>
+				produce(doc, (draft) => {
+					applyMutations(draft, command);
+				}),
+			).toThrowError(
 				expect.objectContaining({
 					name: CasePropertyRenamePlanError.name,
 					issue: expect.objectContaining({ reason }),
 				}),
 			);
+			expect(
+				mutationCommitVerdict(doc, command, LOOKUP_CONTEXT_UNAVAILABLE).ok,
+			).toBe(false);
 		},
 	);
 

@@ -6,16 +6,18 @@
  * AppTree row components.
  */
 
-import { renderHook } from "@testing-library/react";
+import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { BlueprintAuthoringLanguageContext } from "@/lib/doc/authoringLanguageContext";
-import { SEARCH_IDLE, useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
+import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
+import { useSearchFilter } from "@/lib/doc/hooks/useSearchFilter";
 import { BlueprintDocProvider } from "@/lib/doc/provider";
 import type { BlueprintDoc } from "@/lib/doc/types";
 import { collectTranslationUnits, makeTranslationUnitId } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 /**
  * Build a small deterministic blueprint for filter testing: one module,
@@ -41,7 +43,7 @@ function buildFixture(): BlueprintDoc {
 				uuid: FORM,
 				id: "intake",
 				name: "Intake Form",
-				type: "registration",
+				type: "survey",
 			},
 		},
 		fields: {
@@ -50,23 +52,24 @@ function buildFixture(): BlueprintDoc {
 				id: "patient_name",
 				kind: "text",
 				label: proseText("Patient Full Name"),
-			} as BlueprintDoc["fields"][typeof Q_NAME],
+			},
 			[Q_AGE]: {
 				uuid: Q_AGE,
 				id: "age",
 				kind: "int",
 				label: proseText("Age in Years"),
-			} as BlueprintDoc["fields"][typeof Q_AGE],
+			},
 		},
 		moduleOrder: [MOD],
 		formOrder: { [MOD]: [FORM] },
 		fieldOrder: { [FORM]: [Q_NAME, Q_AGE] },
-		fieldParent: {},
+		fieldParent: { [Q_NAME]: FORM, [Q_AGE]: FORM },
 	};
 }
 
 /** Wrap a hook render with a BlueprintDocProvider that loads the given doc. */
 function wrapWithDoc(doc?: BlueprintDoc, language: string | null = null) {
+	if (doc) assertAdmittedDoc(doc);
 	return ({ children }: { children: ReactNode }) => (
 		<BlueprintDocProvider appId={doc?.appId ?? "empty"} initialDoc={doc}>
 			<BlueprintAuthoringLanguageContext value={language}>
@@ -170,7 +173,23 @@ describe("useSearchFilter", () => {
 			parentModuleUuid: rootUuid,
 		};
 		doc.moduleOrder.push(childUuid);
-		doc.formOrder[childUuid] = [];
+		const childForm = testUuid("child-form");
+		const childQuestion = testUuid("child-question");
+		doc.forms[childForm] = {
+			uuid: childForm,
+			id: "visit",
+			name: "Visit",
+			type: "survey",
+		};
+		doc.fields[childQuestion] = {
+			uuid: childQuestion,
+			id: "note",
+			kind: "text",
+			label: proseText("Note"),
+		};
+		doc.formOrder[childUuid] = [childForm];
+		doc.fieldOrder[childForm] = [childQuestion];
+		doc.fieldParent[childQuestion] = childForm;
 		const { result } = renderHook(() => useSearchFilter("follow-up"), {
 			wrapper: wrapWithDoc(doc),
 		});
@@ -254,14 +273,40 @@ describe("useSearchFilter", () => {
 		expect(r.visibleFieldUuids.size).toBe(0);
 	});
 
-	it("SEARCH_IDLE is a stable reference across accesses", () => {
-		// The idle sentinel backs the selector's `isSearching ? live : idle`
-		// branch — if a new object were produced each render,
-		// `useBlueprintDocShallow` would invalidate every entity edit. The
-		// sentinel itself is a module-level constant, so importing twice
-		// (or reading it from two renders) must yield the same reference.
-		const first = SEARCH_IDLE;
-		const second = SEARCH_IDLE;
-		expect(first).toBe(second);
+	it("stays unsubscribed while idle and observes the latest labels when search starts", () => {
+		let renders = 0;
+		const { result, rerender } = renderHook(
+			({ query }) => {
+				renders++;
+				return {
+					search: useSearchFilter(query),
+					edit: useBlueprintMutations(),
+				};
+			},
+			{ initialProps: { query: "" }, wrapper: wrapWithDoc(buildFixture()) },
+		);
+		const before = renders;
+		const uuid = testUuid("q-name-0000-0000-0000-000000000000");
+		act(() =>
+			expect(
+				result.current.edit.updateField(uuid, "text", {
+					label: proseText("New nickname"),
+				}),
+			).toEqual({ ok: true }),
+		);
+		expect(renders).toBe(before);
+		expect(result.current.search).toBeNull();
+		rerender({ query: "nickname" });
+		expect(result.current.search?.matchMap.get(uuid)).toEqual([[4, 12]]);
+		act(() =>
+			expect(
+				result.current.edit.updateField(uuid, "text", {
+					label: proseText("Given name"),
+				}),
+			).toEqual({ ok: true }),
+		);
+		expect(result.current.search?.visibleFieldUuids.size).toBe(0);
+		rerender({ query: "given" });
+		expect(result.current.search?.matchMap.get(uuid)).toEqual([[0, 5]]);
 	});
 });

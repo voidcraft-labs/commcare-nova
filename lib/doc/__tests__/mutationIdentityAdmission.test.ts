@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { mutationIdentityAdmissionIssue } from "@/lib/doc/mutationIdentityAdmission";
+import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import type { Mutation } from "@/lib/doc/types";
 import { type Automation, automationMessageText } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 function fixture() {
 	const doc = buildDoc({
@@ -44,6 +45,7 @@ function fixture() {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
 	const fieldUuid = doc.fieldOrder[formUuid][0];
@@ -67,6 +69,7 @@ function expectRejected(
 	doc: ReturnType<typeof fixture>["doc"],
 	batch: Mutation[],
 ) {
+	const before = structuredClone(doc);
 	const issue = mutationIdentityAdmissionIssue(doc, batch);
 	expect(issue).toBeDefined();
 	expect(mutationTargetsInvalid(doc, batch)).toBe(true);
@@ -76,6 +79,8 @@ function expectRejected(
 	expect(verdict.findings.map((finding) => finding.code)).toEqual([
 		"MUTATION_IDENTITY_COLLISION",
 	]);
+	expect(verdict.nextDoc).toBe(doc);
+	expect(doc).toEqual(before);
 }
 
 function alertFixture() {
@@ -111,6 +116,7 @@ function alertFixture() {
 	};
 	fx.doc.automations = { [automationUuid]: automation };
 	fx.doc.automationOrder = [automationUuid];
+	assertAdmittedDoc(fx.doc);
 	return { ...fx, automation, automationUuid, eventUuid };
 }
 
@@ -225,6 +231,59 @@ describe("mutation identity admission", () => {
 		];
 		expect(mutationIdentityAdmissionIssue(fx.doc, batch)).toBeUndefined();
 		expect(mutationTargetsInvalid(fx.doc, batch)).toBe(false);
+	});
+
+	it("preserves the same live options through successive replacements in one batch", () => {
+		const fx = fixture();
+		const field = fx.doc.fields[fx.fieldUuid];
+		if (!("optionsSource" in field) || field.optionsSource.kind !== "inline")
+			throw new Error("Expected inline options");
+		const options = field.optionsSource.options;
+		const batch: Mutation[] = [
+			{
+				kind: "updateField",
+				uuid: fx.fieldUuid,
+				targetKind: "single_select",
+				patch: {
+					optionsSource: {
+						kind: "inline",
+						options: options.map((option) => ({
+							...option,
+							label: proseText(`First ${option.value}`),
+						})),
+					},
+				},
+			},
+			{
+				kind: "updateField",
+				uuid: fx.fieldUuid,
+				targetKind: "single_select",
+				patch: {
+					optionsSource: {
+						kind: "inline",
+						options: [...options].reverse().map((option) => ({
+							...option,
+							label: proseText(`Final ${option.value}`),
+						})),
+					},
+				},
+			},
+		];
+		const verdict = mutationCommitVerdict(
+			fx.doc,
+			batch,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		expect(verdict.nextDoc.fields[fx.fieldUuid]).toMatchObject({
+			optionsSource: {
+				kind: "inline",
+				options: [...options].reverse().map((option) => ({
+					...option,
+					label: proseText(`Final ${option.value}`),
+				})),
+			},
+		});
 	});
 
 	it("requires newly seeded inline options to use new identities", () => {
@@ -439,6 +498,43 @@ describe("mutation identity admission", () => {
 				},
 			]),
 		).toBeUndefined();
+	});
+
+	it("preserves live schedule events through successive replacements", () => {
+		const fx = alertFixture();
+		if (fx.automation.schedule.kind !== "immediate")
+			throw new Error("Expected immediate schedule");
+		const event = fx.automation.schedule.events[0];
+		const batch: Mutation[] = [
+			{
+				kind: "setAutomationSchedule",
+				uuid: fx.automationUuid,
+				schedule: {
+					kind: "immediate",
+					events: [{ ...event, minutesToWait: 10 }],
+				},
+			},
+			{
+				kind: "setAutomationSchedule",
+				uuid: fx.automationUuid,
+				schedule: {
+					kind: "immediate",
+					events: [{ ...event, minutesToWait: 20 }],
+				},
+			},
+		];
+		const verdict = mutationCommitVerdict(
+			fx.doc,
+			batch,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		expect(verdict.nextDoc.automations?.[fx.automationUuid]).toMatchObject({
+			schedule: {
+				kind: "immediate",
+				events: [{ ...event, minutesToWait: 20 }],
+			},
+		});
 	});
 
 	it("does not let consecutive schedule replacements reintroduce an omitted event UUID", () => {

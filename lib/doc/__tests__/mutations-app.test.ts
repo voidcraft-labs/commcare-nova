@@ -1,345 +1,291 @@
-import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
-import { applyMutation, applyMutations } from "@/lib/doc/mutations";
-import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
-import type { BlueprintDoc } from "@/lib/doc/types";
-import { collectTranslationUnits } from "@/lib/domain";
-import { proseText } from "@/lib/domain/prose";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import {
+	type BlueprintDoc,
+	type Mutation,
+	mutationSchema,
+} from "@/lib/doc/types";
+import { collectTranslationUnits, proseText } from "@/lib/domain";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-function emptyDoc(): BlueprintDoc {
-	return {
+function fixture(): BlueprintDoc {
+	const doc = buildDoc({
 		appId: "test",
 		appName: "Original",
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [{ kind: "text", id: "notes", label: proseText("Notes") }],
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
-
-describe("applyMutation: setAppName", () => {
-	it("updates appName", () => {
-		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "setAppName", name: "Renamed" });
-		});
-		expect(next.appName).toBe("Renamed");
+function commit(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+): BlueprintDoc {
+	assertAdmittedDoc(doc);
+	const wire = mutations.map((mutation) =>
+		mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+	);
+	const verdict = mutationCommitVerdict(doc, wire, LOOKUP_CONTEXT_UNAVAILABLE);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
+}
+function appUnit(doc: BlueprintDoc) {
+	const unit = collectTranslationUnits(doc).find(
+		(unit) => unit.owner.kind === "app",
+	);
+	if (!unit) throw new Error("Missing app name unit");
+	return unit;
+}
+describe("app metadata commits", () => {
+	it("changes name and logo without mutating the prior document, and deletes a cleared logo through JSON", () => {
+		const before = fixture();
+		const original = toPersistableDoc(before);
+		const logo = testMediaAssetId("app-logo");
+		const next = commit(before, [
+			{ kind: "setAppName", name: "Clinic" },
+			{ kind: "setAppLogo", logo },
+		]);
+		expect(next).toMatchObject({ appName: "Clinic", logo });
+		expect(toPersistableDoc(before)).toEqual(original);
+		const cleared = commit(next, [{ kind: "setAppLogo", logo: null }]);
+		expect(Object.hasOwn(cleared, "logo")).toBe(false);
+		expect(cleared.modules).toEqual(before.modules);
 	});
-
-	it("does not mutate the input doc", () => {
-		const doc = emptyDoc();
-		produce(doc, (d) => {
-			applyMutation(d, { kind: "setAppName", name: "Renamed" });
-		});
-		expect(doc.appName).toBe("Original");
-	});
-});
-
-describe("applyMutation: setConnectType", () => {
-	it("sets learn", () => {
-		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "setConnectType", connectType: "learn" });
-		});
-		expect(next.connectType).toBe("learn");
-	});
-
-	it("sets null to disable connect", () => {
-		const withLearn: BlueprintDoc = { ...emptyDoc(), connectType: "learn" };
-		const next = produce(withLearn, (d) => {
-			applyMutation(d, { kind: "setConnectType", connectType: null });
-		});
-		expect(next.connectType).toBeNull();
-	});
-});
-
-describe("applyMutation: granular case-type catalog", () => {
-	it("declares a type and adds a property without a whole-catalog mutation", () => {
-		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "declareCaseType", caseType: "patient" });
-			applyMutation(d, {
+	it("edits granular catalog metadata and returns the final retired catalog to null", () => {
+		const declared = commit(fixture(), [
+			{ kind: "declareCaseType", caseType: "patient" },
+			{
 				kind: "addCaseProperty",
 				caseType: "patient",
-				property: { name: "name", label: proseText("Name") },
-			});
-		});
-		expect(next.caseTypes).toEqual([
-			{
-				name: "patient",
-				properties: [{ name: "name", label: proseText("Name") }],
+				property: { name: "note", label: proseText("Note"), data_type: "text" },
 			},
 		]);
-	});
-
-	it("retiring the last type restores the canonical null catalog", () => {
-		const withTypes: BlueprintDoc = {
-			...emptyDoc(),
-			caseTypes: [{ name: "a", properties: [] }],
-		};
-		const next = produce(withTypes, (d) => {
-			applyMutation(d, { kind: "retireCaseType", caseType: "a" });
-		});
-		expect(next.caseTypes).toBeNull();
-	});
-});
-
-describe("applyMutation: setAppLogo", () => {
-	it("sets the logo to an asset id", () => {
-		const logo = testMediaAssetId("asset-logo");
-		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "setAppLogo", logo });
-		});
-		expect(next.logo).toBe(logo);
-	});
-
-	it("clears the logo by mapping null to undefined (not a literal null)", () => {
-		const withLogo: BlueprintDoc = {
-			...emptyDoc(),
-			logo: testMediaAssetId("asset-logo"),
-		};
-		const next = produce(withLogo, (d) => {
-			applyMutation(d, { kind: "setAppLogo", logo: null });
-		});
-		// `logo` is `.optional()` on the doc schema — a cleared logo must
-		// drop to `undefined`, never persist as `null` (which the schema
-		// would reject on the next round-trip).
-		expect(next.logo).toBeUndefined();
-	});
-
-	it("does not mutate the input doc", () => {
-		const doc = emptyDoc();
-		produce(doc, (d) => {
-			applyMutation(d, {
-				kind: "setAppLogo",
-				logo: testMediaAssetId("asset-logo"),
-			});
-		});
-		expect(doc.logo).toBeUndefined();
-	});
-});
-
-describe("applyMutation: app localization", () => {
-	it("adds a target and copies one current source unit in the same batch", () => {
-		const doc = emptyDoc();
-		const unit = collectTranslationUnits(doc)[0];
-		const batch = [
+		expect(declared.caseTypes).toEqual([
 			{
-				kind: "addLanguage" as const,
-				language: { language: "spa" },
+				name: "patient",
+				properties: [
+					{ name: "note", label: proseText("Note"), data_type: "text" },
+				],
 			},
+		]);
+		const changed = commit(declared, [
 			{
-				kind: "setTranslation" as const,
+				kind: "setCaseProperty",
+				caseType: "patient",
+				property: {
+					name: "note",
+					label: proseText("Patient note"),
+					data_type: "text",
+				},
+			},
+		]);
+		expect(changed.caseTypes?.[0].properties[0].label).toEqual(
+			proseText("Patient note"),
+		);
+		expect(
+			commit(changed, [{ kind: "retireCaseType", caseType: "patient" }])
+				.caseTypes,
+		).toBeNull();
+	});
+});
+// Complete Connect-mode transitions are owned by connectTargetState.test.ts;
+// setting a root flag alone on an otherwise invalid Learn app proves no workflow.
+describe("language and translation commits", () => {
+	it("creates a target language with its copied app name atomically", () => {
+		const before = fixture();
+		const unit = appUnit(before);
+		const next = commit(before, [
+			{ kind: "addLanguage", language: { language: "spa" } },
+			{
+				kind: "setTranslation",
 				language: "spa",
 				unitId: unit.id,
 				entry: {
-					value: unit.source,
+					value: "Original",
 					sourceFingerprint: unit.sourceFingerprint,
-					origin: "copied" as const,
-					review: "needs-review" as const,
+					origin: "copied",
+					review: "needs-review",
 					translatedFrom: "eng",
 				},
 			},
-		];
-		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
-		const next = produce(doc, (draft) => {
-			applyMutations(draft, batch);
-		});
-		expect(next.localization).toMatchObject({
+		]);
+		expect(next.localization).toEqual({
 			sourceLanguage: "eng",
+			defaultLanguage: "eng",
 			languageOrder: ["eng", "spa"],
 			translations: {
-				spa: { [unit.id]: { value: "Original", origin: "copied" } },
+				spa: {
+					[unit.id]: {
+						value: "Original",
+						sourceFingerprint: unit.sourceFingerprint,
+						origin: "copied",
+						review: "needs-review",
+						translatedFrom: "eng",
+					},
+				},
 			},
 		});
 	});
-
-	it("admits a translation for a unit created or changed earlier in the batch", () => {
-		const doc = emptyDoc();
-		const renamed = produce(doc, (draft) => {
-			applyMutation(draft, { kind: "setAppName", name: "Updated" });
-		});
-		const updatedUnit = collectTranslationUnits(renamed)[0];
-		const batch = [
+	it("admits a translation against source text changed earlier in the same batch", () => {
+		const before = fixture();
+		const unit = appUnit({ ...before, appName: "Updated" });
+		const next = commit(before, [
+			{ kind: "addLanguage", language: { language: "spa" } },
+			{ kind: "setAppName", name: "Updated" },
 			{
-				kind: "addLanguage" as const,
-				language: { language: "spa" },
-			},
-			{ kind: "setAppName" as const, name: "Updated" },
-			{
-				kind: "setTranslation" as const,
+				kind: "setTranslation",
 				language: "spa",
-				unitId: updatedUnit.id,
+				unitId: unit.id,
 				entry: {
 					value: "Actualizada",
-					sourceFingerprint: updatedUnit.sourceFingerprint,
-					origin: "human" as const,
-					review: "reviewed" as const,
+					sourceFingerprint: unit.sourceFingerprint,
+					origin: "human",
+					review: "reviewed",
 					translatedFrom: "eng",
 				},
 			},
-		];
-
-		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
-		const next = produce(doc, (draft) => {
-			applyMutations(draft, batch);
+		]);
+		expect(next.appName).toBe("Updated");
+		expect(next.localization?.translations.spa?.[unit.id]).toMatchObject({
+			value: "Actualizada",
+			sourceFingerprint: unit.sourceFingerprint,
 		});
-		expect(next.localization?.translations.spa?.[updatedUnit.id]).toMatchObject(
-			{
-				value: "Actualizada",
-				sourceFingerprint: updatedUnit.sourceFingerprint,
-			},
-		);
 	});
-
-	it("admits a translation for a field born earlier in the batch", () => {
-		const moduleUuid = testUuid("translated-new-field-module");
-		const formUuid = testUuid("translated-new-field-form");
-		const fieldUuid = testUuid("translated-new-field");
-		const doc: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[moduleUuid]: {
-					uuid: moduleUuid,
-					id: "survey",
-					name: "Survey",
-				},
-			},
-			forms: {
-				[formUuid]: {
-					uuid: formUuid,
-					id: "intake",
-					name: "Intake",
-					type: "survey",
-				},
-			},
-			moduleOrder: [moduleUuid],
-			formOrder: { [moduleUuid]: [formUuid] },
-			fieldOrder: { [formUuid]: [] },
-		};
+	it("admits a field label translation when the field is born in the same batch", () => {
+		const before = fixture();
+		const formUuid = before.formOrder[before.moduleOrder[0]][0];
 		const field = {
-			kind: "text" as const,
-			uuid: fieldUuid,
+			uuid: testUuid("new-translated-field"),
 			id: "patient_name",
+			kind: "text" as const,
 			label: proseText("Patient name"),
 		};
-		const withField = produce(doc, (draft) => {
-			applyMutation(draft, { kind: "addField", parentUuid: formUuid, field });
-		});
-		const unit = collectTranslationUnits(withField).find(
-			(candidate) =>
-				candidate.owner.kind === "field" && candidate.id.includes(fieldUuid),
-		);
-		expect(unit).toBeDefined();
-		if (unit === undefined) return;
-		const batch = [
-			{
-				kind: "addLanguage" as const,
-				language: { language: "spa" },
+		const projected = {
+			...before,
+			fields: { ...before.fields, [field.uuid]: field },
+			fieldOrder: {
+				...before.fieldOrder,
+				[formUuid]: [...before.fieldOrder[formUuid], field.uuid],
 			},
-			{ kind: "addField" as const, parentUuid: formUuid, field },
+			fieldParent: { ...before.fieldParent, [field.uuid]: formUuid },
+		};
+		assertAdmittedDoc(projected);
+		const unit = collectTranslationUnits(projected).find(
+			(unit) =>
+				unit.owner.kind === "field" && unit.owner.fieldUuid === field.uuid,
+		);
+		if (!unit) throw new Error("Missing born field unit");
+		const next = commit(before, [
+			{ kind: "addField", parentUuid: formUuid, field },
+			{ kind: "addLanguage", language: { language: "spa" } },
 			{
-				kind: "setTranslation" as const,
+				kind: "setTranslation",
 				language: "spa",
 				unitId: unit.id,
 				entry: {
 					value: proseText("Nombre del paciente"),
 					sourceFingerprint: unit.sourceFingerprint,
-					origin: "human" as const,
-					review: "reviewed" as const,
+					origin: "human",
+					review: "reviewed",
 					translatedFrom: "eng",
 				},
 			},
-		];
-
-		expect(mutationTargetsInvalid(doc, batch)).toBe(false);
+		]);
+		expect(next.fields[field.uuid]).toEqual(field);
+		expect(next.localization?.translations.spa?.[unit.id].value).toEqual(
+			proseText("Nombre del paciente"),
+		);
 	});
-
-	it("relabels only the single source and dematerializes the English-only endpoint", () => {
-		const french = produce(emptyDoc(), (draft) => {
-			applyMutation(draft, {
-				kind: "relabelSourceLanguage",
-				language: { language: "fra" },
-			});
+	it("relabels a single source and dematerializes the English-only result", () => {
+		const french = commit(fixture(), [
+			{ kind: "relabelSourceLanguage", language: { language: "fra" } },
+		]);
+		expect(french.localization).toEqual({
+			sourceLanguage: "fra",
+			defaultLanguage: "fra",
+			languageOrder: ["fra"],
+			translations: {},
 		});
-		expect(french.localization?.sourceLanguage).toBe("fra");
-		const english = produce(french, (draft) => {
-			applyMutation(draft, {
-				kind: "relabelSourceLanguage",
-				language: { language: "eng" },
-			});
-		});
-		expect(english.localization).toBeUndefined();
+		expect(
+			commit(french, [
+				{ kind: "relabelSourceLanguage", language: { language: "eng" } },
+			]).localization,
+		).toBeUndefined();
 	});
-
-	it("fences review against the exact stale value and advances its fingerprint", () => {
-		const original = emptyDoc();
-		const oldUnit = collectTranslationUnits(original)[0];
-		const localized: BlueprintDoc = {
-			...original,
-			localization: {
-				sourceLanguage: "eng",
-				defaultLanguage: "eng",
-				languageOrder: ["eng", "spa"],
-				translations: {
-					spa: {
-						[oldUnit.id]: {
-							value: "Original",
-							sourceFingerprint: oldUnit.sourceFingerprint,
-							origin: "copied",
-							review: "needs-review",
-							translatedFrom: "eng",
-						},
-					},
+	it("fences a review against the stored translated value and advances only its source fingerprint", () => {
+		const before = fixture();
+		const oldUnit = appUnit(before);
+		const localized = commit(before, [
+			{ kind: "addLanguage", language: { language: "spa" } },
+			{
+				kind: "setTranslation",
+				language: "spa",
+				unitId: oldUnit.id,
+				entry: {
+					value: "Original",
+					sourceFingerprint: oldUnit.sourceFingerprint,
+					origin: "copied",
+					review: "needs-review",
+					translatedFrom: "eng",
 				},
 			},
-		};
-		localized.appName = "Updated";
-		const currentUnit = collectTranslationUnits(localized)[0];
-		const review = {
-			kind: "reviewTranslation" as const,
+			{ kind: "setAppName", name: "Updated" },
+		]);
+		const current = appUnit(localized);
+		const review: Mutation = {
+			kind: "reviewTranslation",
 			language: "spa",
-			unitId: currentUnit.id,
+			unitId: current.id,
 			expectedSourceFingerprint: oldUnit.sourceFingerprint,
-			sourceFingerprint: currentUnit.sourceFingerprint,
+			sourceFingerprint: current.sourceFingerprint,
 			value: "Original",
 		};
-		expect(mutationTargetsInvalid(localized, [review])).toBe(false);
-		const next = produce(localized, (draft) => {
-			applyMutation(draft, review);
-		});
-		expect(next.localization?.translations.spa?.[currentUnit.id]).toMatchObject(
-			{
-				sourceFingerprint: currentUnit.sourceFingerprint,
-				review: "reviewed",
-			},
-		);
 		expect(
-			mutationTargetsInvalid(localized, [{ ...review, value: "changed" }]),
-		).toBe(true);
-	});
-
-	it("requires changing the default before removing that target", () => {
-		const doc = produce(emptyDoc(), (draft) => {
-			applyMutations(draft, [
-				{
-					kind: "addLanguage",
-					language: { language: "spa" },
-				},
-				{ kind: "setDefaultLanguage", code: "spa" },
-			]);
-		});
-		expect(
-			mutationTargetsInvalid(doc, [{ kind: "removeLanguage", code: "spa" }]),
-		).toBe(true);
-		expect(
-			mutationTargetsInvalid(doc, [
-				{ kind: "setDefaultLanguage", code: "eng" },
-				{ kind: "removeLanguage", code: "spa" },
-			]),
+			mutationCommitVerdict(
+				localized,
+				[{ ...review, value: "peer changed" }],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
 		).toBe(false);
+		const next = commit(localized, [review]);
+		expect(next.localization?.translations.spa?.[current.id]).toMatchObject({
+			value: "Original",
+			sourceFingerprint: current.sourceFingerprint,
+			review: "reviewed",
+		});
+	});
+	it("requires a new default before removing its language and removes the final target bag", () => {
+		const before = commit(fixture(), [
+			{ kind: "addLanguage", language: { language: "spa" } },
+			{ kind: "setDefaultLanguage", code: "spa" },
+		]);
+		expect(before.localization?.languageOrder).toEqual(["spa", "eng"]);
+		expect(
+			mutationCommitVerdict(
+				before,
+				[{ kind: "removeLanguage", code: "spa" }],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
+		const next = commit(before, [
+			{ kind: "setDefaultLanguage", code: "eng" },
+			{ kind: "removeLanguage", code: "spa" },
+		]);
+		expect(next.localization).toBeUndefined();
 	});
 });

@@ -6,11 +6,11 @@ import { useContext } from "react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { useBlueprintMutations } from "@/lib/doc/hooks/useBlueprintMutations";
 import { BlueprintDocContext, BlueprintDocProvider } from "@/lib/doc/provider";
 import { simpleSearchInputDef } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 describe("useBlueprintMutations.moveColumnOnSurface", () => {
 	it("one gesture commits exactly one moved column", () => {
@@ -54,6 +54,7 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 				},
 			],
 		});
+		assertAdmittedDoc(initial);
 		const moduleUuid = initial.moduleOrder[0];
 		const initialColumns =
 			initial.modules[moduleUuid].caseListConfig?.columns ?? [];
@@ -86,9 +87,10 @@ describe("useBlueprintMutations.moveColumnOnSurface", () => {
 
 		const after = result.current.store?.getState();
 		if (after === undefined) throw new Error("store missing after move");
-		const diff = diffDocsToMutations(before, after);
-		expect(diff).toHaveLength(1);
-		expect(diff[0]).toMatchObject({
+		const batches = after.peekCommandBatches();
+		expect(batches).toHaveLength(1);
+		expect(batches[0]).toHaveLength(1);
+		expect(batches[0][0]).toEqual({
 			kind: "moveColumn",
 			moduleUuid,
 			uuid: movedUuid,
@@ -143,6 +145,7 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 				},
 			],
 		});
+		assertAdmittedDoc(initial);
 		const moduleUuid = initial.moduleOrder[0];
 		const wrapper = ({ children }: { children: ReactNode }) => (
 			<BlueprintDocProvider appId={initial.appId} initialDoc={initial}>
@@ -173,15 +176,14 @@ describe("useBlueprintMutations.moveSearchInputToIndex", () => {
 
 		const after = result.current.store?.getState();
 		if (after === undefined) throw new Error("store missing after move");
-		const diff = diffDocsToMutations(before, after);
-		expect(diff).toHaveLength(1);
-		// Moving the first input down is the same arrangement as moving the
-		// second one up, and the diff derives the shorter of the two.
-		expect(diff[0]).toMatchObject({
+		const batches = after.peekCommandBatches();
+		expect(batches).toHaveLength(1);
+		expect(batches[0]).toHaveLength(1);
+		expect(batches[0][0]).toEqual({
 			kind: "moveSearchInput",
 			moduleUuid,
-			uuid: second.uuid,
-			after: null,
+			uuid: first.uuid,
+			after: second.uuid,
 		});
 		const inputs = after.modules[moduleUuid].caseListConfig?.searchInputs ?? [];
 		expect(inputs.map((input) => input.uuid)).toEqual([

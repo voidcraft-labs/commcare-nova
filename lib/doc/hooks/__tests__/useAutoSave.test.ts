@@ -9,6 +9,8 @@
  */
 
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
 import { blueprintDocSchema } from "@/lib/domain";
 import { projectSaveSlice } from "../useAutoSave";
 
@@ -23,9 +25,27 @@ describe("projectSaveSlice", () => {
 			.concat("commandQueueRevision")
 			.sort();
 
-		// The projection returns a fixed key set regardless of values, so an
-		// empty stand-in is enough to read its shape.
-		const sliceKeys = Object.keys(projectSaveSlice({} as never)).sort();
+		const doc = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Interview",
+							type: "survey",
+							fields: [{ id: "name", kind: "text", label: "Name" }],
+						},
+					],
+				},
+			],
+		});
+		assertAdmittedDoc(doc);
+		const slice = projectSaveSlice(doc);
+		const sliceKeys = Object.keys(slice).sort();
+		for (const key of Object.keys(blueprintDocSchema.shape)) {
+			if (key === "appId") continue;
+			expect(Reflect.get(slice, key), key).toBe(Reflect.get(doc, key));
+		}
 
 		expect(sliceKeys).toEqual(expected);
 	});

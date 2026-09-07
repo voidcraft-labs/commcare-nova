@@ -1,496 +1,354 @@
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { applyMutation } from "@/lib/doc/mutations";
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { applyMutations } from "@/lib/doc/mutations";
+import {
+	type BlueprintDoc,
+	type Mutation,
+	mutationSchema,
+} from "@/lib/doc/types";
+import { plainColumn, proseText, type Uuid } from "@/lib/domain";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-import type { Field, Form, Module } from "@/lib/domain";
-import { emptyCaseListConfig } from "@/lib/domain";
-
-const M = (s: string) => testUuid(`mod${s}-0000-0000-0000-000000000000`);
-const F = (s: string) => testUuid(`frm${s}-0000-0000-0000-000000000000`);
-const Q = (s: string) => testUuid(`qst${s}-0000-0000-0000-000000000000`);
-
-function module_(uuid: Uuid, name: string): Module {
-	return { uuid, name } as Module;
-}
-function form_(uuid: Uuid, name: string): Form {
-	return { uuid, name, type: "survey" } as Form;
-}
-function field_(uuid: Uuid, id: string): Field {
-	return { uuid, id, kind: "text" } as never as Field;
-}
-
-function emptyDoc(): BlueprintDoc {
-	return {
-		appId: "test",
-		appName: "App",
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
-}
-
-describe("addModule", () => {
-	it("appends to moduleOrder by default", () => {
-		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "addModule", module: module_(M("A"), "A") });
-			applyMutation(d, { kind: "addModule", module: module_(M("B"), "B") });
-		});
-		expect(next.moduleOrder).toEqual([M("A"), M("B")]);
-		expect(next.modules[M("A")]?.name).toBe("A");
-	});
-
-	it("inserts after the module it names", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: module_(M("A"), "A"),
-				[M("C")]: module_(M("C"), "C"),
-			},
-			moduleOrder: [M("A"), M("C")],
-			formOrder: { [M("A")]: [], [M("C")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "addModule",
-				module: module_(M("B"), "B"),
-				after: M("A"),
-			});
-		});
-		expect(next.moduleOrder).toEqual([M("A"), M("B"), M("C")]);
-	});
-
-	it("initializes empty formOrder slot for the new module", () => {
-		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "addModule", module: module_(M("A"), "A") });
-		});
-		expect(next.formOrder[M("A")]).toEqual([]);
-	});
-
-	it("places a child within its parent's contiguous sibling block", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: module_(M("A"), "A"),
-				[M("C")]: module_(M("C"), "C"),
-			},
-			moduleOrder: [M("A"), M("C")],
-			formOrder: { [M("A")]: [], [M("C")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "addModule",
-				module: {
-					...module_(M("B"), "B"),
-					parentModuleUuid: M("A"),
-				},
-				after: null,
-			});
-		});
-		expect(next.moduleOrder).toEqual([M("A"), M("B"), M("C")]);
-		expect(next.modules[M("B")]?.parentModuleUuid).toBe(M("A"));
-	});
-});
-
-describe("removeModule", () => {
-	it("removes the module entity, its entry in moduleOrder, and its formOrder slot", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: { [M("A")]: module_(M("A"), "A") },
-			moduleOrder: [M("A")],
-			formOrder: { [M("A")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "removeModule", uuid: M("A") });
-		});
-		expect(next.modules[M("A")]).toBeUndefined();
-		expect(next.moduleOrder).toEqual([]);
-		expect(next.formOrder[M("A")]).toBeUndefined();
-	});
-
-	it("cascades to forms and fields", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: { [M("A")]: module_(M("A"), "A") },
-			forms: { [F("1")]: form_(F("1"), "F") },
-			fields: { [Q("x")]: field_(Q("x"), "x") },
-			moduleOrder: [M("A")],
-			formOrder: { [M("A")]: [F("1")] },
-			fieldOrder: { [F("1")]: [Q("x")] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "removeModule", uuid: M("A") });
-		});
-		expect(next.forms[F("1")]).toBeUndefined();
-		expect(next.fields[Q("x")]).toBeUndefined();
-		expect(next.fieldOrder[F("1")]).toBeUndefined();
-	});
-
-	it("refuses a parent removal until its child is removed first", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: module_(M("A"), "A"),
-				[M("B")]: {
-					...module_(M("B"), "B"),
-					parentModuleUuid: M("A"),
-				},
-			},
-			moduleOrder: [M("A"), M("B")],
-			formOrder: { [M("A")]: [], [M("B")]: [] },
-		};
-		const refused = produce(start, (d) => {
-			applyMutation(d, { kind: "removeModule", uuid: M("A") });
-		});
-		expect(refused.moduleOrder).toEqual(start.moduleOrder);
-
-		const removed = produce(start, (d) => {
-			applyMutation(d, { kind: "removeModule", uuid: M("B") });
-			applyMutation(d, { kind: "removeModule", uuid: M("A") });
-		});
-		expect(removed.moduleOrder).toEqual([]);
-	});
-});
-
-describe("moveModule", () => {
-	it("reorders moduleOrder", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: module_(M("A"), "A"),
-				[M("B")]: module_(M("B"), "B"),
-				[M("C")]: module_(M("C"), "C"),
-			},
-			moduleOrder: [M("A"), M("B"), M("C")],
-			formOrder: { [M("A")]: [], [M("B")]: [], [M("C")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, { kind: "moveModule", uuid: M("A"), after: M("C") });
-		});
-		expect(next.moduleOrder).toEqual([M("B"), M("C"), M("A")]);
-	});
-
-	it("leaves the sequence unchanged when an unguarded anchor is gone", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: module_(M("A"), "A"),
-				[M("B")]: module_(M("B"), "B"),
-			},
-			moduleOrder: [M("A"), M("B")],
-			formOrder: { [M("A")]: [], [M("B")]: [] },
-		};
-		const next = produce(start, (d) => {
-			// Live admission rejects this. The reducer remains total for replay,
-			// but cannot translate the requested placement into append.
-			applyMutation(d, { kind: "moveModule", uuid: M("A"), after: M("gone") });
-		});
-		expect(next.moduleOrder).toEqual([M("A"), M("B")]);
-	});
-
-	it("is a no-op when the module isn't in moduleOrder", () => {
-		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, { kind: "moveModule", uuid: M("missing"), after: null });
-		});
-		expect(next.moduleOrder).toEqual([]);
-	});
-
-	it("moves a root together with its complete child block", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: module_(M("A"), "A"),
-				[M("B")]: {
-					...module_(M("B"), "B"),
-					parentModuleUuid: M("A"),
-				},
-				[M("C")]: module_(M("C"), "C"),
-			},
-			moduleOrder: [M("A"), M("B"), M("C")],
-			formOrder: { [M("A")]: [], [M("B")]: [], [M("C")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "moveModule",
-				uuid: M("A"),
-				after: M("C"),
-			});
-		});
-		expect(next.moduleOrder).toEqual([M("C"), M("A"), M("B")]);
-	});
-
-	it("distinguishes preserved, root, and explicit-parent destinations", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: module_(M("A"), "A"),
-				[M("B")]: {
-					...module_(M("B"), "B"),
-					parentModuleUuid: M("A"),
-				},
-				[M("C")]: module_(M("C"), "C"),
-				[M("D")]: {
-					...module_(M("D"), "D"),
-					parentModuleUuid: M("C"),
-				},
-			},
-			moduleOrder: [M("A"), M("B"), M("C"), M("D")],
-			formOrder: {
-				[M("A")]: [],
-				[M("B")]: [],
-				[M("C")]: [],
-				[M("D")]: [],
-			},
-		};
-		const preserved = produce(start, (d) => {
-			applyMutation(d, { kind: "moveModule", uuid: M("B"), after: null });
-		});
-		expect(preserved.modules[M("B")]?.parentModuleUuid).toBe(M("A"));
-
-		const promoted = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "moveModule",
-				uuid: M("B"),
-				parentModuleUuid: null,
-				after: M("C"),
-			});
-		});
-		expect(promoted.modules[M("B")]?.parentModuleUuid).toBeUndefined();
-		expect(promoted.moduleOrder).toEqual([M("A"), M("C"), M("D"), M("B")]);
-
-		const reparented = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "moveModule",
-				uuid: M("B"),
-				parentModuleUuid: M("C"),
-				after: M("D"),
-			});
-		});
-		expect(reparented.modules[M("B")]?.parentModuleUuid).toBe(M("C"));
-		expect(reparented.moduleOrder).toEqual([M("A"), M("C"), M("D"), M("B")]);
-	});
-
-	it("does not let a stale narrow reorder undo a peer reparent", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: module_(M("A"), "A"),
-				[M("B")]: {
-					...module_(M("B"), "B"),
-					parentModuleUuid: M("A"),
-				},
-				[M("C")]: module_(M("C"), "C"),
-			},
-			moduleOrder: [M("A"), M("B"), M("C")],
-			formOrder: { [M("A")]: [], [M("B")]: [], [M("C")]: [] },
-		};
-		const merged = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "moveModule",
-				uuid: M("B"),
-				parentModuleUuid: M("C"),
-				after: null,
-			});
-			// This command was authored while B still belonged to A. Its absent
-			// parent intent must preserve B's fresh sibling group under C.
-			applyMutation(d, { kind: "moveModule", uuid: M("B"), after: null });
-		});
-		expect(merged.modules[M("B")]?.parentModuleUuid).toBe(M("C"));
-		expect(merged.moduleOrder).toEqual([M("A"), M("C"), M("B")]);
-	});
-});
-
-describe("renameModule", () => {
-	it("updates the module's name (user-visible identifier)", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: { uuid: M("A"), name: "Original" } as Module,
-			},
-			moduleOrder: [M("A")],
-			formOrder: { [M("A")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "renameModule",
-				uuid: M("A"),
-				newId: "Renamed",
-			});
-		});
-		expect(next.modules[M("A")]?.name).toBe("Renamed");
-	});
-
-	it("is a no-op when the module doesn't exist", () => {
-		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, {
-				kind: "renameModule",
-				uuid: M("missing"),
-				newId: "X",
-			});
-		});
-		expect(next.modules[M("missing")]).toBeUndefined();
-	});
-});
-
-describe("updateModule", () => {
-	it("applies a partial patch", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: { [M("A")]: module_(M("A"), "A") },
-			moduleOrder: [M("A")],
-			formOrder: { [M("A")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "updateModule",
-				uuid: M("A"),
-				patch: { caseType: "patient" },
-			});
-		});
-		expect(next.modules[M("A")]?.caseType).toBe("patient");
-		expect(next.modules[M("A")]?.name).toBe("A"); // Other fields preserved
-	});
-
-	it("ignores updates to unknown module uuids", () => {
-		const next = produce(emptyDoc(), (d) => {
-			applyMutation(d, {
-				kind: "updateModule",
-				uuid: M("missing"),
-				patch: { caseType: "patient" },
-			});
-		});
-		expect(next.modules[M("missing")]).toBeUndefined();
-	});
-});
-
-describe("updateModule.ensureCaseListConfig", () => {
-	it("materializes the required empty shape when the config is absent", () => {
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: { [M("A")]: module_(M("A"), "A") },
-			moduleOrder: [M("A")],
-			formOrder: { [M("A")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "updateModule",
-				uuid: M("A"),
-				patch: {},
-				ensureCaseListConfig: true,
-			});
-		});
-		expect(next.modules[M("A")]?.caseListConfig).toEqual(emptyCaseListConfig());
-	});
-
-	it("is idempotent and preserves a peer-populated config", () => {
-		const existing = {
-			columns: [
+const M = (key: string) => testUuid(`modules-module-${key}`);
+const F = (key: string) => testUuid(`modules-form-${key}`);
+const Q = (key: string) => testUuid(`modules-field-${key}`);
+function fixture(keys = ["a", "c"]): BlueprintDoc {
+	const doc = buildDoc({
+		modules: keys.map((key) => ({
+			uuid: M(key),
+			id: `module_${key}`,
+			name: key.toUpperCase(),
+			forms: [
 				{
-					uuid: Q("col"),
-					kind: "plain" as const,
-					field: "case_name",
-					header: "Name",
+					uuid: F(key),
+					name: `Form ${key}`,
+					type: "survey",
+					fields: [
+						{
+							uuid: Q(key),
+							kind: "text",
+							id: "notes",
+							label: proseText("Notes"),
+						},
+					],
 				},
 			],
-			listColumnOrder: [Q("col")],
-			detailColumnOrder: [Q("col")],
-			searchInputs: [],
-			filter: { kind: "match-all" as const },
-		};
-		const start: BlueprintDoc = {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: { ...module_(M("A"), "A"), caseListConfig: existing },
-			},
-			moduleOrder: [M("A")],
-			formOrder: { [M("A")]: [] },
-		};
-		const next = produce(start, (d) => {
-			applyMutation(d, {
-				kind: "updateModule",
-				uuid: M("A"),
-				patch: {},
-				ensureCaseListConfig: true,
-			});
-		});
-		expect(next.modules[M("A")]?.caseListConfig).toEqual(existing);
+		})),
 	});
+	assertAdmittedDoc(doc);
+	return doc;
+}
+function commit(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+): BlueprintDoc {
+	const parsed = mutations.map((mutation) =>
+		mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+	);
+	const verdict = mutationCommitVerdict(
+		doc,
+		parsed,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
+}
+function birth(
+	key: string,
+	after?: Uuid | null,
+	parentModuleUuid?: Uuid,
+): Mutation[] {
+	return [
+		{
+			kind: "addModule",
+			module: {
+				uuid: M(key),
+				id: `module_${key}`,
+				name: key.toUpperCase(),
+				...(parentModuleUuid === undefined ? {} : { parentModuleUuid }),
+			},
+			...(after === undefined ? {} : { after }),
+		},
+		{
+			kind: "addForm",
+			moduleUuid: M(key),
+			form: {
+				uuid: F(key),
+				id: `form_${key}`,
+				name: `Form ${key}`,
+				type: "survey",
+			},
+		},
+		{
+			kind: "addField",
+			parentUuid: F(key),
+			field: {
+				uuid: Q(key),
+				id: "notes",
+				kind: "text",
+				label: proseText("Notes"),
+			},
+		},
+	];
+}
+function nested(): BlueprintDoc {
+	return commit(fixture(), [
+		...birth("b", null, M("a")),
+		...birth("d", null, M("c")),
+	]);
+}
+describe("module topology", () => {
+	it.each([undefined, null, M("a")] as const)(
+		"births a complete module at anchor %s",
+		(after) => {
+			const before = fixture();
+			const next = commit(before, birth("b", after));
+			expect(next.moduleOrder).toEqual(
+				after === undefined
+					? [M("a"), M("c"), M("b")]
+					: after === null
+						? [M("b"), M("a"), M("c")]
+						: [M("a"), M("b"), M("c")],
+			);
+			expect(next.formOrder[M("b")]).toEqual([F("b")]);
+			expect(next.fieldOrder[F("b")]).toEqual([Q("b")]);
+			expect(before.modules[M("b")]).toBeUndefined();
+		},
+	);
+	it("cascades module removal through form and field identities and orders", () => {
+		const next = commit(fixture(), [{ kind: "removeModule", uuid: M("a") }]);
+		expect(next.moduleOrder).toEqual([M("c")]);
+		expect(next.modules[M("a")]).toBeUndefined();
+		expect(next.formOrder[M("a")]).toBeUndefined();
+		expect(next.forms[F("a")]).toBeUndefined();
+		expect(next.fieldOrder[F("a")]).toBeUndefined();
+		expect(next.fields[Q("a")]).toBeUndefined();
+		expect(next.fieldParent[Q("a")]).toBeUndefined();
+		expect(next.fields[Q("c")]).toBeDefined();
+	});
+	it("refuses a parent removal until children leave and then removes that subtree in order", () => {
+		const before = nested();
+		expect(before.moduleOrder).toEqual([M("a"), M("b"), M("c"), M("d")]);
+		expect(
+			mutationCommitVerdict(
+				before,
+				[{ kind: "removeModule", uuid: M("a") }],
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			).ok,
+		).toBe(false);
+		expect(
+			toPersistableDoc(
+				produce(before, (draft) => {
+					applyMutations(draft, [{ kind: "removeModule", uuid: M("a") }]);
+				}),
+			),
+		).toEqual(toPersistableDoc(before));
+		expect(
+			commit(before, [
+				{ kind: "removeModule", uuid: M("b") },
+				{ kind: "removeModule", uuid: M("a") },
+			]).moduleOrder,
+		).toEqual([M("c"), M("d")]);
+	});
+	it("moves a root together with its child block", () => {
+		expect(
+			commit(nested(), [{ kind: "moveModule", uuid: M("a"), after: M("c") }])
+				.moduleOrder,
+		).toEqual([M("c"), M("d"), M("a"), M("b")]);
+	});
+	it("distinguishes preserved parentage, promotion to root and explicit reparenting", () => {
+		const before = nested();
+		const preserved = commit(before, [
+			{ kind: "moveModule", uuid: M("b"), after: null },
+		]);
+		expect(preserved.modules[M("b")].parentModuleUuid).toBe(M("a"));
+		const promoted = commit(before, [
+			{
+				kind: "moveModule",
+				uuid: M("b"),
+				parentModuleUuid: null,
+				after: M("c"),
+			},
+		]);
+		expect(Object.hasOwn(promoted.modules[M("b")], "parentModuleUuid")).toBe(
+			false,
+		);
+		expect(promoted.moduleOrder).toEqual([M("a"), M("c"), M("d"), M("b")]);
+		const reparented = commit(before, [
+			{
+				kind: "moveModule",
+				uuid: M("b"),
+				parentModuleUuid: M("c"),
+				after: M("d"),
+			},
+		]);
+		expect(reparented.modules[M("b")].parentModuleUuid).toBe(M("c"));
+		expect(reparented.moduleOrder).toEqual([M("a"), M("c"), M("d"), M("b")]);
+	});
+	it("preserves fresh parentage when a stale narrow reorder arrives", () => {
+		const peer = commit(nested(), [
+			{
+				kind: "moveModule",
+				uuid: M("b"),
+				parentModuleUuid: M("c"),
+				after: M("d"),
+			},
+		]);
+		const merged = commit(peer, [
+			{ kind: "moveModule", uuid: M("b"), after: null },
+		]);
+		expect(merged.modules[M("b")].parentModuleUuid).toBe(M("c"));
+		expect(merged.moduleOrder).toEqual([M("a"), M("c"), M("b"), M("d")]);
+	});
+	it("changes display name and purpose while preserving semantic module id and descendants", () => {
+		const before = fixture();
+		const next = commit(before, [
+			{ kind: "renameModule", uuid: M("a"), newId: "Renamed" },
+			{
+				kind: "updateModule",
+				uuid: M("a"),
+				patch: { purpose: "Record visits" },
+			},
+		]);
+		expect(next.modules[M("a")]).toEqual({
+			...before.modules[M("a")],
+			name: "Renamed",
+			purpose: "Record visits",
+		});
+		expect(next.forms).toEqual(before.forms);
+	});
+	it.each<Mutation>([
+		{ kind: "moveModule", uuid: M("a"), after: M("gone") },
+		{ kind: "moveModule", uuid: M("gone"), after: null },
+		{ kind: "renameModule", uuid: M("gone"), newId: "New" },
+		{ kind: "updateModule", uuid: M("gone"), patch: { purpose: "Missing" } },
+	])(
+		"refuses a stale target and keeps unguarded replay unchanged: $kind",
+		(mutation) => {
+			const before = fixture();
+			expect(
+				mutationCommitVerdict(before, [mutation], LOOKUP_CONTEXT_UNAVAILABLE)
+					.ok,
+			).toBe(false);
+			const replayed = produce(before, (draft) => {
+				applyMutations(draft, [mutation]);
+			});
+			expect(toPersistableDoc(replayed)).toEqual(toPersistableDoc(before));
+		},
+	);
 });
-
-describe("case-list column membership", () => {
-	/** A module whose case list holds two columns, both on both screens. */
-	function moduleWithColumns(): BlueprintDoc {
-		const first = Q("col1");
-		const second = Q("col2");
-		return {
-			...emptyDoc(),
-			modules: {
-				[M("A")]: {
-					...module_(M("A"), "A"),
+describe("case-list birth and independent screen sequences", () => {
+	function viewer() {
+		const doc = buildDoc({
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{ name: "age", label: proseText("Age"), data_type: "int" },
+						{ name: "village", label: proseText("Village"), data_type: "text" },
+					],
+				},
+			],
+			modules: [
+				{
+					uuid: M("a"),
+					name: "Patients",
 					caseType: "patient",
+					caseListOnly: true,
 					caseListConfig: {
 						columns: [
-							{
-								uuid: first,
-								kind: "plain",
-								field: "case_name",
-								header: "Name",
-							},
-							{ uuid: second, kind: "plain", field: "age", header: "Age" },
+							plainColumn(Q("name"), "case_name", "Name"),
+							plainColumn(Q("age"), "age", "Age"),
 						],
-						listColumnOrder: [first, second],
-						detailColumnOrder: [second, first],
+						listColumnOrder: [Q("name"), Q("age")],
+						detailColumnOrder: [Q("age"), Q("name")],
 						searchInputs: [],
 					},
-				} as Module,
-			},
-			moduleOrder: [M("A")],
-			formOrder: { [M("A")]: [] },
-		};
-	}
-
-	it("addColumn lands the column where each surface said", () => {
-		const added = Q("col3");
-		const next = produce(moduleWithColumns(), (d) => {
-			applyMutation(d, {
-				kind: "addColumn",
-				moduleUuid: M("A"),
-				column: {
-					uuid: added,
-					kind: "plain",
-					field: "village",
-					header: "Village",
 				},
+			],
+		});
+		assertAdmittedDoc(doc);
+		return doc;
+	}
+	it("ensures a config in the same batch as its type and first column", () => {
+		const next = commit(fixture(), [
+			{ kind: "declareCaseType", caseType: "patient" },
+			{
+				kind: "updateModule",
+				uuid: M("a"),
+				patch: { caseType: "patient" },
+				ensureCaseListConfig: true,
+			},
+			{
+				kind: "addColumn",
+				moduleUuid: M("a"),
+				column: plainColumn(Q("name"), "case_name", "Name"),
 				afterInList: null,
-				afterInDetail: Q("col2"),
-			});
+				afterInDetail: null,
+			},
+		]);
+		expect(next.modules[M("a")].caseListConfig).toEqual({
+			columns: [plainColumn(Q("name"), "case_name", "Name")],
+			listColumnOrder: [Q("name")],
+			detailColumnOrder: [Q("name")],
+			searchInputs: [],
 		});
-		const config = next.modules[M("A")]?.caseListConfig;
-		expect(config?.listColumnOrder).toEqual([added, Q("col1"), Q("col2")]);
-		expect(config?.detailColumnOrder).toEqual([Q("col2"), added, Q("col1")]);
 	});
-
-	it("removeColumn takes the column out of BOTH sequences", () => {
-		// A uuid left in a sequence is a member of neither screen and a member of
-		// both orders — the disagreement `assembleBlueprint` refuses to persist,
-		// and an anchor a later add could name.
-		const next = produce(moduleWithColumns(), (d) => {
-			applyMutation(d, {
-				kind: "removeColumn",
-				moduleUuid: M("A"),
-				uuid: Q("col2"),
-			});
-		});
-		const config = next.modules[M("A")]?.caseListConfig;
-		expect(config?.columns.map((column) => column.uuid)).toEqual([Q("col1")]);
-		expect(config?.listColumnOrder).toEqual([Q("col1")]);
-		expect(config?.detailColumnOrder).toEqual([Q("col1")]);
+	it("leaves an existing peer-populated config intact on ensure", () => {
+		const before = viewer();
+		const next = commit(before, [
+			{
+				kind: "updateModule",
+				uuid: M("a"),
+				patch: {},
+				ensureCaseListConfig: true,
+			},
+		]);
+		expect(next.modules[M("a")].caseListConfig).toEqual(
+			before.modules[M("a")].caseListConfig,
+		);
+	});
+	it("adds to each screen at its separate anchor and removes from both", () => {
+		const before = viewer();
+		const next = commit(before, [
+			{
+				kind: "addColumn",
+				moduleUuid: M("a"),
+				column: plainColumn(Q("village"), "village", "Village"),
+				afterInList: null,
+				afterInDetail: Q("age"),
+			},
+		]);
+		expect(next.modules[M("a")].caseListConfig?.listColumnOrder).toEqual([
+			Q("village"),
+			Q("name"),
+			Q("age"),
+		]);
+		expect(next.modules[M("a")].caseListConfig?.detailColumnOrder).toEqual([
+			Q("age"),
+			Q("village"),
+			Q("name"),
+		]);
+		const removed = commit(next, [
+			{ kind: "removeColumn", moduleUuid: M("a"), uuid: Q("age") },
+		]);
+		expect(
+			removed.modules[M("a")].caseListConfig?.columns.map(
+				(column) => column.uuid,
+			),
+		).toEqual([Q("name"), Q("village")]);
+		expect(removed.modules[M("a")].caseListConfig?.listColumnOrder).toEqual([
+			Q("village"),
+			Q("name"),
+		]);
+		expect(removed.modules[M("a")].caseListConfig?.detailColumnOrder).toEqual([
+			Q("village"),
+			Q("name"),
+		]);
 	});
 });

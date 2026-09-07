@@ -2,9 +2,8 @@
  * Reference index — build, queries, and the per-mutation maintenance
  * behaviors with non-obvious correctness rules:
  *
- *   - identity keying (form-local refs land on the target's uuid with
- *     prefix coverage; `#case/…` keys under the module's CURRENT type;
- *     AST refs key on the relation walk's destination);
+ *   - identity keying (form-local refs name the leaf UUID, case references
+ *     name their authored type, and relational properties name the destination);
  *   - the declarations index (case-property peers + form-scoped id
  *     holders) and the close-condition unique-holder rule;
  *   - resolution-context maintenance: an add that makes a previously
@@ -20,13 +19,16 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { planModuleChildDependentsOnRemove } from "@/lib/doc/moduleDependents";
 import { applyMutations } from "@/lib/doc/mutations";
 import {
 	buildReferenceIndex,
 	declarersOf,
 	referencingCarrierUuids,
+	referencingSlotsOf,
 } from "@/lib/doc/referenceIndex";
 import type { Mutation } from "@/lib/doc/types";
 import {
@@ -39,13 +41,18 @@ import {
 	expressionSource,
 	hiddenSearchInputDef,
 	locationTargetKey,
+	plainColumn,
 	printProseTemplate,
 	simpleSearchInputDef,
 	type Uuid,
 	userPropertyTargetKey,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
 import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
+import {
+	ancestorPath,
 	and,
 	eq,
 	fixedLocation,
@@ -55,11 +62,12 @@ import {
 	ownerLocationAtLevel,
 	prop,
 	sessionUserProperty,
-	subcasePath,
 	tableColumn,
 	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { parseLookupRevision } from "@/lib/lookup/schema";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 function uuidByFieldId(doc: BlueprintDoc, id: string): Uuid {
 	const found = Object.values(doc.fields).find((field) => field.id === id);
@@ -83,6 +91,15 @@ function printedRelevant(doc: BlueprintDoc, uuid: Uuid): string | undefined {
 }
 
 function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
+	assertAdmittedDoc(doc);
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok, JSON.stringify(verdict.ok ? [] : verdict.findings)).toBe(
+		true,
+	);
 	return produce(doc, (draft) => {
 		applyMutations(draft, mutations);
 	});
@@ -97,7 +114,7 @@ function richDoc(): BlueprintDoc {
 				name: "patient",
 				properties: [
 					{ name: "case_name", label: proseText("Name") },
-					{ name: "age", label: proseText("Age") },
+					{ name: "age", label: proseText("Age"), data_type: "int" },
 				],
 			},
 		],
@@ -106,14 +123,16 @@ function richDoc(): BlueprintDoc {
 				name: "Patients",
 				caseType: "patient",
 				caseListConfig: {
-					columns: [],
+					columns: [
+						plainColumn(testUuid("reference-column"), "case_name", "Name"),
+					],
 					searchInputs: [],
-					filter: eq(prop("patient", "age"), literal("1")),
+					filter: eq(prop("patient", "age"), literal(1)),
 				},
 				forms: [
 					{
-						name: "Register",
-						type: "registration",
+						name: "Close visit",
+						type: "close",
 						closeCondition: { field: "outcome", answer: "done" },
 						fields: [
 							f({
@@ -155,6 +174,16 @@ function richDoc(): BlueprintDoc {
 					},
 				],
 			},
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Notes",
+						type: "survey",
+						fields: [f({ kind: "text", id: "notes" })],
+					},
+				],
+			},
 		],
 	});
 	const watcher = uuidByFieldId(doc, "watcher");
@@ -169,6 +198,7 @@ function richDoc(): BlueprintDoc {
 		{ kind: "text", text: " and " },
 		{ kind: "field-ref", uuid: inner },
 	]);
+	assertAdmittedDoc(doc);
 	return doc;
 }
 
@@ -178,11 +208,23 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 			modules: [
 				{
 					name: "Parent",
-					forms: [{ name: "Parent form", type: "survey" }],
+					forms: [
+						{
+							name: "Parent form",
+							type: "survey",
+							fields: [f({ kind: "text", id: "parent_note" })],
+						},
+					],
 				},
 				{
 					name: "Child",
-					forms: [{ name: "Child form", type: "survey" }],
+					forms: [
+						{
+							name: "Child form",
+							type: "survey",
+							fields: [f({ kind: "text", id: "child_note" })],
+						},
+					],
 				},
 			],
 		});
@@ -232,7 +274,17 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					forms: [{ name: "Visit", type: "followup" }],
+					caseListConfig: {
+						columns: [plainColumn(testUuid("org-column"), "case_name", "Name")],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "followup",
+							fields: [f({ kind: "text", id: "notes" })],
+						},
+					],
 				},
 			],
 		});
@@ -251,7 +303,7 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 				parentLevelUuid: region,
 				caseFlow: {
 					workers: "assigned",
-					ownsCases: false,
+					ownsCases: true,
 					descendantCases: { kind: "none" },
 				},
 				addressBook: { reach: "shared-branch", fromLevelUuid: region },
@@ -317,6 +369,7 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		};
 		doc.automationOrder = [automationUuid];
 
+		assertAdmittedDoc(doc);
 		const levelSlots = slotsFor(doc, entityTargetKey(region));
 		expect(levelSlots[facility]).toEqual({ organization_level_setting: true });
 		expect(levelSlots[property]).toEqual({ location_property_level: true });
@@ -366,8 +419,11 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
 		const fieldUuid = doc.fieldOrder[formUuid][0];
-		(doc.fields[fieldUuid] as { relevant?: unknown }).relevant =
-			parseXPathForForm(doc, formUuid, "#user/region = 'north'");
+		doc.userPropertyOrder = [propertyUuid];
+		const field = doc.fields[fieldUuid];
+		if (field.kind !== "text") throw new Error("expected text field");
+		field.relevant = parseXPathForForm(doc, formUuid, "#user/region = 'north'");
+		assertAdmittedDoc(doc);
 
 		const slots = slotsFor(doc, userPropertyTargetKey(propertyUuid));
 		expect(slots[moduleUuid]).toEqual({ module_display_condition: true });
@@ -387,11 +443,15 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		const regionUuid = testUuid("search-input-region");
 		const nameUuid = testUuid("search-input-name");
 		const siteUuid = testUuid("search-input-site");
-		const tableId = "018f3e8a-7b2c-7def-8abc-0000000000a1" as LookupTableId;
-		const valueColumn =
-			"018f3e8a-7b2c-7def-8abc-0000000000b1" as LookupColumnId;
-		const labelColumn =
-			"018f3e8a-7b2c-7def-8abc-0000000000b2" as LookupColumnId;
+		const tableId = lookupTableIdSchema.parse(
+			"018f3e8a-7b2c-7def-8abc-0000000000a1",
+		);
+		const valueColumn = lookupColumnIdSchema.parse(
+			"018f3e8a-7b2c-7def-8abc-0000000000b1",
+		);
+		const labelColumn = lookupColumnIdSchema.parse(
+			"018f3e8a-7b2c-7def-8abc-0000000000b2",
+		);
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -408,7 +468,9 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 					caseType: "patient",
 					caseListOnly: true,
 					caseListConfig: resolveCaseListConfig({
-						columns: [],
+						columns: [
+							plainColumn(testUuid("search-column"), "case_name", "Name"),
+						],
 						searchInputs: [
 							simpleSearchInputDef(
 								regionUuid,
@@ -470,6 +532,34 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 				label: "Site",
 			},
 		};
+		doc.userPropertyOrder = [propertyUuid, hiddenPropertyUuid];
+		assertAdmittedDoc(doc, {
+			kind: "available",
+			projectId: "project",
+			projectRevision: parseLookupRevision("1"),
+			definitions: [
+				{
+					id: tableId,
+					name: "Regions",
+					tag: "regions",
+					definitionRevision: parseLookupRevision("1"),
+					columns: [
+						{
+							id: valueColumn,
+							wireName: "code",
+							label: "Code",
+							dataType: "text",
+						},
+						{
+							id: labelColumn,
+							wireName: "name",
+							label: "Name",
+							dataType: "text",
+						},
+					],
+				},
+			],
+		});
 		const moduleUuid = doc.moduleOrder[0];
 
 		expect(slotsFor(doc, userPropertyTargetKey(propertyUuid))).toEqual({
@@ -485,13 +575,9 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		// A sibling read is a removal dependency (`searchInputMutations.ts`),
 		// not an index edge.
 		expect(slotsFor(doc, entityTargetKey(regionUuid))).toEqual({});
-		// The incremental index and the rebuild agree on the new slots.
-		expect(buildReferenceIndex(doc).in).toEqual(
-			(doc.refIndex ?? buildReferenceIndex(doc)).in,
-		);
 	});
 
-	it("indexes module and form display-condition Predicate leaves", () => {
+	it("indexes selected-case form display-condition Predicate leaves", () => {
 		const doc = buildDoc({
 			caseTypes: [
 				{
@@ -505,12 +591,18 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
-					displayCondition: eq(prop("patient", "age"), literal(18)),
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("display-column"), "case_name", "Name"),
+						],
+						searchInputs: [],
+					},
 					forms: [
 						{
 							name: "Visit",
 							type: "followup",
 							displayCondition: eq(prop("patient", "age"), literal(18)),
+							fields: [f({ kind: "text", id: "notes" })],
 						},
 					],
 				},
@@ -518,15 +610,16 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 		});
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
+		assertAdmittedDoc(doc);
 		const slots = slotsFor(doc, casePropertyTargetKey("patient", "age"));
-		expect(slots[moduleUuid]).toEqual({ module_display_condition: true });
+		expect(slots[moduleUuid]).toBeUndefined();
 		expect(slots[formUuid]).toEqual({ form_display_condition: true });
 		expect(referencingCarrierUuids(doc, caseTypeTargetKey("patient"))).toEqual(
 			expect.arrayContaining([moduleUuid, formUuid]),
 		);
 	});
 
-	it("keys form-local refs on the target uuid, with prefix coverage for container paths", () => {
+	it("keys form-local refs on their leaf UUID without container-prefix edges", () => {
 		const doc = richDoc();
 		const grp = uuidByFieldId(doc, "grp");
 		const inner = uuidByFieldId(doc, "inner");
@@ -577,21 +670,41 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 
 	it("keys AST PropertyRefs on the relation walk's destination type", () => {
 		const doc = buildDoc({
+			caseTypes: [
+				{ name: "household", parent_type: "patient", properties: [] },
+				{
+					name: "patient",
+					properties: [
+						{ name: "age", label: proseText("Age"), data_type: "text" },
+					],
+				},
+			],
 			modules: [
 				{
 					name: "Households",
 					caseType: "household",
+					caseListOnly: true,
 					caseListConfig: {
-						columns: [],
+						columns: [
+							plainColumn(testUuid("relation-column"), "case_name", "Name"),
+						],
 						searchInputs: [],
 						filter: eq(
-							prop("household", "age", subcasePath("parent", "patient")),
+							prop(
+								"household",
+								"age",
+								ancestorPath({
+									identifier: "parent",
+									throughCaseType: "patient",
+								}),
+							),
 							literal("1"),
 						),
 					},
 				},
 			],
 		});
+		assertAdmittedDoc(doc);
 		const moduleUuid = doc.moduleOrder[0];
 		// Destination (ofCaseType) is patient — the property edge lands there…
 		expect(
@@ -623,11 +736,11 @@ describe("buildReferenceIndex — identity-keyed edges", () => {
 				kind: "addField",
 				parentUuid: grp,
 				field: {
-					uuid: "11111111-1111-4111-8111-111111111111",
+					uuid: testUuid("11111111-1111-4111-8111-111111111111"),
 					kind: "text",
 					id: "outcome",
 					label: proseText("Cousin outcome"),
-				} as never,
+				},
 			},
 		]);
 		expect(referencingCarrierUuids(next, entityTargetKey(outcome))).toEqual([
@@ -658,7 +771,7 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 		const formUuid = renamed.moduleOrder.flatMap(
 			(m) => renamed.formOrder[m] ?? [],
 		)[0];
-		const outerUuid = "33333333-3333-4333-8333-333333333333";
+		const outerUuid = testUuid("33333333-3333-4333-8333-333333333333");
 		const moved = apply(renamed, [
 			{
 				kind: "addField",
@@ -668,12 +781,12 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 					kind: "group",
 					id: "outer",
 					label: proseText("Outer"),
-				} as never,
+				},
 			},
 			{
 				kind: "moveField",
 				uuid: grp,
-				toParentUuid: outerUuid as never,
+				toParentUuid: outerUuid,
 				after: null,
 			},
 		]);
@@ -692,7 +805,7 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 		const doc = richDoc();
 		const caseName = uuidByFieldId(doc, "case_name");
 		const formUuid = doc.moduleOrder.flatMap((m) => doc.formOrder[m] ?? [])[0];
-		const mintedUuid = "44444444-4444-4444-8444-444444444444";
+		const mintedUuid = testUuid("44444444-4444-4444-8444-444444444444");
 		const next = apply(doc, [
 			{
 				kind: "addField",
@@ -706,7 +819,7 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 						{ kind: "field-ref", uuid: caseName },
 					]),
 					relevant: parseXPathForForm(doc, formUuid, "#form/case_name != ''"),
-				} as never,
+				},
 			},
 			{
 				kind: "updateField",
@@ -715,15 +828,13 @@ describe("index-driven rewrites — slash-path descendants and mid-batch currenc
 				patch: { id: "full_name" },
 			},
 		]);
-		const fresh = next.fields[mintedUuid as never];
+		const fresh = next.fields[mintedUuid];
 		expect(
 			"label" in fresh && fresh.label !== undefined
 				? printProseTemplate(fresh.label, next)
 				: undefined,
 		).toBe("Fresh #form/full_name");
-		expect(printedRelevant(next, mintedUuid as never)).toBe(
-			"#form/full_name != ''",
-		);
+		expect(printedRelevant(next, mintedUuid)).toBe("#form/full_name != ''");
 		expect(next.refIndex).toEqual(buildReferenceIndex(next));
 	});
 });
@@ -748,6 +859,33 @@ describe("declarations index", () => {
 });
 
 describe("incremental maintenance", () => {
+	it("rebuilds an ordinary-object cache before queries and incremental edits", () => {
+		const doc = richDoc();
+		const inner = uuidByFieldId(doc, "inner");
+		const watcher = uuidByFieldId(doc, "watcher");
+		doc.refIndex = structuredClone(buildReferenceIndex(doc));
+		doc.refIndex.in[entityTargetKey(inner)] = {
+			[watcher]: { stale_slot: true },
+		};
+		expect(
+			new Set(referencingSlotsOf(doc, entityTargetKey(inner)).get(watcher)),
+		).toEqual(new Set(["relevant", "label"]));
+		const next = apply(doc, [{ kind: "setAppName", name: "Renamed" }]);
+		expect(next.refIndex).toEqual(buildReferenceIndex(next));
+		const index = next.refIndex;
+		if (index === undefined) throw new Error("reference index missing");
+		for (const record of [
+			index.in,
+			index.out,
+			index.decl,
+			index.ctx,
+			...Object.values(index.in),
+			...Object.values(index.in).flatMap(Object.values),
+		]) {
+			expect(Object.getPrototypeOf(record)).toBeNull();
+		}
+	});
+
 	it("removals drop every trace of the removed subtree", () => {
 		const doc = richDoc();
 		const moduleUuid = doc.moduleOrder[0];
@@ -761,6 +899,18 @@ describe("incremental maintenance", () => {
 	it("rekeys parent and host automation edges when source ancestry changes", () => {
 		const automationUuid = testUuid("automation-meta-reference");
 		const doc = buildDoc({
+			modules: [
+				{
+					name: "Survey",
+					forms: [
+						{
+							name: "Notes",
+							type: "survey",
+							fields: [f({ kind: "text", id: "notes" })],
+						},
+					],
+				},
+			],
 			caseTypes: [
 				{
 					name: "visit",
@@ -771,21 +921,21 @@ describe("incremental maintenance", () => {
 				{
 					name: "household",
 					properties: [
-						{ name: "state", label: "State", data_type: "text" },
-						{ name: "source", label: "Source", data_type: "text" },
-						{ name: "target", label: "Target", data_type: "text" },
+						{ name: "state", label: proseText("State"), data_type: "text" },
+						{ name: "source", label: proseText("Source"), data_type: "text" },
+						{ name: "target", label: proseText("Target"), data_type: "text" },
 					],
 				},
 				{
 					name: "patient",
 					properties: [
-						{ name: "state", label: "State", data_type: "text" },
-						{ name: "source", label: "Source", data_type: "text" },
-						{ name: "target", label: "Target", data_type: "text" },
+						{ name: "state", label: proseText("State"), data_type: "text" },
+						{ name: "source", label: proseText("Source"), data_type: "text" },
+						{ name: "target", label: proseText("Target"), data_type: "text" },
 					],
 				},
 			],
-		}) as BlueprintDoc;
+		});
 		const automation = automationSchema.parse({
 			uuid: automationUuid,
 			kind: "case-update",

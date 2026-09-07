@@ -1,17 +1,14 @@
 /**
  * usePeersAt state-model tests — the pure target-extraction + grouping the
- * canvas markers consume, plus the follow-recovery behavior. No DOM, no React;
+ * canvas markers consume. No DOM, no React;
  * the hook is a thin wrapper over these pure functions (`peerTarget`,
- * `groupPeersByEntity`) and `recoverLocation`.
+ * `groupPeersByEntity`).
  */
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { hashColor, type Peer } from "@/lib/collab/presence";
 import { groupPeersByEntity, peerTarget } from "@/lib/collab/usePeersAt";
-import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
-
-import { recoverLocation } from "@/lib/routing/location";
 import type { Location } from "@/lib/routing/types";
 
 const MOD = testUuid("mod-1");
@@ -137,73 +134,5 @@ describe("groupPeersByEntity", () => {
 		]);
 		// The form-only browser lands in no editing bucket.
 		expect(editingByEntity.get(FORM)).toBeUndefined();
-	});
-});
-
-// ── Follow recovery ───────────────────────────────────────────────────────
-
-/** A minimal doc holding just the entity maps `recoverLocation` reads — it
- *  only checks entity PRESENCE, so the values are placeholder shells (cast
- *  through `unknown`; a full `Module`/`Form`/`Field` would just be noise). */
-function docWith(entities: {
-	modules?: Uuid[];
-	forms?: Uuid[];
-	fields?: Uuid[];
-}): Pick<BlueprintDoc, "modules" | "forms" | "fields"> {
-	const present = (uuids: Uuid[] | undefined) =>
-		Object.fromEntries((uuids ?? []).map((u) => [u, { uuid: u }]));
-	return {
-		modules: present(entities.modules),
-		forms: present(entities.forms),
-		fields: present(entities.fields),
-	} as unknown as Pick<BlueprintDoc, "modules" | "forms" | "fields">;
-}
-
-describe("recoverLocation — follow lands on the nearest valid ancestor", () => {
-	it("follows a live peer to its exact field", () => {
-		const loc: Location = {
-			kind: "form",
-			moduleUuid: MOD,
-			formUuid: FORM,
-			selectedUuid: FIELD,
-		};
-		const doc = docWith({ modules: [MOD], forms: [FORM], fields: [FIELD] });
-		// Every ref resolves — the exact location is returned by identity.
-		expect(recoverLocation(loc, doc)).toBe(loc);
-	});
-
-	it("drops a deleted field selection, landing on the form", () => {
-		const loc: Location = {
-			kind: "form",
-			moduleUuid: MOD,
-			formUuid: FORM,
-			selectedUuid: FIELD,
-		};
-		// Field gone, form + module still present.
-		const doc = docWith({ modules: [MOD], forms: [FORM] });
-		expect(recoverLocation(loc, doc)).toEqual({
-			kind: "form",
-			moduleUuid: MOD,
-			formUuid: FORM,
-		});
-	});
-
-	it("falls back to the module when the peer's form was deleted", () => {
-		const loc: Location = {
-			kind: "form",
-			moduleUuid: MOD,
-			formUuid: FORM,
-			selectedUuid: FIELD,
-		};
-		const doc = docWith({ modules: [MOD] });
-		expect(recoverLocation(loc, doc)).toEqual({
-			kind: "module",
-			moduleUuid: MOD,
-		});
-	});
-
-	it("falls back to home when the peer's whole module was deleted", () => {
-		const loc: Location = { kind: "module", moduleUuid: MOD };
-		expect(recoverLocation(loc, docWith({}))).toEqual({ kind: "home" });
 	});
 });

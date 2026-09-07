@@ -5,7 +5,6 @@
  * destination meaning what it meant, whichever writer flipped the setting.
  */
 
-import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import {
@@ -14,7 +13,8 @@ import {
 	type FormSpec,
 	f,
 } from "@/lib/__tests__/docHelpers";
-import { applyMutations } from "@/lib/doc/mutations";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -23,6 +23,7 @@ import {
 	simpleSearchInputDef,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "../../__tests__/admittedDoc";
 
 const MODULE = testUuid("00000000-0000-4000-8000-0000000c0001");
 const VISIT = testUuid("00000000-0000-4000-8000-0000000c0002");
@@ -74,39 +75,53 @@ function docWith(
 					kind: "text",
 					id: "case_name",
 					label: proseText("Name"),
-					caseWrite: { caseType: "case", property: "case_name" },
+					caseWrite: { caseType: "patient", property: "case_name" },
 				}),
 			],
 		},
 	];
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "T",
 		modules: [
 			{
 				uuid: MODULE,
 				name: "Cases",
-				caseType: "case",
+				caseType: "patient",
 				caseListConfig: config,
 				caseSearchConfig: searchFirst ? { searchFirst: true } : {},
-				forms,
+				forms: forms.slice(0, 2),
+			},
+			{
+				name: "Register cases",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: forms.slice(2),
 			},
 		],
 		caseTypes: [
 			{
-				name: "case",
+				name: "patient",
 				properties: [{ name: "case_name", label: proseText("Name") }],
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 function apply(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): BlueprintDoc {
-	return produce(doc, (draft) => {
-		applyMutations(draft, [...mutations]);
-	});
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
 }
 
 const turnOn: Mutation = {
@@ -148,7 +163,7 @@ describe("Search first and the after-submit slot", () => {
 		expect(next.forms[REGISTER]?.postSubmit).toBeUndefined();
 	});
 
-	it("cascades through a wholesale clear and through final-input cleanup", () => {
+	it("keeps automatic Search first after its final prompt is removed and only cascades an explicit clear", () => {
 		const doc = docWith(true);
 		const cleared = apply(doc, [
 			{ kind: "updateModule", uuid: MODULE, patch: { caseSearchConfig: null } },
@@ -169,8 +184,11 @@ describe("Search first and the after-submit slot", () => {
 				caseSearchConfigOperation: "cleanup-after-final-input",
 			},
 		]);
-		expect(cleanedUp.modules[MODULE]?.caseSearchConfig).toBeUndefined();
-		expect(cleanedUp.forms[VISIT]?.postSubmit).toBe("module");
+		expect(cleanedUp.modules[MODULE]?.caseSearchConfig).toEqual({
+			searchFirst: true,
+		});
+		expect(cleanedUp.forms[VISIT]?.postSubmit).toBeUndefined();
+		expect(effectivePostSubmit(cleanedUp, VISIT)).toBe("module");
 	});
 
 	it("does nothing when the setting does not flip", () => {

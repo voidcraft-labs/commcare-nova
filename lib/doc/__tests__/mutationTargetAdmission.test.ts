@@ -3,9 +3,10 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 function fixture() {
-	return buildDoc({
+	const doc = buildDoc({
 		appId: "app",
 		appName: "App",
 		modules: [
@@ -27,6 +28,8 @@ function fixture() {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("mutationTargetsInvalid scalar field admission", () => {

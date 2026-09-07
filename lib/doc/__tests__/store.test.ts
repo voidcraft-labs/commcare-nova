@@ -1,43 +1,63 @@
 import { describe, expect, it } from "vitest";
-import { testUuid } from "@/__tests__/helpers/uuid";
-import { prepareMutationCandidate } from "@/lib/doc/commitVerdicts";
+import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
+import {
+	mutationCommitVerdict,
+	prepareMutationCandidate,
+} from "@/lib/doc/commitVerdicts";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { admitMutationBatch } from "@/lib/doc/mutationAdmission";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { BlueprintDoc } from "@/lib/doc/types";
+import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import { blueprintDocSchema, fieldCaseWrite } from "@/lib/domain";
 import { APP_GENESIS_FALLBACK_NAME } from "@/lib/domain/blueprint";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 // ── Fixtures ────────────────────────────────────────────────────────────
 
-/**
- * Minimal valid `BlueprintDoc` with no modules. Used for lifecycle tests
- * that only care about store mechanics (undo, loading flag) rather than
- * blueprint content.
- *
- * `load()` accepts the normalized shape directly.
- */
-function makeEmptyDoc(
+/** Real admitted survey used for lifecycle transitions. */
+function makeDoc(
 	opts: { appId?: string; appName?: string } = {},
 ): BlueprintDoc {
-	return {
+	const doc = buildDoc({
 		appId: opts.appId ?? "app-1",
-		appName: opts.appName ?? "",
-		connectType: null,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
+		appName: opts.appName ?? "Test",
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [{ kind: "text", id: "name" }],
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedDoc(doc);
+	return doc;
+}
+
+function apply(
+	store: ReturnType<typeof createBlueprintDocStore>,
+	mutations: readonly Mutation[],
+) {
+	const verdict = mutationCommitVerdict(
+		store.getState(),
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	if (!verdict.ok) throw new Error("Fixture edit must be admitted");
+	store.getState().applyMany(verdict.mutations);
 }
 
 function makeCatalogDoc(): BlueprintDoc {
 	return {
-		...makeEmptyDoc(),
+		...makeDoc(),
 		caseTypes: [
 			{
 				name: "patient",
@@ -62,7 +82,7 @@ function makeCaseWriteDoc(): {
 		fieldUuid,
 		formUuid,
 		doc: {
-			...makeEmptyDoc({ appName: "Case writes" }),
+			...makeDoc({ appName: "Case writes" }),
 			caseTypes: [
 				{
 					name: "patient",
@@ -78,6 +98,9 @@ function makeCaseWriteDoc(): {
 					id: "patients",
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 				},
 			},
 			forms: {
@@ -89,6 +112,12 @@ function makeCaseWriteDoc(): {
 				},
 			},
 			fields: {
+				[testUuid("spare")]: {
+					uuid: testUuid("spare"),
+					id: "spare",
+					kind: "text",
+					label: proseText("Spare"),
+				},
 				[fieldUuid]: {
 					uuid: fieldUuid,
 					kind: "text",
@@ -99,21 +128,14 @@ function makeCaseWriteDoc(): {
 			},
 			moduleOrder: [moduleUuid],
 			formOrder: { [moduleUuid]: [formUuid] },
-			fieldOrder: { [formUuid]: [fieldUuid] },
-			fieldParent: { [fieldUuid]: formUuid },
+			fieldOrder: { [formUuid]: [fieldUuid, testUuid("spare")] },
+			fieldParent: { [fieldUuid]: formUuid, [testUuid("spare")]: formUuid },
 		},
 	};
 }
 
 function persistedSnapshot(doc: BlueprintDoc) {
-	return blueprintDocSchema.parse(
-		Object.fromEntries(
-			Object.keys(blueprintDocSchema.shape).map((key) => [
-				key,
-				(doc as unknown as Record<string, unknown>)[key],
-			]),
-		),
-	);
+	return blueprintDocSchema.parse(toPersistableDoc(doc));
 }
 
 describe("the command queue is current when the write is announced", () => {
@@ -127,7 +149,7 @@ describe("the command queue is current when the write is announced", () => {
 		write: (store: ReturnType<typeof createBlueprintDocStore>) => void,
 	): number {
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc());
+		store.getState().load(makeDoc());
 		store.getState().startTracking();
 		let seen = -1;
 		const unsubscribe = store.subscribe(() => {
@@ -141,7 +163,7 @@ describe("the command queue is current when the write is announced", () => {
 	it("applyMany records before it notifies", () => {
 		expect(
 			subscriberSeesQueue((store) => {
-				store.getState().applyMany([{ kind: "setAppName", name: "Renamed" }]);
+				apply(store, [{ kind: "setAppName", name: "Renamed" }]);
 			}),
 		).toBe(1);
 	});
@@ -152,7 +174,7 @@ describe("the command queue is current when the write is announced", () => {
 				const next = {
 					...store.getState(),
 					appName: "Renamed",
-				} as BlueprintDoc;
+				};
 				store
 					.getState()
 					.commitDoc(
@@ -166,7 +188,8 @@ describe("the command queue is current when the write is announced", () => {
 	it("publishes a frozen validated candidate directly without losing store actions", () => {
 		const { doc, fieldUuid } = makeCaseWriteDoc();
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		assertAdmittedDoc(doc);
+		store.getState().load(toPersistableDoc(doc));
 		store.getState().startTracking();
 		const mutations = admitMutationBatch([
 			{
@@ -210,7 +233,7 @@ describe("the command queue is current when the write is announced", () => {
 			notifications += 1;
 		});
 
-		store.getState().applyMany(rename);
+		apply(store, rename);
 		store.getState().undo();
 		unsubscribe();
 
@@ -233,11 +256,12 @@ describe("case-write projection watermark", () => {
 	it("advances from the admitted batch without scanning ordinary field edits", () => {
 		const { doc, fieldUuid, formUuid } = makeCaseWriteDoc();
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		assertAdmittedDoc(doc);
+		store.getState().load(toPersistableDoc(doc));
 		store.getState().startTracking();
 		const baseline = store.getState().caseWriteProjectionRevision;
 
-		store.getState().applyMany([
+		apply(store, [
 			{
 				kind: "updateField",
 				uuid: testUuid(fieldUuid),
@@ -247,7 +271,7 @@ describe("case-write projection watermark", () => {
 		]);
 		expect(store.getState().caseWriteProjectionRevision).toBe(baseline);
 
-		store.getState().applyMany([
+		apply(store, [
 			{
 				kind: "updateField",
 				uuid: testUuid(fieldUuid),
@@ -259,14 +283,14 @@ describe("case-write projection watermark", () => {
 		]);
 		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 1);
 
-		store.getState().applyMany([
+		apply(store, [
 			{
 				kind: "updateForm",
 				uuid: testUuid(formUuid),
-				patch: { type: "survey" },
+				patch: { purpose: "Routine followup" },
 			},
 		]);
-		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 2);
+		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 1);
 	});
 
 	it("ignores hidden expressions on a field that does not write case data", () => {
@@ -275,13 +299,15 @@ describe("case-write projection watermark", () => {
 			uuid: testUuid(fieldUuid),
 			kind: "hidden",
 			id: "answer",
+			calculate: { parts: [{ kind: "text", text: "'initial'" }] },
 		};
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		assertAdmittedDoc(doc);
+		store.getState().load(toPersistableDoc(doc));
 		store.getState().startTracking();
 		const baseline = store.getState().caseWriteProjectionRevision;
 
-		store.getState().applyMany([
+		apply(store, [
 			{
 				kind: "updateField",
 				uuid: testUuid(fieldUuid),
@@ -299,16 +325,19 @@ describe("case-write projection watermark", () => {
 			uuid: testUuid(fieldUuid),
 			kind: "hidden",
 			id: "answer",
+			calculate: { parts: [{ kind: "text", text: "'initial'" }] },
 			caseWrite: { caseType: "patient", property: "old_value" },
 		};
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		assertAdmittedDoc(doc);
+		store.getState().load(toPersistableDoc(doc));
 		store.getState().startTracking();
 		store
 			.getState()
 			.applyMany([{ kind: "removeField", uuid: testUuid(fieldUuid) }]);
 		const baseline = store.getState().caseWriteProjectionRevision;
 
+		// Deliberately exercise stale replay reduction below author admission.
 		expect(() =>
 			store.getState().applyMany([
 				{
@@ -327,10 +356,10 @@ describe("case-write projection watermark", () => {
 
 	it("advances for a whole-document reseed with no mutation proof", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc());
+		store.getState().load(makeDoc());
 		const baseline = store.getState().caseWriteProjectionRevision;
 		store.getState().commitDoc({
-			...makeEmptyDoc(),
+			...makeDoc(),
 			appName: "Reseeded",
 		});
 		expect(store.getState().caseWriteProjectionRevision).toBe(baseline + 1);
@@ -341,36 +370,16 @@ describe("createBlueprintDocStore", () => {
 	it("starts with an empty doc that still carries a name", () => {
 		const store = createBlueprintDocStore();
 		const doc = store.getState();
-		// The pre-load scaffold is a real doc, and the validator refuses a blank
-		// app name, so it is seeded with the same name genesis would give it.
+		// The pre-load scaffold is intentionally incomplete until load/genesis.
 		expect(doc.appName).toBe(APP_GENESIS_FALLBACK_NAME);
 		expect(doc.moduleOrder).toEqual([]);
 	});
 
 	it("load() hydrates the doc from a normalized BlueprintDoc", () => {
 		const store = createBlueprintDocStore();
-		// The module uuid is typed as a branded Uuid — use `as` casts on these
-		// test fixtures rather than importing asUuid (which adds noise). The
-		// branded type is enforced at the type level; the runtime value is a plain
-		// string, so the cast is safe in tests.
-		type Uuid = BlueprintDoc["moduleOrder"][number];
-		const modUuid = "module-1-uuid" as Uuid;
-		const doc: BlueprintDoc = {
-			appId: "app-1",
-			appName: "Loaded",
-			connectType: null,
-			caseTypes: null,
-			modules: {
-				[modUuid]: { uuid: modUuid, id: "mod", name: "Mod" },
-			},
-			forms: {},
-			fields: {},
-			moduleOrder: [modUuid],
-			formOrder: { [modUuid]: [] },
-			fieldOrder: {},
-			fieldParent: {},
-		};
-		store.getState().load(doc);
+		const doc = makeDoc({ appName: "Loaded" });
+		assertAdmittedDoc(doc);
+		store.getState().load(toPersistableDoc(doc));
 		const state = store.getState();
 		expect(state.appName).toBe("Loaded");
 		expect(state.appId).toBe("app-1");
@@ -384,14 +393,14 @@ describe("createBlueprintDocStore", () => {
 		// the hydration can't silently lose a slot (it lost `logo` before).
 		const store = createBlueprintDocStore();
 		const doc: BlueprintDoc = {
-			...makeEmptyDoc({ appName: "Loaded" }),
-			connectType: "learn",
-			logo: "asset-logo-id" as BlueprintDoc["logo"],
+			...makeDoc({ appName: "Loaded" }),
+			logo: testMediaAssetId("logo"),
 		};
-		store.getState().load(doc);
+		assertAdmittedDoc(doc);
+		store.getState().load(toPersistableDoc(doc));
 		const state = store.getState();
 
-		expect(state.logo).toBe("asset-logo-id");
+		expect(state.logo).toBe(testMediaAssetId("logo"));
 		for (const key of Object.keys(doc) as (keyof BlueprintDoc)[]) {
 			expect(state[key]).toEqual(doc[key]);
 		}
@@ -399,11 +408,11 @@ describe("createBlueprintDocStore", () => {
 
 	it("bounds the history, dropping the oldest step", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc({ appName: "n0" }));
+		store.getState().load(makeDoc({ appName: "n0" }));
 		store.getState().startTracking();
 		// One past the cap, so exactly the first step falls off.
 		for (let i = 1; i <= 101; i++) {
-			store.getState().applyMany([{ kind: "setAppName", name: `n${i}` }]);
+			apply(store, [{ kind: "setAppName", name: `n${i}` }]);
 		}
 		for (let i = 0; i < 100; i++) store.getState().undo();
 		// Back to the first RETAINED step's starting point, not to `n0`.
@@ -418,9 +427,9 @@ describe("createBlueprintDocStore", () => {
 		// peer's edit or the author's own echo arrives — the toolbar's Undo goes
 		// dead while the history behind it is intact.
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc({ appName: "Base" }));
+		store.getState().load(makeDoc({ appName: "Base" }));
 		store.getState().startTracking();
-		store.getState().applyMany([{ kind: "setAppName", name: "Mine" }]);
+		apply(store, [{ kind: "setAppName", name: "Mine" }]);
 		expect(store.getState().canUndo).toBe(true);
 
 		// The reconciler folding a frame: a suppressed whole-document commit.
@@ -428,7 +437,7 @@ describe("createBlueprintDocStore", () => {
 		store.getState().commitDoc({
 			...store.getState(),
 			appName: "Peer",
-		} as BlueprintDoc);
+		});
 		store.getState().endRemoteApply();
 
 		expect(store.getState().appName).toBe("Peer");
@@ -438,15 +447,15 @@ describe("createBlueprintDocStore", () => {
 
 	it("load() is not a step the author can take back", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc());
+		store.getState().load(makeDoc());
 		expect(store.getState().canUndo).toBe(false);
 	});
 
 	it("applyMany() records a step, and undo returns the prior value", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc({ appName: "Before" }));
+		store.getState().load(makeDoc({ appName: "Before" }));
 		store.getState().startTracking();
-		store.getState().applyMany([{ kind: "setAppName", name: "After" }]);
+		apply(store, [{ kind: "setAppName", name: "After" }]);
 		expect(store.getState().appName).toBe("After");
 		expect(store.getState().canUndo).toBe(true);
 		store.getState().undo();
@@ -460,7 +469,8 @@ describe("createBlueprintDocStore", () => {
 	it("undoes and redoes an existing case destination with the scalar inverse", () => {
 		const { doc, fieldUuid } = makeCaseWriteDoc();
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		assertAdmittedDoc(doc);
+		store.getState().load(toPersistableDoc(doc));
 		store.getState().startTracking();
 		const forward = admitMutationBatch([
 			{
@@ -473,7 +483,7 @@ describe("createBlueprintDocStore", () => {
 			},
 		]);
 
-		store.getState().applyMany(forward);
+		apply(store, forward);
 		expect(fieldCaseWrite(store.getState().fields[fieldUuid])).toEqual({
 			caseType: "patient",
 			property: "new_value",
@@ -493,9 +503,10 @@ describe("createBlueprintDocStore", () => {
 	it("uses the complete inverse when a case destination adds catalog structure", () => {
 		const { doc, fieldUuid } = makeCaseWriteDoc();
 		const store = createBlueprintDocStore();
-		store.getState().load(doc);
+		assertAdmittedDoc(doc);
+		store.getState().load(toPersistableDoc(doc));
 		store.getState().startTracking();
-		store.getState().applyMany([
+		apply(store, [
 			{
 				kind: "updateField",
 				uuid: testUuid(fieldUuid),
@@ -527,17 +538,37 @@ describe("createBlueprintDocStore", () => {
 		const parentUuid = testUuid("undo-module-parent");
 		const childUuid = testUuid("undo-module-child");
 		const store = createBlueprintDocStore();
-		store.getState().load({
-			...makeEmptyDoc({ appName: "Menus" }),
-			modules: {
-				[parentUuid]: { uuid: parentUuid, id: "parent", name: "Parent" },
-				[childUuid]: { uuid: childUuid, id: "child", name: "Child" },
-			},
-			moduleOrder: [parentUuid, childUuid],
-			formOrder: { [parentUuid]: [], [childUuid]: [] },
+		const doc = buildDoc({
+			appName: "Menus",
+			modules: [
+				{
+					uuid: parentUuid,
+					name: "Parent",
+					forms: [
+						{
+							name: "Parent survey",
+							type: "survey",
+							fields: [{ kind: "text", id: "name" }],
+						},
+					],
+				},
+				{
+					uuid: childUuid,
+					name: "Child",
+					forms: [
+						{
+							name: "Child survey",
+							type: "survey",
+							fields: [{ kind: "text", id: "name" }],
+						},
+					],
+				},
+			],
 		});
+		assertAdmittedDoc(doc);
+		store.getState().load(toPersistableDoc(doc));
 		store.getState().startTracking();
-		store.getState().applyMany([
+		apply(store, [
 			{
 				kind: "moveModule",
 				uuid: childUuid,
@@ -565,18 +596,24 @@ describe("createBlueprintDocStore", () => {
 
 	it("applyMany() batches multiple mutations into ONE step", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc({ appName: "A" }));
+		store.getState().load(makeDoc({ appName: "A" }));
 		store.getState().startTracking();
-		store.getState().applyMany([
+		apply(store, [
 			{ kind: "setAppName", name: "B" },
-			{ kind: "setConnectType", connectType: "learn" },
+			{
+				kind: "updateForm",
+				uuid: store.getState().formOrder[store.getState().moduleOrder[0]][0],
+				patch: { purpose: "Edited purpose" },
+			},
 		]);
 		expect(store.getState().appName).toBe("B");
-		expect(store.getState().connectType).toBe("learn");
+		expect(Object.values(store.getState().forms)[0].purpose).toBe(
+			"Edited purpose",
+		);
 		// One undo takes back the whole batch, and there is nothing behind it.
 		store.getState().undo();
 		expect(store.getState().appName).toBe("A");
-		expect(store.getState().connectType).toBe(null);
+		expect(Object.values(store.getState().forms)[0].purpose).toBeUndefined();
 		expect(store.getState().canUndo).toBe(false);
 	});
 
@@ -604,7 +641,7 @@ describe("createBlueprintDocStore", () => {
 				},
 			]);
 
-			store.getState().applyMany(forward);
+			apply(store, forward);
 			expect(
 				store.getState().caseTypes?.[0]?.properties.map(({ name }) => name),
 			).toEqual(replacedOrder);
@@ -624,15 +661,15 @@ describe("createBlueprintDocStore", () => {
 		},
 	);
 
-	it("an agent run is one step, however many writes it streams", () => {
+	it("agent writes are excluded from author history", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc({ appName: "A" }));
+		store.getState().load(makeDoc({ appName: "A" }));
 		store.getState().startTracking();
 		store.getState().beginAgentWrite();
-		store.getState().applyMany([{ kind: "setAppName", name: "During Agent" }]);
+		apply(store, [{ kind: "setAppName", name: "During Agent" }]);
 		expect(store.getState().canUndo).toBe(false);
 		store.getState().endAgentWrite();
-		store.getState().applyMany([{ kind: "setAppName", name: "After Agent" }]);
+		apply(store, [{ kind: "setAppName", name: "After Agent" }]);
 		// Undo takes back the author's edit, not the run's.
 		store.getState().undo();
 		expect(store.getState().appName).toBe("During Agent");
@@ -641,15 +678,15 @@ describe("createBlueprintDocStore", () => {
 
 	it("startTracking() releases the birth pause once", () => {
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc({ appName: "A" }));
+		store.getState().load(makeDoc({ appName: "A" }));
 		// Before startTracking the store is paused (birth base) — no step recorded.
-		store.getState().applyMany([{ kind: "setAppName", name: "B" }]);
+		apply(store, [{ kind: "setAppName", name: "B" }]);
 		expect(store.getState().canUndo).toBe(false);
 		store.getState().startTracking();
-		store.getState().applyMany([{ kind: "setAppName", name: "C" }]);
+		apply(store, [{ kind: "setAppName", name: "C" }]);
 		// Idempotent — a second call doesn't unbalance the counter.
 		store.getState().startTracking();
-		store.getState().applyMany([{ kind: "setAppName", name: "D" }]);
+		apply(store, [{ kind: "setAppName", name: "D" }]);
 		// Both post-release edits are their own step; the pre-release one is not.
 		store.getState().undo();
 		expect(store.getState().appName).toBe("C");
@@ -665,17 +702,17 @@ describe("createBlueprintDocStore", () => {
 		// Without startTracking the birth pause never releases (depth stuck at 1),
 		// so undo was permanently DEAD after a build until a page reload.
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc({ appName: "New" }));
+		store.getState().load(makeDoc({ appName: "New" }));
 		// No startTracking at mount — a fresh build generates first.
 		store.getState().beginAgentWrite(); // beginRun
-		store.getState().applyMany([{ kind: "setAppName", name: "Generated" }]);
+		apply(store, [{ kind: "setAppName", name: "Generated" }]);
 		expect(store.getState().canUndo).toBe(false);
 		store.getState().endAgentWrite(); // endRun closes the agent bracket
 		// ChatContainer calls startTracking() after endRun — bracket already closed,
 		// so it releases the birth pause immediately.
 		store.getState().startTracking();
 		// A subsequent human edit IS recorded — undo works, no page reload needed.
-		store.getState().applyMany([{ kind: "setAppName", name: "HumanEdit" }]);
+		apply(store, [{ kind: "setAppName", name: "HumanEdit" }]);
 		expect(store.getState().canUndo).toBe(true);
 		store.getState().undo();
 		expect(store.getState().appName).toBe("Generated");
@@ -686,15 +723,42 @@ describe("createBlueprintDocStore", () => {
 		// bracket is open, the release must ride the bracket close (never unbalance
 		// the depth counter).
 		const store = createBlueprintDocStore();
-		store.getState().load(makeEmptyDoc({ appName: "New" }));
+		store.getState().load(makeDoc({ appName: "New" }));
 		store.getState().beginAgentWrite(); // bracket open
 		store.getState().startTracking(); // deferred — bracket still open
-		store.getState().applyMany([{ kind: "setAppName", name: "InBracket" }]);
+		apply(store, [{ kind: "setAppName", name: "InBracket" }]);
 		expect(store.getState().canUndo).toBe(false);
 		store.getState().endAgentWrite(); // bracket closes → deferred release fires
-		store.getState().applyMany([{ kind: "setAppName", name: "After" }]);
+		apply(store, [{ kind: "setAppName", name: "After" }]);
 		expect(store.getState().canUndo).toBe(true);
 		store.getState().undo();
 		expect(store.getState().appName).toBe("InBracket");
+	});
+});
+
+describe("nested suppression ownership", () => {
+	it("keeps remote suppression until the outer replay bracket closes", () => {
+		const store = createBlueprintDocStore();
+		store.getState().load(makeDoc({ appName: "Base" }));
+		store.getState().startTracking();
+		store.getState().beginRemoteApply();
+		store.getState().beginRemoteApply();
+		store.getState().endRemoteApply();
+		expect(store.getState().remoteFrameApplyInProgress).toBe(true);
+		store.getState().endRemoteApply();
+		expect(store.getState().remoteFrameApplyInProgress).toBe(false);
+	});
+	it("releases deferred birth tracking only after every nested bracket closes", () => {
+		const store = createBlueprintDocStore();
+		store.getState().load(makeDoc({ appName: "Base" }));
+		store.getState().beginAgentWrite();
+		store.getState().beginRemoteApply();
+		store.getState().startTracking();
+		store.getState().endRemoteApply();
+		store.getState().endAgentWrite();
+		apply(store, [{ kind: "setAppName", name: "Author" }]);
+		expect(store.getState().canUndo).toBe(true);
+		store.getState().undo();
+		expect(store.getState().appName).toBe("Base");
 	});
 });

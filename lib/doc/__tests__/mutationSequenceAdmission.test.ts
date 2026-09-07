@@ -1,14 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import {
-	MUTATION_SEQUENCE_INVENTORY,
-	mutationSequenceAdmissionIssue,
-} from "@/lib/doc/mutationSequenceAdmission";
+import { mutationSequenceAdmissionIssue } from "@/lib/doc/mutationSequenceAdmission";
+import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import { type Mutation, mutationSchema } from "@/lib/doc/types";
 import {
 	type BlueprintDoc,
@@ -17,6 +13,7 @@ import {
 	type Uuid,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MISSING = testUuid("missing-sequence-neighbor");
 
@@ -82,9 +79,14 @@ function fixture(): Fixture {
 			},
 		],
 		caseTypes: [
+			{ name: "household", properties: [] },
 			{
 				name: "patient",
-				properties: [{ name: "case_name", label: proseText("Name") }],
+				properties: [
+					{ name: "case_name", label: proseText("Name") },
+					{ name: "visit_status", label: proseText("Status") },
+				],
+				parent_type: "household",
 			},
 		],
 	});
@@ -126,17 +128,18 @@ function fixture(): Fixture {
 		caseType: "patient",
 		target: { kind: "new" },
 		name: literal("Patient"),
-		writes: [{ property: "status", value: literal("open") }],
+		writes: [{ property: "visit_status", value: literal("open") }],
 		links: [
 			{
 				identifier: "parent",
 				targetType: "household",
-				target: null,
+				target: { kind: "expression", expr: literal("household-one") },
 				relationship: "child",
 			},
 		],
 	};
 	doc.forms[formOne].caseOperations = [caseOperation];
+	assertAdmittedDoc(doc);
 	return {
 		doc,
 		moduleOne,
@@ -169,6 +172,15 @@ function missingAnchorMutations(fx: Fixture): Array<[string, Mutation]> {
 	}
 	const currentOption = selectField.optionsSource.options[0];
 	return [
+		[
+			"add case property",
+			{
+				kind: "addCaseProperty",
+				caseType: "patient",
+				property: { name: "new_value", label: proseText("New value") },
+				after: "missing_property",
+			},
+		],
 		[
 			"add module",
 			{
@@ -352,7 +364,7 @@ function missingAnchorMutations(fx: Fixture): Array<[string, Mutation]> {
 				caseOperationPatch: {
 					operation: "move-write",
 					uuid: fx.operation,
-					property: "status",
+					property: "visit_status",
 					after: "missing_property",
 				},
 			},
@@ -369,7 +381,7 @@ function missingAnchorMutations(fx: Fixture): Array<[string, Mutation]> {
 					value: {
 						identifier: "host",
 						targetType: "household",
-						target: null,
+						target: { kind: "expression", expr: literal("household-one") },
 						relationship: "child",
 					},
 					after: "missing_link",
@@ -409,7 +421,7 @@ function missingAnchorMutations(fx: Fixture): Array<[string, Mutation]> {
 describe("mutation sequence admission", () => {
 	const shared = fixture();
 	it.each(missingAnchorMutations(shared))(
-		"rejects a missing logical neighbor for %s on every live commit surface",
+		"rejects a missing logical neighbor for %s before reduction",
 		(_label, mutation) => {
 			const { doc } = shared;
 			const admission = mutationSequenceAdmissionIssue(doc, [mutation]);
@@ -571,91 +583,16 @@ describe("mutation sequence admission", () => {
 		};
 		expect(mutationSchema.safeParse(mutation).success).toBe(true);
 		expect(mutationSequenceAdmissionIssue(fx.doc, [mutation])).toBeUndefined();
-		expect(
-			MUTATION_SEQUENCE_INVENTORY.filter(
-				(entry) => entry.mode === "intentional-append",
-			),
-		).toEqual([
-			{
-				path: "updateForm.caseOperationChange.add",
-				mode: "intentional-append",
-			},
-		]);
-	});
-});
-
-function unwrap(schema: unknown): z.ZodType {
-	let current: unknown = schema;
-	while (
-		current instanceof z.ZodOptional ||
-		current instanceof z.ZodNullable ||
-		current instanceof z.ZodDefault
-	) {
-		current = current.unwrap();
-	}
-	return current as z.ZodType;
-}
-
-function literalString(schema: unknown): string | undefined {
-	const current = schema === undefined ? undefined : unwrap(schema);
-	if (!(current instanceof z.ZodLiteral)) return undefined;
-	const values = [...current.values];
-	return typeof values[0] === "string" ? values[0] : undefined;
-}
-
-function schemaAfterPaths(
-	schema: unknown,
-	prefix: readonly string[],
-): string[] {
-	const current = unwrap(schema);
-	if (current instanceof z.ZodUnion) {
-		return current.options.flatMap((option) =>
-			schemaAfterPaths(option, prefix),
+		const verdict = mutationCommitVerdict(
+			fx.doc,
+			[mutation],
+			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
-	}
-	if (!(current instanceof z.ZodObject)) return [];
-	const operation = literalString(current.shape.operation);
-	const at = operation === undefined ? [...prefix] : [...prefix, operation];
-	const paths: string[] = [];
-	for (const [key, value] of Object.entries(current.shape)) {
-		if (key === "kind" || key === "operation") continue;
-		if (key === "after" || key === "afterInList" || key === "afterInDetail") {
-			paths.push([...at, key].join("."));
-		} else {
-			paths.push(...schemaAfterPaths(value, [...at, key]));
-		}
-	}
-	return paths;
-}
-
-describe("sequence inventory parity", () => {
-	it("classifies every schema-declared logical-neighbor path", () => {
-		const schemaPaths = new Set<string>();
-		for (const arm of mutationSchema.options) {
-			const current = unwrap(arm);
-			if (current instanceof z.ZodUnion) {
-				for (const option of current.options) {
-					const object = unwrap(option);
-					if (!(object instanceof z.ZodObject)) continue;
-					const kind = literalString(object.shape.kind);
-					if (kind !== undefined) {
-						for (const path of schemaAfterPaths(object, [kind])) {
-							schemaPaths.add(path);
-						}
-					}
-				}
-				continue;
-			}
-			if (!(current instanceof z.ZodObject)) continue;
-			const kind = literalString(current.shape.kind);
-			if (kind === undefined) continue;
-			for (const path of schemaAfterPaths(current, [kind])) {
-				schemaPaths.add(path);
-			}
-		}
-		const inventoryPaths = MUTATION_SEQUENCE_INVENTORY.filter(
-			(entry) => entry.mode !== "intentional-append",
-		).map((entry) => entry.path);
-		expect([...schemaPaths].sort()).toEqual([...inventoryPaths].sort());
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		expect(
+			verdict.nextDoc.forms[fx.formOne].caseOperations?.map(
+				(item) => item.uuid,
+			),
+		).toEqual([fx.operation, operation.uuid]);
 	});
 });

@@ -10,30 +10,53 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
+import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { planConnectTargetState } from "@/lib/doc/connectTargetState";
 import {
 	useConnectType,
 	useConnectTypeOrUndefined,
 } from "@/lib/doc/hooks/useConnectType";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { BlueprintDocContext } from "@/lib/doc/provider";
 import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { BlueprintDoc } from "@/lib/doc/types";
 import type { ConnectType } from "@/lib/domain";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 function setup(connectType: ConnectType | null) {
 	const store = createBlueprintDocStore();
-	const doc: BlueprintDoc = {
-		appId: "app-1",
-		appName: "Connect Test",
+	const doc = buildDoc({
+		appName: "Connect test",
 		connectType,
-		caseTypes: null,
-		modules: {},
-		forms: {},
-		fields: {},
-		moduleOrder: [],
-		formOrder: {},
-		fieldOrder: {},
-		fieldParent: {},
-	};
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						...(connectType === null
+							? {}
+							: {
+									connect:
+										connectType === "learn"
+											? {
+													learn_module: {
+														id: "intro",
+														name: "Intro",
+														description: "First lesson",
+														time_estimate: 5,
+													},
+												}
+											: { deliver_unit: { id: "visit", name: "Visit" } },
+								}),
+						fields: [{ kind: "text", id: "answer" }],
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedDoc(doc);
 	store.getState().load(doc);
 	const wrapper = ({ children }: { children: ReactNode }) => (
 		<BlueprintDocContext.Provider value={store}>
@@ -62,9 +85,25 @@ describe("useConnectType", () => {
 		expect(result.current).toBeNull();
 		store.getState().startTracking();
 		act(() => {
-			store
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "deliver" }]);
+			const formUuid =
+				store.getState().formOrder[store.getState().moduleOrder[0]][0];
+			const plan = planConnectTargetState(store.getState(), {
+				mode: "deliver",
+				participants: [
+					{
+						formUuid,
+						connect: { deliver_unit: { id: "visit", name: "Visit" } },
+					},
+				],
+			});
+			if (!plan.ok) throw new Error(plan.messages.join("\n"));
+			const verdict = mutationCommitVerdict(
+				store.getState(),
+				plan.mutations,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			);
+			if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+			store.getState().commitDoc(verdict.nextDoc, verdict.mutations);
 		});
 		expect(result.current).toBe("deliver");
 	});

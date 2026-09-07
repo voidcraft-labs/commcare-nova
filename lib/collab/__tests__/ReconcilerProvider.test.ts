@@ -387,6 +387,73 @@ describe("ReconcilerProvider EventSource ownership", () => {
 		},
 	);
 
+	it.each(["mutation", "reload"] as const)(
+		"reports malformed %s JSON without retaining the native parser payload",
+		async (boundary) => {
+			vi.stubGlobal("EventSource", FakeEventSource);
+			const persistedDoc = toPersistableDoc(emptyDoc());
+			const docStore = createBlueprintDocStore();
+			docStore.getState().load(persistedDoc);
+			const sessionStore = createBuilderSessionStore({
+				appId: "app-1",
+				projectId: "project-source",
+				role: "editor",
+				canEdit: true,
+			});
+			const privateValue = "secretPII";
+			vi.stubGlobal(
+				"fetch",
+				vi.fn(async () =>
+					boundary === "reload"
+						? new Response(privateValue)
+						: Response.json({
+								projectId: "project-source",
+								role: "editor",
+								canEdit: true,
+								blueprint: persistedDoc,
+								baseSeq: 0,
+							}),
+				),
+			);
+			const reported = Promise.withResolvers<void>();
+			reportClientError.mockImplementationOnce(() => reported.resolve());
+			const runtime = createReconcilerRuntime(
+				docStore,
+				sessionStore,
+				{ appId: "app-1", baseSeq: 0, userId: "self" },
+				() => {},
+			);
+			runtime.start();
+			const source = FakeEventSource.instances[0];
+			source.emit(
+				boundary === "mutation" ? "mutation" : "reload",
+				privateValue,
+			);
+			await reported.promise;
+			const [payload, error] = reportClientError.mock.calls[0];
+			expect(payload.diagnostics).toMatchObject({
+				operation: boundary === "mutation" ? "mutation-frame" : "reload-get",
+				failureKind: boundary === "mutation" ? "json" : "invalid-json",
+			});
+			expect(error).toBeInstanceOf(Error);
+			expect(String(error)).not.toContain(privateValue);
+			expect(error.stack).not.toContain(privateValue);
+			expect(error.cause).toBeUndefined();
+			expect(error.originalError).toBeUndefined();
+			expect(payload.stack).not.toContain(privateValue);
+			expect(source.readyState).toBe(FakeEventSource.CLOSED);
+			expect(runtime.reconciler.getSnapshot().baseSeq).toBe(0);
+			if (boundary === "mutation") {
+				await vi.waitFor(() =>
+					expect(FakeEventSource.instances).toHaveLength(2),
+				);
+			} else {
+				expect(sessionStore.getState().accessPhase).toBe("reconnecting");
+			}
+			runtime.suspend();
+		},
+	);
+
 	it("links a rejected recovery snapshot to the malformed mutation that triggered it", async () => {
 		vi.stubGlobal("EventSource", FakeEventSource);
 		const persistedDoc = toPersistableDoc(emptyDoc());

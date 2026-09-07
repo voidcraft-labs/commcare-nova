@@ -3,6 +3,7 @@ import { testUuid } from "@/__tests__/helpers/uuid";
 import {
 	admitMutationBatch,
 	admitMutationStages,
+	admittedMutationSlice,
 	encodeAdmittedMutationEnvelope,
 	MutationWireCanonicalityError,
 } from "@/lib/doc/mutationAdmission";
@@ -36,6 +37,32 @@ describe("admitMutationBatch", () => {
 		expect(() => {
 			(admitted[0] as { name: string }).name = "Changed";
 		}).toThrow();
+	});
+
+	it("detaches and freezes nested command content before later caller edits", () => {
+		const source = {
+			kind: "updateField",
+			uuid: testUuid("nested-freeze"),
+			targetKind: "text",
+			patch: { label: { parts: [{ kind: "text", text: "Before" }] } },
+		};
+		const admitted = admitMutationBatch([source]);
+		source.patch.label.parts[0].text = "After";
+		expect(admitted).toEqual([
+			{
+				...source,
+				patch: { label: { parts: [{ kind: "text", text: "Before" }] } },
+			},
+		]);
+		const mutation = admitted[0];
+		if (
+			mutation.kind !== "updateField" ||
+			mutation.targetKind !== "text" ||
+			!mutation.patch.label
+		)
+			throw new Error("Expected text label");
+		expect(Object.isFrozen(mutation.patch.label.parts)).toBe(true);
+		expect(Object.isFrozen(mutation.patch.label.parts[0])).toBe(true);
 	});
 
 	it("accepts reordered/null-prototype/frozen values and de-aliases sharing", () => {
@@ -491,6 +518,12 @@ describe("admitMutationStages", () => {
 			{ stage: "connect", start: 1, end: 2 },
 		]);
 		expect(Object.isFrozen(admitted.slices)).toBe(true);
+		expect(admittedMutationSlice(admitted, admitted.slices[0])).toEqual([
+			{ kind: "setAppName", name: "Nova" },
+		]);
+		expect(admittedMutationSlice(admitted, admitted.slices[1])).toEqual([
+			{ kind: "setConnectType", connectType: null },
+		]);
 	});
 
 	it("rejects an invalid empty stage before it can be filtered out", () => {

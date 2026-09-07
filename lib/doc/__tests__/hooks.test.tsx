@@ -4,6 +4,7 @@ import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { useField, useModule } from "@/lib/doc/hooks/useEntity";
 import {
 	useModuleIds,
@@ -16,11 +17,16 @@ import {
 	useOrderedFields,
 } from "@/lib/doc/hooks/useOrderedFields";
 import { useOrganizationLevels } from "@/lib/doc/hooks/useOrganizationCollections";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { BlueprintDocContext } from "@/lib/doc/provider";
-import { createBlueprintDocStore } from "@/lib/doc/store";
-import type { BlueprintDoc } from "@/lib/doc/types";
+import {
+	type BlueprintDocStoreApi,
+	createBlueprintDocStore,
+} from "@/lib/doc/store";
+import type { BlueprintDoc, Mutation } from "@/lib/doc/types";
 import type { OrganizationLevel } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 
@@ -72,7 +78,7 @@ function setup() {
 				uuid: FORM_UUID,
 				id: "reg_form",
 				name: "Reg Form",
-				type: "registration",
+				type: "survey",
 			},
 		},
 		fields: {
@@ -94,6 +100,7 @@ function setup() {
 		},
 		organizationLevelOrder: [CHILD_UUID, ROOT_B_UUID, ROOT_A_UUID],
 	};
+	assertAdmittedDoc(doc);
 	store.getState().load(doc);
 	const moduleUuid = store.getState().moduleOrder[0];
 	const formUuid = store.getState().formOrder[moduleUuid][0];
@@ -106,6 +113,23 @@ function setup() {
 	return { store, wrapper, moduleUuid, formUuid, fieldUuid };
 }
 
+function applyAdmitted(
+	store: BlueprintDocStoreApi,
+	mutations: Mutation[],
+): void {
+	const verdict = mutationCommitVerdict(
+		store.getState(),
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(
+		verdict.ok,
+		verdict.ok ? undefined : JSON.stringify(verdict.findings),
+	).toBe(true);
+	if (!verdict.ok) throw new Error("Fixture edit must be admitted");
+	store.getState().commitDoc(verdict.nextDoc, verdict.mutations);
+}
+
 describe("useModule / useForm / useField", () => {
 	it("returns the entity when the uuid exists", () => {
 		const { wrapper, moduleUuid } = setup();
@@ -115,7 +139,7 @@ describe("useModule / useForm / useField", () => {
 
 	it("returns undefined for unknown uuids", () => {
 		const { wrapper } = setup();
-		const { result } = renderHook(() => useField("missing-uuid" as never), {
+		const { result } = renderHook(() => useField(testUuid("missing-uuid")), {
 			wrapper,
 		});
 		expect(result.current).toBeUndefined();
@@ -134,7 +158,7 @@ describe("useModule / useForm / useField", () => {
 		const initialRenders = renderCount;
 		store.getState().startTracking();
 		act(() => {
-			store.getState().applyMany([{ kind: "setAppName", name: "Changed" }]);
+			applyAdmitted(store, [{ kind: "setAppName", name: "Changed" }]);
 		});
 		// setAppName doesn't touch any field entity, so Immer preserves
 		// the reference — useField must NOT re-render.
@@ -162,7 +186,7 @@ describe("useModuleIds / useOrderedModules", () => {
 		const first = result.current;
 		store.getState().startTracking();
 		act(() => {
-			store.getState().applyMany([{ kind: "setAppName", name: "Different" }]);
+			applyAdmitted(store, [{ kind: "setAppName", name: "Different" }]);
 		});
 		expect(result.current).toBe(first);
 	});
@@ -192,7 +216,7 @@ describe("useOrderedForms", () => {
 
 	it("returns empty array when module doesn't exist", () => {
 		const { wrapper } = setup();
-		const { result } = renderHook(() => useOrderedForms("missing" as never), {
+		const { result } = renderHook(() => useOrderedForms(testUuid("missing")), {
 			wrapper,
 		});
 		expect(result.current).toEqual([]);
@@ -211,7 +235,7 @@ describe("useOrderedFields", () => {
 
 	it("returns empty array when parent has no children or doesn't exist", () => {
 		const { wrapper } = setup();
-		const { result } = renderHook(() => useOrderedFields("nope" as never), {
+		const { result } = renderHook(() => useOrderedFields(testUuid("nope")), {
 			wrapper,
 		});
 		expect(result.current).toEqual([]);
@@ -235,7 +259,7 @@ describe("useOrderedFields", () => {
 			// Add a second field under the same form — fieldOrder changes, so
 			// re-render is expected. This asserts the hook DOES respond to real
 			// changes in its own parent's ordering.
-			store.getState().applyMany([
+			applyAdmitted(store, [
 				{
 					kind: "addField",
 					parentUuid: formUuid,
@@ -254,11 +278,11 @@ describe("useOrderedFields", () => {
 		// the hook must NOT re-render.
 		const afterAdd = renderCount;
 		act(() => {
-			store.getState().applyMany([
+			applyAdmitted(store, [
 				{
 					kind: "updateField",
 					uuid: testUuid("q-222-0000-0000-0000-000000000000"),
-					targetKind: "text",
+					targetKind: "int",
 					patch: { label: proseText("Changed") },
 				},
 			]);
@@ -282,14 +306,14 @@ describe("useLargeFormInitialCollapsedUuids", () => {
 			},
 		}));
 
-		store.getState().applyMany(extraFields.slice(0, -1));
+		applyAdmitted(store, extraFields.slice(0, -1));
 		const { result } = renderHook(() => useLargeFormInitialCollapsedUuids(), {
 			wrapper,
 		});
 		expect(result.current.has(formUuid)).toBe(false);
 
 		act(() => {
-			store.getState().applyMany(extraFields.slice(-1));
+			applyAdmitted(store, extraFields.slice(-1));
 		});
 		expect(result.current.has(formUuid)).toBe(true);
 	});
@@ -298,7 +322,7 @@ describe("useLargeFormInitialCollapsedUuids", () => {
 		const { store, wrapper, formUuid } = setup();
 		const groupUuid = testUuid("large-form-nested-group");
 		const repeatUuid = testUuid("large-form-nested-repeat");
-		store.getState().applyMany([
+		applyAdmitted(store, [
 			{
 				kind: "addField",
 				parentUuid: formUuid,
@@ -343,7 +367,8 @@ describe("useLargeFormInitialCollapsedUuids", () => {
 
 	it("keeps the projected set stable across unrelated field edits", () => {
 		const { store, wrapper, formUuid, fieldUuid } = setup();
-		store.getState().applyMany(
+		applyAdmitted(
+			store,
 			Array.from(
 				{ length: LARGE_FORM_AUTO_COLLAPSE_THRESHOLD - 1 },
 				(_, index) => ({
@@ -371,7 +396,7 @@ describe("useLargeFormInitialCollapsedUuids", () => {
 		const initialRenderCount = renderCount;
 
 		act(() => {
-			store.getState().applyMany([
+			applyAdmitted(store, [
 				{
 					kind: "updateField",
 					uuid: fieldUuid,

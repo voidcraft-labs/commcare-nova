@@ -23,6 +23,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { Mutation } from "@/lib/doc/types";
 import { asUuid, plainColumn } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MODULE = asUuid("11111111-1111-4111-8111-111111111111");
 const FORM = asUuid("22222222-2222-4222-8222-222222222222");
@@ -85,12 +86,13 @@ function docWithCloseConditionOn(fieldUuid: typeof FIELD) {
 describe("renaming a field that a close condition references", () => {
 	it("commits, because the condition holds the uuid and not the id", () => {
 		const doc = docWithCloseConditionOn(FIELD);
+		assertAdmittedDoc(doc);
 		const rename: Mutation = {
 			kind: "updateField",
 			uuid: FIELD,
 			targetKind: "text",
 			patch: { id: "given_name" },
-		} as Mutation;
+		};
 
 		const verdict = mutationCommitVerdict(
 			doc,

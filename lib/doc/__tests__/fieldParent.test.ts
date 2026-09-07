@@ -1,1145 +1,275 @@
-/**
- * Exhaustive `fieldParent` invariant test suite.
- *
- * `doc.fieldParent: Record<Uuid, Uuid | null>` is the reverse index that maps
- * every field uuid to its parent uuid (either a form uuid for top-level fields,
- * or a container-field uuid for nested fields). It is rebuilt by
- * `rebuildFieldParent(doc)` after every structural mutation in
- * `applyMutation` / `applyMutations`.
- *
- * This suite exercises every mutation kind and load path, asserting three
- * invariants after each operation:
- *
- *   1. Every field uuid in `doc.fields` has an entry in `doc.fieldParent`.
- *   2. For every `(parentUuid, [...childUuids])` pair in `doc.fieldOrder`,
- *      each childUuid's `fieldParent[childUuid] === parentUuid`.
- *   3. No stray keys in `fieldParent` for uuids not in `doc.fields`.
- *
- * Tests use `buildDoc` + `f()` from `lib/__tests__/docHelpers.ts` for fixture
- * construction, and `createBlueprintDocStore` for store-level (load) tests.
- * Mutation tests drive through the store's `applyMany` so they exercise the
- * same code path as production callers.
- */
-
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { duplicateFieldMutations } from "@/lib/doc/duplicateFieldMutations";
-import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import type { BlueprintDocStoreApi } from "@/lib/doc/store";
+import { rebuildFieldParent, toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { createBlueprintDocStore } from "@/lib/doc/store";
 import type { Mutation } from "@/lib/doc/types";
-import type { BlueprintDoc, Uuid } from "@/lib/domain";
+import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-// ── Invariant checker ────────────────────────────────────────────────────────
+const M1 = testUuid("module-one");
+const M2 = testUuid("module-two");
+const F1 = testUuid("form-one");
+const F2 = testUuid("form-two");
+const F3 = testUuid("form-three");
+const A = testUuid("field-a");
+const B = testUuid("field-b");
+const C = testUuid("field-c");
+const GROUP = testUuid("group");
+const GROUP2 = testUuid("group-two");
+const REPEAT = testUuid("repeat");
+const NESTED = testUuid("nested");
+const NEW = testUuid("new-field");
+const initialParents = {
+	[A]: F1,
+	[GROUP]: F1,
+	[GROUP2]: F1,
+	[REPEAT]: GROUP,
+	[NESTED]: REPEAT,
+	[B]: F2,
+	[C]: F3,
+};
 
-/**
- * Assert all three `fieldParent` consistency invariants on a doc snapshot.
- *
- * Calling this after every mutation ensures both that `rebuildFieldParent` ran
- * and that it produced a correct result.
- *
- *   Inv 1: Every field in `doc.fields` has an entry in `doc.fieldParent`.
- *   Inv 2: Every child listed in `doc.fieldOrder[parent]` maps back to that
- *           parent in `doc.fieldParent`.
- *   Inv 3: No entry in `doc.fieldParent` references a uuid absent from
- *           `doc.fields` (stray / orphan entries).
- */
-function assertFieldParentInvariants(doc: BlueprintDoc): void {
-	const allFieldUuids = new Set(Object.keys(doc.fields));
-	const parentKeys = new Set(Object.keys(doc.fieldParent));
-
-	// Invariant 1: every field has an entry.
-	for (const uuid of allFieldUuids) {
-		expect(
-			parentKeys.has(uuid),
-			`field ${uuid} is present in doc.fields but missing from doc.fieldParent`,
-		).toBe(true);
-	}
-
-	// Invariant 3: no stray keys.
-	for (const key of parentKeys) {
-		expect(
-			allFieldUuids.has(key),
-			`doc.fieldParent has stray entry for uuid "${key}" which is not in doc.fields`,
-		).toBe(true);
-	}
-
-	// Invariant 2: fieldOrder ↔ fieldParent consistency for every parent entry.
-	for (const [parentUuid, childUuids] of Object.entries(doc.fieldOrder)) {
-		for (const childUuid of childUuids) {
-			expect(
-				doc.fieldParent[childUuid as Uuid],
-				`fieldParent[${childUuid}] should equal parent "${parentUuid}" per fieldOrder, but got "${doc.fieldParent[childUuid as Uuid]}"`,
-			).toBe(parentUuid);
-		}
-	}
+function fixture(): BlueprintDoc {
+	const doc = buildDoc({
+		modules: [
+			{
+				uuid: M1,
+				name: "One",
+				forms: [
+					{
+						uuid: F1,
+						name: "First",
+						type: "survey",
+						fields: [
+							f({ uuid: A, kind: "text", id: "a" }),
+							f({
+								uuid: GROUP,
+								kind: "group",
+								id: "group",
+								children: [
+									f({
+										uuid: REPEAT,
+										kind: "repeat",
+										id: "repeat",
+										children: [f({ uuid: NESTED, kind: "text", id: "nested" })],
+									}),
+								],
+							}),
+							f({ uuid: GROUP2, kind: "group", id: "group_two", children: [] }),
+						],
+					},
+					{
+						uuid: F2,
+						name: "Second",
+						type: "survey",
+						fields: [f({ uuid: B, kind: "text", id: "b" })],
+					},
+				],
+			},
+			{
+				uuid: M2,
+				name: "Two",
+				forms: [
+					{
+						uuid: F3,
+						name: "Third",
+						type: "survey",
+						fields: [f({ uuid: C, kind: "text", id: "c" })],
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedDoc(doc);
+	expect(doc.fieldParent).toEqual(initialParents);
+	return doc;
 }
 
-// ── Store helpers ────────────────────────────────────────────────────────────
-
-/**
- * Create a store pre-loaded with a blueprint doc and with temporal resumed.
- * Using `load()` followed by `resume()` ensures the doc is fully hydrated
- * (fieldParent rebuilt) before mutations start.
- */
-function storeFrom(doc: BlueprintDoc): BlueprintDocStoreApi {
+function apply(doc: BlueprintDoc, mutations: Mutation[]): BlueprintDoc {
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok, JSON.stringify(verdict.ok ? [] : verdict.findings)).toBe(
+		true,
+	);
+	if (!verdict.ok)
+		throw new Error(JSON.stringify(verdict.ok ? [] : verdict.findings));
 	const store = createBlueprintDocStore();
-	store.getState().load(doc);
-	store.getState().startTracking();
-	return store;
+	store.getState().load(toPersistableDoc(doc));
+	store.getState().applyMany(mutations);
+	const next = store.getState();
+	assertAdmittedDoc(next);
+	return next;
 }
 
-/**
- * Apply a batch of mutations via the store and return the resulting snapshot.
- * This exercises the same code path as production (`applyMany` → one
- * `rebuildFieldParent` call at the end of the batch).
- */
-function applyBatch(
-	store: BlueprintDocStoreApi,
-	muts: Mutation[],
-): BlueprintDoc {
-	store.getState().applyMany(muts);
-	return store.getState() as unknown as BlueprintDoc;
+function without(...uuids: string[]): Record<string, string> {
+	return Object.fromEntries(
+		Object.entries(initialParents).filter(([uuid]) => !uuids.includes(uuid)),
+	);
 }
 
-// ── Shared UUID factories ────────────────────────────────────────────────────
-// Fixed, readable test UUIDs so failure messages are greppable.
-const FRM = testUuid("frm1-0000-0000-0000-000000000000");
-const FLD_A = testUuid("flda-0000-0000-0000-000000000000");
-const FLD_B = testUuid("fldb-0000-0000-0000-000000000000");
-const FLD_C = testUuid("fldc-0000-0000-0000-000000000000");
-const GRP = testUuid("grp0-0000-0000-0000-000000000000");
-const GRP2 = testUuid("grp2-0000-0000-0000-000000000000");
-const RPT = testUuid("rpt0-0000-0000-0000-000000000000");
-const NESTED = testUuid("nst0-0000-0000-0000-000000000000");
-
-describe("persistable projection", () => {
-	it("omits an own undefined top-level clear marker", () => {
-		const doc = buildDoc({
-			modules: [
+describe("derived field parents across actual store transitions", () => {
+	it.each([F1, GROUP, REPEAT])(
+		"records the named parent for a new field under %s",
+		(parentUuid) => {
+			const next = apply(fixture(), [
 				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [f({ kind: "text", id: "question" })],
-						},
-					],
+					kind: "addField",
+					parentUuid,
+					field: {
+						uuid: NEW,
+						kind: "text",
+						id: "new_field",
+						label: proseText("New field"),
+					},
 				},
-			],
-		});
-		Object.defineProperty(doc, "logo", {
-			value: undefined,
-			writable: true,
-			enumerable: true,
-			configurable: true,
-		});
+			]);
+			expect(next.fieldParent).toEqual({
+				...initialParents,
+				[NEW]: parentUuid,
+			});
+		},
+	);
 
+	it.each([F1, GROUP, GROUP2])(
+		"moves a nested leaf to %s without changing other parent identities",
+		(toParentUuid) => {
+			const next = apply(fixture(), [
+				{ kind: "moveField", uuid: NESTED, toParentUuid, after: null },
+			]);
+			expect(next.fieldParent).toEqual({
+				...initialParents,
+				[NESTED]: toParentUuid,
+			});
+			expect(next.fieldOrder[REPEAT]).toEqual([]);
+		},
+	);
+
+	it("moves a subtree under another group while retaining its internal parentage", () => {
+		const next = apply(fixture(), [
+			{ kind: "moveField", uuid: GROUP, toParentUuid: GROUP2, after: null },
+		]);
+		expect(next.fieldParent).toEqual({ ...initialParents, [GROUP]: GROUP2 });
+		expect(next.fieldOrder[F1]).toEqual([A, GROUP2]);
+		expect(next.fieldOrder[GROUP2]).toEqual([GROUP]);
+	});
+
+	it.each([
+		{
+			name: "leaf",
+			mutations: [{ kind: "removeField", uuid: NESTED }],
+			absent: [NESTED],
+		},
+		{
+			name: "subtree",
+			mutations: [{ kind: "removeField", uuid: GROUP }],
+			absent: [GROUP, REPEAT, NESTED],
+		},
+		{
+			name: "form",
+			mutations: [{ kind: "removeForm", uuid: F1 }],
+			absent: [A, GROUP, GROUP2, REPEAT, NESTED],
+		},
+		{
+			name: "module",
+			mutations: [{ kind: "removeModule", uuid: M1 }],
+			absent: [A, GROUP, GROUP2, REPEAT, NESTED, B],
+		},
+	] satisfies { name: string; mutations: Mutation[]; absent: string[] }[])(
+		"removes every derived entry owned by a deleted $name",
+		({ mutations, absent }) => {
+			const next = apply(fixture(), mutations);
+			expect(next.fieldParent).toEqual(without(...absent));
+			for (const uuid of absent)
+				expect(Object.hasOwn(next.fields, uuid)).toBe(false);
+		},
+	);
+
+	it("derives only the final tree after moving a child out of a deleted subtree in one batch", () => {
+		const next = apply(fixture(), [
+			{ kind: "moveField", uuid: NESTED, toParentUuid: F1, after: A },
+			{ kind: "removeField", uuid: GROUP },
+		]);
+		expect(next.fieldParent).toEqual({
+			...without(GROUP, REPEAT),
+			[NESTED]: F1,
+		});
+	});
+
+	it("gives a duplicated subtree fresh identities and the expected new parent chain", () => {
+		const doc = fixture();
+		const plan = duplicateFieldMutations(doc, GROUP);
+		if (plan === undefined) throw new Error("duplicate plan missing");
+		const next = apply(doc, plan.mutations);
+		const [repeatClone] = next.fieldOrder[plan.cloneUuid];
+		const [leafClone] = next.fieldOrder[repeatClone];
+		expect(
+			new Set([plan.cloneUuid, repeatClone, leafClone, GROUP, REPEAT, NESTED])
+				.size,
+		).toBe(6);
+		expect(next.fieldParent).toEqual({
+			...initialParents,
+			[plan.cloneUuid]: F1,
+			[repeatClone]: plan.cloneUuid,
+			[leafClone]: repeatClone,
+		});
+		expect(next.fieldOrder[F1]).toEqual([A, GROUP, plan.cloneUuid, GROUP2]);
+	});
+
+	it("retains the derived index by identity for scalar edits and form moves", () => {
+		const store = createBlueprintDocStore();
+		store.getState().load(toPersistableDoc(fixture()));
+		const parents = store.getState().fieldParent;
+		const edits: Mutation[] = [
+			{
+				kind: "updateField",
+				uuid: A,
+				targetKind: "text",
+				patch: { id: "renamed", label: proseText("Renamed") },
+			},
+			{ kind: "moveForm", uuid: F1, toModuleUuid: M2, after: F3 },
+		];
+		expect(
+			mutationCommitVerdict(store.getState(), edits, LOOKUP_CONTEXT_UNAVAILABLE)
+				.ok,
+		).toBe(true);
+		store.getState().applyMany(edits);
+		expect(store.getState().fieldParent).toBe(parents);
+		expect(store.getState().fieldParent).toEqual(initialParents);
+	});
+
+	it("loads the persisted nested tree and excludes derived and transient fields from persistence", () => {
+		const store = createBlueprintDocStore();
+		const persisted = toPersistableDoc(fixture());
+		expect(Object.hasOwn(persisted, "fieldParent")).toBe(false);
+		expect(Object.hasOwn(persisted, "refIndex")).toBe(false);
+		store.getState().load(persisted);
+		expect(store.getState().fieldParent).toEqual(initialParents);
+		expect(toPersistableDoc(store.getState())).toEqual(persisted);
+		expect(Object.hasOwn(toPersistableDoc(store.getState()), "applyMany")).toBe(
+			false,
+		);
+	});
+
+	it("omits an own undefined top-level clear marker", () => {
+		const doc = fixture();
+		Object.defineProperty(doc, "logo", { value: undefined, enumerable: true });
 		expect(Object.hasOwn(doc, "logo")).toBe(true);
 		expect(Object.hasOwn(toPersistableDoc(doc), "logo")).toBe(false);
 	});
-});
 
-// ── addField ─────────────────────────────────────────────────────────────────
-
-describe("after addField", () => {
-	it("top of form (after: null)", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [f({ kind: "text", id: "existing" })],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: FLD_A,
-					kind: "text",
-					id: "first",
-					label: proseText("First"),
-				} as BlueprintDoc["fields"][Uuid],
-				after: null,
-			},
-		]);
-		assertFieldParentInvariants(result);
-		// Specific parent-correctness check: the new field should point at the form.
-		expect(result.fieldParent[FLD_A]).toBe(formUuid);
-	});
-
-	it("end of form (no anchor = append)", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "a" }),
-								f({ kind: "text", id: "b" }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: FLD_A,
-					kind: "text",
-					id: "last",
-					label: proseText("Last"),
-				} as BlueprintDoc["fields"][Uuid],
-			},
-		]);
-		assertFieldParentInvariants(result);
-		expect(result.fieldParent[FLD_A]).toBe(formUuid);
-	});
-
-	it("middle of form (after the first of 2 existing fields)", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "a" }),
-								f({ kind: "text", id: "b" }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: FLD_A,
-					kind: "text",
-					id: "middle",
-					label: proseText("Middle"),
-				} as BlueprintDoc["fields"][Uuid],
-				after: Object.keys(doc.fields)[0] as Uuid,
-			},
-		]);
-		assertFieldParentInvariants(result);
-		expect(result.fieldParent[FLD_A]).toBe(formUuid);
-	});
-
-	it("into a group (depth 2)", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "grp",
-									uuid: GRP.toString(),
-									children: [],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const result = applyBatch(store, [
-			{
-				kind: "addField",
-				parentUuid: GRP,
-				field: {
-					uuid: FLD_A,
-					kind: "text",
-					id: "nested",
-					label: proseText("Nested"),
-				} as BlueprintDoc["fields"][Uuid],
-			},
-		]);
-		assertFieldParentInvariants(result);
-		// Field inside group: parent should be the group uuid, not the form.
-		expect(result.fieldParent[FLD_A]).toBe(GRP);
-	});
-
-	it("into a repeat inside a group (depth 3)", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "grp",
-									uuid: GRP.toString(),
-									children: [
-										f({
-											kind: "repeat",
-											id: "rpt",
-											uuid: RPT.toString(),
-											children: [],
-										}),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const result = applyBatch(store, [
-			{
-				kind: "addField",
-				parentUuid: RPT,
-				field: {
-					uuid: FLD_A,
-					kind: "text",
-					id: "deep",
-					label: proseText("Deep"),
-				} as BlueprintDoc["fields"][Uuid],
-			},
-		]);
-		assertFieldParentInvariants(result);
-		expect(result.fieldParent[FLD_A]).toBe(RPT);
-	});
-});
-
-// ── removeField ───────────────────────────────────────────────────────────────
-
-describe("after removeField", () => {
-	it("removes a top-level field", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "target", uuid: FLD_A.toString() }),
-								f({ kind: "text", id: "sibling" }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const result = applyBatch(store, [{ kind: "removeField", uuid: FLD_A }]);
-		assertFieldParentInvariants(result);
-		// Removed field must not appear in fieldParent.
-		expect(FLD_A in result.fieldParent).toBe(false);
-	});
-
-	it("removes a nested field inside a group", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "grp",
-									uuid: GRP.toString(),
-									children: [
-										f({
-											kind: "text",
-											id: "nested_target",
-											uuid: FLD_A.toString(),
-										}),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const result = applyBatch(store, [{ kind: "removeField", uuid: FLD_A }]);
-		assertFieldParentInvariants(result);
-		expect(FLD_A in result.fieldParent).toBe(false);
-	});
-
-	it("removes a group and cascade-deletes all descendants", () => {
-		// Group has two children; removing the group should remove all three
-		// uuids (the group + both children) from both fields and fieldParent.
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "grp",
-									uuid: GRP.toString(),
-									children: [
-										f({ kind: "text", id: "c1", uuid: FLD_A.toString() }),
-										f({ kind: "text", id: "c2", uuid: FLD_B.toString() }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const result = applyBatch(store, [{ kind: "removeField", uuid: GRP }]);
-		assertFieldParentInvariants(result);
-		// Group itself and its two children must be absent everywhere.
-		expect(GRP in result.fields).toBe(false);
-		expect(FLD_A in result.fields).toBe(false);
-		expect(FLD_B in result.fields).toBe(false);
-		expect(GRP in result.fieldParent).toBe(false);
-		expect(FLD_A in result.fieldParent).toBe(false);
-		expect(FLD_B in result.fieldParent).toBe(false);
-	});
-});
-
-// ── moveField ─────────────────────────────────────────────────────────────────
-
-describe("after moveField", () => {
-	it("reorder within same form (parent unchanged)", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "a", uuid: FLD_A.toString() }),
-								f({ kind: "text", id: "b", uuid: FLD_B.toString() }),
-								f({ kind: "text", id: "c", uuid: FLD_C.toString() }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, after: FLD_C },
-		]);
-		assertFieldParentInvariants(result);
-		// After reorder, parent for the moved field should still be the form.
-		expect(result.fieldParent[FLD_A]).toBe(formUuid);
-	});
-
-	it("move to different top-level position (parent still the form)", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "a", uuid: FLD_A.toString() }),
-								f({ kind: "text", id: "b", uuid: FLD_B.toString() }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_B, toParentUuid: formUuid, after: null },
-		]);
-		assertFieldParentInvariants(result);
-		expect(result.fieldParent[FLD_B]).toBe(formUuid);
-	});
-
-	it("move into a group (parent changes from form → group)", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "target", uuid: FLD_A.toString() }),
-								f({
-									kind: "group",
-									id: "grp",
-									uuid: GRP.toString(),
-									children: [],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP, after: null },
-		]);
-		assertFieldParentInvariants(result);
-		// Parent must now be the group, not the form.
-		expect(result.fieldParent[FLD_A]).toBe(GRP);
-	});
-
-	it("move out of a group back to form (parent changes from group → form)", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "grp",
-									uuid: GRP.toString(),
-									children: [
-										f({ kind: "text", id: "nested", uuid: FLD_A.toString() }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: formUuid, after: GRP },
-		]);
-		assertFieldParentInvariants(result);
-		expect(result.fieldParent[FLD_A]).toBe(formUuid);
-	});
-
-	it("move between two different groups", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "grp1",
-									uuid: GRP.toString(),
-									children: [
-										f({ kind: "text", id: "field_x", uuid: FLD_A.toString() }),
-									],
-								}),
-								f({
-									kind: "group",
-									id: "grp2",
-									uuid: GRP2.toString(),
-									children: [],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const result = applyBatch(store, [
-			{ kind: "moveField", uuid: FLD_A, toParentUuid: GRP2, after: null },
-		]);
-		assertFieldParentInvariants(result);
-		expect(result.fieldParent[FLD_A]).toBe(GRP2);
-	});
-});
-
-// ── updateField (structural no-op) ────────────────────────────────────────────
-
-describe("after updateField (structural noop)", () => {
-	it("a field-ID update does not change fieldParent values", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "old_id", uuid: FLD_A.toString() }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const before = { ...doc.fieldParent };
-		const store = storeFrom(doc);
-		const result = applyBatch(store, [
-			{
-				kind: "updateField",
-				uuid: FLD_A,
-				targetKind: "text",
-				patch: { id: "new_id" },
-			},
-		]);
-		assertFieldParentInvariants(result);
-		// fieldParent values are identical before and after the ID change.
-		expect(result.fieldParent[FLD_A]).toBe(before[FLD_A]);
-	});
-
-	it("updateField does not disturb fieldParent", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [f({ kind: "text", id: "q", uuid: FLD_A.toString() })],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const result = applyBatch(store, [
-			{
-				kind: "updateField",
-				uuid: FLD_A,
-				targetKind: "text",
-				patch: { label: proseText("Updated Label") },
-			},
-		]);
-		assertFieldParentInvariants(result);
-	});
-});
-
-// ── duplicate ─────────────────────────────────────────────────────────────────
-
-describe("after a planned duplicate", () => {
-	it("leaf field: new uuid appears in fieldParent pointing at same parent as source", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "target", uuid: FLD_A.toString() }),
-								f({ kind: "text", id: "sibling" }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(
-			store,
-			duplicateFieldMutations(doc, FLD_A)?.mutations ?? [],
-		);
-		assertFieldParentInvariants(result);
-		// The source must still point at the form.
-		expect(result.fieldParent[FLD_A]).toBe(formUuid);
-		// There should now be 3 fields under the form (original + duplicate + sibling).
-		expect(result.fieldOrder[formUuid]).toHaveLength(3);
-		// The duplicated uuid is the one inserted after FLD_A; check its parent too.
-		const order = result.fieldOrder[formUuid] ?? [];
-		const dupIdx = order.indexOf(FLD_A) + 1;
-		const dupUuid = order[dupIdx] as Uuid;
-		expect(dupUuid).toBeDefined();
-		expect(result.fieldParent[dupUuid]).toBe(formUuid);
-	});
-
-	it("group with children: all new uuids appear in fieldParent pointing at correct new parents", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "grp",
-									uuid: GRP.toString(),
-									children: [
-										f({ kind: "text", id: "child_a", uuid: FLD_A.toString() }),
-										f({ kind: "text", id: "child_b", uuid: FLD_B.toString() }),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(
-			store,
-			duplicateFieldMutations(doc, GRP)?.mutations ?? [],
-		);
-		assertFieldParentInvariants(result);
-
-		// Original group + 2 children are still intact.
-		expect(result.fieldParent[GRP]).toBe(formUuid);
-		expect(result.fieldParent[FLD_A]).toBe(GRP);
-		expect(result.fieldParent[FLD_B]).toBe(GRP);
-
-		// The form should have 2 groups now.
-		const formOrder = result.fieldOrder[formUuid] ?? [];
-		expect(formOrder).toHaveLength(2);
-
-		// The duplicate group is right after the original.
-		const dupGrpUuid = formOrder[formOrder.indexOf(GRP) + 1] as Uuid;
-		expect(dupGrpUuid).toBeDefined();
-		// Duplicate group's parent should be the form.
-		expect(result.fieldParent[dupGrpUuid]).toBe(formUuid);
-		// The duplicate's children should point at the duplicate group.
-		const dupChildren = result.fieldOrder[dupGrpUuid] ?? [];
-		expect(dupChildren).toHaveLength(2);
-		for (const childUuid of dupChildren) {
-			expect(result.fieldParent[childUuid as Uuid]).toBe(dupGrpUuid);
-		}
-	});
-});
-
-// ── form-level mutations ───────────────────────────────────────────────────────
-
-describe("after form-level mutations", () => {
-	it("addForm: new form exists in fieldOrder but fieldParent is empty (no fields)", () => {
-		const doc = buildDoc({
-			modules: [{ name: "M", forms: [] }],
-		});
-		const store = storeFrom(doc);
-		const modUuid = Object.keys(doc.modules)[0] as Uuid;
-		const result = applyBatch(store, [
-			{
-				kind: "addForm",
-				moduleUuid: modUuid,
-				form: { uuid: FRM, id: "new_form", name: "New Form", type: "survey" },
-			},
-		]);
-		assertFieldParentInvariants(result);
-		// The form has no fields, so fieldParent remains empty.
-		expect(Object.keys(result.fieldParent)).toHaveLength(0);
-	});
-
-	it("removeForm: all fields in the form vanish from fieldParent and fields", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "q1", uuid: FLD_A.toString() }),
-								f({ kind: "text", id: "q2", uuid: FLD_B.toString() }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [{ kind: "removeForm", uuid: formUuid }]);
-		assertFieldParentInvariants(result);
-		expect(FLD_A in result.fields).toBe(false);
-		expect(FLD_B in result.fields).toBe(false);
-		expect(FLD_A in result.fieldParent).toBe(false);
-		expect(FLD_B in result.fieldParent).toBe(false);
-	});
-});
-
-// ── applyMany batches ─────────────────────────────────────────────────────────
-
-describe("after applyMany batches", () => {
-	it("three addField calls in one batch — invariants hold after the batch", () => {
-		const doc = buildDoc({
-			modules: [{ name: "M", forms: [{ name: "F", type: "survey" }] }],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		const result = applyBatch(store, [
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: FLD_A,
-					kind: "text",
-					id: "q1",
-					label: proseText("Q1"),
-				} as BlueprintDoc["fields"][Uuid],
-			},
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: FLD_B,
-					kind: "text",
-					id: "q2",
-					label: proseText("Q2"),
-				} as BlueprintDoc["fields"][Uuid],
-			},
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: FLD_C,
-					kind: "text",
-					id: "q3",
-					label: proseText("Q3"),
-				} as BlueprintDoc["fields"][Uuid],
-			},
-		]);
-		assertFieldParentInvariants(result);
-		expect(result.fieldParent[FLD_A]).toBe(formUuid);
-		expect(result.fieldParent[FLD_B]).toBe(formUuid);
-		expect(result.fieldParent[FLD_C]).toBe(formUuid);
-	});
-
-	it("addField + moveField + removeField in one batch — invariants hold", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "grp",
-									uuid: GRP.toString(),
-									children: [],
-								}),
-								f({ kind: "text", id: "existing", uuid: FLD_B.toString() }),
-							],
-						},
-					],
-				},
-			],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		// Batch: add FLD_A at form level, move FLD_B into GRP, then remove FLD_B.
-		const result = applyBatch(store, [
-			{
-				kind: "addField",
-				parentUuid: formUuid,
-				field: {
-					uuid: FLD_A,
-					kind: "text",
-					id: "new_q",
-					label: proseText("New Q"),
-				} as BlueprintDoc["fields"][Uuid],
-			},
-			{ kind: "moveField", uuid: FLD_B, toParentUuid: GRP, after: null },
-			{ kind: "removeField", uuid: FLD_B },
-		]);
-		assertFieldParentInvariants(result);
-		expect(FLD_B in result.fields).toBe(false);
-		expect(FLD_B in result.fieldParent).toBe(false);
-		expect(result.fieldParent[FLD_A]).toBe(formUuid);
-	});
-
-	it("agent-stream shape: 20 addField calls in one batch — invariants hold and completes quickly", () => {
-		const doc = buildDoc({
-			modules: [{ name: "M", forms: [{ name: "F", type: "survey" }] }],
-		});
-		const store = storeFrom(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-
-		// Build 20 field mutations with distinct UUIDs to simulate a large agent batch.
-		const muts: Mutation[] = Array.from({ length: 20 }, (_, i) => {
-			const uuid = testUuid(
-				`agent${i.toString().padStart(4, "0")}-0000-0000-0000-0000`,
-			);
-			return {
-				kind: "addField" as const,
-				parentUuid: formUuid,
-				field: {
-					uuid,
-					kind: "text",
-					id: `q${i}`,
-					label: proseText(`Q${i}`),
-				} as BlueprintDoc["fields"][Uuid],
-			};
-		});
-
-		const start = performance.now();
-		const result = applyBatch(store, muts);
-		const elapsed = performance.now() - start;
-
-		assertFieldParentInvariants(result);
-		expect(Object.keys(result.fields)).toHaveLength(20);
-		// Sanity-check performance: a 20-field batch should never take 100ms.
-		expect(elapsed).toBeLessThan(100);
-	});
-});
-
-// ── load() path ───────────────────────────────────────────────────────────────
-
-describe("after load()", () => {
-	it("load a flat doc (no fieldParent in persisted shape) — rebuilds correctly", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "a", uuid: FLD_A.toString() }),
-								f({ kind: "text", id: "b", uuid: FLD_B.toString() }),
-							],
-						},
-					],
-				},
-			],
-		});
-
-		// Simulate a persisted doc: strip fieldParent before loading.
-		// The `load()` action must rebuild it from fieldOrder.
-		const { fieldParent: _stripped, ...persistable } = doc;
-		const store = createBlueprintDocStore();
-		store.getState().load(persistable);
-
-		const state = store.getState() as unknown as BlueprintDoc;
-		assertFieldParentInvariants(state);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		expect(state.fieldParent[FLD_A]).toBe(formUuid);
-		expect(state.fieldParent[FLD_B]).toBe(formUuid);
-	});
-
-	it("load a doc with nested groups (3+ levels deep) — invariants hold", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "lvl1",
-									uuid: GRP.toString(),
-									children: [
-										f({
-											kind: "group",
-											id: "lvl2",
-											uuid: GRP2.toString(),
-											children: [
-												f({
-													kind: "repeat",
-													id: "lvl3",
-													uuid: RPT.toString(),
-													children: [
-														f({
-															kind: "text",
-															id: "deep_leaf",
-															uuid: NESTED.toString(),
-														}),
-													],
-												}),
-											],
-										}),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		const { fieldParent: _stripped, ...persistable } = doc;
-		const store = createBlueprintDocStore();
-		store.getState().load(persistable);
-
-		const state = store.getState() as unknown as BlueprintDoc;
-		assertFieldParentInvariants(state);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		expect(state.fieldParent[GRP]).toBe(formUuid);
-		expect(state.fieldParent[GRP2]).toBe(GRP);
-		expect(state.fieldParent[RPT]).toBe(GRP2);
-		expect(state.fieldParent[NESTED]).toBe(RPT);
-	});
-});
-
-// ── edge cases ────────────────────────────────────────────────────────────────
-
-describe("edge cases", () => {
-	it("empty doc (no modules, forms, or fields) — fieldParent is {}", () => {
-		const doc = buildDoc();
-		assertFieldParentInvariants(doc);
-		expect(doc.fieldParent).toEqual({});
-	});
-
-	it("doc with forms but no fields — fieldParent is {}", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{ name: "F1", type: "survey" },
-						{ name: "F2", type: "registration" },
-					],
-				},
-			],
-		});
-		assertFieldParentInvariants(doc);
-		expect(doc.fieldParent).toEqual({});
-	});
-
-	it("nested groups with deepest being empty — invariants hold for non-leaf containers", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M",
-					forms: [
-						{
-							name: "F",
-							type: "survey",
-							fields: [
-								f({
-									kind: "group",
-									id: "outer",
-									uuid: GRP.toString(),
-									children: [
-										f({ kind: "text", id: "leaf", uuid: FLD_A.toString() }),
-										// Inner empty group.
-										f({
-											kind: "group",
-											id: "inner_empty",
-											uuid: GRP2.toString(),
-											children: [],
-										}),
-									],
-								}),
-							],
-						},
-					],
-				},
-			],
-		});
-		assertFieldParentInvariants(doc);
-		const formUuid = Object.keys(doc.forms)[0] as Uuid;
-		expect(doc.fieldParent[GRP]).toBe(formUuid);
-		expect(doc.fieldParent[FLD_A]).toBe(GRP);
-		expect(doc.fieldParent[GRP2]).toBe(GRP);
-		// The inner empty group contributes no children, but its own parent entry is correct.
-		expect(Object.keys(doc.fieldOrder[GRP2] ?? [])).toHaveLength(0);
-	});
-
-	it("multiple modules with multiple forms — each field has correct parent", () => {
-		const doc = buildDoc({
-			modules: [
-				{
-					name: "M1",
-					forms: [
-						{
-							name: "F1",
-							type: "survey",
-							fields: [
-								f({ kind: "text", id: "m1f1q1", uuid: FLD_A.toString() }),
-							],
-						},
-					],
-				},
-				{
-					name: "M2",
-					forms: [
-						{
-							name: "F2",
-							type: "registration",
-							fields: [
-								f({ kind: "text", id: "m2f2q1", uuid: FLD_B.toString() }),
-							],
-						},
-					],
-				},
-			],
-		});
-		assertFieldParentInvariants(doc);
-
-		// Each field must point to its own form, not the other form.
-		const formUuids = Object.keys(doc.forms) as Uuid[];
-		expect(formUuids).toHaveLength(2);
-		expect(formUuids.some((fu) => doc.fieldOrder[fu]?.includes(FLD_A))).toBe(
-			true,
-		);
-		expect(formUuids.some((fu) => doc.fieldOrder[fu]?.includes(FLD_B))).toBe(
-			true,
-		);
-		// Cross-contamination check: FLD_A and FLD_B must have different parents.
-		expect(doc.fieldParent[FLD_A]).not.toBe(doc.fieldParent[FLD_B]);
+	it("refuses malformed duplicate parentage without publishing a partial derived index", () => {
+		const doc = fixture();
+		const before = doc.fieldParent;
+		doc.fieldOrder[F2].push(A);
+		expect(() => rebuildFieldParent(doc)).toThrow(/invalid blueprint topology/);
+		expect(doc.fieldParent).toBe(before);
 	});
 });

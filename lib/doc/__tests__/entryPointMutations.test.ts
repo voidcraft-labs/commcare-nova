@@ -1,4 +1,3 @@
-import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
@@ -7,26 +6,38 @@ import {
 	entryPointInventory,
 	suggestEntryPointId,
 } from "@/lib/domain";
+import { mutationCommitVerdict } from "../commitVerdicts";
 import { diffDocsToMutations } from "../diffDocsToMutations";
 import {
 	planEntryPointAdd,
 	planEntryPointUpdate,
 } from "../entryPointMutations";
-import { applyMutations } from "../mutations";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
 import { mutationTargetsInvalid } from "../mutationTargetAdmission";
 import { type Mutation, mutationSchema } from "../types";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-const fixture = () =>
-	buildDoc({
+const fixture = () => {
+	const doc = buildDoc({
 		appName: "Links",
 		modules: [
 			{
 				uuid: "module",
 				name: "Visits",
-				forms: [{ uuid: "form", name: "Survey", type: "survey", fields: [] }],
+				forms: [
+					{
+						uuid: "form",
+						name: "Survey",
+						type: "survey",
+						fields: [{ kind: "text", id: "notes", label: "Notes" }],
+					},
+				],
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
+};
 const target = {
 	kind: "form",
 	moduleUuid: testUuid("module"),
@@ -37,12 +48,17 @@ const add: Mutation = { kind: "addEntryPoint", target, entryPoint };
 const apply = (
 	doc: ReturnType<typeof fixture>,
 	mutations: readonly Mutation[],
-) =>
-	produce(doc, (draft) => {
-		applyMutations(draft, mutations);
-	});
+) => {
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations.map((m) => mutationSchema.parse(JSON.parse(JSON.stringify(m)))),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
+};
 describe("owned entry-point mutations", () => {
-	it("replays granular add, edit, clear and undo without replacing the owner", () => {
+	it("replays granular add, edit and reverse diff through JSON", () => {
 		const doc = fixture(),
 			added = apply(doc, [add]);
 		const edited = apply(added, [

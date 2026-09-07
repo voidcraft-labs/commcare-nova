@@ -1,4 +1,3 @@
-import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f, withUserSequences } from "@/lib/__tests__/docHelpers";
@@ -6,17 +5,17 @@ import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { parseXPathForForm } from "@/lib/doc/expressionText";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
-import { applyMutations } from "@/lib/doc/mutations";
 import type { Mutation } from "@/lib/doc/types";
 import { removeUserPropertyPlan } from "@/lib/doc/userMutations";
 import type { BlueprintDoc } from "@/lib/domain";
 import { eq, literal, sessionUserProperty } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-const PROPERTY_A = testUuid("__proto__");
-const PROPERTY_B = testUuid("constructor");
-const TYPE = testUuid("toString");
-const PERSONA = testUuid("hasOwnProperty");
+const PROPERTY_A = testUuid("worker-property-a");
+const PROPERTY_B = testUuid("worker-property-b");
+const TYPE = testUuid("worker-type");
+const PERSONA = testUuid("worker-persona");
 
 function ownRecord<T>(
 	entries: ReadonlyArray<readonly [string, T]>,
@@ -24,15 +23,42 @@ function ownRecord<T>(
 	return Object.fromEntries(entries);
 }
 
-function fold(doc: BlueprintDoc, ...batches: Mutation[][]): BlueprintDoc {
-	return produce(doc, (draft) => {
-		for (const batch of batches) applyMutations(draft, batch);
+function baseSurvey(): BlueprintDoc {
+	const doc = buildDoc({
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [{ kind: "text", id: "notes", label: "Notes" }],
+					},
+				],
+			},
+		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
+}
+function fold(doc: BlueprintDoc, ...batches: Mutation[][]): BlueprintDoc {
+	let next = doc;
+	for (const batch of batches) {
+		const verdict = mutationCommitVerdict(
+			next,
+			batch,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+		if (!verdict.ok) throw new Error("Expected admitted edit");
+		next = verdict.nextDoc;
+	}
+	return next;
 }
 
 function userDoc(): BlueprintDoc {
-	return withUserSequences({
-		...buildDoc(),
+	const doc = withUserSequences({
+		...baseSurvey(),
 		userProperties: ownRecord([
 			[PROPERTY_A, { uuid: PROPERTY_A, slug: "__proto__", label: "Prototype" }],
 			[
@@ -45,7 +71,7 @@ function userDoc(): BlueprintDoc {
 				TYPE,
 				{
 					uuid: TYPE,
-					name: "Hostile-key role",
+					name: "Worker role",
 					values: ownRecord([
 						[PROPERTY_A, "north"],
 						[PROPERTY_B, "community"],
@@ -58,13 +84,15 @@ function userDoc(): BlueprintDoc {
 				PERSONA,
 				{
 					uuid: PERSONA,
-					name: "Hostile-key persona",
+					name: "Worker persona",
 					userTypeUuid: TYPE,
 					values: ownRecord([[PROPERTY_A, "south"]]),
 				},
 			],
 		]),
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 function valueUpdate(
@@ -78,7 +106,7 @@ function valueUpdate(
 		uuid: testUuid(uuid),
 		patch: {},
 		valuePatch: { userPropertyUuid: testUuid(propertyUuid), value },
-	} as Mutation;
+	};
 }
 
 describe("user collection mutations", () => {
@@ -87,7 +115,7 @@ describe("user collection mutations", () => {
 		(slug) => {
 			const propertyUuid = testUuid(`property-${slug}`);
 			const verdict = mutationCommitVerdict(
-				buildDoc(),
+				baseSurvey(),
 				[
 					{
 						kind: "addUserProperty",
@@ -109,8 +137,8 @@ describe("user collection mutations", () => {
 		},
 	);
 
-	it("adds, updates, and removes hostile schema-valid record keys as own data", () => {
-		const empty = buildDoc();
+	it("adds and removes complete worker collections with unusual valid slugs", () => {
+		const empty = baseSurvey();
 		const added = fold(empty, [
 			{
 				kind: "addUserProperty",
@@ -124,7 +152,7 @@ describe("user collection mutations", () => {
 				kind: "addUserType",
 				userType: {
 					uuid: TYPE,
-					name: "Hostile-key role",
+					name: "Worker role",
 					values: ownRecord([[PROPERTY_A, "north"]]),
 				},
 			},
@@ -132,7 +160,7 @@ describe("user collection mutations", () => {
 				kind: "addPersona",
 				persona: {
 					uuid: PERSONA,
-					name: "Hostile-key persona",
+					name: "Worker persona",
 					userTypeUuid: TYPE,
 				},
 			},
@@ -243,11 +271,17 @@ describe("user collection mutations", () => {
 				label: "Region",
 			},
 		};
+		doc.userPropertyOrder = [propertyUuid];
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
 		const fieldUuid = doc.fieldOrder[formUuid][0];
-		(doc.fields[fieldUuid] as { relevant?: unknown }).relevant =
-			parseXPathForForm(doc, formUuid, "#user/region = 'north'");
+		if (doc.fields[fieldUuid].kind !== "text")
+			throw new Error("Expected text field");
+		doc.fields[fieldUuid].relevant = parseXPathForForm(
+			doc,
+			formUuid,
+			"#user/region = 'north'",
+		);
 		doc.userTypes = {
 			[TYPE]: {
 				uuid: TYPE,
@@ -256,6 +290,8 @@ describe("user collection mutations", () => {
 			},
 		};
 
+		doc.userTypeOrder = [TYPE];
+		assertAdmittedDoc(doc);
 		const plan = removeUserPropertyPlan(doc, propertyUuid);
 
 		expect(plan).toEqual({
@@ -302,6 +338,7 @@ describe("user collection mutations", () => {
 				label: "Region",
 			},
 		};
+		doc.userPropertyOrder = [propertyUuid];
 		const moduleUuid = doc.moduleOrder[0];
 		const formUuid = doc.formOrder[moduleUuid][0];
 		const fieldUuid = doc.fieldOrder[formUuid][0];
@@ -316,6 +353,7 @@ describe("user collection mutations", () => {
 		doc.fields[fieldUuid].relevant = reference;
 		doc.fields[fieldUuid].required = reference;
 
+		assertAdmittedDoc(doc);
 		expect(removeUserPropertyPlan(doc, propertyUuid)).toMatchObject({
 			ok: false,
 			referenceCount: 2,
@@ -328,30 +366,6 @@ describe("user collection mutations", () => {
 });
 
 describe("user collection diff", () => {
-	it("treats an inherited-name UUID as absent unless it is an own record key", () => {
-		const before = buildDoc();
-		const after: BlueprintDoc = withUserSequences({
-			...before,
-			userTypes: ownRecord([
-				[
-					testUuid("constructor"),
-					{ uuid: testUuid("constructor"), name: "Constructor role" },
-				],
-			]),
-		});
-
-		expect(diffDocsToMutations(before, after)).toEqual([
-			{
-				after: null,
-				kind: "addUserType",
-				userType: { uuid: testUuid("constructor"), name: "Constructor role" },
-			},
-		]);
-		expect(diffDocsToMutations(after, before)).toEqual([
-			{ kind: "removeUserType", uuid: testUuid("constructor") },
-		]);
-	});
-
 	it("emits one semantic mutation per changed value key", () => {
 		const before = userDoc();
 		const after: BlueprintDoc = withUserSequences({
@@ -362,7 +376,7 @@ describe("user collection diff", () => {
 					{
 						...before.userTypes?.[TYPE],
 						uuid: TYPE,
-						name: "Hostile-key role",
+						name: "Worker role",
 						values: ownRecord([
 							[PROPERTY_A, "after-a"],
 							[PROPERTY_B, "after-b"],
@@ -372,6 +386,7 @@ describe("user collection diff", () => {
 			]),
 		});
 
+		assertAdmittedDoc(after);
 		const updates = diffDocsToMutations(before, after).filter(
 			(mutation) => mutation.kind === "updateUserType",
 		);
@@ -381,4 +396,39 @@ describe("user collection diff", () => {
 		).toEqual([PROPERTY_A, PROPERTY_B].sort());
 		expect(fold(before, updates).userTypes).toEqual(after.userTypes);
 	});
+});
+
+describe("diff refuses unrepresentable user collection reorders", () => {
+	it.each(["userPropertyOrder", "userTypeOrder", "personaOrder"] as const)(
+		"does not silently discard %s edits",
+		(orderKey) => {
+			const before = userDoc();
+			const role2 = testUuid("second-user-role");
+			const persona2 = testUuid("second-persona");
+			before.userTypes = {
+				...before.userTypes,
+				[role2]: { uuid: role2, name: "Second role", values: {} },
+			};
+			before.userTypeOrder = [TYPE, role2];
+			before.personas = {
+				...before.personas,
+				[persona2]: {
+					uuid: persona2,
+					name: "Second person",
+					values: {},
+					userTypeUuid: role2,
+				},
+			};
+			before.personaOrder = [PERSONA, persona2];
+			assertAdmittedDoc(before);
+			const after = {
+				...before,
+				[orderKey]: [...(before[orderKey] ?? [])].reverse(),
+			};
+			assertAdmittedDoc(after);
+			expect(() => diffDocsToMutations(before, after)).toThrow(
+				/Reordering existing/,
+			);
+		},
+	);
 });

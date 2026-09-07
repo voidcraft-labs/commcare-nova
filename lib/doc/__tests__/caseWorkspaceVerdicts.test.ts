@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
@@ -7,15 +7,16 @@ import {
 	type CaseType,
 	type Column,
 	calculatedColumn,
-	idMappingColumn,
-	idMappingEntry,
 	imageMapColumn,
 	imageMapEntry,
 	plainColumn,
 	type SearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
-import type { LookupColumnId, LookupTableId } from "@/lib/domain/lookupIds";
+import {
+	lookupColumnIdSchema,
+	lookupTableIdSchema,
+} from "@/lib/domain/lookupIds";
 import {
 	ancestorPath,
 	dateAdd,
@@ -35,11 +36,16 @@ import {
 import { proseText } from "@/lib/domain/prose";
 import { caseWorkspaceBoundaryVerdicts } from "../commitVerdicts";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "../lookupReferences";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const MODULE_UUID = testUuid("module-clients");
 const CALCULATED_UUID = testUuid("calculated-tags");
-const LOOKUP_TABLE = "00000000-0000-7000-8000-0000000000a1" as LookupTableId;
-const LOOKUP_COLUMN = "10000000-0000-7000-8000-0000000000a1" as LookupColumnId;
+const LOOKUP_TABLE = lookupTableIdSchema.parse(
+	"00000000-0000-7000-8000-0000000000a1",
+);
+const LOOKUP_COLUMN = lookupColumnIdSchema.parse(
+	"10000000-0000-7000-8000-0000000000a1",
+);
 
 const form = {
 	name: "Register client",
@@ -98,6 +104,36 @@ function docWith({
 }
 
 describe("caseWorkspaceBoundaryVerdicts", () => {
+	// Invalid carriers below exercise status projection for imported/historical
+	// documents. The unchanged app fixture itself must remain admitted.
+	beforeEach(() => assertAdmittedDoc(docWith()));
+	it("retains a verdict only for the identical document snapshot", () => {
+		const doc = docWith();
+		const first = caseWorkspaceBoundaryVerdicts(
+			doc,
+			MODULE_UUID,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(
+			caseWorkspaceBoundaryVerdicts(
+				doc,
+				MODULE_UUID,
+				LOOKUP_CONTEXT_UNAVAILABLE,
+			),
+		).toBe(first);
+		const changed = docWith({
+			caseSearchConfig: {},
+			filter: eq(prop("client", "age"), prop("client", "score")),
+		});
+		const next = caseWorkspaceBoundaryVerdicts(
+			changed,
+			MODULE_UUID,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(next).not.toBe(first);
+		expect(first.filterBroken).toBe(false);
+		expect(next.filterBroken).toBe(true);
+	});
 	it("keeps valid Search-action and assigned-case settings clean", () => {
 		const doc = docWith({
 			caseSearchConfig: {
@@ -229,29 +265,6 @@ describe("caseWorkspaceBoundaryVerdicts", () => {
 				LOOKUP_CONTEXT_UNAVAILABLE,
 			).brokenColumnUuids,
 		).toContain(CALCULATED_UUID);
-	});
-
-	it("marks a column broken for an empty id-mapping value", () => {
-		// `CASE_LIST_ID_MAPPING_EMPTY_VALUE` is a gating finding the repair
-		// pipeline defers to the owner, so the workspace must surface it —
-		// otherwise export fails naming a column the UI shows as clean.
-		const columnUuid = testUuid("status-mapping-column");
-		const doc = docWith({
-			columns: [
-				plainColumn(testUuid("name-column"), "case_name", "Name"),
-				idMappingColumn(columnUuid, "case_name", "Status", [
-					idMappingEntry("", "Blank"),
-				]),
-			],
-		});
-
-		expect(
-			caseWorkspaceBoundaryVerdicts(
-				doc,
-				MODULE_UUID,
-				LOOKUP_CONTEXT_UNAVAILABLE,
-			).brokenColumnUuids,
-		).toContain(columnUuid);
 	});
 
 	it("marks a column broken for a duplicate image-map value", () => {

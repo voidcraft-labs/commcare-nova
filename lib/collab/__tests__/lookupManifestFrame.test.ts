@@ -219,14 +219,14 @@ describe("lookup manifest stream frames", () => {
 
 		unsubscribeFailing();
 		unsubscribeFailing();
-		broker.dispatch(JSON.stringify(MANIFEST));
+		broker.dispatch(JSON.stringify({ ...MANIFEST, projectRevision: "18" }));
 		expect(failing).toHaveBeenCalledOnce();
-		expect(healthy).toHaveBeenCalledOnce();
+		expect(healthy).toHaveBeenCalledTimes(2);
 
 		unsubscribeHealthy();
 		unsubscribeHealthy();
-		broker.dispatch(JSON.stringify(MANIFEST));
-		expect(healthy).toHaveBeenCalledOnce();
+		broker.dispatch(JSON.stringify({ ...MANIFEST, projectRevision: "19" }));
+		expect(healthy).toHaveBeenCalledTimes(2);
 	});
 
 	it("notifies every subscriber then propagates a tenant-boundary reset failure", () => {

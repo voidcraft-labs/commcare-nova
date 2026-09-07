@@ -1,18 +1,53 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import {
-	type BlueprintDoc,
-	type CaseSelection,
-	emptyCaseListConfig,
-	type Form,
-	type Module,
-	type Uuid,
+import { buildDoc, caseListConfig, xp } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { mutationSchema } from "@/lib/doc/types";
+import type {
+	BlueprintDoc,
+	CaseSelection,
+	Form,
+	Module,
+	Uuid,
 } from "@/lib/domain";
 import {
+	planCaseSelectionTransition as actualTransition,
 	planCaseSelectionChange,
-	planCaseSelectionTransition,
 } from "../caseSelectionMutations";
+import { assertAdmittedDoc } from "./admittedDoc";
 
+function planCaseSelectionTransition(
+	...args: Parameters<typeof actualTransition>
+) {
+	assertAdmittedDoc(args[0]);
+	const plan = actualTransition(...args);
+	const ready =
+		plan.kind === "needs-coordination"
+			? actualTransition(args[0], {
+					...args[1],
+					confirmedModuleUuids: plan.transitions.map(
+						(transition) => transition.moduleUuid,
+					),
+				})
+			: plan;
+	if (ready.kind === "ready") {
+		const gate = mutationCommitVerdict(
+			args[0],
+			ready.mutations.map((mutation) =>
+				mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+			),
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		if (!gate.ok) throw new Error(JSON.stringify(gate.findings));
+		for (const transition of ready.transitions)
+			expect(
+				gate.nextDoc.modules[transition.moduleUuid].caseListConfig?.selection,
+			).toEqual(transition.selection);
+	}
+	return plan;
+}
+const list = () => caseListConfig([{ field: "case_name", header: "Name" }]);
 const MODULE_UUID = testUuid("case-selection-planner-module");
 const TARGET_MODULE_UUID = testUuid("case-selection-planner-target-module");
 const OTHER_TARGET_MODULE_UUID = testUuid(
@@ -41,14 +76,13 @@ function linkedDoc(args?: {
 	readonly targetSelection?: CaseSelection;
 	readonly targetTile?: NonNullable<Module["caseListConfig"]>["tile"];
 	readonly secondTarget?: boolean;
-	readonly targetCaseType?: string;
 	readonly targetFormType?: Form["type"];
 	readonly targetKind?: "form" | "module";
 	readonly authoredDatums?: boolean;
 }): BlueprintDoc {
 	const source: Module = {
 		...moduleWith({
-			...emptyCaseListConfig(),
+			...list(),
 			...(args?.sourceSelection !== undefined && {
 				selection: args.sourceSelection,
 			}),
@@ -57,7 +91,7 @@ function linkedDoc(args?: {
 	};
 	const target: Module = {
 		...moduleWith({
-			...emptyCaseListConfig(),
+			...list(),
 			...(args?.targetSelection !== undefined && {
 				selection: args.targetSelection,
 			}),
@@ -66,10 +100,10 @@ function linkedDoc(args?: {
 		uuid: TARGET_MODULE_UUID,
 		id: "review_visits",
 		name: "Review visits",
-		caseType: args?.targetCaseType ?? "visit",
+		caseType: "visit",
 	};
 	const otherTarget: Module = {
-		...moduleWith(emptyCaseListConfig()),
+		...moduleWith(list()),
 		uuid: OTHER_TARGET_MODULE_UUID,
 		id: "close_visits",
 		name: "Close visits",
@@ -80,9 +114,11 @@ function linkedDoc(args?: {
 		id: "visit",
 		name: "Visit",
 		type: "followup",
+		postSubmit: "app_home",
 		formLinks: [
 			{
 				uuid: LINK_UUID,
+				condition: xp("true()"),
 				target:
 					targetKind === "form"
 						? {
@@ -95,7 +131,7 @@ function linkedDoc(args?: {
 					datums: [
 						{
 							name: "case_id",
-							xpath: { parts: [{ kind: "text", text: "case-id" }] },
+							xpath: { parts: [{ kind: "text", text: "'case-id'" }] },
 						},
 					],
 				}),
@@ -104,6 +140,7 @@ function linkedDoc(args?: {
 				? [
 						{
 							uuid: OTHER_LINK_UUID,
+							condition: xp("true()"),
 							target: {
 								type: "form" as const,
 								moduleUuid: OTHER_TARGET_MODULE_UUID,
@@ -140,35 +177,39 @@ function linkedDoc(args?: {
 			[OTHER_TARGET_FORM_UUID]: otherTargetForm,
 		}),
 	};
-	return {
-		appId: "case-selection-planner",
+	if (args?.targetTile && target.caseListConfig)
+		target.caseListConfig.columns[0].tile = { x: 0, y: 0, width: 1, height: 1 };
+	const doc = buildDoc({
 		appName: "Planner",
-		connectType: null,
-		caseTypes: null,
-		modules,
-		forms,
-		fields: {},
-		moduleOrder: [
-			MODULE_UUID,
-			TARGET_MODULE_UUID,
-			...(args?.secondTarget === true ? [OTHER_TARGET_MODULE_UUID] : []),
+		caseTypes: [
+			{ name: "visit", properties: [] },
+			{ name: "assessment", properties: [] },
 		],
-		formOrder: {
-			[MODULE_UUID]: [SOURCE_FORM_UUID],
-			[TARGET_MODULE_UUID]: [TARGET_FORM_UUID],
-			...(args?.secondTarget === true && {
-				[OTHER_TARGET_MODULE_UUID]: [OTHER_TARGET_FORM_UUID],
-			}),
-		},
-		fieldOrder: {
-			[SOURCE_FORM_UUID]: [],
-			[TARGET_FORM_UUID]: [],
-			...(args?.secondTarget === true && {
-				[OTHER_TARGET_FORM_UUID]: [],
-			}),
-		},
-		fieldParent: {},
-	};
+		modules: Object.values(modules).map((module) => ({
+			...module,
+			forms: Object.values(forms)
+				.filter(
+					(form) =>
+						form.uuid ===
+						(module.uuid === MODULE_UUID
+							? SOURCE_FORM_UUID
+							: module.uuid === TARGET_MODULE_UUID
+								? TARGET_FORM_UUID
+								: OTHER_TARGET_FORM_UUID),
+				)
+				.map((form) => {
+					const { formLinks: _links, ...data } = form;
+					return {
+						...data,
+						fields: [{ kind: "text" as const, id: "notes", label: "Notes" }],
+					};
+				}),
+		})),
+	});
+	for (const form of Object.values(forms))
+		doc.forms[form.uuid] = { ...doc.forms[form.uuid], ...form };
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 function structuralDoc(args?: {
@@ -178,7 +219,7 @@ function structuralDoc(args?: {
 }): BlueprintDoc {
 	const parent: Module = {
 		...moduleWith({
-			...emptyCaseListConfig(),
+			...list(),
 			...(args?.parentSelection !== undefined && {
 				selection: args.parentSelection,
 			}),
@@ -189,7 +230,7 @@ function structuralDoc(args?: {
 	};
 	const child: Module = {
 		...moduleWith({
-			...emptyCaseListConfig(),
+			...list(),
 			...(args?.childSelection !== undefined && {
 				selection: args.childSelection,
 			}),
@@ -206,22 +247,28 @@ function structuralDoc(args?: {
 		name: "Visit",
 		type: args?.childLoadsCase === false ? "survey" : "followup",
 	};
-	return {
-		appId: "case-selection-structural-planner",
+	const doc = buildDoc({
 		appName: "Structural planner",
-		connectType: null,
-		caseTypes: null,
-		modules: { [MODULE_UUID]: parent, [TARGET_MODULE_UUID]: child },
-		forms: { [TARGET_FORM_UUID]: childForm },
-		fields: {},
-		moduleOrder: [MODULE_UUID, TARGET_MODULE_UUID],
-		formOrder: {
-			[MODULE_UUID]: [],
-			[TARGET_MODULE_UUID]: [TARGET_FORM_UUID],
-		},
-		fieldOrder: { [TARGET_FORM_UUID]: [] },
-		fieldParent: {},
-	};
+		caseTypes: [{ name: "household", properties: [] }],
+		modules: [
+			{ ...parent, forms: [] },
+			{
+				...child,
+				forms: [
+					{
+						uuid: childForm.uuid,
+						id: childForm.id,
+						name: childForm.name,
+						type: childForm.type,
+						fields: [{ kind: "text", id: "notes", label: "Notes" }],
+					},
+				],
+			},
+		],
+	});
+	doc.modules[TARGET_MODULE_UUID].parentModuleUuid = MODULE_UUID;
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("planCaseSelectionChange", () => {
@@ -236,7 +283,7 @@ describe("planCaseSelectionChange", () => {
 
 	it("sets bounded multiple selection with one granular mutation", () => {
 		expect(
-			planCaseSelectionChange(moduleWith(emptyCaseListConfig()), {
+			planCaseSelectionChange(moduleWith(list()), {
 				kind: "multiple",
 				maximum: 10,
 			}),
@@ -256,7 +303,7 @@ describe("planCaseSelectionChange", () => {
 	it("clears to the canonical single-case state with JSON-stable null", () => {
 		const plan = planCaseSelectionChange(
 			moduleWith({
-				...emptyCaseListConfig(),
+				...list(),
 				selection: { kind: "multiple", maximum: 5 },
 			}),
 			undefined,
@@ -279,7 +326,7 @@ describe("planCaseSelectionChange", () => {
 		expect(
 			planCaseSelectionChange(
 				moduleWith({
-					...emptyCaseListConfig(),
+					...list(),
 					tile: {
 						persistOnForms: true,
 						grouping: { identifier: "parent", headerRows: 1 },
@@ -307,7 +354,7 @@ describe("planCaseSelectionChange", () => {
 		expect(
 			planCaseSelectionChange(
 				moduleWith({
-					...emptyCaseListConfig(),
+					...list(),
 					selection: { kind: "multiple", maximum: 3 },
 				}),
 				{ kind: "multiple", maximum: 3 },
@@ -387,6 +434,7 @@ describe("planCaseSelectionTransition", () => {
 	it("retains a destination limit that already accepts the source", () => {
 		const plan = planCaseSelectionTransition(
 			linkedDoc({
+				sourceSelection: { kind: "multiple", maximum: 10 },
 				targetSelection: { kind: "multiple", maximum: 30 },
 			}),
 			{
@@ -441,37 +489,36 @@ describe("planCaseSelectionTransition", () => {
 		if (plan.kind === "ready") expect(plan.transitions).toHaveLength(1);
 	});
 
-	it.each([
-		["different-case-type" as const, { targetCaseType: "assessment" }],
-		["authored-datums" as const, { authoredDatums: true }],
-	])("locates a non-repairable %s form link", (reason, setup) => {
-		const plan = planCaseSelectionTransition(linkedDoc(setup), {
-			sourceModuleUuid: MODULE_UUID,
-			selection: { kind: "multiple", maximum: 5 },
-		});
-		expect(plan).toMatchObject({
-			kind: "blocked",
-			blockers: [
-				{
-					kind: "form-link",
-					reason,
-					sourceModuleUuid: MODULE_UUID,
-					sourceFormUuid: SOURCE_FORM_UUID,
-					linkUuid: LINK_UUID,
-					targetModuleUuid: TARGET_MODULE_UUID,
-					targetFormUuid: TARGET_FORM_UUID,
-				},
-			],
-		});
-	});
+	it.each([["authored-datums" as const, { authoredDatums: true }]])(
+		"locates a non-repairable %s form link",
+		(reason, setup) => {
+			const plan = planCaseSelectionTransition(linkedDoc(setup), {
+				sourceModuleUuid: MODULE_UUID,
+				selection: { kind: "multiple", maximum: 5 },
+			});
+			expect(plan).toMatchObject({
+				kind: "blocked",
+				blockers: [
+					{
+						kind: "form-link",
+						reason,
+						sourceModuleUuid: MODULE_UUID,
+						sourceFormUuid: SOURCE_FORM_UUID,
+						linkUuid: LINK_UUID,
+						targetModuleUuid: TARGET_MODULE_UUID,
+						targetFormUuid: TARGET_FORM_UUID,
+					},
+				],
+			});
+		},
+	);
 
 	it("follows a transitive form-link closure and propagates its maximum", () => {
 		const base = linkedDoc({
 			secondTarget: true,
-			targetSelection: { kind: "multiple", maximum: 30 },
 		});
-		const sourceForm = base.forms[SOURCE_FORM_UUID] as Form;
-		const targetForm = base.forms[TARGET_FORM_UUID] as Form;
+		const sourceForm = base.forms[SOURCE_FORM_UUID];
+		const targetForm = base.forms[TARGET_FORM_UUID];
 		const doc: BlueprintDoc = {
 			...base,
 			forms: {
@@ -482,9 +529,11 @@ describe("planCaseSelectionTransition", () => {
 				},
 				[TARGET_FORM_UUID]: {
 					...targetForm,
+					postSubmit: "app_home",
 					formLinks: [
 						{
 							uuid: OTHER_LINK_UUID,
+							condition: xp("true()"),
 							target: {
 								type: "form",
 								moduleUuid: OTHER_TARGET_MODULE_UUID,
@@ -504,8 +553,12 @@ describe("planCaseSelectionTransition", () => {
 			kind: "needs-coordination",
 			transitions: [
 				{
+					moduleUuid: TARGET_MODULE_UUID,
+					selection: { kind: "multiple", maximum: 12 },
+				},
+				{
 					moduleUuid: OTHER_TARGET_MODULE_UUID,
-					selection: { kind: "multiple", maximum: 30 },
+					selection: { kind: "multiple", maximum: 12 },
 				},
 			],
 		});
@@ -513,20 +566,23 @@ describe("planCaseSelectionTransition", () => {
 
 	it("preserves the exact source maximum across an incoming link", () => {
 		const base = linkedDoc({
+			sourceSelection: { kind: "multiple", maximum: 20 },
 			targetSelection: { kind: "multiple", maximum: 20 },
 		});
-		const sourceForm = base.forms[SOURCE_FORM_UUID] as Form;
-		const targetForm = base.forms[TARGET_FORM_UUID] as Form;
+		const sourceForm = base.forms[SOURCE_FORM_UUID];
+		const targetForm = base.forms[TARGET_FORM_UUID];
 		const doc: BlueprintDoc = {
 			...base,
 			forms: {
 				...base.forms,
-				[SOURCE_FORM_UUID]: { ...sourceForm, formLinks: [] },
+				[SOURCE_FORM_UUID]: { ...sourceForm, formLinks: undefined },
 				[TARGET_FORM_UUID]: {
 					...targetForm,
+					postSubmit: "app_home",
 					formLinks: [
 						{
 							uuid: OTHER_LINK_UUID,
+							condition: xp("true()"),
 							target: {
 								type: "form",
 								moduleUuid: MODULE_UUID,

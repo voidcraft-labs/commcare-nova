@@ -41,14 +41,13 @@ describe("modulePatchMutations — caseSearchConfig key semantics", () => {
 		]);
 	});
 
-	it("lowers an explicit undefined key to the direct null teardown", () => {
-		expect(modulePatchMutations(mod, { caseSearchConfig: undefined })).toEqual([
-			{
-				kind: "updateModule",
-				uuid: MODULE_UUID,
-				patch: { caseSearchConfig: null },
-			},
+	it("preserves omitted Search settings and does not mutate its source", () => {
+		const before = structuredClone(mod);
+		expect(modulePatchMutations(mod, { name: "Clients" })).toEqual([]);
+		expect(modulePatchMutations(mod, { name: "Renamed" })).toEqual([
+			{ kind: "renameModule", uuid: MODULE_UUID, newId: "Renamed" },
 		]);
+		expect(mod).toEqual(before);
 	});
 
 	it("clears the whole Search config only on an explicit null", () => {

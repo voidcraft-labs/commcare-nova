@@ -663,7 +663,7 @@ export function createReconciler(
 
 	// ── Dispatch (human edit → PUT) ──────────────────────────────────────
 	function canPut(): boolean {
-		return !dormant && !revoked && appId !== undefined && deps.canEdit();
+		return !dormant && !inert() && appId !== undefined && deps.canEdit();
 	}
 
 	function isDormant(): boolean {
@@ -749,6 +749,9 @@ export function createReconciler(
 	}
 
 	function watchNextHumanBatch(expected: unknown): HumanBatchWatch {
+		if (disposed) {
+			return { promise: Promise.resolve({ kind: "cancelled" }), cancel() {} };
+		}
 		let resolveWatch: ((outcome: HumanBatchWatchOutcome) => void) | undefined;
 		const promise = new Promise<HumanBatchWatchOutcome>((resolve) => {
 			resolveWatch = resolve;

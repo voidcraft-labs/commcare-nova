@@ -4,12 +4,17 @@ import {
 	mutationCommitVerdict,
 	mutationCommitVerdictWithPrevalidation,
 } from "@/lib/doc/commitVerdicts";
-import { incrementalValidationScope } from "@/lib/doc/incrementalValidationScope";
+import { incrementalValidationScope as actualScope } from "@/lib/doc/incrementalValidationScope";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid, type Mutation } from "@/lib/doc/types";
-import type { CaseOperation, Form } from "@/lib/domain";
+import type { CaseOperation } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
+import { assertAdmittedDoc } from "./admittedDoc";
 
+function incrementalValidationScope(...args: Parameters<typeof actualScope>) {
+	assertAdmittedDoc(args[0]);
+	return actualScope(...args);
+}
 const PARENT_MODULE = asUuid("00000000-0000-4000-8000-000000000101");
 const CHILD_MODULE = asUuid("00000000-0000-4000-8000-000000000102");
 const CHILD_FORM = asUuid("00000000-0000-4000-8000-000000000103");
@@ -24,6 +29,7 @@ function expectCommitParity(
 	doc: ReturnType<typeof buildDoc>,
 	mutations: Mutation[],
 ) {
+	assertAdmittedDoc(doc);
 	const absolute = mutationCommitVerdict(
 		doc,
 		mutations,
@@ -41,13 +47,18 @@ function expectCommitParity(
 function fixture() {
 	const doc = buildDoc({
 		appName: "Incremental validation",
+		caseTypes: [{ name: "patient", properties: [] }],
 		modules: [
 			{
 				name: "Visit",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						name: "Visit form",
-						type: "survey",
+						type: "followup",
 						fields: [
 							f({ kind: "text", id: "name" }),
 							f({ kind: "text", id: "age" }),
@@ -112,6 +123,9 @@ describe("incrementalValidationScope", () => {
 				{
 					name: "Author",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Edit field",
@@ -132,6 +146,9 @@ describe("incrementalValidationScope", () => {
 				{
 					name: "Automation",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Run operation",
@@ -171,7 +188,7 @@ describe("incrementalValidationScope", () => {
 		doc.forms[operationFormUuid] = {
 			...doc.forms[operationFormUuid],
 			caseOperations: [operation],
-		} as Form;
+		};
 		const mutations: Mutation[] = [
 			{
 				kind: "updateField",
@@ -187,6 +204,7 @@ describe("incrementalValidationScope", () => {
 			moduleUuids: new Set(doc.moduleOrder),
 			formUuids: new Set([authorFormUuid, operationFormUuid]),
 		});
+		assertAdmittedDoc(doc);
 		const absolute = mutationCommitVerdict(
 			doc,
 			mutations,
@@ -430,7 +448,10 @@ describe("incrementalValidationScope", () => {
 
 	it("matches the absolute gate for accepted and rejected field edits", () => {
 		const { doc, fieldUuid } = fixture();
-		for (const id of ["full_name", "age"]) {
+		for (const [id, accepted] of [
+			["full_name", true],
+			["age", false],
+		] as const) {
 			const mutations: Mutation[] = [
 				{
 					kind: "updateField",
@@ -439,6 +460,7 @@ describe("incrementalValidationScope", () => {
 					patch: { id },
 				},
 			];
+			assertAdmittedDoc(doc);
 			const absolute = mutationCommitVerdict(
 				doc,
 				mutations,
@@ -449,7 +471,8 @@ describe("incrementalValidationScope", () => {
 				mutations,
 				LOOKUP_CONTEXT_UNAVAILABLE,
 			);
-			expect(incremental.ok).toBe(absolute.ok);
+			expect(absolute.ok).toBe(accepted);
+			expect(incremental.ok).toBe(accepted);
 			if (!absolute.ok && !incremental.ok) {
 				expect(incremental.findings.map((finding) => finding.code)).toEqual(
 					absolute.findings.map((finding) => finding.code),
@@ -680,6 +703,7 @@ describe("incrementalValidationScope", () => {
 				patch: { caseWrite: null },
 			},
 		];
+		assertAdmittedDoc(doc);
 		const absolute = mutationCommitVerdict(
 			doc,
 			mutations,

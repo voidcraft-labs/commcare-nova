@@ -11,6 +11,7 @@ import {
 	now,
 	prop,
 	relationStep,
+	subcasePath,
 	type TypeContext,
 	term,
 	today,
@@ -54,6 +55,26 @@ describe("expression runtime edit verdicts", () => {
 		expect(
 			valueExpressionRuntimeEditVerdict(
 				dateAdd(now(), "days", quantity),
+				"on-device",
+				TYPE_CONTEXT,
+			),
+		).toMatchObject({
+			ok: false,
+			reason: expect.stringContaining("time would be lost"),
+		});
+	});
+
+	it("resolves case property types before accepting device date arithmetic", () => {
+		expect(
+			valueExpressionRuntimeEditVerdict(
+				dateAdd(term(prop("patient", "dob")), "days", quantity),
+				"on-device",
+				TYPE_CONTEXT,
+			),
+		).toEqual({ ok: true });
+		expect(
+			valueExpressionRuntimeEditVerdict(
+				dateAdd(term(prop("patient", "last_seen")), "days", quantity),
 				"on-device",
 				TYPE_CONTEXT,
 			),
@@ -158,7 +179,7 @@ describe("Search calculated-expression edit verdict", () => {
 		).toEqual({ ok: true });
 	});
 
-	it("rejects wrapped and reserved parent reads with a concrete repair", () => {
+	it("rejects wrapped parent reads and unaggregated child reads with a concrete repair", () => {
 		const directParent = term(
 			prop(
 				"patient",
@@ -176,30 +197,12 @@ describe("Search calculated-expression edit verdict", () => {
 		});
 		expect(
 			caseSearchCalculatedExpressionEditVerdict(
-				term(
-					prop(
-						"patient",
-						"score",
-						ancestorPath(
-							relationStep("parent", "household"),
-							relationStep("parent", "organization"),
-						),
-					),
-				),
-				context,
+				term(prop("household", "age", subcasePath("parent", "patient"))),
+				{ ...context, currentCaseType: "household" },
 			),
-		).toEqual({ ok: true });
-		expect(
-			caseSearchCalculatedExpressionEditVerdict(
-				term(
-					prop(
-						"patient",
-						"score",
-						ancestorPath(relationStep("user", "household")),
-					),
-				),
-				context,
-			),
-		).toEqual({ ok: true });
+		).toMatchObject({
+			ok: false,
+			reason: expect.stringContaining("Choose the parent property by itself"),
+		});
 	});
 });

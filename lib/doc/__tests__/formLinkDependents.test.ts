@@ -12,6 +12,7 @@ import {
 } from "@/lib/doc/formLinkDependents";
 import type { BlueprintDoc } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const INTAKE = testUuid("mod-intake");
 const CARE = testUuid("mod-care");
@@ -22,7 +23,7 @@ const ARCHIVE = testUuid("frm-archive");
 
 function fixture(): BlueprintDoc {
 	const q = (id: string) => f({ kind: "text", id, label: proseText(id) });
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Dependents",
 		modules: [
 			{
@@ -69,12 +70,6 @@ function fixture(): BlueprintDoc {
 								uuid: "lnk-visit-archive",
 								target: { type: "form", moduleUuid: CARE, formUuid: ARCHIVE },
 							},
-							// A self-link: never a dependent of its own removal.
-							{
-								uuid: "lnk-visit-self",
-								condition: "1 = 1",
-								target: { type: "form", moduleUuid: CARE, formUuid: VISIT },
-							},
 						],
 						fields: [q("c")],
 					},
@@ -88,6 +83,8 @@ function fixture(): BlueprintDoc {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("formLinkDependentsOnRemove", () => {
@@ -113,7 +110,7 @@ describe("formLinkDependentsOnRemove", () => {
 		).toEqual([testUuid("lnk-register-visit"), testUuid("lnk-follow-care")]);
 	});
 
-	it("ignores links that live on the removed subtree, self-links included", () => {
+	it("ignores links that leave with the removed subtree", () => {
 		expect(
 			formLinkDependentsOnRemove(fixture(), {
 				kind: "form",

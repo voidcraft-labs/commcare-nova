@@ -10,6 +10,7 @@ import {
 	type BlueprintDoc,
 } from "@/lib/domain";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const UPDATE_AUTOMATION_UUID = testUuid("canonical-update-automation");
 const UPDATE_UUID = testUuid("canonical-update-item");
@@ -115,6 +116,7 @@ function automationDoc(): BlueprintDoc {
 		[ALERT_AUTOMATION_UUID]: alert,
 	};
 	doc.automationOrder = [UPDATE_AUTOMATION_UUID, ALERT_AUTOMATION_UUID];
+	assertAdmittedDoc(doc);
 	return doc;
 }
 
@@ -174,13 +176,26 @@ describe("automation mutation aggregate canonicality", () => {
 		);
 		expect(disabled.ok).toBe(true);
 		expect(removed.ok).toBe(true);
-		if (!disabled.ok) return;
+		if (!disabled.ok || !removed.ok)
+			throw new Error("individual edits must commit");
 
 		const merged = mutationCommitVerdict(
 			disabled.nextDoc,
 			removeUpdate,
 			LOOKUP_CONTEXT_UNAVAILABLE,
 		);
+		const reverse = mutationCommitVerdict(
+			removed.nextDoc,
+			disableClose,
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(reverse.ok).toBe(false);
+		if (reverse.ok) throw new Error("reverse merge must refuse");
+		expect(
+			reverse.findings
+				.filter((finding) => finding.code === "AUTOMATION_INVALID")
+				.map((finding) => finding.details?.path),
+		).toContain("updates");
 		expect(merged.ok).toBe(false);
 		if (merged.ok) return;
 		expect(

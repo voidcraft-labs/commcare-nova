@@ -103,10 +103,8 @@ const EMPTY_LOCALIZED_VALUES: ReadonlyMap<TranslationUnitId, LocalizedValue> =
  * call. Prevents the doc subscription from firing on entity-map changes
  * when the user is not searching. Without this, every entity edit triggers
  * the search subscription and AppTree re-renders needlessly.
- *
- * Exported so tests can assert reference stability of the idle path.
  */
-export const SEARCH_IDLE: SearchEntityData = {
+const SEARCH_IDLE: SearchEntityData = {
 	moduleOrder: [],
 	formOrder: {} as Record<Uuid, Uuid[]>,
 	fieldOrder: {} as Record<Uuid, Uuid[]>,

@@ -2,18 +2,20 @@ import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { mutationTargetsInvalid } from "@/lib/db/commitGuard";
 import {
+	caseOperationEditVerdict as actualcaseOperationEditVerdict,
+	moveCaseOperationMutation as actualmoveCaseOperationMutation,
+	planCaseOperationUpdate as actualplanCaseOperationUpdate,
+	removeCaseOperationMutation as actualremoveCaseOperationMutation,
+	updateCaseOperationMutations as actualupdateCaseOperationMutations,
 	addCaseOperationMutations,
-	caseOperationEditVerdict,
-	moveCaseOperationMutation,
-	planCaseOperationUpdate,
-	removeCaseOperationMutation,
-	updateCaseOperationMutations,
 } from "@/lib/doc/caseOperationMutations";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { applyMutations } from "@/lib/doc/mutations";
+import { mutationTargetsInvalid } from "@/lib/doc/mutationTargetAdmission";
 import {
 	buildReferenceIndex,
 	declarersOf,
@@ -26,7 +28,6 @@ import {
 	casePropertyTargetKey,
 	caseTypeTargetKey,
 	entityTargetKey,
-	type Form,
 	orderedCaseOperations,
 } from "@/lib/domain";
 import {
@@ -39,6 +40,38 @@ import {
 	term,
 } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
+
+function caseOperationEditVerdict(
+	...args: Parameters<typeof actualcaseOperationEditVerdict>
+) {
+	assertAdmittedDoc(args[0]);
+	return actualcaseOperationEditVerdict(...args);
+}
+function moveCaseOperationMutation(
+	...args: Parameters<typeof actualmoveCaseOperationMutation>
+) {
+	assertAdmittedDoc(args[0]);
+	return actualmoveCaseOperationMutation(...args);
+}
+function planCaseOperationUpdate(
+	...args: Parameters<typeof actualplanCaseOperationUpdate>
+) {
+	assertAdmittedDoc(args[0]);
+	return actualplanCaseOperationUpdate(...args);
+}
+function removeCaseOperationMutation(
+	...args: Parameters<typeof actualremoveCaseOperationMutation>
+) {
+	assertAdmittedDoc(args[0]);
+	return actualremoveCaseOperationMutation(...args);
+}
+function updateCaseOperationMutations(
+	...args: Parameters<typeof actualupdateCaseOperationMutations>
+) {
+	assertAdmittedDoc(args[0]);
+	return actualupdateCaseOperationMutations(...args);
+}
 
 const CREATE = testUuid("11111111-1111-4111-8111-111111111111");
 const CONSUMER = testUuid("22222222-2222-4222-8222-222222222222");
@@ -54,11 +87,33 @@ function fixture(): {
 		caseTypes: [
 			{
 				name: "patient",
-				properties: [{ name: "nickname", label: proseText("Nickname") }],
+				properties: [
+					"nickname",
+					"source_id",
+					"alpha",
+					"bravo",
+					"charlie",
+					"delta",
+					"echo",
+					"note",
+					"form_name",
+					"created_id",
+				].map((name) => ({ name, label: proseText(name) })),
 			},
 			{
 				name: "visit",
-				properties: [{ name: "source_id", label: proseText("Source ID") }],
+				properties: [
+					"nickname",
+					"source_id",
+					"alpha",
+					"bravo",
+					"charlie",
+					"delta",
+					"echo",
+					"note",
+					"form_name",
+					"created_id",
+				].map((name) => ({ name, label: proseText(name) })),
 			},
 		],
 		modules: [
@@ -78,10 +133,6 @@ function fixture(): {
 								kind: "text",
 								id: "nickname",
 								label: proseText("Nickname"),
-								caseWrite: {
-									caseType: "patient",
-									property: "nickname",
-								},
 							}),
 							f({
 								uuid: REPEAT,
@@ -89,7 +140,13 @@ function fixture(): {
 								id: "visits",
 								label: proseText("Visits"),
 								repeat_mode: "user_controlled",
-								children: [],
+								children: [
+									f({
+										kind: "text",
+										id: "visit_note",
+										label: proseText("Note"),
+									}),
+								],
 							}),
 						],
 					},
@@ -98,6 +155,7 @@ function fixture(): {
 		],
 	});
 	const moduleUuid = doc.moduleOrder[0];
+	assertAdmittedDoc(doc);
 	return { doc, formUuid: doc.formOrder[moduleUuid][0] };
 }
 
@@ -126,6 +184,21 @@ function consumerOperation(patch: Partial<CaseOperation> = {}): CaseOperation {
 }
 
 function apply(
+	doc: BlueprintDoc,
+	mutations: readonly Mutation[],
+): BlueprintDoc {
+	assertAdmittedDoc(doc);
+	const verdict = mutationCommitVerdict(
+		doc,
+		mutations.map((mutation) =>
+			mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+		),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	if (!verdict.ok) throw new Error(JSON.stringify(verdict.findings));
+	return verdict.nextDoc;
+}
+function replay(
 	doc: BlueprintDoc,
 	mutations: readonly Mutation[],
 ): BlueprintDoc {
@@ -163,7 +236,7 @@ describe("case-operation mutation planning", () => {
 
 	it("leaves an operation where it sits when an update only changes content", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			createOperation(),
 			consumerOperation(),
 		];
@@ -184,7 +257,7 @@ describe("case-operation mutation planning", () => {
 		const { doc, formUuid } = fixture();
 		const create = createOperation();
 		const consumer = consumerOperation();
-		(doc.forms[formUuid] as Form).caseOperations = [create, consumer];
+		doc.forms[formUuid].caseOperations = [create, consumer];
 		const desired: CaseOperation = {
 			...consumer,
 			caseType: "patient",
@@ -220,7 +293,7 @@ describe("case-operation mutation planning", () => {
 
 	it("composes stale peer edits to different operation slots", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [createOperation()];
+		doc.forms[formUuid].caseOperations = [createOperation()];
 
 		const rename = updateCaseOperationMutations(doc, formUuid, {
 			...createOperation(),
@@ -270,12 +343,13 @@ describe("case-operation mutation planning", () => {
 	it("composes stale peer edits to different write slots", () => {
 		const { doc, formUuid } = fixture();
 		const original = consumerOperation({
+			target: { kind: "expression", expr: term(literal("existing-visit")) },
 			writes: [
 				{ property: "source_id", value: term(literal("original")) },
 				{ property: "note", value: term(literal("original")) },
 			],
 		});
-		(doc.forms[formUuid] as Form).caseOperations = [original];
+		doc.forms[formUuid].caseOperations = [original];
 
 		const sourceEdit = updateCaseOperationMutations(doc, formUuid, {
 			...original,
@@ -341,10 +415,7 @@ describe("case-operation mutation planning", () => {
 				},
 			],
 		});
-		(doc.forms[formUuid] as Form).caseOperations = [
-			createOperation(),
-			original,
-		];
+		doc.forms[formUuid].caseOperations = [createOperation(), original];
 		const originalLink = original.links?.[0];
 		if (originalLink === undefined) throw new Error("link fixture missing");
 
@@ -402,7 +473,7 @@ describe("case-operation mutation planning", () => {
 
 	it("rejects removal and reordering while later references depend on a create", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			createOperation(),
 			consumerOperation(),
 		];
@@ -446,11 +517,7 @@ describe("case-operation mutation planning", () => {
 			caseType: "patient",
 			target: { kind: "op", opUuid: CREATE },
 		};
-		(doc.forms[formUuid] as Form).caseOperations = [
-			createOperation(),
-			retype,
-			later,
-		];
+		doc.forms[formUuid].caseOperations = [createOperation(), retype, later];
 
 		// Nothing holds an `id-of` edge to the retype — what `later` depends on
 		// is the TYPE it leaves behind, and the refusal has to say so or the
@@ -471,7 +538,7 @@ describe("case-operation mutation planning", () => {
 
 	it("rejects a move that introduces a possible runtime alias after retype", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: CONSUMER,
 				id: "update_runtime_patient",
@@ -497,9 +564,9 @@ describe("case-operation mutation planning", () => {
 		});
 	});
 
-	it("moves independent operations with an absolute fractional key", () => {
+	it("moves independent operations with an identity anchor", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			createOperation(),
 			consumerOperation(),
 			{
@@ -524,10 +591,7 @@ describe("case-operation mutation planning", () => {
 	it("plans nothing for a move to where the operation already is", () => {
 		const { doc, formUuid } = fixture();
 		const current = createOperation();
-		(doc.forms[formUuid] as Form).caseOperations = [
-			current,
-			consumerOperation(),
-		];
+		doc.forms[formUuid].caseOperations = [current, consumerOperation()];
 
 		expect(moveCaseOperationMutation(doc, formUuid, current.uuid, 0)).toEqual({
 			ok: true,
@@ -537,7 +601,7 @@ describe("case-operation mutation planning", () => {
 
 	it("rejects a move across multiplicity scopes when the wire cannot preserve it", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: OTHER,
 				id: "update_patient",
@@ -564,8 +628,11 @@ describe("case-operation mutation planning", () => {
 			caseType: "patient",
 			target: { kind: "session" },
 		};
-		(doc.forms[formUuid] as Form).caseOperations = [
-			createOperation({ target: { kind: "new", idFrom: NAME } }),
+		doc.forms[formUuid].caseOperations = [
+			createOperation({
+				caseType: "patient",
+				target: { kind: "new", idFrom: NAME },
+			}),
 			updatePatient,
 		];
 
@@ -575,19 +642,13 @@ describe("case-operation mutation planning", () => {
 			dependentUuids: [CREATE],
 		});
 
-		(doc.forms[formUuid] as Form).caseOperations = [
-			createOperation(),
-			updatePatient,
-		];
+		doc.forms[formUuid].caseOperations = [createOperation(), updatePatient];
 		expect(moveCaseOperationMutation(doc, formUuid, CREATE, 1).ok).toBe(true);
 	});
 });
 
-// A move asserts a RANK to the authoritative writer, so it has to land the
-// operation at exactly the index the author asked for — every destination
-// reachable, and the writer's fence agreeing that it landed there. Moving the
-// first, a middle, and the last operation are separate cases because each
-// splices differently.
+// The Builder translates a visible destination index into a stable UUID
+// anchor; the committed result must land at the requested destination.
 describe("case-operation move lands at the rank it asserts", () => {
 	const RANKED = [
 		testUuid("aaaaaaaa-0000-4000-8000-000000000001"),
@@ -609,7 +670,7 @@ describe("case-operation move lands at the rank it asserts", () => {
 
 	function docWith(count: number) {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = Array.from(
+		doc.forms[formUuid].caseOperations = Array.from(
 			{ length: count },
 			(_, index) => ranked(index),
 		);
@@ -685,7 +746,7 @@ describe("case-operation builder choice verdict", () => {
 	it("rejects a target/type mismatch and accepts the action reshape that fixes both", () => {
 		const { doc, formUuid } = fixture();
 		const create = createOperation();
-		(doc.forms[formUuid] as Form).caseOperations = [create];
+		doc.forms[formUuid].caseOperations = [create];
 
 		expect(
 			caseOperationEditVerdict(doc, formUuid, {
@@ -723,7 +784,7 @@ describe("case-operation builder choice verdict", () => {
 			caseType: "visit",
 			target: { kind: "session" },
 		};
-		(doc.forms[formUuid] as Form).caseOperations = [retype, later];
+		doc.forms[formUuid].caseOperations = [retype, later];
 
 		expect(
 			caseOperationEditVerdict(doc, formUuid, {
@@ -754,7 +815,7 @@ describe("case-operation builder choice verdict", () => {
 				},
 			],
 		};
-		(doc.forms[formUuid] as Form).caseOperations = [create, updater];
+		doc.forms[formUuid].caseOperations = [create, updater];
 
 		expect(caseOperationEditVerdict(doc, formUuid, updater)).toEqual({
 			ok: true,
@@ -779,7 +840,7 @@ describe("case-operation builder choice verdict", () => {
 			target: { kind: "session" },
 		};
 		const generated = createOperation();
-		(doc.forms[formUuid] as Form).caseOperations = [earlier, generated];
+		doc.forms[formUuid].caseOperations = [earlier, generated];
 
 		expect(caseOperationEditVerdict(doc, formUuid, generated)).toEqual({
 			ok: true,
@@ -804,7 +865,7 @@ describe("case-operation builder choice verdict", () => {
 		const { doc, formUuid } = fixture();
 		const create = createOperation();
 		const consumer = consumerOperation();
-		(doc.forms[formUuid] as Form).caseOperations = [create, consumer];
+		doc.forms[formUuid].caseOperations = [create, consumer];
 
 		expect(caseOperationEditVerdict(doc, formUuid, create)).toEqual({
 			ok: true,
@@ -822,81 +883,64 @@ describe("case-operation builder choice verdict", () => {
 });
 
 describe("case-operation persistence and reference participation", () => {
-	it("rejects identity-changing and empty granular update patches at ingress", () => {
+	it("admits action-only scalar changes and refuses identity changes or empty child patches", () => {
 		const { formUuid } = fixture();
-		const update = (
-			caseOperationPatch: Record<string, unknown>,
-			value: CaseOperation = createOperation(),
-		) => ({
+		const update = (caseOperationPatch: unknown) => ({
 			kind: "updateForm",
 			uuid: formUuid,
 			patch: {},
-			caseOperationChange: { operation: "update", uuid: CREATE, value },
 			caseOperationPatch,
 		});
-
 		expect(
 			mutationSchema.safeParse(
 				update({
 					operation: "update",
 					uuid: CREATE,
-					patch: { uuid: OTHER },
+					targetAction: "create",
+					patch: { id: "new_id" },
+				}),
+			).success,
+		).toBe(true);
+		expect(
+			mutationSchema.safeParse(
+				update({
+					operation: "update",
+					uuid: CREATE,
+					targetAction: "update",
+					patch: {},
+				}),
+			).success,
+		).toBe(true);
+		for (const patch of [{ uuid: OTHER }]) {
+			expect(
+				mutationSchema.safeParse(
+					update({
+						operation: "update",
+						uuid: CREATE,
+						targetAction: "create",
+						patch,
+					}),
+				).success,
+			).toBe(false);
+		}
+		expect(
+			mutationSchema.safeParse(
+				update({
+					operation: "update-write",
+					uuid: CREATE,
+					property: "source_id",
+					patch: {},
 				}),
 			).success,
 		).toBe(false);
 		expect(
 			mutationSchema.safeParse(
-				update({ operation: "update", uuid: CREATE, patch: {} }),
-			).success,
-		).toBe(false);
-		expect(
-			mutationSchema.safeParse(
-				update(
-					{
-						operation: "update-write",
-						uuid: CREATE,
-						property: "source_id",
-						patch: {},
-					},
-					createOperation({
-						writes: [{ property: "source_id", value: term(literal("x")) }],
-					}),
-				),
-			).success,
-		).toBe(false);
-		expect(
-			mutationSchema.safeParse(
-				update(
-					{
-						operation: "update-link",
-						uuid: CREATE,
-						identifier: "parent",
-						patch: {},
-					},
-					createOperation({
-						links: [
-							{
-								identifier: "parent",
-								targetType: "patient",
-								target: { kind: "session" },
-								relationship: "child",
-							},
-						],
-					}),
-				),
-			).success,
-		).toBe(false);
-
-		expect(
-			mutationSchema.safeParse(
-				update(
-					{
-						operation: "update",
-						uuid: CREATE,
-						patch: { id: "new_id" },
-					},
-					createOperation({ id: "different_id" }),
-				),
+				update({
+					operation: "update-link",
+					uuid: CREATE,
+					identifier: "parent",
+					patch: {},
+				}),
 			).success,
 		).toBe(false);
 	});
@@ -906,7 +950,13 @@ describe("case-operation persistence and reference participation", () => {
 		const next = produce(prev, (draft) => {
 			draft.forms[formUuid].caseOperations = [
 				createOperation(),
-				consumerOperation(),
+				consumerOperation({
+					caseType: "patient",
+					target: { kind: "session" },
+					writes: [
+						{ property: "source_id", value: term(literal("independent")) },
+					],
+				}),
 			];
 		});
 		const addDiff = diffDocsToMutations(prev, next);
@@ -929,6 +979,9 @@ describe("case-operation persistence and reference participation", () => {
 			operations[0].name = term(literal("Visit record"));
 			operations.reverse();
 		});
+		expect(
+			toPersistableDoc(apply(next, diffDocsToMutations(next, changed))),
+		).toEqual(toPersistableDoc(changed));
 		const changeKinds = diffDocsToMutations(next, changed)
 			.filter(
 				(mutation) =>
@@ -970,6 +1023,9 @@ describe("case-operation persistence and reference participation", () => {
 			),
 		).toBe(true);
 
+		expect(
+			toPersistableDoc(apply(changed, diffDocsToMutations(changed, removed))),
+		).toEqual(toPersistableDoc(removed));
 		const reordered = produce(next, (draft) => {
 			draft.forms[formUuid].caseOperations?.reverse();
 		});
@@ -982,7 +1038,7 @@ describe("case-operation persistence and reference participation", () => {
 	it("keeps stale update and move patches reducer-no-op when identity is absent", () => {
 		const { doc, formUuid } = fixture();
 		const before = toPersistableDoc(doc);
-		const after = apply(doc, [
+		const after = replay(doc, [
 			{
 				kind: "updateForm",
 				uuid: formUuid,
@@ -1010,7 +1066,10 @@ describe("case-operation persistence and reference participation", () => {
 
 	it("indexes every operation identity/expression edge and writer declaration", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [
+		const visit = doc.caseTypes?.find((type) => type.name === "visit");
+		if (!visit) throw new Error("missing visit");
+		visit.parent_type = "patient";
+		doc.forms[formUuid].caseOperations = [
 			createOperation({ forEach: { repeat: REPEAT } }),
 			consumerOperation({
 				forEach: { repeat: REPEAT },
@@ -1033,6 +1092,7 @@ describe("case-operation persistence and reference participation", () => {
 				],
 			}),
 		];
+		assertAdmittedDoc(doc);
 		doc.refIndex = buildReferenceIndex(doc);
 
 		expect(
@@ -1070,7 +1130,7 @@ describe("case-operation persistence and reference participation", () => {
 
 	it("rewrites operation write keys and AST reads in a case-property rename", () => {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [
+		doc.forms[formUuid].caseOperations = [
 			{
 				uuid: CONSUMER,
 				id: "copy_name",
@@ -1137,7 +1197,7 @@ describe("case-operation write and link order is intent", () => {
 
 	function docHolding(operation: CaseOperation) {
 		const { doc, formUuid } = fixture();
-		(doc.forms[formUuid] as Form).caseOperations = [operation];
+		doc.forms[formUuid].caseOperations = [operation];
 		return { doc, formUuid };
 	}
 

@@ -472,8 +472,10 @@ export function mutationIdentityAdmissionIssue(
 	}
 	const live = new Map(seen);
 	const removedInBatch = new Set<Uuid>();
-	const claimedInBatch = new Set<Uuid>();
 	for (const [mutationIndex, mutation] of mutations.entries()) {
+		// Duplicate claims inside one payload are collisions. A later atomic
+		// replacement may still preserve identities continuously owned here.
+		const claimedInMutation = new Set<Uuid>();
 		const replacement = ownedIdentityReplacementBy(mutation);
 		if (replacement !== undefined) {
 			for (const identity of live.values()) {
@@ -505,7 +507,7 @@ export function mutationIdentityAdmissionIssue(
 			const preservesOwnedIdentity =
 				existing !== undefined &&
 				liveExisting !== undefined &&
-				!claimedInBatch.has(identity.uuid) &&
+				!claimedInMutation.has(identity.uuid) &&
 				!removedInBatch.has(identity.uuid) &&
 				claim.preserveIfOwnedBy !== undefined &&
 				existing.kind === identity.kind &&
@@ -522,7 +524,7 @@ export function mutationIdentityAdmissionIssue(
 					incomingKind: identity.kind,
 				};
 			}
-			claimedInBatch.add(identity.uuid);
+			claimedInMutation.add(identity.uuid);
 			seen.set(identity.uuid, identity);
 			live.set(identity.uuid, identity);
 		}

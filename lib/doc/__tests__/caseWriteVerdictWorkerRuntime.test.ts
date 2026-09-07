@@ -1,13 +1,14 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
-import { caseWriteChoiceVerdict } from "@/lib/doc/caseWriteChoices";
 import {
 	CASE_WRITE_VERDICT_WORKER_VERSION,
 	type CaseWriteVerdictCandidate,
 } from "@/lib/doc/caseWriteVerdictWorkerProtocol";
 import { evaluateCaseWriteVerdictBatch } from "@/lib/doc/caseWriteVerdictWorkerRuntime";
+import { toPersistableDoc } from "@/lib/doc/fieldParent";
 import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 describe("case-write verdict worker runtime", () => {
 	it("returns the authoritative verdict for every candidate in its partition", () => {
@@ -54,6 +55,7 @@ describe("case-write verdict worker runtime", () => {
 				},
 			],
 		});
+		assertAdmittedDoc(doc);
 		const field = Object.values(doc.fields).find(
 			(candidate) => candidate.id === "notes",
 		);
@@ -69,24 +71,26 @@ describe("case-write verdict worker runtime", () => {
 		const response = evaluateCaseWriteVerdictBatch({
 			version: CASE_WRITE_VERDICT_WORKER_VERSION,
 			requestId: 7,
-			doc,
+			doc: structuredClone(toPersistableDoc(doc)),
 			fieldUuid: field.uuid,
 			lookupContext: LOOKUP_CONTEXT_UNAVAILABLE,
 			candidates,
 		});
 
-		expect(response.ok).toBe(true);
-		if (!response.ok) return;
-		expect(response.verdicts).toEqual(
-			candidates.map((candidate) => [
-				candidate.key,
-				caseWriteChoiceVerdict(
-					doc,
-					field,
-					candidate.caseWrite,
-					LOOKUP_CONTEXT_UNAVAILABLE,
-				),
-			]),
-		);
+		expect(response).toEqual({
+			version: 1,
+			requestId: 7,
+			ok: true,
+			verdicts: [
+				["clear", { ok: true }],
+				[
+					"duplicate",
+					{
+						ok: false,
+						reason: expect.stringMatching(/more than one field naming/),
+					},
+				],
+			],
+		});
 	});
 });

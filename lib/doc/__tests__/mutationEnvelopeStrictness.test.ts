@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { mutationSchema } from "@/lib/doc/types";
@@ -14,8 +14,6 @@ const OPTION_B = testUuid("option-b");
 const TABLE = "019b0000-0000-7000-8000-000000000001";
 const VALUE_COLUMN = "019b0000-0000-7000-8000-000000000002";
 const LABEL_COLUMN = "019b0000-0000-7000-8000-000000000003";
-
-const directUnion = z.discriminatedUnion("kind", mutationSchema.options);
 
 function mutationArm(kind: string): z.ZodType {
 	const arm = mutationSchema.options.find(
@@ -51,15 +49,6 @@ const lookupSource = {
 } as const;
 
 describe("final mutation envelope", () => {
-	it("preserves the direct union input and output types", () => {
-		expectTypeOf<z.input<typeof mutationSchema>>().toEqualTypeOf<
-			z.input<typeof directUnion>
-		>();
-		expectTypeOf<z.output<typeof mutationSchema>>().toEqualTypeOf<
-			z.output<typeof directUnion>
-		>();
-	});
-
 	it.each([
 		{
 			kind: "addModule",

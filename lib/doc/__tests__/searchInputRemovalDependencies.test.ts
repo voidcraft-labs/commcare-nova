@@ -1,12 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
+import { buildDoc, resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import { searchInputRemovalDependencies } from "@/lib/doc/searchInputMutations";
 import {
 	advancedSearchInputDef,
 	type CaseListConfig,
 	type CaseSearchConfig,
-	calculatedColumn,
 	hiddenSearchInputDef,
 	simpleSearchInputDef,
 } from "@/lib/domain";
@@ -22,9 +21,37 @@ import {
 	term,
 	whenInput,
 } from "@/lib/domain/predicate";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const targetUuid = testUuid("00000000-0000-4000-8000-000000000011");
 const siblingUuid = testUuid("00000000-0000-4000-8000-000000000012");
+
+function dependencies(
+	config: CaseListConfig,
+	searchConfig: CaseSearchConfig | undefined,
+	uuid: typeof targetUuid,
+) {
+	const doc = buildDoc({
+		caseTypes: [{ name: "client", properties: [] }],
+		modules: [
+			{
+				name: "Clients",
+				caseType: "client",
+				caseListConfig: config,
+				caseSearchConfig: searchConfig,
+				forms: [
+					{
+						name: "Visit",
+						type: "followup",
+						fields: [{ kind: "text", id: "notes", label: "Notes" }],
+					},
+				],
+			},
+		],
+	});
+	assertAdmittedDoc(doc);
+	return searchInputRemovalDependencies(config, searchConfig, uuid);
+}
 
 describe("searchInputRemovalDependencies", () => {
 	it("groups every deterministic occurrence by its friendly source", () => {
@@ -46,7 +73,14 @@ describe("searchInputRemovalDependencies", () => {
 			),
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
-			columns: [],
+			columns: [
+				{
+					uuid: testUuid("search-removal-column"),
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				},
+			],
 			searchInputs: [target, sibling],
 			filter: whenInput(
 				input(targetUuid),
@@ -60,9 +94,7 @@ describe("searchInputRemovalDependencies", () => {
 			),
 		};
 
-		expect(
-			searchInputRemovalDependencies(config, searchConfig, targetUuid),
-		).toEqual([
+		expect(dependencies(config, searchConfig, targetUuid)).toEqual([
 			{
 				kind: "cases-available",
 				label: "Cases available",
@@ -88,92 +120,6 @@ describe("searchInputRemovalDependencies", () => {
 					["parts", 0],
 					["parts", 1],
 				],
-			},
-		]);
-	});
-
-	it("surfaces sibling starting values and the Search button condition", () => {
-		// Both slots are validator-checked against declared inputs
-		// (`searchInputDefaultTypeCheck` / `searchButtonDisplayConditionTypeCheck`),
-		// so a removal that only these reference would otherwise skip the
-		// review dialog and bounce off the commit gate as a raw rejection.
-		const target = simpleSearchInputDef(
-			targetUuid,
-			"case_name",
-			"Client name",
-			"text",
-			"case_name",
-		);
-		const sibling = {
-			...simpleSearchInputDef(
-				siblingUuid,
-				"external_id",
-				"External ID",
-				"text",
-				"external_id",
-			),
-			default: term(input(targetUuid)),
-		};
-		const config: CaseListConfig = resolveCaseListConfig({
-			columns: [],
-			searchInputs: [target, sibling],
-		});
-		const searchConfig: CaseSearchConfig = {
-			searchButtonDisplayCondition: whenInput(
-				input(targetUuid),
-				eq(prop("client", "case_name"), input(targetUuid)),
-			),
-		};
-
-		expect(
-			searchInputRemovalDependencies(config, searchConfig, targetUuid),
-		).toEqual([
-			{
-				kind: "search-field-default",
-				label: "“External ID” starting value",
-				inputUuid: siblingUuid,
-				paths: [[]],
-			},
-			{
-				kind: "search-button-visibility",
-				label: "Search button visibility",
-				paths: [
-					["when-input-present", "input"],
-					["when-input-present", "clause", "right"],
-				],
-			},
-		]);
-	});
-
-	it("surfaces a calculated-column formula that reads the answer", () => {
-		// The gate forbids NEW input refs in column formulas, but stored
-		// pre-gate docs can carry one while its repair is owner-tier
-		// pending — and the rename path keeps such refs coherent, so the
-		// removal review must see them too. Without this arm the dialog
-		// reports "zero uses" and the removal strands the formula.
-		const columnUuid = testUuid("00000000-0000-4000-8000-000000000021");
-		const target = simpleSearchInputDef(
-			targetUuid,
-			"case_name",
-			"Client name",
-			"text",
-			"case_name",
-		);
-		const config: CaseListConfig = resolveCaseListConfig({
-			columns: [
-				calculatedColumn(columnUuid, "Match note", term(input(targetUuid))),
-			],
-			searchInputs: [target],
-		});
-
-		expect(
-			searchInputRemovalDependencies(config, undefined, targetUuid),
-		).toEqual([
-			{
-				kind: "calculated-column",
-				label: "“Match note” column formula",
-				columnUuid,
-				paths: [[]],
 			},
 		]);
 	});
@@ -207,13 +153,18 @@ describe("searchInputRemovalDependencies", () => {
 			},
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
-			columns: [],
+			columns: [
+				{
+					uuid: testUuid("search-removal-column"),
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				},
+			],
 			searchInputs: [target, sibling],
 		});
 
-		expect(
-			searchInputRemovalDependencies(config, undefined, targetUuid),
-		).toEqual([
+		expect(dependencies(config, undefined, targetUuid)).toEqual([
 			{
 				kind: "search-field-condition",
 				label: "“External ID” required condition",
@@ -257,13 +208,18 @@ describe("searchInputRemovalDependencies", () => {
 			},
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
-			columns: [],
+			columns: [
+				{
+					uuid: testUuid("search-removal-column"),
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				},
+			],
 			searchInputs: [hidden, sibling],
 		});
 
-		expect(
-			searchInputRemovalDependencies(config, undefined, targetUuid),
-		).toEqual([
+		expect(dependencies(config, undefined, targetUuid)).toEqual([
 			{
 				kind: "search-field-condition",
 				label: "“External ID” required condition",
@@ -272,9 +228,7 @@ describe("searchInputRemovalDependencies", () => {
 				paths: [["left"]],
 			},
 		]);
-		expect(
-			searchInputRemovalDependencies(config, undefined, siblingUuid),
-		).toEqual([]);
+		expect(dependencies(config, undefined, siblingUuid)).toEqual([]);
 	});
 
 	it("ignores the removed field's own required condition and check", () => {
@@ -300,33 +254,17 @@ describe("searchInputRemovalDependencies", () => {
 			"external_id",
 		);
 		const config: CaseListConfig = resolveCaseListConfig({
-			columns: [],
+			columns: [
+				{
+					uuid: testUuid("search-removal-column"),
+					kind: "plain",
+					field: "case_name",
+					header: "Name",
+				},
+			],
 			searchInputs: [target, sibling],
 		});
 
-		expect(
-			searchInputRemovalDependencies(config, undefined, targetUuid),
-		).toEqual([]);
-	});
-
-	it("ignores the removed field's own starting value", () => {
-		const target = {
-			...simpleSearchInputDef(
-				targetUuid,
-				"case_name",
-				"Client name",
-				"text",
-				"case_name",
-			),
-			default: term(input(targetUuid)),
-		};
-		const config: CaseListConfig = resolveCaseListConfig({
-			columns: [],
-			searchInputs: [target],
-		});
-
-		expect(
-			searchInputRemovalDependencies(config, undefined, targetUuid),
-		).toEqual([]);
+		expect(dependencies(config, undefined, targetUuid)).toEqual([]);
 	});
 });

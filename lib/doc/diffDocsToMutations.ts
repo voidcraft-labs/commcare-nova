@@ -14,12 +14,11 @@ import type {
  * MERGE SEMANTICS under concurrent edits (replay on a doc a co-member has
  * advanced): EVERY mutation is identity-keyed — a uuid (module/form/field/
  * column/search-input/option), a `(type, property)` name pair (catalog), or an
- * owning-entity uuid — and a reorder carries an absolute fractional `order`
- * key rather than an array position, so a co-member's edit to a DIFFERENT
- * entity / property / list item, or a reorder of DIFFERENT things, survives the
- * replay untouched. The only last-writer-wins residual is two members
- * replacing the SAME scalar slot (or the same property/type name) at the same
- * instant — deterministic by commit order. A concurrent DELETE of an entity
+ * owning-entity uuid. Independent scalar edits preserve each other's values;
+ * edits to the same scalar resolve by commit order. Reorders name their
+ * predecessor by identity and can affect each other even when they move
+ * different members, so the authoritative replay order determines the final
+ * sequence. A concurrent DELETE of an entity
  * this diff targets is caught separately — the guarded commit's
  * `mutationTargetsInvalid` rejects it as a 409 rather than letting it silently
  * no-op.
@@ -55,7 +54,7 @@ import type {
  *      Case-list birth is an idempotent ensure followed by granular contents;
  *      only an explicit whole-config removal uses
  *      `updateModule{caseListConfig:null}`.
- *  10. Module order — `moveModule{order}` for a module whose `order` changed.
+ *  10. Module order — predecessor-based moves for changed sibling positions.
  *  11. Catalog LAST — granular `declareCaseType` / `setCaseTypeMeta` /
  *      `addCaseProperty` / `setCaseProperty` / `removeCaseProperty` /
  *      `retireCaseType`, diffed against the catalog the field reducers'
@@ -598,7 +597,6 @@ export function diffDocsToMutations(
 	// adding — handled by the form/field add passes below, keyed off the
 	// set deltas.
 	const addedModuleSet = new Set(moduleDelta.added);
-	const addedFormSet = new Set(formDelta.added);
 	const availableRoots = new Set(moduleSiblingUuids(prev, null));
 	const availableChildren = new Map<Uuid, Set<Uuid>>(
 		moduleSiblingUuids(next, null).map((rootUuid) => [
@@ -637,20 +635,6 @@ export function diffDocsToMutations(
 			);
 			available.add(uuid);
 			availableChildren.set(parent, available);
-		}
-	}
-
-	// Forms: in each module's sequence order, each naming the form it follows.
-	for (const moduleUuid of next.moduleOrder) {
-		const sequence = ownRecordValue(next.formOrder, moduleUuid) ?? [];
-		for (const [at, formUuid] of sequence.entries()) {
-			if (!addedFormSet.has(formUuid)) continue;
-			adds.push({
-				kind: "addForm",
-				moduleUuid,
-				form: cloneEntity(ownRecordValue(next.forms, formUuid) as Form),
-				after: at === 0 ? null : sequence[at - 1],
-			});
 		}
 	}
 
@@ -834,6 +818,7 @@ export function diffDocsToMutations(
 	// Form structural — cross-module moves (including forms evacuated out of
 	// removed modules) plus same-module sequence changes.
 	const formStructure = reconcileFormOrders(prev, next, formDelta);
+	adds.push(...formStructure.adds);
 
 	// `fieldTree` (field ADDS + cross-parent MOVES + reorders) was computed
 	// up front. EVACUATIONS — moves of surviving forms/fields OUT of a
@@ -1335,75 +1320,109 @@ function reconcileModuleOrders(
 }
 
 /**
- * Reconcile each module's forms to `next` — cross-module form moves +
- * same-module reorders, BOTH detected by order key (a common form whose owning
- * module or whose `order` changed), independent of `formOrder` array position.
- * A form leaving a REMOVED module must move out before the `removeModule`
- * cascade, so it is emitted in `evacuations` (pre-removes); every other
- * cross-module move + all reorders are `rest` (post-removes).
+ * Reconcile form births, relocations, and final order against actual projected
+ * membership. Births cannot name a retained form that has not arrived yet;
+ * temporary placement uses the nearest available final predecessor. All
+ * surviving forms leave removed modules before their cascade, then final
+ * reorders run after every birth, relocation, and removal has landed.
  */
 function reconcileFormOrders(
 	prev: BlueprintDoc,
 	next: BlueprintDoc,
 	formDelta: SetDelta,
-): { evacuations: Mutation[]; rest: Mutation[] } {
+): { adds: Mutation[]; evacuations: Mutation[]; rest: Mutation[] } {
+	const adds: Mutation[] = [];
 	const evacuations: Mutation[] = [];
 	const rest: Mutation[] = [];
-	const prevModuleOf = buildFormModuleMap(prev);
-	const nextModuleOf = buildFormModuleMap(next);
-
-	// A form that CHANGED MODULE is a relocation: it needs a move naming its
-	// placement in the destination, and it may need to travel before the
-	// removes if the module it is leaving is itself being removed.
-	const relocated = new Set<Uuid>();
-	for (const formUuid of formDelta.common) {
-		const nextModule = nextModuleOf.get(formUuid);
-		if (nextModule === undefined) continue; // unreachable in next (shouldn't happen)
-		const prevModule = prevModuleOf.get(formUuid);
-		if (prevModule === nextModule) continue;
-		relocated.add(formUuid);
-		const destination = next.formOrder[nextModule] ?? [];
-		const at = destination.indexOf(formUuid);
-		const move: Mutation = {
-			kind: "moveForm",
-			uuid: formUuid,
-			toModuleUuid: nextModule,
-			after: at > 0 ? (destination[at - 1] ?? null) : null,
-		};
-		// A form leaving a REMOVED module evacuates before the cascade.
-		if (
-			prevModule !== undefined &&
-			ownRecordValue(next.modules, prevModule) === undefined
-		) {
-			evacuations.push(move);
-		} else {
-			rest.push(move);
+	const previousOwners = buildFormModuleMap(prev);
+	const projected = new Map<Uuid, Uuid[]>(
+		Object.entries(prev.formOrder).map(([uuid, order]) => [
+			asUuid(uuid),
+			[...order],
+		]),
+	);
+	for (const uuid of next.moduleOrder) {
+		if (!projected.has(uuid)) projected.set(uuid, []);
+	}
+	const place = (uuid: Uuid, moduleUuid: Uuid, after: Uuid | null): void => {
+		for (const [owner, order] of projected) {
+			projected.set(
+				owner,
+				order.filter((member) => member !== uuid),
+			);
+		}
+		const order = projected.get(moduleUuid) ?? [];
+		const index = after === null ? 0 : order.indexOf(after) + 1;
+		order.splice(index, 0, uuid);
+		projected.set(moduleUuid, order);
+	};
+	const availablePredecessor = (moduleUuid: Uuid, uuid: Uuid): Uuid | null => {
+		const finalOrder = next.formOrder[moduleUuid] ?? [];
+		const present = new Set(projected.get(moduleUuid) ?? []);
+		return (
+			finalOrder
+				.slice(0, finalOrder.indexOf(uuid))
+				.toReversed()
+				.find((candidate) => present.has(candidate)) ?? null
+		);
+	};
+	const added = new Set(formDelta.added);
+	for (const moduleUuid of next.moduleOrder) {
+		for (const uuid of next.formOrder[moduleUuid] ?? []) {
+			if (!added.has(uuid)) continue;
+			const after = availablePredecessor(moduleUuid, uuid);
+			adds.push({
+				kind: "addForm",
+				moduleUuid,
+				form: cloneEntity(ownRecordValue(next.forms, uuid) as Form),
+				after,
+			});
+			place(uuid, moduleUuid, after);
 		}
 	}
-
-	// Everything else is a same-module reorder, which is whatever moves are still
-	// needed once the adds and the relocations above have landed — so it is
-	// measured against that projected sequence, not against `prev`. A form that
-	// relocated already carries its placement, so it is never moved twice.
-	for (const [moduleUuid, nextOrder] of Object.entries(next.formOrder)) {
-		const before = (prev.formOrder[moduleUuid] ?? []).filter(
-			(uuid) => !relocated.has(uuid),
+	const common = new Set(formDelta.common);
+	// The two passes mirror the caller's real emission phases. Anchors are
+	// picked from the projected state after the preceding phase, not a desired
+	// state whose future arrivals may still be owned by another module.
+	for (const evacuating of [true, false]) {
+		for (const moduleUuid of next.moduleOrder) {
+			for (const uuid of next.formOrder[moduleUuid] ?? []) {
+				const previousOwner = previousOwners.get(uuid);
+				if (!common.has(uuid) || previousOwner === moduleUuid) continue;
+				const mustEvacuate =
+					previousOwner !== undefined &&
+					ownRecordValue(next.modules, previousOwner) === undefined;
+				if (mustEvacuate !== evacuating) continue;
+				const after = availablePredecessor(moduleUuid, uuid);
+				const move: Mutation = {
+					kind: "moveForm",
+					uuid,
+					toModuleUuid: moduleUuid,
+					after,
+				};
+				(evacuating ? evacuations : rest).push(move);
+				place(uuid, moduleUuid, after);
+			}
+		}
+	}
+	const survivors = new Set(Object.keys(next.forms));
+	for (const moduleUuid of next.moduleOrder) {
+		const before = (projected.get(moduleUuid) ?? []).filter((uuid) =>
+			survivors.has(uuid),
 		);
 		for (const move of sequenceMovesTo(
-			arrivalsProjected(before, nextOrder),
-			nextOrder,
+			before,
+			next.formOrder[moduleUuid] ?? [],
 		)) {
-			if (relocated.has(move.uuid)) continue;
 			rest.push({
 				kind: "moveForm",
 				uuid: move.uuid,
-				toModuleUuid: asUuid(moduleUuid),
+				toModuleUuid: moduleUuid,
 				after: move.after,
 			});
 		}
 	}
-
-	return { evacuations, rest };
+	return { adds, evacuations, rest };
 }
 
 /** Child form uuid → owning module uuid, from `formOrder`. */
@@ -2226,6 +2245,21 @@ function diffUserCollections(
 	prev: BlueprintDoc,
 	next: BlueprintDoc,
 ): Mutation[] {
+	assertExistingRelativeOrderPreserved(
+		prev.userPropertyOrder ?? [],
+		next.userPropertyOrder ?? [],
+		"user properties",
+	);
+	assertExistingRelativeOrderPreserved(
+		prev.userTypeOrder ?? [],
+		next.userTypeOrder ?? [],
+		"user roles",
+	);
+	assertExistingRelativeOrderPreserved(
+		prev.personaOrder ?? [],
+		next.personaOrder ?? [],
+		"personas",
+	);
 	const out: Mutation[] = [];
 	const prevProps = prev.userProperties ?? {};
 	const nextProps = next.userProperties ?? {};
@@ -2708,7 +2742,7 @@ function diffOrganizationCollections(
 }
 
 /**
- * Organization collections currently have add-position but no standalone move
+ * These ordered collections have add-position but no standalone move
  * mutation. Refuse a reorder endpoint explicitly instead of returning a batch
  * that silently replays to a different document.
  */

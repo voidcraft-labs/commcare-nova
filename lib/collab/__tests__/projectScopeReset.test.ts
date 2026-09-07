@@ -10,7 +10,18 @@ describe("project-scope reset registry", () => {
 		registry.subscribe(second);
 
 		registry.reset(1);
-		registry.reset(1);
+		for (const stale of [
+			1,
+			0,
+			-1,
+			1.5,
+			NaN,
+			Infinity,
+			Number.MAX_SAFE_INTEGER + 1,
+		]) {
+			registry.reset(stale);
+			expect(registry.isCurrent(1)).toBe(true);
+		}
 		unsubscribe();
 		registry.reset(2);
 

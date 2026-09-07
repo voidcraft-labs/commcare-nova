@@ -726,7 +726,7 @@ function reportImmutableCaseOperationIdentity(
  * The callback below returns its input unchanged and the direct schema remains
  * the sole parser/output producer, so explicitly restoring that schema's
  * `z.input` and `z.output` contract matches the runtime behavior. Compile-time
- * equality assertions in `mutationEnvelopeStrictness.test.ts` lock the final
+ * equality assertions in `mutationEnvelopeStrictness.test-d.ts` lock the final
  * mutation schema to its direct discriminated union.
  */
 function prevalidateRawMutationInput<Schema extends z.ZodType>(

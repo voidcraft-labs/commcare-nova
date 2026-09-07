@@ -1001,11 +1001,12 @@ export function createReconcilerRuntime(
 		let body: unknown;
 		try {
 			body = await res.json();
-		} catch (error) {
+		} catch {
 			throw new ReconcilerReloadError("invalid-json", {
 				message: "reconciler reload response was not JSON",
 				httpStatus: res.status,
-				originalError: error,
+				// Native JSON errors quote response content. Retain only this
+				// neutral wrapper, without the original message, stack or cause.
 			});
 		}
 		let data: ReturnType<typeof parseAppReadSnapshot>;

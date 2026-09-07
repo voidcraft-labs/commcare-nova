@@ -27,7 +27,7 @@
 import { act, renderHook } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useContext } from "react";
-import { assert, describe, expect, it, vi } from "vitest";
+import { afterEach, assert, describe, expect, it, vi } from "vitest";
 import { testMediaAssetId, testUuid } from "@/__tests__/helpers/uuid";
 import { resolveCaseListConfig } from "@/lib/__tests__/docHelpers";
 import {
@@ -52,6 +52,7 @@ import type { BlueprintDoc, Uuid } from "@/lib/doc/types";
 import type { Automation, CommitOutcome, FieldKind } from "@/lib/domain";
 import { printProseTemplate, proseText } from "@/lib/domain/prose";
 import { toastStore } from "@/lib/ui/toastStore";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 // ── Fixed UUIDs ────────────────────────────────────────────────────────
 // Declared here (not inside the fixture) so tests can reference them
@@ -133,6 +134,7 @@ const bp: BlueprintDoc = {
 /** Every dispatch runs the one commit gate — the wrapper is just the
  *  doc-store provider. */
 function wrapper({ children }: { children: ReactNode }) {
+	assertAdmittedDoc(bp);
 	return (
 		<BlueprintDocProvider appId="t" initialDoc={bp}>
 			{children}
@@ -160,6 +162,7 @@ const connectBp: BlueprintDoc = {
 };
 
 function connectWrapper({ children }: { children: ReactNode }) {
+	assertAdmittedDoc(connectBp);
 	return (
 		<BlueprintDocProvider appId="t" initialDoc={connectBp}>
 			{children}
@@ -232,7 +235,7 @@ function useMutationsAndAppFields() {
 
 /**
  * Composer that exposes both the ordered children of form 0 and the raw
- * store handle — needed by undo-history tests that inspect zundo state.
+ * store handle — needed by undo-history tests that inspect the command log.
  */
 function useMutationsWithStore() {
 	const mutations = useBlueprintMutations();
@@ -256,6 +259,11 @@ function getFormUuid(store: BlueprintDocStore | null): Uuid {
 	const moduleUuid = s.moduleOrder[0];
 	return s.formOrder[moduleUuid][0];
 }
+
+afterEach(() => {
+	toastStore.clear();
+	vi.restoreAllMocks();
+});
 
 describe("useBlueprintMutations", () => {
 	// ── Pre-existing coverage ──────────────────────────────────────────────
@@ -608,6 +616,7 @@ describe("useBlueprintMutations", () => {
 		};
 
 		function peerWrapper({ children }: { children: ReactNode }) {
+			assertAdmittedDoc(peerDoc);
 			return (
 				<BlueprintDocProvider appId="t" initialDoc={peerDoc}>
 					{children}
@@ -1325,23 +1334,30 @@ describe("useBlueprintMutations", () => {
 		});
 
 		act(() => {
-			/* `null` keeps the batch introduction-free — flipping Connect ON
-			 * would rightly bounce on the fixture's block-less forms. */
+			// Both independent edits must belong to the same undo step.
 			result.current.mutations.applyMany([
 				{ kind: "setAppName", name: "Batched" },
-				{ kind: "setConnectType", connectType: null },
+				{
+					kind: "updateField",
+					uuid: Q_A,
+					targetKind: "text",
+					patch: { label: proseText("Batched field") },
+				},
 			]);
 		});
 
 		const s = result.current.store?.getState();
 		expect(s?.appName).toBe("Batched");
-		expect(s?.connectType).toBeNull();
+		expect(s?.fields[Q_A]).toMatchObject({ label: proseText("Batched field") });
 
 		// ONE step, despite two mutations dispatching.
 		act(() => {
 			result.current.store?.getState().undo();
 		});
-		expect(result.current.store?.getState().appName).not.toBe("Batched");
+		expect(result.current.store?.getState().appName).toBe("Test");
+		expect(result.current.store?.getState().fields[Q_A]).toMatchObject({
+			label: proseText("A"),
+		});
 		expect(result.current.store?.getState().canUndo).toBe(false);
 	});
 
@@ -1800,6 +1816,7 @@ describe("useBlueprintMutations — commit gate", () => {
 			automationOrder: [automationUuid],
 		};
 		function automationWrapper({ children }: { children: ReactNode }) {
+			assertAdmittedDoc(automationDoc);
 			return (
 				<BlueprintDocProvider appId="t" initialDoc={automationDoc}>
 					{children}
@@ -1882,6 +1899,7 @@ describe("useBlueprintMutations — commit gate", () => {
 			automationOrder: [automationUuid],
 		};
 		function automationWrapper({ children }: { children: ReactNode }) {
+			assertAdmittedDoc(automationDoc);
 			return (
 				<BlueprintDocProvider appId="t" initialDoc={automationDoc}>
 					{children}
@@ -1971,6 +1989,7 @@ describe("useBlueprintMutations — commit gate", () => {
 			automationOrder: [automationUuid],
 		};
 		function automationWrapper({ children }: { children: ReactNode }) {
+			assertAdmittedDoc(automationDoc);
 			return (
 				<BlueprintDocProvider appId="t" initialDoc={automationDoc}>
 					{children}

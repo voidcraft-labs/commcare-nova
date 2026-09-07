@@ -490,9 +490,10 @@ workflow and carry no UUID material.
 SA, MCP, commits, durable rows, events, streams, diffs, undo, and replay.
 There is no second canonical schema and no whole-catalog `setCaseTypes` —
 catalog creation and edits use only the granular kinds.
-`lib/doc/mutationWireRegistry.ts` derives every semantic leaf and nullable
-slot from that schema and pins both inventories in checked-in snapshots, so a
-new kind or patch key fails CI until its final meaning is reviewed.
+Grammar tests exercise the actual schema and canonical admission boundary.
+Serialized state-transition tests establish clear, omission, stored-null, and
+placement behavior; compiler-only envelope guarantees are checked by
+`npm run typecheck`.
 
 `lib/doc/mutationAdmission.ts::admitMutationBatch` is the one shared boundary
 in front of it, and on every path it is the outermost mutation operation:
@@ -1386,7 +1387,8 @@ A module may open on its Search screen instead of a browse list
 (`caseSearchConfig.searchFirst: true`, `lib/domain/modules.ts::moduleOpensOnSearch`).
 Results exist only after a completed search and show only what it found, with
 **Search again** returning to Search; a search-first module with no visible
-prompt runs its search on its own. The setting is offered for a case-first
+prompt runs its search on its own. Removing the final search field preserves
+Search first and its automatic search with the remaining rules. The setting is offered for a case-first
 module or a bare case list, because a registration form on the menu needs a
 fresh case id that breaks the shared datum, and it refuses a Search-button
 display condition (there is no button to gate) and **Previous screen** as an

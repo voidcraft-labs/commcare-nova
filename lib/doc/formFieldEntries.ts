@@ -2,11 +2,8 @@
 //
 // Pure projection behind `useFormFieldEntries`.
 //
-// A field membership array is a set, not a sequence: a reorder changes the
-// field's absolute `order` key and deliberately leaves `fieldOrder[parent]`
-// untouched. Walk every hierarchy level through the canonical
-// `(order, uuid)` comparator before flattening so every answer/repeat picker
-// follows the same visual order as the form canvas.
+// Field order arrays are the authored sequences. Follow their preorder so
+// answer/repeat pickers follow the same visible order as the form canvas.
 
 import {
 	type CasePropertyDataType,
@@ -70,7 +67,7 @@ function labelOf(field: Field, doc: XPathPrintableDoc): string {
 
 /**
  * Every field under a form in canonical pre-order, tagged with its innermost
- * repeat. Each sibling level sorts independently by `(order, uuid)`.
+ * repeat. Each sibling level follows its authored fieldOrder sequence.
  */
 export function formFieldEntriesFor(
 	source: FormFieldEntrySource,

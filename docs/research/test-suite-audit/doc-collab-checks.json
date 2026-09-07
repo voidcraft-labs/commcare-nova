@@ -1,0 +1,419 @@
+{
+	"owner": "doc",
+	"checks": [
+		{
+			"command": "Scoped mutationFrame unit run before production fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/mutation-frame-before.log",
+			"result": "Expected regression: 1 failed, 9 passed; native SyntaxError contains payload"
+		},
+		{
+			"command": "Scoped eight collaboration decoder/state files with async leak detection",
+			"log": "/tmp/nova-test-audit-parallel/doc/collab-small.log",
+			"result": "8 files, 71 tests passed"
+		},
+		{
+			"command": "Scoped seven reconciler/document/Connect suites with async leak detection",
+			"log": "/tmp/nova-test-audit-parallel/doc/doc-connect-admission.log",
+			"result": "7 files, 97 tests passed"
+		},
+		{
+			"command": "Provider malformed JSON direct reporter regression before fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/reload-json-before.log",
+			"result": "Expected failure: native reload SyntaxError retains secretPII"
+		},
+		{
+			"command": "Provider complete runtime suite after fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/provider-json-after.log",
+			"result": "29 tests passed"
+		},
+		{
+			"command": "Disposed reconciler late watch regression before fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/reconciler-dispose-before.log",
+			"result": "Expected failure: newly registered watch stays pending after disposal"
+		},
+		{
+			"command": "Scoped consolidated selectors and builder mutation hooks",
+			"log": "/tmp/nova-test-audit-parallel/doc/hooks-admission.log",
+			"result": "3 files, 72 tests passed"
+		},
+		{
+			"command": "Scoped search filter subscription suite",
+			"log": "/tmp/nova-test-audit-parallel/doc/search-hook.log",
+			"result": "1 file, 10 tests passed"
+		},
+		{
+			"command": "Scoped autosave runtime and eight admission/intent/path/sequence suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/admission-autosave.log",
+			"result": "9 files, 93 tests passed"
+		},
+		{
+			"command": "Case choices, worker runtime and hook scoped runs",
+			"log": "/tmp/nova-test-audit-parallel/doc/autosave-runtime.log",
+			"result": "Case choices and worker runtime passed 5 tests here; hook and surface move passed 6 tests in preceding choice-runtime.log run."
+		},
+		{
+			"command": "Identifier verdict scoped suite",
+			"log": "/tmp/nova-test-audit-parallel/doc/store-identifier-after.log",
+			"result": "Identifier 31 tests passed; store had three fixture-only failures being corrected"
+		},
+		{
+			"command": "Store and commit composition full scoped suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/store-commit-after.log",
+			"result": "2 files, 44 tests passed"
+		},
+		{
+			"command": "Workspace and expression-runtime verdicts",
+			"log": "/tmp/nova-test-audit-parallel/doc/workspace-runtime.log",
+			"result": "2 files, 17 tests passed"
+		},
+		{
+			"command": "Identity preservation regression before production fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/identity-before.log",
+			"result": "Expected failure: second preserving replacement falsely collided"
+		},
+		{
+			"command": "Identity full suite after fix",
+			"log": "/tmp/nova-test-audit-parallel/doc/identity-after.log",
+			"result": "16 tests passed"
+		},
+		{
+			"command": "Sequence admission and scalar catalog suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/sequence-scalar-search.log",
+			"result": "35 tests in sequence/scalar passed; search expected context corrected in following run"
+		},
+		{
+			"command": "Search and import architecture suites after corrections",
+			"log": "/tmp/nova-test-audit-parallel/doc/unwritten-architecture-after.log",
+			"result": "Search and architecture 4 tests passed; unwritten fixture fallback corrected subsequently"
+		},
+		{
+			"command": "User collections and rewritten unwritten properties",
+			"log": "/tmp/nova-test-audit-parallel/doc/user-unwritten.log",
+			"result": "2 files, 20 tests passed"
+		},
+		{
+			"command": "Scoped Biome check/write on owned changes",
+			"log": "/tmp/nova-test-audit-parallel/doc/biome.log",
+			"result": "52 files checked, 26 formatted; no diagnostics"
+		},
+		{
+			"command": "Rewritten parent map and admitted scaffolds suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/parents-scaffolds-after.log",
+			"result": "2 files, 38 tests passed"
+		},
+		{
+			"command": "Own-record boundary and operation write-type suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/records-alias-types.log",
+			"result": "2 suites passed 14 tests; alias column assertion corrected subsequently"
+		},
+		{
+			"command": "Admitted payload alias replay full suite",
+			"log": "/tmp/nova-test-audit-parallel/doc/alias-final.log",
+			"result": "6 tests passed"
+		},
+		{
+			"command": "Independent admitted diff endpoint corpus",
+			"log": "/tmp/nova-test-audit-parallel/doc/diff-form-after.log",
+			"result": "21 tests passed, including 200 generated pairs; targeted new-form-order regression failed before fix"
+		},
+		{
+			"command": "Reference extraction/maintenance plus localized diff and wire clears",
+			"log": "/tmp/nova-test-audit-parallel/doc/diff-ref-admission.log",
+			"result": "Reference and localization 20 tests passed; wire-clear fixture correction verified in next batch"
+		},
+		{
+			"command": "User order, optional clears, display, deep links, identity and provenance",
+			"log": "/tmp/nova-test-audit-parallel/doc/sequence-display-search.log",
+			"result": "6 suites 34 tests passed; date-range endpoint corrected and passed in search-first-before-valid.log"
+		},
+		{
+			"command": "Search-first admitted regression and no-matches planners",
+			"log": "/tmp/nova-test-audit-parallel/doc/search-no-matches-after.log",
+			"result": "28 tests passed; final-input setting loss failed-before in search-first-before-valid.log"
+		},
+		{
+			"command": "Lookup source transition and no-matches suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/lookup-carrier-admission.log",
+			"result": "3 suites 38 tests passed, with moveField fixture typo corrected and checked separately"
+		},
+		{
+			"command": "Lookup field eligibility and carrier replay final",
+			"log": "/tmp/nova-test-audit-parallel/doc/lookup-carrier-final.log",
+			"result": "14 tests passed"
+		},
+		{
+			"command": "Full admitted lookup extraction",
+			"log": "/tmp/nova-test-audit-parallel/doc/lookup-references-admitted-final.log",
+			"result": "10 tests passed"
+		},
+		{
+			"command": "Case-property rename impact and review",
+			"log": "/tmp/nova-test-audit-parallel/doc/rename-impact-review.log",
+			"result": "5 tests passed"
+		},
+		{
+			"command": "forms/modules/property rename admitted suites",
+			"log": "/tmp/nova-test-audit-parallel/doc/form-module-property-after.log",
+			"result": "55 tests passed"
+		},
+		{
+			"command": "app mutation admitted suite",
+			"log": "/tmp/nova-test-audit-parallel/doc/app-mutations-admission.log",
+			"result": "8 tests passed"
+		},
+		{
+			"command": "admitted field edits and navigation",
+			"log": "/tmp/nova-test-audit-parallel/doc/navigation-admitted.log",
+			"result": "25 navigation passed;23 field edits passed in fields-navigation-after.log"
+		},
+		{
+			"command": "convert and target admission",
+			"log": "/tmp/nova-test-audit-parallel/doc/conversion-target-after.log",
+			"result": "32tests in3files passed; kind cascade subsequently7passed rename-conversion-final.log"
+		},
+		{
+			"command": "mutation grammar",
+			"log": "/tmp/nova-test-audit-parallel/doc/mutation-grammar.log",
+			"result": "9tests passed"
+		},
+		{
+			"command": "form link dependents/reducers",
+			"log": "/tmp/nova-test-audit-parallel/doc/form-link-boundaries.log",
+			"result": "24tests passed"
+		},
+		{
+			"command": "form link review",
+			"log": "/tmp/nova-test-audit-parallel/doc/form-link-review.log",
+			"result": "16tests passed"
+		},
+		{
+			"command": "form link planners",
+			"log": "/tmp/nova-test-audit-parallel/doc/form-link-planners.log",
+			"result": "29tests passed"
+		},
+		{
+			"command": "rename projection and forbidden after-submit field refs",
+			"log": "/tmp/nova-test-audit-parallel/doc/rename-projection-final.log",
+			"result": "6tests pass"
+		},
+		{
+			"command": "section planner and verdict admission/replay",
+			"log": "/tmp/nova-test-audit-parallel/doc/sections-after.log",
+			"result": "29 tests pass"
+		},
+		{
+			"command": "automation aggregate and search dependency admission (alongside automation replay fixture failures, fixed separately)",
+			"log": "/tmp/nova-test-audit-parallel/doc/automation-search-admission.log",
+			"result": "these 11 tests pass; automation replay pending separate rerun"
+		},
+		{
+			"command": "case operation review and mutation admission (automation fixture final corrected separately)",
+			"log": "/tmp/nova-test-audit-parallel/doc/automation-operations-after.log",
+			"result": "48 operation tests pass"
+		},
+		{
+			"command": "incremental validation scope and selection admission (automation fixture final corrected separately)",
+			"log": "/tmp/nova-test-audit-parallel/doc/selection-scope-after.log",
+			"result": "15 scope tests pass"
+		},
+		{
+			"command": "cross-scope commit behavior",
+			"log": "/tmp/nova-test-audit-parallel/doc/commit-cross-scope.log",
+			"result": "5pass"
+		},
+		{
+			"command": "automation replay final (selection/workspace defects corrected separately)",
+			"log": "/tmp/nova-test-audit-parallel/doc/selection-automation-final.log",
+			"result": "13 automation tests pass"
+		},
+		{
+			"command": "caseSelectionMutations and caseWorkspaceVerdicts",
+			"log": "/tmp/nova-test-audit-parallel/doc/selection-retirement-final.log",
+			"result": "18 selection and 9 workspace tests pass; retirement corrected in subsequent focused run"
+		},
+		{
+			"command": "caseTypeRetirement final",
+			"log": "/tmp/nova-test-audit-parallel/doc/retirement-final.log",
+			"result": "17pass"
+		},
+		{
+			"command": "multiplayerMerge plus diff/reference-index property suites with async assertion ownership",
+			"log": "/tmp/nova-test-audit-parallel/doc/multiplayer-and-fuzz-final.log",
+			"result": "3files65tests pass"
+		},
+		{
+			"command": "scoped Biome114 owned files plus followup4 and multiplayer",
+			"log": "/tmp/nova-test-audit-parallel/doc/biome-followup.log",
+			"result": "All initial diagnostics corrected; last scoped4 and multiplayer checks pass"
+		},
+		{
+			"command": "ColumnInventory moveAnnouncement preserveIdentity workspaceProjection",
+			"log": "/tmp/nova-test-audit-parallel/doc/workspace-pure-first.log",
+			"result": "4files20tests pass"
+		}
+	],
+	"bugs": [
+		{
+			"file": "lib/collab/mutationFrame.ts",
+			"description": "Malformed JSON error retained payload text in native SyntaxError; provider forwards error and stack to client reporting. Replaced with fresh payload-free error, no cause. Direct error inspection fails before and passes after."
+		},
+		{
+			"file": "lib/collab/ReconcilerProvider.tsx",
+			"description": "Native res.json SyntaxError retained response payload through ReconcilerReloadError.originalError and downstream reporter. Removed originalError from only invalid-json branch; direct full reporter regression fails before and passes after."
+		},
+		{
+			"file": "lib/collab/reconciler.ts",
+			"description": "canPut ignored disposal and dispatch could drain store-owned edits into an inert reconciler. Post-disposal watch registration also created a promise no future action could settle. Disposal now gates canPut and late watches resolve cancelled."
+		},
+		{
+			"file": "lib/doc/store.ts",
+			"description": "Nested replay close incorrectly dropped remote flag; nested deferred startTracking lost release request and left author undo paused. Both fail-before regressions now pass."
+		},
+		{
+			"file": "lib/doc/mutationIdentityAdmission.ts",
+			"description": "Batch-wide duplicate-claim tracking rejected successive identity-preserving option/schedule replacements. Duplicate detection is now per payload, with removed-in-batch and ownership checks unchanged."
+		},
+		{
+			"file": "lib/doc/diffDocsToMutations.ts",
+			"description": "New form birth anchored to retained form before evacuation into new module silently orphaned it and internal replay threw. Projected order now tracks actual insertion availability and final relocation/reorder."
+		},
+		{
+			"file": "lib/doc/diffDocsToMutations.ts",
+			"description": "User property, role and persona existing-item reorder silently emitted no diff. With no move dialect, now refuses using same invariant as organization collections. Three failed-before regressions pass."
+		},
+		{
+			"file": "lib/doc/mutations/modules.ts",
+			"description": "Final-input cleanup omitted searchFirst from meaningful action settings and silently disabled authored automatic Search. Delegation to existing domain projector preserves zero-prompt Search and after-submit destination. Admitted regression failed before and passes after."
+		},
+		{
+			"file": "lib/doc/mutations/forms.ts",
+			"description": "addForm/moveForm wrote entities or removed source membership before missing anchor refusal, orphaning live forms during stale replay. Both now preflight destination anchor and self-anchor before writes."
+		},
+		{
+			"file": "lib/doc/mutations/forms.ts",
+			"description": "First case-operation write/link with omitted after calculated index zero and was mistakenly treated as missing explicit anchor. Fixed guard to distinguish omitted/null append/front from a missing named anchor. Fail-before regression passes."
+		},
+		{
+			"file": "lib/doc/mutations/fields.ts",
+			"description": "Stale add/move anchor and add under a leaf caused orphan entities and fieldParent rebuild exceptions. Reducers now reject invalid parent/anchor before structural or catalog writes; three failures reproduced and all23 field mutation tests pass after fix."
+		},
+		{
+			"file": "lib/doc/mutationTargetAdmission.ts",
+			"description": "text to select conversion with missing option source was acknowledged by commit as successful unchanged doc because reducer skipped reconciliation. Target admission now refuses select birth without complete source. Missing-source regression failed before and23conversion tests pass after."
+		},
+		{
+			"file": "lib/doc/formSectionMutations.ts",
+			"bug": "Flattening sectioned form with duplicate root-bound IDs returned ok plan rejected by commit gate. Added root identifier preflight with actionable rename refusal.",
+			"evidence": "section-flatten-before.log fails expected refusal; sections-after.log passes29"
+		}
+	],
+	"docsNeeded": [
+		"Testing diagnostics: inspect actual Error message/stack/cause when reporting owns an Error; JSON.stringify drops nonenumerable properties and cannot prove payload absence.",
+		"Reconciler disposal is terminal for command ownership: a late dispatch leaves the store queue intact and a late save watch resolves cancelled.",
+		"Connect and document subscription tests now require admitted baseline documents and actual planner/gate transitions; fieldless/stray cross-mode apps are not reachable fixtures."
+	],
+	"files": [
+		"lib/collab/__tests__/appReadSnapshot.test.ts",
+		"lib/collab/__tests__/appStatusFrame.test.ts",
+		"lib/collab/__tests__/lookupManifestFrame.test.ts",
+		"lib/collab/__tests__/mutationFrame.test.ts",
+		"lib/collab/__tests__/presence.test.ts",
+		"lib/collab/__tests__/projectScopeReset.test.ts",
+		"lib/collab/__tests__/revocationFrame.test.ts",
+		"lib/collab/__tests__/usePeersAt.test.ts",
+		"lib/collab/__tests__/reconciler.test.ts",
+		"lib/doc/__tests__/builderWriteAdmission.test.ts",
+		"lib/doc/__tests__/commitDocDroppedKey.test.ts",
+		"lib/doc/__tests__/connectTargetState.test.ts",
+		"lib/doc/__tests__/hooks-useAppConnectIds.test.tsx",
+		"lib/doc/__tests__/hooks-useConnectType.test.tsx",
+		"lib/doc/__tests__/mutationPrevalidation.test.ts",
+		"lib/doc/__tests__/hooks-useAppName.test.tsx",
+		"lib/doc/__tests__/hooks-useAppStructure.test.tsx",
+		"lib/doc/__tests__/hooks-useDocEntityMaps.test.tsx",
+		"lib/doc/__tests__/hooks-useFieldKind.test.tsx",
+		"lib/doc/__tests__/hooks-useFieldsAndOrder.test.tsx",
+		"lib/doc/__tests__/hooks-useHasFieldsInForm.test.tsx",
+		"lib/doc/__tests__/hooks-useSearchBlueprint.test.tsx",
+		"lib/doc/__tests__/hooks-useUndoRedo.test.tsx",
+		"lib/doc/__tests__/hooks.test.tsx",
+		"lib/doc/__tests__/hooks-useBlueprintMutations.test.tsx",
+		"lib/doc/__tests__/hooks-useSearchFilter.test.tsx",
+		"lib/doc/__tests__/caseListSurfaceMoveHook.test.tsx",
+		"lib/doc/__tests__/caseWriteChoices.test.ts",
+		"lib/doc/__tests__/caseWriteVerdictWorkerRuntime.test.ts",
+		"lib/doc/__tests__/useCaseWriteChoices.test.tsx",
+		"lib/doc/hooks/__tests__/useAutoSave.test.ts",
+		"lib/doc/__tests__/mutationAdmission.test.ts",
+		"lib/doc/__tests__/mutationEnvelopeStrictness.test.ts",
+		"lib/doc/__tests__/mutationTargetAdmission.test.ts",
+		"lib/doc/__tests__/caseOperationIntents.test.ts",
+		"lib/doc/__tests__/modulePatchMutations.test.ts",
+		"lib/doc/__tests__/fieldPath.test.ts",
+		"lib/doc/mutations/__tests__/sequence.test.ts",
+		"lib/doc/__tests__/mutationWireRegistry.test.ts",
+		"lib/doc/__tests__/identifierVerdicts.test.ts",
+		"lib/doc/__tests__/store.test.ts",
+		"lib/doc/__tests__/commitVerdicts.test.ts",
+		"lib/doc/__tests__/caseWorkspaceVerdicts.test.ts",
+		"lib/doc/__tests__/expressionRuntimeEditVerdicts.test.ts",
+		"lib/doc/__tests__/mutationIdentityAdmission.test.ts",
+		"lib/doc/__tests__/mutationSequenceAdmission.test.ts",
+		"lib/doc/__tests__/scalarWriterCatalog.test.ts",
+		"lib/doc/__tests__/searchBlueprintIdentity.test.ts",
+		"lib/doc/__tests__/unwrittenProperties.test.ts",
+		"lib/doc/__tests__/mutations-no-structured-logger.test.ts",
+		"lib/doc/__tests__/userMutationSafety.test.ts",
+		"lib/doc/__tests__/fieldParent.test.ts",
+		"lib/doc/__tests__/scaffolds.test.ts",
+		"lib/doc/__tests__/prototypeSafeRecords.test.ts",
+		"lib/doc/__tests__/reducerPayloadAliasing.test.ts",
+		"lib/doc/__tests__/caseOperationWriteTypes.test.ts",
+		"lib/doc/__tests__/referenceIndex.test.ts",
+		"lib/doc/__tests__/referenceIndex.fuzz.test.ts",
+		"lib/doc/__tests__/diffDocsToMutations.fuzz.test.ts",
+		"lib/doc/__tests__/diffDocsToMutations.localization.test.ts",
+		"lib/doc/__tests__/diffDocsToMutations.wireClear.test.ts",
+		"lib/doc/__tests__/displayConditionMutations.test.ts",
+		"lib/doc/__tests__/entryPointMutations.test.ts",
+		"lib/doc/__tests__/renameReferencedField.test.ts",
+		"lib/doc/__tests__/caseSearchConfigProvenance.test.ts",
+		"lib/doc/__tests__/searchInputFinalShape.test.ts",
+		"lib/doc/mutations/__tests__/searchFirstPostSubmit.test.ts",
+		"lib/doc/__tests__/searchNoMatches.test.ts",
+		"lib/doc/__tests__/lookupOptionsSourceMutations.test.ts",
+		"lib/doc/__tests__/lookupFilterFormFieldAdmission.test.ts",
+		"lib/doc/__tests__/lookupCarrierMutations.test.ts",
+		"lib/doc/__tests__/lookupReferences.test.ts",
+		"lib/doc/__tests__/casePropertyRenameImpact.test.ts",
+		"lib/doc/__tests__/casePropertyRenameReview.test.ts",
+		"lib/doc/__tests__/mutations-forms.test.ts",
+		"lib/doc/__tests__/mutations-modules.test.ts",
+		"lib/doc/__tests__/mutations-app.test.ts",
+		"lib/doc/__tests__/casePropertyRenames.test.ts",
+		"lib/doc/__tests__/mutations-fields.test.ts",
+		"lib/doc/__tests__/navigation.test.ts",
+		"lib/doc/__tests__/mutations-pathRewrite.test.ts",
+		"lib/doc/__tests__/mutations-fields-move-xpath.test.ts",
+		"lib/doc/__tests__/mutations-fields-convertField.test.ts",
+		"lib/doc/__tests__/kindConversionCascade.test.ts",
+		"lib/doc/__tests__/mutations.test.ts",
+		"lib/doc/__tests__/formLinkDependents.test.ts",
+		"lib/doc/__tests__/mutations-formLinks.test.ts",
+		"lib/doc/__tests__/formLinkReview.test.ts",
+		"lib/doc/__tests__/formLinkMutations.test.ts",
+		"lib/doc/__tests__/mutations-fields-rename-coverage.test.ts",
+		"lib/doc/__tests__/formSectionMutations.test.ts",
+		"lib/doc/__tests__/formSectionVerdicts.test.ts",
+		"lib/doc/__tests__/automationCommitCanonicality.test.ts",
+		"lib/doc/__tests__/searchInputRemovalDependencies.test.ts",
+		"lib/doc/__tests__/caseOperationReview.test.ts",
+		"lib/doc/__tests__/caseOperationMutations.test.ts",
+		"lib/doc/__tests__/incrementalValidationScope.test.ts",
+		"lib/doc/__tests__/absoluteGuardCoverage.test.ts",
+		"lib/doc/__tests__/automations.test.ts",
+		"lib/doc/__tests__/caseSelectionMutations.test.ts",
+		"lib/doc/__tests__/caseTypeRetirement.test.ts",
+		"lib/doc/__tests__/multiplayerMerge.test.ts"
+	]
+}

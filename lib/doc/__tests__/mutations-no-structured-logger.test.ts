@@ -1,78 +1,96 @@
-import { readdirSync, readFileSync } from "node:fs";
-import { join, relative } from "node:path";
-import { fileURLToPath } from "node:url";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import {
+	isCallExpression,
+	isExportDeclaration,
+	isExternalModuleReference,
+	isIdentifier,
+	isImportDeclaration,
+	isNoSubstitutionTemplateLiteral,
+	isStringLiteral,
+	type Node,
+	SyntaxKind,
+} from "typescript/unstable/ast";
 import { describe, expect, it } from "vitest";
+import {
+	readTypeScriptSources,
+	visitTypeScript,
+	withTypeScriptSources,
+} from "@/__tests__/helpers/typescriptSources";
 
-/**
- * Convention pin: no module under `lib/doc/mutations/` or
- * `lib/doc/hooks/`, and none of the client-bundled package-root
- * modules (the commit gate's verdict + phase plumbing run on every UI
- * dispatch), may import `@/lib/logger`.
- *
- * These surfaces bundle CLIENT-side — the reducers run inside the
- * browser doc store (and must stay byte-identical with their server
- * and replay runs), and the hooks are client components' mutation
- * surface. The structured logger's production path writes to
- * `process.stdout`, which Next's browser `process` shim doesn't
- * define — so a degraded-path warn would THROW in the production
- * client, on exactly the warn-and-skip paths that exist to keep the
- * app alive. Degraded-path reporting in these packages uses
- * `console.warn` / `console.debug` instead.
- *
- * This is a source-text scan rather than a behavioral assertion
- * because `vitest.setup.ts` mocks `@/lib/logger` globally — a runtime
- * test can never observe the real logger's client crash, which is how
- * the original regression shipped unnoticed. The walk is recursive so
- * nested subpackages stay covered (`__tests__` excluded — test files
- * may assert on the mocked logger), and the scan asserts it visited
- * at least one file so a path bug can't pass as a vacuously empty
- * walk.
- */
-describe("lib/doc client-bundled packages avoid the structured logger", () => {
-	const packageDirs = ["../mutations", "../hooks"] as const;
-	/* Package-root modules on the browser's gated-dispatch path. Named
-	 * individually (not a root walk) because some root modules are
-	 * legitimately server-reachable-only; these run inside every builder
-	 * edit. */
-	const clientRootModules = [
-		"../commitVerdicts.ts",
-		"../identifierVerdicts.ts",
-		"../connectConfig.ts",
-	] as const;
-
-	it("no file imports @/lib/logger", () => {
-		const packageRoot = fileURLToPath(new URL("..", import.meta.url));
-		const offenders: string[] = [];
-		let visited = 0;
-		for (const file of clientRootModules) {
-			const filePath = fileURLToPath(new URL(file, import.meta.url));
-			visited += 1;
-			const source = readFileSync(filePath, "utf8");
-			if (source.includes("@/lib/logger")) {
-				offenders.push(join("lib/doc", relative(packageRoot, filePath)));
-			}
-		}
-		for (const dir of packageDirs) {
-			const dirPath = fileURLToPath(new URL(dir, import.meta.url));
-			const entries = readdirSync(dirPath, {
-				withFileTypes: true,
-				recursive: true,
+/** Source architecture rule for direct client imports. Relative paths,
+ * exports and literal runtime loaders count; comments and prose do not.
+ * Runtime behavior remains owned by the logger's tests. */
+function moduleSpecifier(node: Node): string | undefined {
+	const value =
+		isImportDeclaration(node) || isExportDeclaration(node)
+			? node.moduleSpecifier
+			: isExternalModuleReference(node)
+				? node.expression
+				: isCallExpression(node) &&
+						(node.expression.kind === SyntaxKind.ImportKeyword ||
+							(isIdentifier(node.expression) &&
+								node.expression.text === "require"))
+					? node.arguments[0]
+					: undefined;
+	return value &&
+		(isStringLiteral(value) || isNoSubstitutionTemplateLiteral(value))
+		? value.text
+		: undefined;
+}
+function findings(sources: Record<string, string>): string[] {
+	const candidates = Object.fromEntries(
+		Object.entries(sources).filter(
+			([, text]) => text.includes("logger") || text.includes("\\"),
+		),
+	);
+	if (Object.keys(candidates).length === 0) return [];
+	return withTypeScriptSources(candidates, (parsed) => {
+		const result: string[] = [];
+		for (const [file, source] of parsed)
+			visitTypeScript(source, (node) => {
+				const name = moduleSpecifier(node);
+				if (!name) return;
+				const resolved = name.startsWith("@/")
+					? name.slice(2)
+					: name.startsWith(".")
+						? path.posix.normalize(
+								path.posix.join(path.posix.dirname(file), name),
+							)
+						: undefined;
+				if (resolved?.replace(/\.[cm]?[jt]sx?$/, "") === "lib/logger")
+					result.push(file);
 			});
-			for (const entry of entries) {
-				if (!entry.isFile()) continue;
-				// `parentPath` is the directory holding the entry — for nested
-				// entries that is a SUBdirectory of `dirPath`, so the path must
-				// build from it, not from the walk root.
-				const filePath = join(entry.parentPath, entry.name);
-				if (relative(dirPath, filePath).includes("__tests__")) continue;
-				visited += 1;
-				const source = readFileSync(filePath, "utf8");
-				if (source.includes("@/lib/logger")) {
-					offenders.push(join("lib/doc", relative(packageRoot, filePath)));
-				}
-			}
-		}
-		expect(visited).toBeGreaterThan(0);
-		expect(offenders).toEqual([]);
+		return result;
+	});
+}
+
+describe("client document code avoids the structured server logger", () => {
+	it("has no direct logger import in reducers, hooks or commit-boundary modules", () => {
+		const sources = readTypeScriptSources([
+			"lib/doc/mutations",
+			"lib/doc/hooks",
+		]);
+		for (const file of [
+			"lib/doc/commitVerdicts.ts",
+			"lib/doc/identifierVerdicts.ts",
+			"lib/doc/connectConfig.ts",
+		])
+			sources[file] = readFileSync(file, "utf8");
+		expect(Object.keys(sources).length).toBeGreaterThan(3);
+		expect(findings(sources)).toEqual([]);
+	});
+	it("finds alias, relative, re-export and dynamic imports while ignoring comments", () => {
+		expect(
+			findings({
+				"lib/doc/mutations/example.ts": [
+					'import log from "@/lib/logger";',
+					'export {log} from "../../logger";',
+					'const loaded = import("../../logger.ts");',
+					'// import "@/lib/logger";',
+					"const prose = 'import \"@/lib/logger\"';",
+				].join("\n"),
+			}),
+		).toEqual(Array(3).fill("lib/doc/mutations/example.ts"));
 	});
 });

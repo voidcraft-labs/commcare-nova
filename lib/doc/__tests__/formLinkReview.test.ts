@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, caseListConfig, f, xp } from "@/lib/__tests__/docHelpers";
 import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
-import { planFormLinkMove } from "@/lib/doc/formLinkMutations";
 import {
 	formLinkAddChoices,
 	formLinkCarryVerdict,
@@ -22,6 +21,7 @@ import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import type { BlueprintDoc, FormLinkTarget } from "@/lib/domain";
 import { literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const INTAKE = testUuid("mod-intake");
 const CARE = testUuid("mod-care");
@@ -51,7 +51,7 @@ const toCare: FormLinkTarget = { type: "module", moduleUuid: CARE };
  * Care (patient) → [Visit (followup), Visit again (followup), Note (survey)].
  */
 function fixture(): BlueprintDoc {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Review",
 		caseTypes: [
 			{
@@ -139,6 +139,8 @@ function fixture(): BlueprintDoc {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("formLinkMoveVerdicts", () => {
@@ -166,23 +168,26 @@ describe("formLinkMoveVerdicts", () => {
 		).toBe(0);
 	});
 
-	it("agrees with the commit gate at every position (parity)", () => {
+	it("commits only independently enumerated legal positions at the actual gate", () => {
 		const doc = fixture();
-		for (const uuid of [L1, L2, ELSE]) {
-			for (const [index, verdict] of formLinkMoveVerdicts(
-				doc,
-				REGISTER,
-				uuid,
-			)) {
-				const plan = planFormLinkMove(doc, REGISTER, uuid, index);
-				expect(plan.ok, `${uuid} → ${index}`).toBe(verdict.ok);
-				if (!plan.ok) continue;
+		for (const [uuid, allowed] of [
+			[L1, [true, true, false]],
+			[L2, [true, true, false]],
+			[ELSE, [false, false, true]],
+		] as const) {
+			const others = [L1, L2, ELSE].filter((candidate) => candidate !== uuid);
+			for (let index = 0; index < 3; index++) {
+				const after = index === 0 ? null : others[index - 1];
 				const gate = mutationCommitVerdict(
 					doc,
-					[...plan.mutations],
+					[{ kind: "moveFormLink", formUuid: REGISTER, uuid, after }],
 					LOOKUP_CONTEXT_UNAVAILABLE,
 				);
-				expect(gate.ok, `${uuid} → ${index} commits`).toBe(true);
+				expect(gate.ok).toBe(allowed[index]);
+				if (gate.ok)
+					expect(
+						gate.nextDoc.forms[REGISTER].formLinks?.map((link) => link.uuid),
+					).toEqual([...others.slice(0, index), uuid, ...others.slice(index)]);
 			}
 		}
 	});
@@ -230,6 +235,7 @@ describe("formLinkTargetVerdict", () => {
 		).toEqual({ ok: false, reason: "target-not-found" });
 		// Note → Survey → Register; pointing Register at Note loops.
 		const looped = produce(doc, (draft) => {
+			delete draft.forms[REGISTER].formLinks;
 			const note = draft.forms[NOTE];
 			const survey = draft.forms[SURVEY];
 			if (note === undefined || survey === undefined)
@@ -247,7 +253,8 @@ describe("formLinkTargetVerdict", () => {
 				},
 			];
 		});
-		expect(formLinkTargetVerdict(looped, REGISTER, L1, toNote)).toEqual({
+		assertAdmittedDoc(looped);
+		expect(formLinkTargetVerdict(looped, REGISTER, undefined, toNote)).toEqual({
 			ok: false,
 			reason: "cycle",
 			chain: [NOTE, SURVEY, REGISTER],
@@ -272,6 +279,7 @@ describe("formLinkTargetVerdict", () => {
 			target.selection = { kind: "multiple", maximum: 5 };
 			draft.forms[REGISTER].type = "followup";
 		});
+		assertAdmittedDoc(doc);
 		const target: FormLinkTarget = {
 			type: "form",
 			moduleUuid: INTAKE,
@@ -310,6 +318,7 @@ describe("formLinkTargetVerdict", () => {
 			target.selection = { kind: "multiple", maximum: 10 };
 			draft.forms[REGISTER].type = "followup";
 		});
+		assertAdmittedDoc(doc);
 		const target: FormLinkTarget = {
 			type: "form",
 			moduleUuid: INTAKE,
@@ -376,6 +385,7 @@ describe("formLinkTargetVerdict", () => {
 			if (mood?.kind === "text") delete mood.caseWrite;
 		});
 
+		assertAdmittedDoc(doc);
 		expect(
 			formLinkTargetVerdict(doc, VISIT, undefined, {
 				type: "form",

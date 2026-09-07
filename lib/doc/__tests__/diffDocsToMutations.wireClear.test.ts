@@ -1,62 +1,79 @@
-/**
- * Wire round-trip proof that clearing an optional module/form slot survives
- * mutation-only persistence.
- *
- * The browser diffs its working doc into a `Mutation[]` and ships it as JSON
- * to `PUT /api/apps/[id]`, where the server parses each mutation through
- * `mutationSchema` and replays it with `applyMutations`. Two hazards an
- * in-memory replay (the `diffDocsToMutations.fuzz.test.ts` oracle) can't
- * catch live on that wire:
- *
- *   1. `JSON.stringify` DROPS `undefined`-valued keys, so a clear that
- *      lowers to `{ key: undefined }` arrives as an absent key — a no-op
- *      that silently keeps the stale value.
- *   2. The patch schema must ADMIT the clear's value, and the reducer must
- *      DELETE the slot rather than store the value, for the clear to land.
- *
- * Each test serializes the diff through `JSON.parse(JSON.stringify(...))`,
- * re-parses every mutation through `mutationSchema`, and replays the parsed
- * mutations on `prev` — the exact server path — then asserts the slot is
- * GONE (not present, not `null`).
- */
-
+/** JSON transport must preserve clears between admitted endpoints. This exercises
+ * the parser, planner and commit gate, not the authenticated HTTP route. */
 import { produce } from "immer";
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { diffDocsToMutations } from "@/lib/doc/diffDocsToMutations";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
-import { applyMutations } from "@/lib/doc/mutations";
-import { type Mutation, mutationSchema } from "@/lib/doc/types";
-import type { BlueprintDoc } from "@/lib/domain";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import { mutationSchema } from "@/lib/doc/types";
+import { type BlueprintDoc, plainColumn } from "@/lib/domain";
 import { eq, literal, prop } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
-/**
- * Replay a diff exactly as the persistence wire does: serialize to JSON
- * (dropping any `undefined`-valued key, as `JSON.stringify` does over the
- * `PUT` body), re-parse each mutation through `mutationSchema`, and apply
- * the parsed mutations to `prev`.
- */
-function replayOverWire(prev: BlueprintDoc, next: BlueprintDoc): BlueprintDoc {
-	const mutations = diffDocsToMutations(prev, next);
-	const onWire = JSON.parse(JSON.stringify({ mutations })) as {
-		mutations: unknown[];
-	};
-	const parsed = onWire.mutations.map((m) => mutationSchema.parse(m));
-	return produce(prev, (d) => {
-		applyMutations(d, parsed as Mutation[]);
+function surveyDoc(): BlueprintDoc {
+	return buildDoc({
+		appName: "Organization",
+		modules: [
+			{
+				name: "Survey",
+				forms: [
+					{
+						name: "Visit",
+						type: "survey",
+						fields: [{ kind: "text", id: "notes", label: proseText("Notes") }],
+					},
+				],
+			},
+		],
 	});
+}
+function replayOverWire(prev: BlueprintDoc, next: BlueprintDoc): BlueprintDoc {
+	assertAdmittedDoc(prev);
+	assertAdmittedDoc(next);
+	const onWire: unknown = JSON.parse(
+		JSON.stringify(diffDocsToMutations(prev, next)),
+	);
+	if (!Array.isArray(onWire)) throw new Error("Expected mutation array");
+	const parsed = onWire.map((mutation) => mutationSchema.parse(mutation));
+	const verdict = mutationCommitVerdict(
+		prev,
+		parsed,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return verdict.nextDoc;
 }
 
 describe("diffDocsToMutations — clearing an optional slot survives the wire", () => {
 	it("clears a form's closeCondition (conditional close → always close)", () => {
 		const prev = buildDoc({
 			appName: "Clinic",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "visit_status",
+							label: proseText("Status"),
+							data_type: "text",
+						},
+					],
+				},
+			],
 			modules: [
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("close-column"), "case_name", "Name"),
+						],
+						searchInputs: [],
+					},
 					forms: [
 						{
 							name: "Close visit",
@@ -74,7 +91,7 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 		// The CloseConditionSection dispatch: switch the conditional close back
 		// to "always close" by blanking `closeCondition`.
 		const next = produce(prev, (d) => {
-			d.forms[formUuid].closeCondition = undefined;
+			delete d.forms[formUuid].closeCondition;
 		});
 
 		const replayed = replayOverWire(prev, next);
@@ -87,14 +104,29 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 	it("clears a module's caseListConfig.filter", () => {
 		const prev = buildDoc({
 			appName: "Clinic",
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "visit_status",
+							label: proseText("Status"),
+							data_type: "text",
+						},
+					],
+				},
+			],
 			modules: [
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListOnly: true,
 					caseListConfig: {
-						columns: [],
+						columns: [
+							plainColumn(testUuid("filter-column"), "case_name", "Name"),
+						],
 						searchInputs: [],
-						filter: eq(prop("patient", "status"), literal("active")),
+						filter: eq(prop("patient", "visit_status"), literal("active")),
 					},
 				},
 			],
@@ -107,7 +139,7 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 		// for the filter so the clear survives JSON serialization.
 		const next = produce(prev, (d) => {
 			const config = d.modules[moduleUuid].caseListConfig;
-			if (config) config.filter = undefined;
+			if (config) delete config.filter;
 		});
 
 		const replayed = replayOverWire(prev, next);
@@ -121,13 +153,47 @@ describe("diffDocsToMutations — clearing an optional slot survives the wire", 
 	it("clears a module's caseType (a top-level optional slot)", () => {
 		const prev = buildDoc({
 			appName: "Clinic",
-			modules: [{ name: "Records", caseType: "patient", caseListOnly: true }],
+			caseTypes: [
+				{
+					name: "patient",
+					properties: [
+						{
+							name: "visit_status",
+							label: proseText("Status"),
+							data_type: "text",
+						},
+					],
+				},
+			],
+			modules: [
+				{
+					name: "Records",
+					caseType: "patient",
+					caseListConfig: {
+						columns: [
+							plainColumn(testUuid("clear-column"), "case_name", "Name"),
+						],
+						searchInputs: [],
+					},
+					forms: [
+						{
+							name: "Visit",
+							type: "survey",
+							fields: [
+								{ kind: "text", id: "notes", label: proseText("Notes") },
+							],
+						},
+					],
+				},
+			],
 		});
 		const moduleUuid = Object.keys(prev.modules)[0];
 		expect(prev.modules[moduleUuid].caseType).toBe("patient");
 
 		const next = produce(prev, (d) => {
-			d.modules[moduleUuid].caseType = undefined;
+			delete d.modules[moduleUuid].caseType;
+			delete d.modules[moduleUuid].caseListOnly;
+			delete d.modules[moduleUuid].caseListConfig;
 		});
 
 		const replayed = replayOverWire(prev, next);
@@ -141,7 +207,7 @@ describe("diffDocsToMutations — organization sequence admission", () => {
 	it("refuses an existing-level reorder instead of silently emitting no diff", () => {
 		const region = testUuid("11111111-1111-4111-8111-111111111111");
 		const facility = testUuid("22222222-2222-4222-8222-222222222222");
-		const prev = buildDoc({ appName: "Organization" });
+		const prev = surveyDoc();
 		prev.organizationLevels = {
 			[region]: {
 				uuid: region,
@@ -164,6 +230,8 @@ describe("diffDocsToMutations — organization sequence admission", () => {
 			draft.organizationLevelOrder = [facility, region];
 		});
 
+		assertAdmittedDoc(prev);
+		assertAdmittedDoc(next);
 		expect(() => diffDocsToMutations(prev, next)).toThrow(
 			/Reordering existing organization levels/,
 		);
@@ -173,7 +241,7 @@ describe("diffDocsToMutations — organization sequence admission", () => {
 		const region = testUuid("11111111-1111-4111-8111-111111111111");
 		const facility = testUuid("22222222-2222-4222-8222-222222222222");
 		const district = testUuid("33333333-3333-4333-8333-333333333333");
-		const prev = buildDoc({ appName: "Organization" });
+		const prev = surveyDoc();
 		prev.organizationLevels = {
 			[region]: {
 				uuid: region,

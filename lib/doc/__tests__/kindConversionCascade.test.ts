@@ -13,12 +13,16 @@
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
-import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { buildDoc, caseListConfig, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { buildReferenceIndex } from "@/lib/doc/referenceIndex";
+import { mutationSchema } from "@/lib/doc/types";
 import type { BlueprintDoc, FieldKind, Form } from "@/lib/domain";
 import { today } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
 import { planKindConversion } from "../kindConversionCascade";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 /** Two forms writing the same `visit_on` date property (declared), so a
  *  temporal flip must carry the peer and re-declare. */
@@ -37,6 +41,9 @@ function temporalDoc(): BlueprintDoc {
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
 				forms: [
 					{
 						name: "Register",
@@ -83,13 +90,22 @@ function fieldIn(doc: BlueprintDoc, id: string, index = 0) {
 }
 
 function plan(doc: BlueprintDoc, fieldId: string, toKind: FieldKind) {
+	assertAdmittedDoc(doc);
 	const result = planKindConversion({
 		doc,
 		field: fieldIn(doc, fieldId),
 		toKind,
 	});
 	if (!result.ok) throw new Error(`plan blocked by ${result.blocker.id}`);
-	return result;
+	const verdict = mutationCommitVerdict(
+		doc,
+		result.mutations.map((mutation) =>
+			mutationSchema.parse(JSON.parse(JSON.stringify(mutation))),
+		),
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok ? [] : verdict.findings).toEqual([]);
+	return { ...result, nextDoc: verdict.nextDoc };
 }
 
 describe("planKindConversion — generalized escort", () => {
@@ -110,6 +126,16 @@ describe("planKindConversion — generalized escort", () => {
 			expect.objectContaining({ name: "visit_on", data_type: "datetime" }),
 		);
 		expect(result.redeclaredTo).toBe("datetime");
+		expect(
+			Object.values(result.nextDoc.fields)
+				.filter((field) => field.id === "visit_on")
+				.map((field) => field.kind),
+		).toEqual(["datetime", "datetime"]);
+		expect(
+			result.nextDoc.caseTypes?.[0].properties.find(
+				(property) => property.name === "visit_on",
+			)?.data_type,
+		).toBe("datetime");
 	});
 
 	it("keys the conversion plan by caseWrite.property, never the field id", () => {
@@ -117,6 +143,7 @@ describe("planKindConversion — generalized escort", () => {
 		const addressed = fieldIn(doc, "visit_on");
 		addressed.id = "visit_date_question";
 		doc.refIndex = buildReferenceIndex(doc);
+		assertAdmittedDoc(doc);
 
 		const result = planKindConversion({
 			doc,
@@ -166,6 +193,9 @@ describe("planKindConversion — generalized escort", () => {
 				{
 					name: "Patients",
 					caseType: "patient",
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
 					forms: [
 						{
 							name: "Register",
@@ -243,11 +273,18 @@ describe("planKindConversion — generalized escort", () => {
 				id: "record_visit_date",
 				action: "update",
 				caseType: "patient",
-				target: { kind: "session" },
+				target: {
+					kind: "expression",
+					expr: {
+						kind: "term",
+						term: { kind: "literal", value: "another-patient" },
+					},
+				},
 				writes: [{ property: "visit_on", value: today() }],
 			},
 		];
 		doc.refIndex = buildReferenceIndex(doc);
+		assertAdmittedDoc(doc);
 
 		const result = planKindConversion({
 			doc,

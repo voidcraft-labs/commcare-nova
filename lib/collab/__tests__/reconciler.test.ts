@@ -13,8 +13,9 @@
  * exercised purely as a state machine, which is exactly what this file does.
  */
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
+import { buildDoc, caseListConfig } from "@/lib/__tests__/docHelpers";
 import {
 	createReconciler,
 	type MutationFrame,
@@ -24,7 +25,10 @@ import {
 	type ReconcilerObservedFailure,
 	type SaveSignal,
 } from "@/lib/collab/reconciler";
+import { assertAdmittedDoc } from "@/lib/doc/__tests__/admittedDoc";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import { toPersistableDoc } from "@/lib/doc/fieldParent";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import {
 	type AdmittedMutationBatch,
 	admitMutationBatch,
@@ -70,36 +74,34 @@ const CANONICALITY_OUTCOME: PutOutcome = {
 /** A doc with one module, one form, two text fields — enough surface for
  *  scalar (`setAppName`) and structural (field label / reorder) merges. */
 function makeDoc(appName = "App"): BlueprintDoc {
-	return {
+	return buildDoc({
 		appId: "app-1",
 		appName,
-		connectType: null,
-		caseTypes: null,
-		modules: {
-			[MOD]: { uuid: MOD, id: "m", name: "Module" },
-		},
-		forms: {
-			[FORM]: { uuid: FORM, id: "f", name: "Form", moduleUuid: MOD },
-		},
-		fields: {
-			[F_A]: {
-				uuid: F_A,
-				id: "a",
-				kind: "text",
-				label: proseText("A"),
+		caseTypes: [{ name: "patient", properties: [] }],
+		modules: [
+			{
+				uuid: MOD,
+				id: "m",
+				name: "Module",
+				caseType: "patient",
+				caseListConfig: caseListConfig([
+					{ field: "case_name", header: "Name" },
+				]),
+				forms: [
+					{
+						uuid: FORM,
+						id: "f",
+						name: "Form",
+						type: "followup",
+						fields: [
+							{ uuid: F_A, id: "a", kind: "text", label: "A" },
+							{ uuid: F_B, id: "b", kind: "text", label: "B" },
+						],
+					},
+				],
 			},
-			[F_B]: {
-				uuid: F_B,
-				id: "b",
-				kind: "text",
-				label: proseText("B"),
-			},
-		},
-		moduleOrder: [MOD],
-		formOrder: { [MOD]: [FORM] },
-		fieldOrder: { [FORM]: [F_A, F_B] },
-		fieldParent: { [F_A]: null, [F_B]: null },
-	} as unknown as BlueprintDoc;
+		],
+	});
 }
 
 function makeRenameDoc(appName = "App"): BlueprintDoc {
@@ -290,7 +292,8 @@ interface Harness {
 	/** Settle every still-pending PUT / reload promise + dispose the reconciler
 	 *  so no promise leaks past the test (the async-leak detector flags a pending
 	 *  promise). Called from `afterEach`. */
-	settle: () => void;
+	settle: () => Promise<void>;
+	ownedTasks: Promise<unknown>[];
 }
 
 /** Live harnesses this test-run created — drained in `afterEach` so no pending
@@ -304,6 +307,7 @@ function makeHarness(init: {
 	baseDoc: BlueprintDoc;
 	userId: string;
 }): Harness {
+	assertAdmittedDoc(init.baseDoc);
 	const docStore = createBlueprintDocStore();
 	// Seed the store with the base doc and start tracking (live-builder depth 0).
 	docStore.getState().load(toPersistableDoc(init.baseDoc));
@@ -319,6 +323,11 @@ function makeHarness(init: {
 	const seededInit = { ...init, baseDoc: docStore.getState() };
 
 	const puts: Harness["puts"] = [];
+	const ownedTasks: Promise<unknown>[] = [];
+	function own<T>(task: Promise<T>): Promise<T> {
+		ownedTasks.push(task);
+		return task;
+	}
 	const pendingResolvers: Array<(o: PutOutcome) => void> = [];
 	let retryCb: (() => void) | undefined;
 	const reloadQueue: Harness["reloadQueue"] = [];
@@ -338,16 +347,20 @@ function makeHarness(init: {
 	const deps: ReconcilerDeps = {
 		put: (batchId, mutations) => {
 			puts.push({ batchId, mutations });
-			return new Promise<PutOutcome>((resolve) => {
-				pendingResolvers.push(resolve);
-			});
+			return own(
+				new Promise<PutOutcome>((resolve) => {
+					pendingResolvers.push(resolve);
+				}),
+			);
 		},
 		reload: () => {
 			state.reloadCalls += 1;
 			if (state.manual) {
-				return new Promise((resolve, reject) => {
-					reloadResolvers.push({ resolve, reject });
-				});
+				return own(
+					new Promise((resolve, reject) => {
+						reloadResolvers.push({ resolve, reject });
+					}),
+				);
 			}
 			const next = reloadQueue.shift();
 			if (!next) return Promise.reject(new Error("reloadQueue empty"));
@@ -439,7 +452,8 @@ function makeHarness(init: {
 			await flush();
 		},
 		pendingReloads: () => reloadResolvers.length,
-		settle: () => {
+		ownedTasks,
+		settle: async () => {
 			// Dispose first so the reconciler ignores the late resolutions
 			// (`inert()`), then drain every pending fake-dep promise so none leaks.
 			reconciler.dispose();
@@ -449,6 +463,14 @@ function makeHarness(init: {
 			for (const r of reloadResolvers.splice(0)) {
 				r.reject(new Error("harness torn down"));
 			}
+			await Promise.allSettled(ownedTasks);
+			expect(retryCb).toBeUndefined();
+			expect(reconciler.getSnapshot().reloadInFlight).toBe(false);
+			expect(
+				reconciler
+					.getSnapshot()
+					.sentPending.every((batch) => !batch.putInFlight),
+			).toBe(true);
 		},
 	};
 }
@@ -463,6 +485,19 @@ function harness(init: {
 	const h = makeHarness(init);
 	liveHarnesses.add(h);
 	return h;
+}
+
+/** Reach the same admitted candidate that a Builder edit commits. These tests
+ * control transport outcomes, not document validity or gate answers. */
+function applyLocal(h: Harness, mutations: Mutation[]): void {
+	const verdict = mutationCommitVerdict(
+		h.docStore.getState(),
+		mutations,
+		LOOKUP_CONTEXT_UNAVAILABLE,
+	);
+	expect(verdict.ok, JSON.stringify(verdict)).toBe(true);
+	if (!verdict.ok) throw new Error("Local fixture edit must be admitted");
+	h.docStore.getState().commitDoc(verdict.nextDoc, verdict.mutations);
 }
 
 /** Apply a batch to a doc off-store (for building expected values). Returns a
@@ -499,14 +534,39 @@ function docData(doc: BlueprintDoc): BlueprintDoc {
 // ── Tests ──────────────────────────────────────────────────────────────────
 
 describe("reconciler", () => {
-	afterEach(() => {
+	afterEach(async () => {
 		// Settle every harness's outstanding fake-dep promises + dispose its
 		// reconciler so nothing leaks past the test (the async-leak detector flags
 		// a pending promise). A test that deliberately leaves a PUT/reload pending
 		// (to assert an in-flight state) relies on this teardown.
-		for (const h of liveHarnesses) h.settle();
+		await Promise.all([...liveHarnesses].map((h) => h.settle()));
 		liveHarnesses.clear();
-		vi.clearAllTimers();
+	});
+
+	it("keeps queued edits owned by the store after disposal and cancels a late save watch", async () => {
+		const h = harness({
+			appId: "app-1",
+			baseSeq: 1,
+			baseDoc: makeDoc(),
+			userId: "self",
+		});
+		const mutations: Mutation[] = [
+			{ kind: "setAppName", name: "Waiting edit" },
+		];
+		applyLocal(h, mutations);
+		h.reconciler.dispose();
+		const watch = h.reconciler.watchNextHumanBatch(mutations);
+		h.ownedTasks.push(watch.promise);
+		const outcome = await Promise.race([
+			watch.promise,
+			Promise.resolve({ kind: "pending" }),
+		]);
+		expect(outcome).toEqual({ kind: "cancelled" });
+		expect(h.reconciler.canPut()).toBe(false);
+		expect(h.reconciler.dispatchHumanBatch()).toBeUndefined();
+		expect(h.docStore.getState().peekCommandBatches()).toEqual([mutations]);
+		expect(h.reconciler.getSnapshot().sentPending).toEqual([]);
+		expect(h.puts).toEqual([]);
 	});
 
 	// ── Dispatch + echo ─────────────────────────────────────────────────
@@ -520,7 +580,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// A human edit lands in the store.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Edited" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Edited" }]);
 			const batchId = h.reconciler.dispatchHumanBatch();
 			expect(batchId).toBeDefined();
 			expect(h.puts).toHaveLength(1);
@@ -568,16 +628,18 @@ describe("reconciler", () => {
 				baseDoc: makeDoc("Base"),
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "First" }]);
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "First" }]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 			h.reconciler.dispatchHumanBatch();
 			const barrier = h.reconciler.waitForHumanSaveBarrier();
 			let settled = false;
-			void barrier.then(() => {
-				settled = true;
-			});
+			h.ownedTasks.push(
+				barrier.then(() => {
+					settled = true;
+				}),
+			);
 
 			await h.resolvePut(0, { ok: true, seq: 1 });
 			expect(settled).toBe(false);
@@ -593,13 +655,11 @@ describe("reconciler", () => {
 				baseDoc: makeRenameDoc("Base"),
 				userId: "u1",
 			});
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Before rename" }]);
-			h.docStore.getState().applyMany([renameProperty("a", "b")]);
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Before rename" }]);
+			applyLocal(h, [renameProperty("a", "b")]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 
 			const first = h.reconciler.dispatchHumanBatch();
 			const pending = h.reconciler.getSnapshot().sentPending;
@@ -607,7 +667,13 @@ describe("reconciler", () => {
 			expect(pending.map((batch) => batch.mutations)).toEqual([
 				[{ kind: "setAppName", name: "Before rename" }],
 				[renameProperty("a", "b")],
-				[{ kind: "setConnectType", connectType: "learn" }],
+				[
+					{
+						kind: "updateForm",
+						uuid: FORM,
+						patch: { purpose: "Local purpose" },
+					},
+				],
 			]);
 			expect(h.puts).toHaveLength(1);
 			expect(h.puts[0]?.batchId).toBe(first);
@@ -618,7 +684,7 @@ describe("reconciler", () => {
 			await h.resolvePut(1, { ok: true, seq: 2 });
 			expect(h.puts).toHaveLength(3);
 			expect(h.puts[2]?.mutations).toEqual([
-				{ kind: "setConnectType", connectType: "learn" },
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
 			]);
 			await h.resolvePut(2, { ok: true, seq: 3 });
 		});
@@ -630,7 +696,7 @@ describe("reconciler", () => {
 				baseDoc: makeRenameDoc("Base"),
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			applyLocal(h, [renameProperty("a", "b")]);
 			h.docStore.getState().undo();
 
 			h.reconciler.dispatchHumanBatch();
@@ -650,7 +716,7 @@ describe("reconciler", () => {
 				baseDoc: makeRenameDoc("Base"),
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			applyLocal(h, [renameProperty("a", "b")]);
 
 			h.reconciler.onFrame(
 				autosaveFrame(1, "peer-rename", "u2", [renameProperty("a", "c")]),
@@ -676,22 +742,22 @@ describe("reconciler", () => {
 				baseDoc: makeRenameDoc("Base"),
 				userId: "u1",
 			});
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Predecessor" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Predecessor" }]);
 			const watch = h.reconciler.watchNextHumanBatch([
 				renameProperty("a", "b"),
 			]);
-			h.docStore.getState().applyMany([renameProperty("a", "b")]);
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [renameProperty("a", "b")]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 			const saveSignals: SaveSignal[] = [];
 			h.reconciler.dispatchHumanBatch((signal) => saveSignals.push(signal));
 			let watchSettled = false;
-			void watch.promise.then(() => {
-				watchSettled = true;
-			});
+			h.ownedTasks.push(
+				watch.promise.then(() => {
+					watchSettled = true;
+				}),
+			);
 
 			expect(h.puts[0]?.mutations).toEqual([
 				{ kind: "setAppName", name: "Predecessor" },
@@ -726,10 +792,10 @@ describe("reconciler", () => {
 			const renameWatch = h.reconciler.watchNextHumanBatch([
 				renameProperty("a", "b"),
 			]);
-			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			applyLocal(h, [renameProperty("a", "b")]);
 			const successor = [{ kind: "setAppName" as const, name: "Successor" }];
 			const successorWatch = h.reconciler.watchNextHumanBatch(successor);
-			h.docStore.getState().applyMany(successor);
+			applyLocal(h, successor);
 			h.reconciler.dispatchHumanBatch();
 			h.reloadQueue.push({ blueprint: base, seq: 1 });
 
@@ -753,12 +819,14 @@ describe("reconciler", () => {
 			const watch = h.reconciler.watchNextHumanBatch([
 				renameProperty("a", "b"),
 			]);
-			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			applyLocal(h, [renameProperty("a", "b")]);
 			h.reconciler.dispatchHumanBatch();
 			let settled = false;
-			void watch.promise.then(() => {
-				settled = true;
-			});
+			h.ownedTasks.push(
+				watch.promise.then(() => {
+					settled = true;
+				}),
+			);
 
 			await h.resolvePut(0, {
 				ok: false,
@@ -793,7 +861,7 @@ describe("reconciler", () => {
 			const bound = h.reconciler.watchNextHumanBatch([
 				renameProperty("a", "b"),
 			]);
-			h.docStore.getState().applyMany([renameProperty("a", "b")]);
+			applyLocal(h, [renameProperty("a", "b")]);
 			h.reconciler.dispatchHumanBatch();
 			h.reconciler.dispose();
 			await expect(bound.promise).resolves.toEqual({ kind: "cancelled" });
@@ -807,15 +875,13 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([renameProperty("a", "b")]);
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Depends on rename" }]);
+			applyLocal(h, [renameProperty("a", "b")]);
+			applyLocal(h, [{ kind: "setAppName", name: "Depends on rename" }]);
 			h.reconciler.dispatchHumanBatch();
 			// This later command is still in the store queue when the rename 409s.
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(2);
 			expect(h.docStore.getState().peekCommandBatches()).toHaveLength(1);
 			h.reloadQueue.push({ blueprint: base, seq: 1 });
@@ -827,7 +893,7 @@ describe("reconciler", () => {
 			expect(h.docStore.getState().peekCommandBatches()).toEqual([]);
 			expect(h.docStore.getState().canUndo).toBe(false);
 			expect(h.docStore.getState().appName).toBe("Base");
-			expect(h.docStore.getState().connectType).toBeNull();
+			expect(h.docStore.getState().forms[FORM].purpose).toBeUndefined();
 			expect(fieldCaseWrite(h.docStore.getState(), F_A)).toEqual({
 				caseType: "patient",
 				property: "a",
@@ -842,14 +908,12 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Rejected" }]);
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Rejected" }]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 			h.reconciler.dispatchHumanBatch();
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,
@@ -866,7 +930,7 @@ describe("reconciler", () => {
 			expect(h.docStore.getState().peekCommandBatches()).toEqual([]);
 			expect(h.docStore.getState().canUndo).toBe(false);
 			expect(h.docStore.getState().appName).toBe("Base");
-			expect(h.docStore.getState().connectType).toBeNull();
+			expect(h.docStore.getState().forms[FORM].purpose).toBeUndefined();
 			expect(fieldLabel(h.docStore.getState(), F_A)).toBe("A");
 		});
 	});
@@ -926,7 +990,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// A local human edit renames field A's label; PUT in flight.
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,
@@ -935,7 +999,7 @@ describe("reconciler", () => {
 				},
 			]);
 			const batchId = h.reconciler.dispatchHumanBatch();
-			await h.resolvePut(0, { ok: true, seq: 4 });
+			await h.resolvePut(0, { ok: true, seq: 5 });
 			const projectionRevision =
 				h.docStore.getState().caseWriteProjectionRevision;
 
@@ -975,7 +1039,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// A local edit to field A — recorded as an undo entry (tracking is live).
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,
@@ -1010,7 +1074,7 @@ describe("reconciler", () => {
 				baseDoc: makeAutomationDoc(),
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateAutomation",
 					uuid: AUTOMATION,
@@ -1056,6 +1120,7 @@ describe("reconciler", () => {
 				const other = {
 					...caseUpdateAutomation(),
 					uuid: otherUuid,
+					name: "Other rule",
 					updates: [
 						{
 							...caseUpdateAutomation().updates[0],
@@ -1072,7 +1137,7 @@ describe("reconciler", () => {
 					userId: "u1",
 				});
 
-				h.docStore.getState().applyMany([
+				applyLocal(h, [
 					kind === "removeAutomation"
 						? {
 								kind,
@@ -1158,7 +1223,7 @@ describe("reconciler", () => {
 				seq: 1,
 			});
 			// Apply it to the store like the dispatcher does.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "SAEdit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "SAEdit" }]);
 
 			// The echo arrives with actorId=self, runId=selfActiveRunId → echo, drops.
 			h.reconciler.onFrame(
@@ -1186,7 +1251,7 @@ describe("reconciler", () => {
 			// with actorId=self AND runId=selfActiveRunId — but kind "mcp".
 			h.reconciler.setSelfActiveRunId("run-1");
 			// A local edit — recorded as an undo entry (tracking is live).
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,
@@ -1228,7 +1293,16 @@ describe("reconciler", () => {
 		const addModuleBatch: Mutation[] = [
 			{
 				kind: "addModule",
-				module: { uuid: NEW_MOD, id: "m2", name: "Added" } as never,
+				module: {
+					uuid: NEW_MOD,
+					id: "m2",
+					name: "Added",
+					caseType: "patient",
+					caseListOnly: true,
+					caseListConfig: caseListConfig([
+						{ field: "case_name", header: "Name" },
+					]),
+				},
 			},
 		];
 
@@ -1253,7 +1327,7 @@ describe("reconciler", () => {
 				seq: 1,
 			});
 			expect(reg.alreadyConfirmed).toBe(false);
-			h.docStore.getState().applyMany(addModuleBatch);
+			applyLocal(h, addModuleBatch);
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(1);
 
 			// Then the echo arrives (actorId=self, runId=active) → drops the batch.
@@ -1334,9 +1408,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Conflicting" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Conflicting" }]);
 			const batchId = h.reconciler.dispatchHumanBatch();
 			expect(batchId).toBeDefined();
 
@@ -1369,9 +1441,7 @@ describe("reconciler", () => {
 					baseDoc: base,
 					userId: "u1",
 				});
-				h.docStore
-					.getState()
-					.applyMany([{ kind: "setAppName", name: "Waiting edit" }]);
+				applyLocal(h, [{ kind: "setAppName", name: "Waiting edit" }]);
 				const signals: SaveSignal[] = [];
 				const batchId = h.reconciler.dispatchHumanBatch((signal) =>
 					signals.push(signal),
@@ -1407,9 +1477,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Waiting edit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Waiting edit" }]);
 			h.reconciler.dispatchHumanBatch();
 			h.reloadQueue.push({
 				blueprint: base,
@@ -1439,9 +1507,7 @@ describe("reconciler", () => {
 			});
 			/* This edit has not reached the autosave leading/trailing edge yet, so it
 			 * exists only as `humanUncommitted`, never in `sentPending`. */
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Waiting unbatched edit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Waiting unbatched edit" }]);
 			h.reloadQueue.push({
 				blueprint: base,
 				seq: 0,
@@ -1490,9 +1556,7 @@ describe("reconciler", () => {
 
 			/* The edit is still human-uncommitted when a viewer snapshot lands, so
 			 * there is no batch-local observer for recovery to reuse. */
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Recovered edit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Recovered edit" }]);
 			h.reloadQueue.push({
 				blueprint: base,
 				seq: 0,
@@ -1525,9 +1589,7 @@ describe("reconciler", () => {
 			});
 			const oldSignals: SaveSignal[] = [];
 			h.reconciler.registerSaveObserver((signal) => oldSignals.push(signal), 0);
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Waiting edit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Waiting edit" }]);
 			h.reconciler.dispatchHumanBatch();
 			h.reloadQueue.push({
 				blueprint: base,
@@ -1574,7 +1636,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// Batch 1: acked at seq 6 (will be <= M).
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,
@@ -1585,7 +1647,7 @@ describe("reconciler", () => {
 			h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: true, seq: 6 });
 			// Batch 2: acked at seq 8 (will be > M) — must survive the reload.
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_B,
@@ -1632,9 +1694,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Pending" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Pending" }]);
 			h.reconciler.dispatchHumanBatch();
 			// A reload event arrives WHILE the PUT is still un-resolved.
 			h.reloadQueue.push({ blueprint: makeDoc("Fresh"), seq: 2 });
@@ -1662,7 +1722,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Retry" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Retry" }]);
 			const batchId = h.reconciler.dispatchHumanBatch();
 			// The first PUT fails with a network error.
 			await h.resolvePut(0, { ok: false, kind: "network" });
@@ -1736,9 +1796,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Pending" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Pending" }]);
 			h.reconciler.dispatchHumanBatch();
 			// A reload event arrives WHILE the PUT is un-resolved → deferred.
 			h.reloadQueue.push({ blueprint: makeDoc("Fresh"), seq: 2 });
@@ -1789,9 +1847,7 @@ describe("reconciler", () => {
 			});
 			h.enableManualReload();
 			// A local edit that will 409 (its batchId must be dropped on reload).
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Conflicting" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Conflicting" }]);
 			const rejected = h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "commitRejected" });
 			// The 409 kicked off a reload (manual — pending).
@@ -1868,7 +1924,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// Batch A fails → schedules a retry, and A is now awaiting its re-send.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "A" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "A" }]);
 			h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "network" });
 			// The retry re-sends A (PUT #2), which stays IN FLIGHT (unresolved).
@@ -1894,7 +1950,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// A local edit whose PUT the server permanently rejects (a 400).
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Bad" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Bad" }]);
 			const observed: string[] = [];
 			h.reconciler.dispatchHumanBatch((s) => observed.push(s.kind));
 			await h.resolvePut(0, CANONICALITY_OUTCOME);
@@ -1932,7 +1988,7 @@ describe("reconciler", () => {
 			});
 			// B1 renames field A; B2 (stacked after) renames it again — B2 depends
 			// on B1's base. Two dispatches.
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,
@@ -1941,7 +1997,7 @@ describe("reconciler", () => {
 				},
 			]);
 			h.reconciler.dispatchHumanBatch();
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,
@@ -1979,13 +2035,13 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// B1 in flight.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "One" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "One" }]);
 			const b1 = h.reconciler.dispatchHumanBatch();
 			expect(h.puts).toHaveLength(1);
 			// B2 dispatched while B1 is un-acked — queued, NOT sent.
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 			const b2 = h.reconciler.dispatchHumanBatch();
 			expect(b2).toBeDefined();
 			expect(h.puts).toHaveLength(1);
@@ -2008,14 +2064,14 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// B1 fails on the network — kept, retry scheduled.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "One" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "One" }]);
 			const b1 = h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "network" });
 			// The user keeps editing; B2's dispatch pumps the pipeline — which
 			// re-sends the HEAD (B1), never B2 ahead of it.
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 			const b2 = h.reconciler.dispatchHumanBatch();
 			expect(h.puts).toHaveLength(2);
 			expect(h.puts[1]?.batchId).toBe(b1); // the head re-sent, not B2
@@ -2040,7 +2096,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// A network-failed batch — a retry tick is scheduled.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Edit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Edit" }]);
 			h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "network" });
 			expect(h.hasScheduledRetry()).toBe(true);
@@ -2081,7 +2137,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Edit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Edit" }]);
 			const batchId = h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "network", detail: "HTTP 401" });
 			const snap = h.reconciler.getSnapshot();
@@ -2107,7 +2163,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Big" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Big" }]);
 			const observed: string[] = [];
 			const batchId = h.reconciler.dispatchHumanBatch((s) =>
 				observed.push(s.kind),
@@ -2142,7 +2198,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			h.enableManualReload();
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Big" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Big" }]);
 			h.reconciler.dispatchHumanBatch();
 			// A GAP frame arrives while the PUT is in flight → a reload is armed,
 			// deferred behind the in-flight PUT.
@@ -2171,16 +2227,16 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Big" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Big" }]);
 			h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "tooLarge" });
 			// The user keeps editing behind the stuck batch. Minting more batches
 			// would 409-churn (each is diffed against a base the server can't
 			// reach), so the delta stays human-uncommitted and the indicator is
 			// re-told the terminal state.
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 			const signals: SaveSignal[] = [];
 			expect(
 				h.reconciler.dispatchHumanBatch((s) => signals.push(s)),
@@ -2203,7 +2259,7 @@ describe("reconciler", () => {
 			});
 			h.enableManualReload();
 			// A network-failed batch (stays for re-send).
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Edit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Edit" }]);
 			h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "network" });
 			// A reload whose GET FAILS — re-arms `reloadPending` WITHOUT running (so
@@ -2241,9 +2297,7 @@ describe("reconciler", () => {
 			});
 			// A batch whose PUT actually committed at seq 3 but the client saw a
 			// network error (a false failure). It stays for re-send.
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setAppName", name: "Committed" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Committed" }]);
 			const batchId = h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "network" });
 			expect(h.reconciler.getSnapshot().sentPending).toHaveLength(1);
@@ -2323,7 +2377,7 @@ describe("reconciler", () => {
 			});
 			// A edits field A's label to "Mine"; the PUT actually committed at seq 2
 			// but the client saw a network error.
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,
@@ -2375,7 +2429,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Fresh" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Fresh" }]);
 			const batchId = h.reconciler.dispatchHumanBatch();
 			// The provider maps a seq-less 200 to a transient network failure; here
 			// we inject that outcome directly (the provider's job is tested by its
@@ -2432,7 +2486,7 @@ describe("reconciler", () => {
 			h.enableManualReload();
 			// Batch A first fails transiently, so its retry sends while the shared
 			// recovery loop has already armed the following tick.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "A" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "A" }]);
 			const aId = h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "network" });
 			expect(h.hasScheduledRetry()).toBe(true);
@@ -2449,9 +2503,9 @@ describe("reconciler", () => {
 
 			// A second edit lands while access is paused. It stays in the displayed
 			// human delta rather than minting a batch under the source capability.
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 			expect(h.reconciler.dispatchHumanBatch()).toBeUndefined();
 			expect(h.puts).toHaveLength(2);
 
@@ -2463,7 +2517,7 @@ describe("reconciler", () => {
 			expect(sentAfter).toHaveLength(1);
 			expect(sentAfter[0].batchId).not.toBe(aId);
 			expect(sentAfter[0].mutations).toEqual([
-				{ kind: "setConnectType", connectType: "learn" },
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
 			]);
 		});
 	});
@@ -2480,7 +2534,7 @@ describe("reconciler", () => {
 			expect(h.reconciler.getSnapshot().dormant).toBe(true);
 			expect(h.reconciler.canPut()).toBe(false);
 			// A human edit while dormant does not PUT.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "X" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "X" }]);
 			expect(h.reconciler.dispatchHumanBatch()).toBeUndefined();
 			expect(h.puts).toHaveLength(0);
 			// A chat batch registration is a no-op while dormant (applies direct).
@@ -2501,7 +2555,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// The store now holds the built doc (the SA streamed into it).
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Built" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Built" }]);
 			h.reconciler.activate({
 				appId: "app-1",
 				baseSeq: 7,
@@ -2540,7 +2594,7 @@ describe("reconciler", () => {
 			// server-side, so queueing it would PUT it straight back.
 			h.docStore.getState().beginAgentWrite();
 			h.docStore.getState().beginRemoteApply();
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Mid" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Mid" }]);
 			h.docStore.getState().endRemoteApply();
 
 			// data-done carries the final doc at seq 2.
@@ -2579,11 +2633,11 @@ describe("reconciler", () => {
 				seq: 2,
 			});
 			h.docStore.getState().beginRemoteApply();
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Mid" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Mid" }]);
 			h.docStore.getState().endRemoteApply();
 
 			// The author renames the app while that run is still streaming.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Mine" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Mine" }]);
 			expect(h.docStore.getState().peekCommandBatches()).toEqual([
 				[{ kind: "setAppName", name: "Mine" }],
 			]);
@@ -2613,7 +2667,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Edit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Edit" }]);
 			h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, { ok: false, kind: "network" });
 			// Revoke — a retry was scheduled; it must be cancelled.
@@ -2641,7 +2695,7 @@ describe("reconciler", () => {
 			// Revoked via the cadence frame — no PUT happened.
 			h.reconciler.onRevoked();
 			// The member keeps editing; there IS an unsaved delta.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Edit" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Edit" }]);
 			const signals: SaveSignal[] = [];
 			const batchId = h.reconciler.dispatchHumanBatch((s) => signals.push(s));
 			// No PUT (frozen), but the observer is told edit access is gone.
@@ -2658,13 +2712,13 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "Bad" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "Bad" }]);
 			h.reconciler.dispatchHumanBatch();
 			await h.resolvePut(0, CANONICALITY_OUTCOME);
 			// The member keeps editing behind the freeze; there IS an unsaved delta.
-			h.docStore
-				.getState()
-				.applyMany([{ kind: "setConnectType", connectType: "learn" }]);
+			applyLocal(h, [
+				{ kind: "updateForm", uuid: FORM, patch: { purpose: "Local purpose" } },
+			]);
 			const signals: SaveSignal[] = [];
 			expect(
 				h.reconciler.dispatchHumanBatch((s) => signals.push(s)),
@@ -2705,7 +2759,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// A dormant new-build with a pending human edit and no app id.
-			h.docStore.getState().applyMany([{ kind: "setAppName", name: "X" }]);
+			applyLocal(h, [{ kind: "setAppName", name: "X" }]);
 			const signals: SaveSignal[] = [];
 			expect(
 				h.reconciler.dispatchHumanBatch((s) => signals.push(s)),
@@ -2738,7 +2792,7 @@ describe("reconciler", () => {
 				userId: "u1",
 			});
 			// Local edit dispatched.
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,
@@ -2791,7 +2845,7 @@ describe("reconciler", () => {
 				baseDoc: base,
 				userId: "u1",
 			});
-			h.docStore.getState().applyMany([
+			applyLocal(h, [
 				{
 					kind: "updateField",
 					uuid: F_A,

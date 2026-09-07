@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import { caseOperationWriteValueType } from "@/lib/doc/caseOperationWriteTypes";
-import type { BlueprintDoc, CaseOperation, Form, Uuid } from "@/lib/domain";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
+import type { BlueprintDoc, CaseOperation, Uuid } from "@/lib/domain";
+import { plainColumn } from "@/lib/domain";
 import { formField, literal, term } from "@/lib/domain/predicate";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const SUBJECT = testUuid("11111111-1111-4111-8111-111111111111");
 const SIBLING = testUuid("22222222-2222-4222-8222-222222222222");
@@ -48,6 +52,12 @@ function fixture(): {
 			{
 				name: "Patients",
 				caseType: "patient",
+				caseListConfig: {
+					columns: [plainColumn(testUuid("type-column"), "case_name", "Name")],
+					listColumnOrder: [testUuid("type-column")],
+					detailColumnOrder: [testUuid("type-column")],
+					searchInputs: [],
+				},
 				forms: [
 					{
 						name: "Visit",
@@ -65,7 +75,11 @@ function fixture(): {
 							}),
 						],
 					},
-					{ name: "Other", type: "followup", fields: [] },
+					{
+						name: "Other",
+						type: "followup",
+						fields: [f({ kind: "text", id: "notes" })],
+					},
 				],
 			},
 		],
@@ -80,7 +94,7 @@ function fixture(): {
 		caseType: "patient",
 		target: { kind: "session" },
 		writes: [
-			{ property: "declared_date", value: term(literal("hello")) },
+			{ property: "declared_date", value: term(formField(DATE_FIELD)) },
 			{ property: "operation_only", value: term(literal("hello")) },
 			{ property: "two_operations", value: term(literal("hello")) },
 			{ property: "field_written", value: term(formField(DATE_FIELD)) },
@@ -103,9 +117,10 @@ function fixture(): {
 		target: { kind: "session" },
 		writes: [{ property: "written_elsewhere", value: term(literal("hello")) }],
 	};
-	(doc.forms[formUuid] as Form).caseOperations = [subject, sibling];
-	(doc.forms[otherFormUuid] as Form).caseOperations = [elsewhere];
+	doc.forms[formUuid].caseOperations = [subject, sibling];
+	doc.forms[otherFormUuid].caseOperations = [elsewhere];
 
+	assertAdmittedDoc(doc);
 	return { doc, formUuid, otherFormUuid };
 }
 
@@ -126,6 +141,40 @@ describe("the type a case-operation write's value must satisfy", () => {
 		// answer `text` here — inferred from the very write being edited —
 		// and the editor would refuse every later attempt to store a date.
 		expect(typeOf("operation_only")).toBeUndefined();
+	});
+
+	it("lets the sole operation writer change from text to date through the real commit gate", () => {
+		const { doc, formUuid } = fixture();
+		const verdict = mutationCommitVerdict(
+			doc,
+			[
+				{
+					kind: "updateForm",
+					uuid: formUuid,
+					patch: {},
+					caseOperationPatch: {
+						operation: "update-write",
+						uuid: SUBJECT,
+						property: "operation_only",
+						patch: { value: term(formField(DATE_FIELD)) },
+					},
+				},
+			],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(verdict.ok, JSON.stringify(verdict.ok ? [] : verdict.findings)).toBe(
+			true,
+		);
+		assertAdmittedDoc(verdict.nextDoc);
+		expect(
+			caseOperationWriteValueType(
+				verdict.nextDoc,
+				formUuid,
+				SUBJECT,
+				"patient",
+				"operation_only",
+			),
+		).toBeUndefined();
 	});
 
 	it("takes a declared type even when this write is the only writer", () => {

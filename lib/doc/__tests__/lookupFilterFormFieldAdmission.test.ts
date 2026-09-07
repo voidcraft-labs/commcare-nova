@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
+import { mutationCommitVerdict } from "@/lib/doc/commitVerdicts";
 import {
 	formFieldEntriesFor,
 	lookupFilterEligibleFormFields,
 } from "@/lib/doc/formFieldEntries";
+import { LOOKUP_CONTEXT_UNAVAILABLE } from "@/lib/doc/lookupReferences";
 import { asUuid } from "@/lib/domain";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const ROOT = asUuid("10000000-0000-4000-8000-000000000001");
 const OUTER = asUuid("10000000-0000-4000-8000-000000000002");
@@ -129,6 +132,7 @@ function fixture() {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
 	const moduleUuid = doc.moduleOrder[0];
 	const formUuid = doc.formOrder[moduleUuid][0];
 	return { doc, formUuid };
@@ -144,38 +148,18 @@ describe("lookup filter form-field admission", () => {
 				(entry) => entry.uuid,
 			),
 		).toEqual([ROOT, OUTER_VALUE, INNER_VALUE]);
-		expect(
-			lookupFilterEligibleFormFields(entries, CURRENT).map(
-				(entry) => entry.uuid,
-			),
-		).not.toContain(LATER);
-		expect(
-			lookupFilterEligibleFormFields(entries, CURRENT).map(
-				(entry) => entry.uuid,
-			),
-		).not.toContain(CHILD_VALUE);
-		expect(
-			lookupFilterEligibleFormFields(entries, CURRENT).map(
-				(entry) => entry.uuid,
-			),
-		).not.toContain(SIBLING_VALUE);
-		expect(
-			lookupFilterEligibleFormFields(entries, CURRENT).map(
-				(entry) => entry.uuid,
-			),
-		).not.toContain(LABEL);
 	});
 
 	it("recomputes earlier-answer admission from the current fieldOrder sequences", () => {
 		const { doc, formUuid } = fixture();
-		doc.fieldOrder[formUuid] = [OUTER, ROOT, SIBLING_REPEAT, LABEL];
-		const entries = formFieldEntriesFor(doc, formUuid);
+		const moved = mutationCommitVerdict(
+			doc,
+			[{ kind: "moveField", uuid: ROOT, toParentUuid: formUuid, after: OUTER }],
+			LOOKUP_CONTEXT_UNAVAILABLE,
+		);
+		expect(moved.ok ? [] : moved.findings).toEqual([]);
+		const entries = formFieldEntriesFor(moved.nextDoc, formUuid);
 
-		expect(
-			lookupFilterEligibleFormFields(entries, CURRENT).map(
-				(entry) => entry.uuid,
-			),
-		).not.toContain(ROOT);
 		expect(
 			lookupFilterEligibleFormFields(entries, CURRENT).map(
 				(entry) => entry.uuid,

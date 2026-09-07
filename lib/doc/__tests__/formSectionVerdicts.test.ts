@@ -1,16 +1,10 @@
-/**
- * The one placement verdict every surface asks before a field lands, and
- * the readers behind it. Every `ok` here is also a shape the commit gate
- * admits, and every refusal is one it would refuse — `formSectionMutations`
- * tests pin the planners' output through the gate; this file pins the
- * verdict's answers and its three sentences.
- */
+/** Section placement prechecks only; the full commit gate also checks form
+ * ownership, identifiers, references, and other domain constraints. */
 
 import { describe, expect, it } from "vitest";
 import { testUuid } from "@/__tests__/helpers/uuid";
 import { buildDoc, f } from "@/lib/__tests__/docHelpers";
 import {
-	FIELD_PLACEMENT_MESSAGES,
 	fieldPlacementVerdict,
 	formIsSectioned,
 	formOfField,
@@ -20,6 +14,7 @@ import {
 	subtreeHasUserRepeat,
 } from "@/lib/doc/formSectionVerdicts";
 import { proseText } from "@/lib/domain/prose";
+import { assertAdmittedDoc } from "./admittedDoc";
 
 const FORM = testUuid("frm-sectioned");
 const FLAT = testUuid("frm-flat");
@@ -39,7 +34,7 @@ const FLAT_REPEAT = testUuid("fld-flat-repeat");
  * Flat: a, group(), repeat visits (user-controlled, holds visit_date)
  */
 function fixture() {
-	return buildDoc({
+	const doc = buildDoc({
 		appName: "Verdicts",
 		modules: [
 			{
@@ -93,6 +88,8 @@ function fixture() {
 			},
 		],
 	});
+	assertAdmittedDoc(doc);
+	return doc;
 }
 
 describe("section readers", () => {
@@ -147,7 +144,8 @@ describe("fieldPlacementVerdict", () => {
 		expect(loose).toEqual({
 			ok: false,
 			reason: "loose-field-in-sectioned-form",
-			message: FIELD_PLACEMENT_MESSAGES["loose-field-in-sectioned-form"],
+			message:
+				"This form is split into sections, so a question belongs inside one. Add it to a section, or remove the sections first.",
 		});
 	});
 
@@ -227,7 +225,7 @@ describe("fieldPlacementVerdict", () => {
 				subtreeHasUserRepeat: false,
 			}),
 		).toEqual({ ok: true });
-		// A group carrying one moves with it.
+		// A group without a repeat is eligible.
 		expect(
 			fieldPlacementVerdict(doc, {
 				uuid: FLAT_GROUP,

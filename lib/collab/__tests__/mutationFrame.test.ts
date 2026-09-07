@@ -33,14 +33,23 @@ describe("browser mutation-frame admission", () => {
 		},
 	);
 
-	it("classifies invalid JSON without retaining payload text", () => {
-		const result = diagnoseMutationFrameText('{"private":"do-not-log"');
-		expect(result).toMatchObject({
-			ok: false,
-			failure: { stage: "json", reason: "invalid-json" },
-		});
-		expect(JSON.stringify(result)).not.toContain("do-not-log");
-	});
+	it.each(["do-not-log", '{"private":"do-not-log"'])(
+		"classifies invalid JSON without retaining payload text: %s",
+		(payload) => {
+			const result = diagnoseMutationFrameText(payload);
+			expect(result).toMatchObject({
+				ok: false,
+				failure: { stage: "json", reason: "invalid-json" },
+			});
+			expect(JSON.stringify(result)).not.toContain("do-not-log");
+			if (!result.ok && "error" in result.failure) {
+				expect(String(result.failure.error)).not.toContain("do-not-log");
+				if (result.failure.error instanceof Error) {
+					expect(result.failure.error.stack).not.toContain("do-not-log");
+				}
+			}
+		},
+	);
 
 	it("reports only schema code and path for an invalid envelope", () => {
 		const result = diagnoseMutationFrameText(

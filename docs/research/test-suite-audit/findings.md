@@ -2310,3 +2310,46 @@ leak-clean. `/tmp/nova-root-normalization-before.log` records the malformed-valu
 failure separately from the invalid fixture. The final pure projection and
 normalization run passes 35 tests in `/tmp/nova-root-source-normalization-final.log`
 without async diagnostics.
+
+## Document and collaboration methods: admitted state and owned lifetimes
+
+The delegated original 102-file document/collaboration audit is complete and
+recorded individually in the manifest. Schema census tables, mirrored nullable
+inventories and their snapshot-only production registry were removed. A
+1,535-line guard census that tolerated unrelated findings was replaced with
+actual serialized cross-scope transitions. Compiler guarantees moved to
+`.test-d.ts`; fieldless registrations, duplicate UUIDs, stray cross-case links
+and other impossible fixtures were repaired before interpreting their results.
+
+Diff property tests now generate independently admitted endpoints and pass the
+serialized replay through the real gate. The multiplayer suite checks each
+positive transition and retains an explicit three-member counterexample to
+blanket sequence convergence: shared predecessor relationships make replay
+order observable. Whole-method review also removed the unused path-rewrite
+implementation and test; UUID identity is the actual rename mechanism.
+
+Reproduced fixes cover nested replay/undo-bracket lifetime; successive atomic
+option/schedule replacements preserving continuously owned child identities;
+form births and moves whose future destination anchors did not yet exist;
+stale form/field destinations that previously orphaned entities; the first
+operation write/link being mistaken for a missing anchor; select conversion
+being acknowledged without an option source; final Search-prompt removal
+silently clearing automatic Search; and section removal producing a plan whose
+duplicate root identifiers the commit gate then refused. Desired-state diffs
+now refuse unsupported reorders of existing user properties, roles and
+personas rather than silently dropping them.
+
+Collaboration fixes remove source payloads from native JSON Error objects
+before reporting, prevent a disposed reconciler from draining new store edits,
+and settle save watches registered after disposal. These tests inspect actual
+Error properties rather than JSON serialization, which hides those properties.
+Public section and Search guidance, the subtree contract and the architecture
+reference follow the corrected behavior.
+
+The agent's 50 scoped check records are retained in the audit handoff; all 102
+recorded hashes matched at integration. Final multiplayer/diff/reference-index
+checks pass 65 tests in `/tmp/nova-test-audit-parallel/doc/multiplayer-and-fuzz-final.log`.
+The integration compiler run `/tmp/nova-root-integration-typecheck-8.log` has no
+document/collaboration diagnostics; its only two diagnostics were in a newly
+added Preview browser fixture. This checkpoint does not claim the remaining
+Builder case-list workspace or the whole repository is finished.

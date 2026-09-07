@@ -331,6 +331,20 @@ function planPartition(
 		}
 	}
 
+	if (desired.length === 0) {
+		const idsAtRoot = new Set<string>();
+		for (const uuid of questions) {
+			const id = doc.fields[uuid]?.id;
+			if (id === undefined) continue;
+			if (idsAtRoot.has(id)) {
+				return fail(
+					`Two questions named "${id}" would land on the form's single page, and two siblings can't share an id. Rename one of them first, then remove the sections.`,
+				);
+			}
+			idsAtRoot.add(id);
+		}
+	}
+
 	// ── Emit ────────────────────────────────────────────────────────
 	const mutations: Mutation[] = [];
 	const model = new SequenceModel(doc, [formUuid, ...currentSections]);

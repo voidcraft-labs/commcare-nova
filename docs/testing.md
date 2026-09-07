@@ -579,3 +579,17 @@ first-occurrence attachment replay, and refusal after source changes. They do
 not prove GCS service behavior or live model interpretation. Importing the
 office extractor currently reports Bluebird's inert native-Promise probe under
 the async detector; record that diagnostic rather than calling the run clean.
+
+Document mutation tests start from admitted stored documents, serialize the
+commands, pass the real mutation and commit gates, and assert resulting state.
+Lower-level malformed inputs and stale replay cases are labeled separately.
+Independent endpoint generators own diff roundtrips; generating the desired
+state with the reducer under test is not an independent oracle. Sequence
+replay is ordered: moving distinct members around shared anchors can produce
+different valid results, so a blanket convergence assertion is incorrect.
+
+Collaboration diagnostics are checked through actual Error message, stack and
+cause properties. JSON.stringify omits nonenumerable Error fields and cannot
+prove sensitive text was removed. Disposed runtime tests own pending watches,
+queued edits, subscriptions and reader cancellation instead of relying on
+unmount alone to hide unfinished work.
